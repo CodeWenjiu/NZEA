@@ -1,4 +1,4 @@
-remu_macro::mod_flat!(api, simulator);
+remu_macro::mod_flat!(src);
 
 #[test]
 fn test() {

@@ -1,7 +1,7 @@
 // use option_parser::OptionParser;
 use state::States;
 
-use crate::Top;
+use super::Top;
 
 pub struct Nzea {
     pub top: Top,
