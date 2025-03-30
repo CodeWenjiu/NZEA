@@ -2,25 +2,28 @@ use std::os::raw::c_void;
 
 use dlopen2::wrapper::{Container, WrapperApi};
 
+pub type Input = *const u32;
+pub type Output = *mut u32;
+
 #[repr(C)]
 pub struct BasicCallbacks {
     pub alu_catch_p: unsafe extern "C" fn(),
-    pub idu_catch_p: unsafe extern "C" fn(*const u32),
-    pub ifu_catch_p: unsafe extern "C" fn(*const u32, *const u32),
-    pub icache_mat_catch_p: unsafe extern "C" fn(*const u32),
+    pub idu_catch_p: unsafe extern "C" fn(Input),
+    pub ifu_catch_p: unsafe extern "C" fn(Input, Input),
+    pub icache_mat_catch_p: unsafe extern "C" fn(Input),
     pub icache_catch_p: unsafe extern "C" fn(u8, u8),
     pub icache_flush_p: unsafe extern "C" fn(),
-    pub icache_state_catch_p: unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32),
+    pub icache_state_catch_p: unsafe extern "C" fn(Input, Input, Input, Input),
     pub lsu_catch_p: unsafe extern "C" fn(u8),
     pub pipeline_catch_p: unsafe extern "C" fn(),
-    pub wbu_catch: unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32),
+    pub wbu_catch: unsafe extern "C" fn(Input, Input, Input, Input, Input, Input, Input, Input, Input),
 }
 
 #[repr(C)]
 pub struct NpcCallbacks {
-    pub uart_catch: unsafe extern "C" fn(*const u32),
-    pub sram_read: unsafe extern "C" fn(*const u32, *mut u32),
-    pub sram_write: unsafe extern "C" fn(*const u32, *const u32, *const u32),
+    pub uart_catch: unsafe extern "C" fn(Input),
+    pub sram_read: unsafe extern "C" fn(Input, Output),
+    pub sram_write: unsafe extern "C" fn(Input, Input, Input),
 }
 
 #[derive(WrapperApi)]

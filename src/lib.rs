@@ -1,4 +1,4 @@
-remu_macro::mod_flat!(api);
+remu_macro::mod_flat!(api, simulator);
 
 #[test]
 fn test() {
@@ -10,15 +10,15 @@ fn test() {
         log_debug!("alu_catch_p");
     }
 
-    unsafe extern "C" fn idu_catch_handler(_inst_type: *const u32) {
+    unsafe extern "C" fn idu_catch_handler(_inst_type: Input) {
         log_debug!("idu_catch_p");
     }
 
-    unsafe extern "C" fn ifu_catch_handler(_pc: *const u32, _inst: *const u32) {
+    unsafe extern "C" fn ifu_catch_handler(_pc: Input, _inst: Input) {
         log_debug!("ifu_catch_p");
     }
 
-    unsafe extern "C" fn icache_mat_catch_handler(_count: *const u32) {
+    unsafe extern "C" fn icache_mat_catch_handler(_count: Input) {
         log_debug!("icache_mat_catch_p");
     }
 
@@ -31,10 +31,10 @@ fn test() {
     }
 
     unsafe extern "C" fn icache_state_catch_handler(
-        _write_index: *const u32,
-        _write_way: *const u32,
-        _write_tag: *const u32,
-        _write_data: *const u32,
+        _write_index: Input,
+        _write_way: Input,
+        _write_tag: Input,
+        _write_data: Input,
     ) {
         log_debug!("icache_state_catch_p");
     }
@@ -47,29 +47,29 @@ fn test() {
         log_debug!("pipeline_catch_p");
     }
 
-    unsafe extern "C" fn uart_catch_handler(_c: *const u32) {
+    unsafe extern "C" fn uart_catch_handler(_c: Input) {
         log_debug!("uart_catch");
     }
 
     unsafe extern "C" fn wbu_catch_handler(
-        _next_pc: *const u32,
-        _gpr_waddr: *const u32,
-        _gpr_wdata: *const u32,
-        _csr_wena: *const u32,
-        _csr_waddra: *const u32,
-        _csr_wdataa: *const u32,
-        _csr_wenb: *const u32,
-        _csr_waddrb: *const u32,
-        _csr_wdatab: *const u32,
+        _next_pc: Input,
+        _gpr_waddr: Input,
+        _gpr_wdata: Input,
+        _csr_wena: Input,
+        _csr_waddra: Input,
+        _csr_wdataa: Input,
+        _csr_wenb: Input,
+        _csr_waddrb: Input,
+        _csr_wdatab: Input,
     ) {
         log_debug!("wbu_catch");
     }
 
-    unsafe extern "C" fn sram_read_handler(_addr: *const u32, _data: *mut u32) {
+    unsafe extern "C" fn sram_read_handler(_addr: Input, _data: Output) {
         log_debug!("sram_read");
     }
 
-    unsafe extern "C" fn sram_write_handler(_addr: *const u32, _data: *const u32, _mask: *const u32) {
+    unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input) {
         log_debug!("sram_write");
     }
 
