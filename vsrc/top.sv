@@ -207,9 +207,9 @@ module IFU(
   reg  [31:0]  Multi_transfer_3;
   reg  [1:0]   Multi_transfer_counter;
   reg  [31:0]  transfer;
-  wire         _state_T_14 = masterNodeOut_rready & auto_master_out_rvalid;
+  wire         _state_T_15 = masterNodeOut_rready & auto_master_out_rvalid;
   assign io_IFU_2_IDU_valid_0 =
-    state == 3'h4 | state == 3'h1 & _Icache_io_cache_hit & ~flush_REG;
+    (state == 3'h4 | state == 3'h1 & _Icache_io_cache_hit) & ~flush_REG;
   wire         _masterNodeOut_arlen_T = state == 3'h5;
   wire         _masterNodeOut_araddr_T = state == 3'h2;
   wire         masterNodeOut_arvalid =
@@ -230,7 +230,7 @@ module IFU(
   end // always_comb
   wire [31:0]  inst = _cache_Catch_io_Icache_T ? casez_tmp : transfer;
   reg  [2:0]   casez_tmp_0;
-  wire         _state_T_12 = auto_master_out_arready & masterNodeOut_arvalid;
+  wire         _state_T_13 = auto_master_out_arready & masterNodeOut_arvalid;
   always_comb begin
     casez (state)
       3'b000:
@@ -241,15 +241,15 @@ module IFU(
             ? 3'h1
             : _Icache_io_cache_hit | _state_T_2 ? {1'h0, _state_T_2 ? 2'h2 : 2'h1} : 3'h5;
       3'b010:
-        casez_tmp_0 = {2'h1, _state_T_12};
+        casez_tmp_0 = {2'h1, _state_T_13};
       3'b011:
-        casez_tmp_0 = _state_T_14 ? 3'h4 : 3'h3;
+        casez_tmp_0 = _state_T_15 ? 3'h4 : 3'h3;
       3'b100:
-        casez_tmp_0 = Icache_io_addr_valid ? 3'h1 : 3'h4;
+        casez_tmp_0 = Icache_io_addr_valid | flush_REG ? 3'h1 : 3'h4;
       3'b101:
-        casez_tmp_0 = _state_T_12 ? 3'h6 : 3'h5;
+        casez_tmp_0 = _state_T_13 ? 3'h6 : 3'h5;
       3'b110:
-        casez_tmp_0 = {2'h3, _state_T_14 & (&Multi_transfer_counter)};
+        casez_tmp_0 = {2'h3, _state_T_15 & (&Multi_transfer_counter)};
       default:
         casez_tmp_0 = 3'h1;
     endcase
@@ -279,14 +279,14 @@ module IFU(
         pc <= pc + 32'h4;
       if (io_Pipeline_ctrl_flush)
         dnpc <= io_WBU_2_IFU_Next_PC;
-      if (_state_T_14) begin
+      if (_state_T_15) begin
         Multi_transfer_0 <= Multi_transfer_1;
         Multi_transfer_1 <= Multi_transfer_2;
         Multi_transfer_2 <= Multi_transfer_3;
         Multi_transfer_3 <= auto_master_out_rdata;
         transfer <= auto_master_out_rdata;
       end
-      if (_state_T_14 & state == 3'h6) begin
+      if (_state_T_15 & state == 3'h6) begin
         if (&Multi_transfer_counter)
           Multi_transfer_counter <= 2'h0;
         else
@@ -3825,7 +3825,7 @@ module Icache_state_catch(
     input flush
 );
 
-   import "DPI-C" function void Icache_state_catch(input int unsigned write_index, input int unsigned write_way, input int unsigned write_tag, input bit [127:0] write_data);
+   import "DPI-C" function void Icache_state_catch(input bit [31:0] write_index, input bit [31:0] write_way, input bit [31:0] write_tag, input bit [127:0] write_data);
    always @(posedge valid) begin
        Icache_state_catch(write_index, write_way, write_tag, write_data);
    end
@@ -3840,6 +3840,7 @@ endmodule
 
 // ----- 8< ----- FILE "./IFU_catch.v" ----- 8< -----
 
+
 module IFU_catch(
     input clock,
     input valid,
@@ -3847,7 +3848,7 @@ module IFU_catch(
     input [31:0] inst
 );
 
-   import "DPI-C" function void IFU_catch(input int unsigned pc, input int unsigned inst);
+   import "DPI-C" function void IFU_catch(input bit [31:0] pc, input bit [31:0] inst);
    always @(posedge clock) begin
        if(valid) begin
            IFU_catch(pc, inst);
@@ -3859,15 +3860,16 @@ endmodule
 
 // ----- 8< ----- FILE "./Icache_catch.v" ----- 8< -----
 
+
 module Icache_catch(
    input Icache,
    input map_hit,
    input cache_hit
 );
 
-   import "DPI-C" function void Icache_catch(input int unsigned map_hit, input int unsigned cache_hit);
+   import "DPI-C" function void Icache_catch(input bit map_hit, input bit cache_hit);
    always @(posedge Icache) begin
-       Icache_catch({31'b0, map_hit}, {31'b0, cache_hit});
+       Icache_catch(map_hit, cache_hit);
    end
 
 endmodule
@@ -3875,12 +3877,13 @@ endmodule
 
 // ----- 8< ----- FILE "./Icache_MAT_catch.v" ----- 8< -----
 
+
 module Icache_MAT_catch(
     input valid,
     input [31:0] count
 );
 
-   import "DPI-C" function void Icache_MAT_catch(input int unsigned count);
+   import "DPI-C" function void Icache_MAT_catch(input bit [31:0] count);
    always @(posedge valid) begin
        Icache_MAT_catch(count);
    end
@@ -3953,14 +3956,13 @@ module IDU_catch(
    input ID,
    input [1:0] Inst_Type
 );
-import "DPI-C" function void IDU_catch(input int unsigned Inst_Type);
+import "DPI-C" function void IDU_catch(input bit [1:0] Inst_Type);
 
 always @(posedge ID) begin
-    IDU_catch({30'h0, Inst_Type});
+    IDU_catch(Inst_Type);
 end
 
 endmodule
-
     
 
 // ----- 8< ----- FILE "./ALU_catch.v" ----- 8< -----
