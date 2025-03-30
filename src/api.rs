@@ -2,16 +2,21 @@ use std::os::raw::c_void;
 
 use dlopen2::wrapper::{Container, WrapperApi};
 
-#[derive(Default)]
 #[repr(C)]
-pub struct Callbacks {
-    alu_catch_p: Option<unsafe extern "C" fn()>,
-    idu_catch_p: Option<unsafe extern "C" fn(*const u32)>,
-    ifu_catch_p: Option<unsafe extern "C" fn(*const u32, *const u32)>,
-    icache_mat_catch_p: Option<unsafe extern "C" fn(*const u32)>,
-    icache_catch_p: Option<unsafe extern "C" fn(u8, u8)>,
-    icache_flush_p: Option<unsafe extern "C" fn()>,
-    icache_state_catch_p: Option<unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32)>,
+pub struct BasicCallbacks {
+    pub alu_catch_p: unsafe extern "C" fn(),
+    pub idu_catch_p: unsafe extern "C" fn(*const u32),
+    pub ifu_catch_p: unsafe extern "C" fn(*const u32, *const u32),
+    pub icache_mat_catch_p: unsafe extern "C" fn(*const u32),
+    pub icache_catch_p: unsafe extern "C" fn(u8, u8),
+    pub icache_flush_p: unsafe extern "C" fn(),
+    pub icache_state_catch_p: unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32),
+    pub lsu_catch_p: unsafe extern "C" fn(u8),
+    pub pipeline_catch_p: unsafe extern "C" fn(),
+    pub uart_catch: unsafe extern "C" fn(*const u32),
+    pub wbu_catch: unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32),
+    pub sram_read: unsafe extern "C" fn(*const u32, *mut u32),
+    pub sram_write: unsafe extern "C" fn(*const u32, *const u32, *const u32),
 }
 
 #[derive(WrapperApi)]
@@ -22,7 +27,7 @@ struct VTop {
     nzea_protectlib_combo_update: unsafe extern "C" fn(handler: *mut c_void, reset: u8) -> u64,
     nzea_protectlib_seq_update: unsafe extern "C" fn(handler: *mut c_void, clock: u8) -> u64,
 
-    set_callbacks: unsafe extern "C" fn(callbacks: Callbacks),
+    set_basic_callbacks: unsafe extern "C" fn(callbacks: BasicCallbacks),
 }
 
 pub struct Top {
@@ -45,9 +50,9 @@ impl Top {
         }
     }
 
-    pub fn init(&self, callbacks: Callbacks) {
+    pub fn init(&self, callbacks: BasicCallbacks) {
         unsafe {
-            self.container.set_callbacks(callbacks);
+            self.container.set_basic_callbacks(callbacks);
         }
     }
 

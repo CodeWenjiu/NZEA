@@ -37,8 +37,37 @@ extern "C" {
         callbacks.Icache_state_catch_p(write_index, write_way, write_tag, write_data);
     }
 
-    void set_callbacks(Callbacks cb) {
-        std::cout << "set_callbacks called" << std::endl;
+    void LSU_catch(svBit diff_skip) {
+        std::cout << "LSU_catch called" << std::endl;
+        callbacks.LSU_catch_p(diff_skip);
+    }
+
+    void Pipeline_catch() {
+        std::cout << "Pipeline_catch called" << std::endl;
+        callbacks.Pipeline_catch_p();
+    }
+
+    void Uart_putc(const svBitVecVal *c) {
+        std::cout << "Uart_putc called" << std::endl;
+        callbacks.Uart_putc_p(c);
+    }
+
+    void WBU_catch(const svBitVecVal *next_pc, const svBitVecVal *gpr_waddr, const svBitVecVal *gpr_wdata, const svBitVecVal *csr_wena, const svBitVecVal *csr_waddra, const svBitVecVal *csr_wdataa, const svBitVecVal *csr_wenb, const svBitVecVal *csr_waddrb, const svBitVecVal *csr_wdatab) {
+        std::cout << "WBU_catch called" << std::endl;
+        callbacks.WBU_catch_p(next_pc, gpr_waddr, gpr_wdata, csr_wena, csr_waddra, csr_wdataa, csr_wenb, csr_waddrb, csr_wdatab);
+    }
+
+    void sram_read(const svBitVecVal *addr, svBitVecVal *data) {
+        std::cout << "sram_read called" << std::endl;
+        callbacks.sram_read_p(addr, data);
+    }
+
+    void sram_write(const svBitVecVal *addr, const svBitVecVal *data, const svBitVecVal *mask) {
+        std::cout << "sram_write called" << std::endl;
+        callbacks.sram_write_p(addr, data, mask);
+    }
+
+    void set_basic_callbacks(Basic_Callbacks cb) {
         callbacks = cb;
     }
 }

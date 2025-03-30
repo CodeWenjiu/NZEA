@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 remu_macro = { path = "../../../remu_macro" }
+logger = { path = "../../../logger" }
 dlopen2 = "0.7.0"
 
 [build-dependencies]

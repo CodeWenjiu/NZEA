@@ -16,9 +16,15 @@ typedef struct {
     void(*Icache_catch_p)(bits, bits);
     void(*Icache_flush_p)();
     void(*Icache_state_catch_p)(input, input, input, input);
-} Callbacks;
+    void(*LSU_catch_p)(bits);
+    void(*Pipeline_catch_p)();
+    void(*Uart_putc_p)(input);
+    void(*WBU_catch_p)(input, input, input, input, input, input, input, input, input);
+    void(*sram_read_p)(input, output);
+    void(*sram_write_p)(input, input, input);
+} Basic_Callbacks;
 
-static Callbacks callbacks = {
+static Basic_Callbacks callbacks = {
     .ALU_catch_p = NULL,
     .IDU_catch_p = NULL,
     .IFU_catch_p = NULL,
@@ -26,8 +32,14 @@ static Callbacks callbacks = {
     .Icache_catch_p = NULL,
     .Icache_flush_p = NULL,
     .Icache_state_catch_p = NULL,
+    .LSU_catch_p = NULL,
+    .Pipeline_catch_p = NULL,
+    .Uart_putc_p = NULL,
+    .WBU_catch_p = NULL,
+    .sram_read_p = NULL,
+    .sram_write_p = NULL
 };
 
-extern "C" void set_callbacks(Callbacks cb);
+extern "C" void set_basic_callbacks(Basic_Callbacks cb);
 
 #endif // NZEA_WRAPPER_H
