@@ -2,10 +2,6 @@ BUILD_DIR = ./build
 OBJ_DIR = $(BUILD_DIR)/obj_dir
 BIN = $(BUILD_DIR)/libnzea.so
 
-WRAPPER_DIR = ./wrapper/
-CSRC = $(shell find $(abspath $(WRAPPER_DIR)) -name "*.c" -or -name "*.cc" -or -name "*.cpp")
-HSRC = $(shell find $(abspath $(WRAPPER_DIR)) -name "*.h" -or -name "*.hpp")
-
 VSRC_DIR = ./vsrc/
 DESIGN_FILE ?= $(abspath $(VSRC_DIR))/top.sv
 
@@ -25,7 +21,7 @@ default: generate
 
 generate: $(BIN)
 
-$(BIN): $(CSRC) $(HSRC) $(VSRC) $(DESIGN_FILE)
+$(BIN): $(VSRC) $(DESIGN_FILE)
 	@mkdir -p $(OBJ_DIR)
 	@ccache $(VERILATOR) $(VERILATOR_CFLAGS) $(VERILATOR_COMPILEFLAGS) $(VERILATOR_SIMFLAGS)
 	@echo "Verilator simulation files generated in $(OBJ_DIR)"

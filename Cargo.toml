@@ -1,0 +1,11 @@
+[package]
+name = "nzea"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = [ "wenjiu <27843087979@qq.com>" ]
+
+[build-dependencies]
+
+[dependencies]
+dlopen2 = "0.7.0"
