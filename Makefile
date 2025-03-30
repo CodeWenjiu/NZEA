@@ -1,5 +1,4 @@
-BUILD_DIR = ./build
-OBJ_DIR = $(BUILD_DIR)/obj_dir
+BUILD_DIR = ./verilater_build
 BIN = $(BUILD_DIR)/libnzea.so
 
 WRAPPER_DIR = ./wrapper/
@@ -18,7 +17,7 @@ VERILATOR_SIMFLAGS += --timescale "1ns/1ns" --no-timing --top-module top
 
 VERILATOR_COMPILEFLAGS += $(DESIGN_FILE) \
 				$(CSRC) \
-				--Mdir $(OBJ_DIR) \
+				--Mdir $(BUILD_DIR) \
 				--lib-create nzea
 
 default: generate
@@ -26,12 +25,12 @@ default: generate
 generate: $(BIN)
 
 $(BIN): $(CSRC) $(HSRC) $(VSRC) $(DESIGN_FILE)
-	@mkdir -p $(OBJ_DIR)
+	@mkdir -p $(BUILD_DIR)
 	@ccache $(VERILATOR) $(VERILATOR_CFLAGS) $(VERILATOR_COMPILEFLAGS) $(VERILATOR_SIMFLAGS)
-	@echo "Verilator simulation files generated in $(OBJ_DIR)"
+	@echo "Verilator simulation files generated in $(BUILD_DIR)"
 
 clean:
 	@rm -rf $(BUILD_DIR)
-	@echo "Cleaned up $(OBJ_DIR)"
+	@echo "Cleaned up $(BUILD_DIR)"
 
 .PHONY: default generate clean
