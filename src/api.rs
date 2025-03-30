@@ -13,8 +13,12 @@ pub struct BasicCallbacks {
     pub icache_state_catch_p: unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32),
     pub lsu_catch_p: unsafe extern "C" fn(u8),
     pub pipeline_catch_p: unsafe extern "C" fn(),
-    pub uart_catch: unsafe extern "C" fn(*const u32),
     pub wbu_catch: unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32, *const u32),
+}
+
+#[repr(C)]
+pub struct NpcCallbacks {
+    pub uart_catch: unsafe extern "C" fn(*const u32),
     pub sram_read: unsafe extern "C" fn(*const u32, *mut u32),
     pub sram_write: unsafe extern "C" fn(*const u32, *const u32, *const u32),
 }
@@ -28,6 +32,7 @@ struct VTop {
     nzea_protectlib_seq_update: unsafe extern "C" fn(handler: *mut c_void, clock: u8) -> u64,
 
     set_basic_callbacks: unsafe extern "C" fn(callbacks: BasicCallbacks),
+    set_npc_callbacks: unsafe extern "C" fn(callbacks: NpcCallbacks),
 }
 
 pub struct Top {
@@ -50,9 +55,14 @@ impl Top {
         }
     }
 
-    pub fn init(&self, callbacks: BasicCallbacks) {
+    pub fn init(
+        &self, 
+        basic_callbacks: BasicCallbacks,
+        npc_callbacks: NpcCallbacks,
+    ) {
         unsafe {
-            self.container.set_basic_callbacks(callbacks);
+            self.container.set_basic_callbacks(basic_callbacks);
+            self.container.set_npc_callbacks(npc_callbacks);
         }
     }
 

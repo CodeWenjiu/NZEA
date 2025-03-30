@@ -18,13 +18,22 @@ typedef struct {
     void(*Icache_state_catch_p)(input, input, input, input);
     void(*LSU_catch_p)(bits);
     void(*Pipeline_catch_p)();
-    void(*Uart_putc_p)(input);
     void(*WBU_catch_p)(input, input, input, input, input, input, input, input, input);
-    void(*sram_read_p)(input, output);
-    void(*sram_write_p)(input, input, input);
 } Basic_Callbacks;
 
-static Basic_Callbacks callbacks = {
+typedef struct {
+    void(*Uart_putc_p)(input);
+    void(*sram_read_p)(input, output);
+    void(*sram_write_p)(input, input, input);
+} NPC_Callbacks;
+
+static NPC_Callbacks npc_callbacks = {
+    .Uart_putc_p = NULL,
+    .sram_read_p = NULL,
+    .sram_write_p = NULL,
+};
+
+static Basic_Callbacks basic_callbacks = {
     .ALU_catch_p = NULL,
     .IDU_catch_p = NULL,
     .IFU_catch_p = NULL,
@@ -34,10 +43,7 @@ static Basic_Callbacks callbacks = {
     .Icache_state_catch_p = NULL,
     .LSU_catch_p = NULL,
     .Pipeline_catch_p = NULL,
-    .Uart_putc_p = NULL,
     .WBU_catch_p = NULL,
-    .sram_read_p = NULL,
-    .sram_write_p = NULL
 };
 
 extern "C" void set_basic_callbacks(Basic_Callbacks cb);
