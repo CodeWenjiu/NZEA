@@ -47,7 +47,7 @@ pub struct Top {
 impl Top {
     pub fn new() -> Self {
         let container: Container<VTop> =
-            unsafe { Container::load("./src/nzea/verilater_build/libnzea.so") }.expect("Could not open library or load symbols");
+            unsafe { Container::load("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/verilater_build/libnzea.so") }.expect("Could not open library or load symbols");
 
         let model = unsafe { container.nzea_protectlib_create() };
         assert!(!model.is_null(), "Failed to create model");
