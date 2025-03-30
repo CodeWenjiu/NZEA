@@ -3897,9 +3897,9 @@ module LSU_catch(
    input LS,
    input diff_skip
 );
-  import "DPI-C" function void LSU_catch(input int unsigned diff_skip);
+  import "DPI-C" function void LSU_catch(input bit diff_skip);
   always @(posedge LS) begin
-       LSU_catch({31'h00000000, diff_skip});
+       LSU_catch(diff_skip);
   end
 endmodule
     
@@ -3907,15 +3907,15 @@ endmodule
 // ----- 8< ----- FILE "./UART_bridge.v" ----- 8< -----
 
 module UART_bridge(
-  input  clock,
+  input clock,
   input valid,
   input [7:0] data
 );
-  import "DPI-C" function void Uart_putc(input int c);
+  import "DPI-C" function void Uart_putc(input bit [7:0] c);
   
   always @(posedge clock) begin
     if(valid) begin
-      Uart_putc({24'h0, data});
+      Uart_putc(data);
     end
   end
 
@@ -3935,15 +3935,15 @@ module sram_bridge(
     input  [3:0]  w_strb
 );
 
-import "DPI-C" function void sram_read (input int addr, output int data);
-import "DPI-C" function void sram_write (input int addr, input int data, input int mask);
+import "DPI-C" function void sram_read (input bit [31:0] addr, output bit [31:0] data);
+import "DPI-C" function void sram_write (input bit [31:0] addr, input bit [31:0] data, input bit [3:0] mask);
 
     always @(posedge clock) begin
         if (read) begin
             sram_read(r_addr, r_data);
         end
         if (write) begin
-            sram_write(w_addr, w_data, {28'h0, w_strb});
+            sram_write(w_addr, w_data, w_strb);
         end
     end
 
@@ -3996,7 +3996,7 @@ module WBU_catch(
     input [31:0] csr_wdatab
 );
 
-   import "DPI-C" function void WBU_catch(input int unsigned next_pc, input int unsigned gpr_waddr, input int unsigned gpr_wdata, input int unsigned csr_wena, input int unsigned csr_waddra, input int unsigned csr_wdataa, input int unsigned csr_wenb, input int unsigned csr_waddrb, input int unsigned csr_wdatab);
+   import "DPI-C" function void WBU_catch(input bit [31:0] next_pc, input bit [31:0] gpr_waddr, input bit [31:0] gpr_wdata, input bit [31:0] csr_wena, input bit [31:0] csr_waddra, input bit [31:0] csr_wdataa, input bit [31:0] csr_wenb, input bit [31:0] csr_waddrb, input bit [31:0] csr_wdatab);
    always @(posedge clock) begin
        if(valid) begin
            WBU_catch(next_pc, gpr_waddr, gpr_wdata, csr_wena, csr_waddra, csr_wdataa, csr_wenb, csr_waddrb, csr_wdatab);

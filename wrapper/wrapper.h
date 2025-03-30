@@ -4,18 +4,30 @@
 #include "Vtop__Dpi.h"
 #include "Vtop.h"
 
-static void(*ALU_catch_p)() = nullptr;
-static void(*IDU_catch_p)(unsigned int) = nullptr;
-static void(*IFU_catch_p)(unsigned int, unsigned int) = nullptr;
-static void(*Icache_MAT_catch_p)(unsigned int) = nullptr;
-static void(*Icache_catch_p)(unsigned int, unsigned int) = nullptr;
-static void(*Icache_flush_p)() = nullptr;
-static void(*Icache_state_catch_p)(unsigned int, unsigned int, unsigned int, const svBitVecVal*) = nullptr;
-static void(*LSU_catch_p)(unsigned int) = nullptr;
-static void(*Pipeline_catch_p)() = nullptr;
-static void(*Uart_putc_p)(int) = nullptr;
-static void(*WBU_catch_p)(unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int) = nullptr;
-static void(*sram_read_p)(int, int*) = nullptr;
-static void(*sram_write_p)(int, int, int) = nullptr;
+typedef const svBitVecVal* input;
+typedef svBitVecVal* output;
+typedef svBit bits;
+
+typedef struct {
+    void(*ALU_catch_p)();
+    void(*IDU_catch_p)(input);
+    void(*IFU_catch_p)(input, input);
+    void(*Icache_MAT_catch_p)(input);
+    void(*Icache_catch_p)(bits, bits);
+    void(*Icache_flush_p)();
+    void(*Icache_state_catch_p)(input, input, input, input);
+} Callbacks;
+
+static Callbacks callbacks = {
+    .ALU_catch_p = NULL,
+    .IDU_catch_p = NULL,
+    .IFU_catch_p = NULL,
+    .Icache_MAT_catch_p = NULL,
+    .Icache_catch_p = NULL,
+    .Icache_flush_p = NULL,
+    .Icache_state_catch_p = NULL,
+};
+
+extern "C" void set_callbacks(Callbacks cb);
 
 #endif // NZEA_WRAPPER_H

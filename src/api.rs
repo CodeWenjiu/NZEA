@@ -2,6 +2,18 @@ use std::os::raw::c_void;
 
 use dlopen2::wrapper::{Container, WrapperApi};
 
+#[derive(Default)]
+#[repr(C)]
+pub struct Callbacks {
+    alu_catch_p: Option<unsafe extern "C" fn()>,
+    idu_catch_p: Option<unsafe extern "C" fn(*const u32)>,
+    ifu_catch_p: Option<unsafe extern "C" fn(*const u32, *const u32)>,
+    icache_mat_catch_p: Option<unsafe extern "C" fn(*const u32)>,
+    icache_catch_p: Option<unsafe extern "C" fn(u8, u8)>,
+    icache_flush_p: Option<unsafe extern "C" fn()>,
+    icache_state_catch_p: Option<unsafe extern "C" fn(*const u32, *const u32, *const u32, *const u32)>,
+}
+
 #[derive(WrapperApi)]
 struct VTop {
     nzea_protectlib_create: unsafe extern "C" fn() -> *mut c_void,
@@ -9,6 +21,8 @@ struct VTop {
 
     nzea_protectlib_combo_update: unsafe extern "C" fn(handler: *mut c_void, reset: u8) -> u64,
     nzea_protectlib_seq_update: unsafe extern "C" fn(handler: *mut c_void, clock: u8) -> u64,
+
+    set_callbacks: unsafe extern "C" fn(callbacks: Callbacks),
 }
 
 pub struct Top {
@@ -28,6 +42,12 @@ impl Top {
         Top { 
             container,
             model,
+        }
+    }
+
+    pub fn init(&self, callbacks: Callbacks) {
+        unsafe {
+            self.container.set_callbacks(callbacks);
         }
     }
 
