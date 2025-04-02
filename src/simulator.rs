@@ -114,7 +114,7 @@ unsafe extern "C" fn icache_state_catch_handler(
     _write_tag: Input,
     _write_data: Input,
 ) {
-    log_debug!("icache_state_catch_p");
+    // log_debug!("icache_state_catch_p");
 }
 
 unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
@@ -131,7 +131,7 @@ unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
 }
 
 unsafe extern "C" fn pipeline_catch_handler() {
-    log_debug!("pipeline_catch_p");
+    // log_debug!("pipeline_catch_p");
 }
 
 unsafe extern "C" fn uart_catch_handler(c: Input) {
