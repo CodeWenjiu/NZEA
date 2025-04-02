@@ -1,5 +1,4 @@
 #include "wrapper.h"
-#include <iostream>
 
 extern "C" {
     // basic callbacks

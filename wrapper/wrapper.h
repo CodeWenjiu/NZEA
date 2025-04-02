@@ -3,6 +3,7 @@
 
 #include "Vtop__Dpi.h"
 #include "Vtop.h"
+#include "stdatomic.h"
 
 typedef const svBitVecVal* input;
 typedef svBitVecVal* output;
