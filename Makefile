@@ -13,8 +13,6 @@ VERILATOR_CFLAGS += -j `nproc` -MMD --build -cc  \
 				-O3 --x-assign fast --x-initial fast --noassert  \
 				--trace --trace-fst 
 
-LDFLAGS = -latomic
-
 VERILATOR_COMPILEFLAGS += $(DESIGN_FILE) \
 				$(CSRC) \
 				--Mdir $(BUILD_DIR) \
@@ -28,7 +26,7 @@ generate: $(BIN)
 
 $(BIN): $(CSRC) $(HSRC) $(VSRC) $(DESIGN_FILE)
 	@mkdir -p $(BUILD_DIR)
-	@ccache $(VERILATOR) $(VERILATOR_CFLAGS) $(VERILATOR_COMPILEFLAGS) #(addprefix -LDFLAGS, $(LDFLAGS)) $(VERILATOR_SIMFLAGS)
+	@ccache $(VERILATOR) $(VERILATOR_CFLAGS) $(VERILATOR_COMPILEFLAGS) $(VERILATOR_SIMFLAGS)
 	@echo "Verilator simulation files generated in $(BUILD_DIR)"
 
 clean:

@@ -1,10 +1,7 @@
 #ifndef NZEA_WRAPPER_H
 #define NZEA_WRAPPER_H
 
-#include "Vtop__Dpi.h"
-#include "Vtop.h"
-#include "stdatomic.h"
-
+#include "svdpi.h"
 typedef const svBitVecVal* input;
 typedef svBitVecVal* output;
 typedef svBit bits;
@@ -29,22 +26,22 @@ typedef struct {
 } NPC_Callbacks;
 
 static NPC_Callbacks npc_callbacks = {
-    .Uart_putc_p = NULL,
-    .sram_read_p = NULL,
-    .sram_write_p = NULL,
+    .Uart_putc_p = nullptr,
+    .sram_read_p = nullptr,
+    .sram_write_p = nullptr,
 };
 
 static Basic_Callbacks basic_callbacks = {
-    .ALU_catch_p = NULL,
-    .IDU_catch_p = NULL,
-    .IFU_catch_p = NULL,
-    .Icache_MAT_catch_p = NULL,
-    .Icache_catch_p = NULL,
-    .Icache_flush_p = NULL,
-    .Icache_state_catch_p = NULL,
-    .LSU_catch_p = NULL,
-    .Pipeline_catch_p = NULL,
-    .WBU_catch_p = NULL,
+    .ALU_catch_p = nullptr,
+    .IDU_catch_p = nullptr,
+    .IFU_catch_p = nullptr,
+    .Icache_MAT_catch_p = nullptr,
+    .Icache_catch_p = nullptr,
+    .Icache_flush_p = nullptr,
+    .Icache_state_catch_p = nullptr,
+    .LSU_catch_p = nullptr,
+    .Pipeline_catch_p = nullptr,
+    .WBU_catch_p = nullptr,
 };
 
 extern "C" void set_basic_callbacks(Basic_Callbacks cb);

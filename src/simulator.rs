@@ -6,7 +6,7 @@ use option_parser::OptionParser;
 use owo_colors::OwoColorize;
 use remu_macro::{log_debug, log_err, log_error};
 use remu_utils::{ProcessError, ProcessResult};
-use state::{States, reg::RegfileIo};
+use state::{reg::RegfileIo, States};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
@@ -205,6 +205,11 @@ unsafe extern "C" fn wbu_catch_handler(
             }
         });
 
+        NZEA_TIME.with(|times| {
+            let mut time = times.get().unwrap().borrow_mut();
+            time.instructions += 1;
+        });
+
         (callback.instruction_compelete)(pc, inst)
     }));
 }
@@ -324,6 +329,11 @@ impl SimulatorItem for Nzea {
 
     fn step_cycle(&mut self) -> ProcessResult<()> {
         self.top.cycle(1);
+
+        NZEA_TIME.with(|times| {
+            let mut time = times.get().unwrap().borrow_mut();
+            time.cycles += 1;
+        });
 
         NZEA_RESULT.with(|result| {
             let clone = result.get().unwrap().borrow_mut().clone();
