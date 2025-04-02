@@ -1,64 +1,107 @@
-use std::sync::OnceLock;
+use std::{char, io::Write, sync::OnceLock};
 
 use option_parser::OptionParser;
 use owo_colors::OwoColorize;
-use remu_macro::log_debug;
+use remu_macro::{log_debug, log_err, log_error};
 use logger::Logger;
-use remu_utils::ProcessResult;
-use state::States;
+use remu_utils::{ProcessError, ProcessResult};
+use state::{reg::RegfileIo, States};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
 use super::{BasicCallbacks, Input, NpcCallbacks, Output, Top};
 
+#[derive(Default)]
 pub struct NzeaTimes {
     pub cycles: u64,
     pub instructions: u64,
 
-    pub alu_catch: u64,
-    pub idu_catch: u64,
     pub ifu_catch: u64,
-
     pub icache_map_miss: u64,
     pub icache_cache_miss: u64,
     pub icache_cache_hit: u64,
+    pub icache_average_memory_acess_cycle: u64,
+
+    pub idu_catch_al: u64,
+    pub idu_catch_ls: u64,
+    pub idu_catch_cs: u64,
+
+    pub alu_catch: u64,
 }
 
-static mut NZEA_TIMES: NzeaTimes = NzeaTimes {
-    cycles: 0,
-    instructions: 0,
-
-    alu_catch: 0,
-    idu_catch: 0,
-    ifu_catch: 0,
-
-    icache_map_miss: 0,
-    icache_cache_miss: 0,
-    icache_cache_hit: 0,
-};
-
 thread_local! {
-    static NZEA_MMU: OnceLock<States> = OnceLock::new();
+    static NZEA_STATES : OnceLock<std::cell::RefCell<States>> = OnceLock::new();
+    static NZEA_CALLBACK : OnceLock<std::cell::RefCell<SimulatorCallback>> = OnceLock::new();
+    static NZEA_TIME : OnceLock<std::cell::RefCell<NzeaTimes>> = OnceLock::new();
+    static NZEA_RESULT : OnceLock<std::cell::RefCell<ProcessResult<()>>> = OnceLock::new();
 }
 
 unsafe extern "C" fn alu_catch_handler() {
-    unsafe { NZEA_TIMES.alu_catch += 1 };
+    NZEA_TIME.with(|time| {
+        time.get().unwrap().borrow_mut().alu_catch += 1;
+    });
 }
 
-unsafe extern "C" fn idu_catch_handler(_inst_type: Input) {
-    log_debug!("idu_catch_p");
+unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
+    let inst_type = unsafe { &*inst_type };
+
+    NZEA_TIME.with(|time| {
+        let mut time = time.get().unwrap().borrow_mut();
+
+        match inst_type {
+            0 => time.idu_catch_al += 1,
+            1 => time.idu_catch_ls += 1,
+            2 => time.idu_catch_cs += 1,
+            _ => {
+                log_error!(format!("Unknown instruction type: {}", inst_type));
+                NZEA_RESULT.with(|result| {
+                    *result.get().unwrap().borrow_mut() = Err(ProcessError::Recoverable);
+                });
+            },
+        }
+    });
 }
 
-unsafe extern "C" fn ifu_catch_handler(_pc: Input, _inst: Input) {
-    log_debug!("ifu_catch_p");
+unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
+    let pc = unsafe { &*pc };
+    let inst = unsafe { &*inst };
+
+    NZEA_TIME.with(|time| {
+        time.get().unwrap().borrow_mut().ifu_catch += 1;
+    });
+
+    NZEA_RESULT.with(|result| {
+        *result.get().unwrap().borrow_mut() = NZEA_CALLBACK.with(|callback| {
+            let mut callback = callback.get().unwrap().borrow_mut();
+            (callback.instruction_compelete)(*pc, *inst)
+        });
+    });
 }
 
-unsafe extern "C" fn icache_mat_catch_handler(_count: Input) {
-    log_debug!("icache_mat_catch_p");
+unsafe extern "C" fn icache_mat_catch_handler(count: Input) {
+    let count = unsafe { &*count };
+
+    NZEA_TIME.with(|time| {
+        time.get().unwrap().borrow_mut().icache_average_memory_acess_cycle += *count as u64;
+    });
 }
 
-unsafe extern "C" fn icache_catch_handler(_map_hit: u8, _cache_hit: u8) {
-    log_debug!("icache_catch_p");
+unsafe extern "C" fn icache_catch_handler(map_hit: u8, cache_hit: u8) {
+    NZEA_TIME.with(|time| {
+        let mut time = time.get().unwrap().borrow_mut();
+
+        if map_hit == 0 {
+            time.icache_map_miss += 1;
+            return;
+        }
+
+        if cache_hit == 0 {
+            time.icache_cache_miss += 1;
+            return;
+        }
+
+        time.icache_cache_hit += 1;
+    });
 }
 
 unsafe extern "C" fn icache_flush_handler() {
@@ -74,52 +117,114 @@ unsafe extern "C" fn icache_state_catch_handler(
     log_debug!("icache_state_catch_p");
 }
 
-unsafe extern "C" fn lsu_catch_handler(_diff_skip: u8) {
-    log_debug!("lsu_catch_p");
+unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
+    NZEA_TIME.with(|time| {
+        time.get().unwrap().borrow_mut().ifu_catch += 1;
+    });
+    
+    NZEA_CALLBACK.with(|callback| {
+        let callback = callback.get().unwrap().borrow_mut();
+        if diff_skip == 1 {
+            (callback.difftest_skip)();
+        }
+    });
 }
 
 unsafe extern "C" fn pipeline_catch_handler() {
     log_debug!("pipeline_catch_p");
 }
 
-unsafe extern "C" fn uart_catch_handler(_c: Input) {
-    log_debug!("uart_catch");
+unsafe extern "C" fn uart_catch_handler(c: Input) {
+    let c = unsafe { &char::from_u32(*c)};
+    if let Some(c) = c {
+        print!("{}", c);
+        std::io::stdout().flush().unwrap();
+    }
 }
 
 unsafe extern "C" fn wbu_catch_handler(
-    _next_pc: Input,
-    _gpr_waddr: Input,
-    _gpr_wdata: Input,
-    _csr_wena: Input,
-    _csr_waddra: Input,
-    _csr_wdataa: Input,
-    _csr_wenb: Input,
-    _csr_waddrb: Input,
-    _csr_wdatab: Input,
+    next_pc: Input,
+    gpr_waddr: Input,
+    gpr_wdata: Input,
+    csr_wena: Input,
+    csr_waddra: Input,
+    csr_wdataa: Input,
+    csr_wenb: Input,
+    csr_waddrb: Input,
+    csr_wdatab: Input,
 ) {
-    log_debug!("wbu_catch");
+    let (next_pc, gpr_waddr, gpr_wdata) = unsafe { (&*next_pc, &*gpr_waddr, &*gpr_wdata) };
+    let (csr_wena, csr_waddra, csr_wdataa) = unsafe { (&*csr_wena, &*csr_waddra, &*csr_wdataa) };
+    let (csr_wenb, csr_waddrb, csr_wdatab) = unsafe { (&*csr_wenb, &*csr_waddrb, &*csr_wdatab) };
+
+    NZEA_RESULT.with(|result| {
+        *result.get().unwrap().borrow_mut() = NZEA_STATES.with(|states| {
+            let mut states = states.get().unwrap().borrow_mut();
+            states.regfile.write_pc(*next_pc);
+            states.regfile.write_gpr(*gpr_waddr, *gpr_wdata).map_err(|_| ProcessError::Recoverable)?;
+            if *csr_wena == 1 {states.regfile.write_csr(*csr_waddra, *csr_wdataa).map_err(|_| ProcessError::Recoverable)?};
+            if *csr_wenb == 1 {states.regfile.write_csr(*csr_waddrb, *csr_wdatab).map_err(|_| ProcessError::Recoverable)?};
+            
+            Ok(())
+        });
+    });
 }
 
-unsafe extern "C" fn sram_read_handler(_addr: Input, _data: Output) {
-    log_debug!("sram_read");
+unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
+    let addr = unsafe { &*addr };
+    let data = unsafe { &mut *data };
+
+    NZEA_RESULT.with(|result| {
+        *result.get().unwrap().borrow_mut() = NZEA_STATES.with(|states| {
+            let mut states = states.get().unwrap().borrow_mut();
+            *data = log_err!(states.mmu.read_memory(*addr, state::mmu::Mask::Word), ProcessError::Recoverable)?;
+            Ok(())
+        });
+    });
 }
 
 unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input) {
-    log_debug!("sram_write");
+    let (addr, data, mask) = unsafe { (&*_addr, &*_data, &*_mask) };
+
+    let mut data = *data;
+    let mask = match mask {
+        0b0001 => state::mmu::Mask::Byte,
+        0b0010 => {data = data.wrapping_shr(8); state::mmu::Mask::Byte},
+        0b0100 => {data = data.wrapping_shr(16); state::mmu::Mask::Byte},
+        0b1000 => {data = data.wrapping_shr(24); state::mmu::Mask::Byte},
+
+        0b0011 => state::mmu::Mask::Half,
+        0b1100 => {data = data.wrapping_shr(16); state::mmu::Mask::Half},
+
+        0b1111 => state::mmu::Mask::Word,
+
+        _ => {
+            log_error!(format!("Unknown mask: {}", mask));
+            NZEA_RESULT.with(|result| {
+                *result.get().unwrap().borrow_mut() = Err(ProcessError::Recoverable);
+            });
+            return;
+        }
+    };
+
+    NZEA_RESULT.with(|result| {
+        *result.get().unwrap().borrow_mut() = NZEA_STATES.with(|states| {
+            let mut states = states.get().unwrap().borrow_mut();
+            log_err!(states.mmu.write(*addr, data, mask), ProcessError::Recoverable)?;
+            Ok(())
+        });
+    });
+
 }
 
 pub struct Nzea {
     pub top: Top,
-    pub callback: SimulatorCallback,
 }
 
 impl Nzea {
     pub fn new(_option: &OptionParser, states: States, callback: SimulatorCallback) -> Self {
         let top = Top::new();
-        NZEA_MMU.with(|mmu| {
-            let _ = mmu.set(states);
-        });
-
+    
         let basic_callbacks = BasicCallbacks {
             alu_catch_p: alu_catch_handler,
             idu_catch_p: idu_catch_handler,
@@ -138,12 +243,27 @@ impl Nzea {
             sram_read: sram_read_handler,
             sram_write: sram_write_handler,
         };
-
+    
         top.init(basic_callbacks, npc_callbacks);
+        
+        NZEA_STATES.with(|states_ref| {
+            states_ref.get_or_init(|| std::cell::RefCell::new(states));
+        });
 
-        Self {
+        NZEA_CALLBACK.with(|callback_ref| {
+            callback_ref.get_or_init(|| std::cell::RefCell::new(callback));
+        });
+
+        NZEA_TIME.with(|time_ref| {
+            time_ref.get_or_init(|| std::cell::RefCell::new(NzeaTimes::default()));
+        });
+
+        NZEA_RESULT.with(|result_ref| {
+            result_ref.get_or_init(|| std::cell::RefCell::new(Ok(())));
+        });
+            
+        Self{
             top,
-            callback,
         }
     }
 }
@@ -156,19 +276,33 @@ impl SimulatorItem for Nzea {
 
     fn step_cycle(&mut self) -> ProcessResult<()> {
         self.top.cycle(1);
-        
-        Ok(())
+
+        NZEA_RESULT.with(|result| {
+            let clone = result.get().unwrap().borrow_mut().clone();
+            *result.get().unwrap().borrow_mut() = Ok(());
+            clone
+        })
     }
 
     fn times(&self) -> ProcessResult<()> {
-        println!("{}: {}", "Cycles\t".purple(), NZEA_TIMES.cycles.blue());
-        println!("{}: {}", "Instructions\t".purple(), NZEA_TIMES.instructions.blue());
-        println!("{}: {}", "ALU\t".purple(), NZEA_TIMES.alu_catch.blue());
-        println!("{}: {}", "IDU\t".purple(), NZEA_TIMES.idu_catch.blue());
-        println!("{}: {}", "IFU\t".purple(), NZEA_TIMES.ifu_catch.blue());
+        NZEA_TIME.with(|time| {
+            let time = time.get().unwrap().borrow();
 
-        println!("{}: {}", "ICache Hit rate[In region]\t".purple(), (NZEA_TIMES.icache_cache_hit as f64 / (NZEA_TIMES.icache_cache_hit + NZEA_TIMES.icache_cache_miss) as f64).blue());
-        println!("{}: {}", "ICache Miss rate[Out region]\t".purple(), (NZEA_TIMES.icache_cache_hit as f64 / (NZEA_TIMES.icache_cache_hit + NZEA_TIMES.icache_cache_miss + NZEA_TIMES.icache_map_miss) as f64).blue());
+            println!("{}: {}", "Cycles\t".purple(), time.cycles.blue());
+            println!("{}: {}", "Instructions\t".purple(), time.instructions.blue());
+            
+            println!("{}: {}", "ALU\t".purple(), time.alu_catch.blue());
+            
+            println!("{}: {}", "IDU_AL\t".purple(), time.idu_catch_al.blue());
+            println!("{}: {}", "IDU_LS\t".purple(), time.idu_catch_ls.blue());
+            println!("{}: {}", "IDU_CS\t".purple(), time.idu_catch_cs.blue());
+
+            println!("{}: {}", "IFU\t".purple(), time.ifu_catch.blue());
+
+            println!("{}: {}", "ICache Hit rate[In region]\t".purple(), (time.icache_cache_hit as f64 / (time.icache_cache_hit + time.icache_cache_miss) as f64).blue());
+            println!("{}: {}", "ICache Miss rate[Out region]\t".purple(), (time.icache_cache_hit as f64 / (time.icache_cache_hit + time.icache_cache_miss + time.icache_map_miss) as f64).blue());
+        });
+
         Ok(())
     }
 }
