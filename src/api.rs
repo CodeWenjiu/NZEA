@@ -1,4 +1,4 @@
-use std::os::raw::c_void;
+use std::{ffi::c_char, os::raw::c_void};
 
 use dlopen2::wrapper::{Container, WrapperApi};
 
@@ -28,11 +28,14 @@ pub struct NpcCallbacks {
 
 #[derive(WrapperApi)]
 struct VTop {
-    nzea_protectlib_create: unsafe extern "C" fn() -> *mut c_void,
-    nzea_protectlib_final: unsafe extern "C" fn(arg: *mut c_void) -> c_void,
+    create_model: unsafe extern "C" fn(scopep_v: *const c_char) -> *mut c_void,
+    delete_model: unsafe extern "C" fn(vhandlep_v: *mut c_void) -> c_void,
 
-    nzea_protectlib_combo_update: unsafe extern "C" fn(handler: *mut c_void, reset: u8) -> u64,
-    nzea_protectlib_seq_update: unsafe extern "C" fn(handler: *mut c_void, clock: u8) -> u64,
+    reset: unsafe extern "C" fn(vhandlep_v: *mut c_void, time: u64) -> c_void,
+    cycle: unsafe extern "C" fn(vhandlep_v: *mut c_void, time: u64) -> u64,
+
+    enable_wave_trace: unsafe extern "C" fn(vhandlep_v: *mut c_void) -> c_void,
+    disable_wave_trace: unsafe extern "C" fn(vhandlep_v: *mut c_void) -> c_void,
 
     set_basic_callbacks: unsafe extern "C" fn(callbacks: BasicCallbacks),
     set_npc_callbacks: unsafe extern "C" fn(callbacks: NpcCallbacks),
@@ -49,7 +52,8 @@ impl Top {
         let container: Container<VTop> =
             unsafe { Container::load("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/verilater_build/libnzea.so") }.expect("Could not open library or load symbols");
 
-        let model = unsafe { container.nzea_protectlib_create() };
+        let scope = std::ffi::CString::new("0").expect("CString::new failed");
+        let model = unsafe { container.create_model(scope.as_ptr()) };
         assert!(!model.is_null(), "Failed to create model");
 
         Top { 
@@ -71,18 +75,23 @@ impl Top {
 
     pub fn cycle(&self, times: u64) {
         unsafe {
-            for _ in 0..times {
-                self.container.nzea_protectlib_seq_update(self.model, 1);
-                self.container.nzea_protectlib_seq_update(self.model, 0);
-            }
+            self.container.cycle(self.model, times);
         }
     }
 
     pub fn reset(&self, times: u64) {
         unsafe {
-            self.container.nzea_protectlib_combo_update(self.model, 1);
-            self.cycle(times);
-            self.container.nzea_protectlib_combo_update(self.model, 0);
+            self.container.reset(self.model, times);
+        }
+    }
+
+    pub fn function_wave_trace(&self, enable: bool) {
+        unsafe {
+            if enable == true {
+                (self.container.enable_wave_trace)(self.model);
+            } else {
+                (self.container.disable_wave_trace)(self.model);
+            }
         }
     }
 }
@@ -90,7 +99,7 @@ impl Top {
 impl Drop for Top {
     fn drop(&mut self) {
         unsafe {
-            self.container.nzea_protectlib_final(self.model);
+            self.container.delete_model(self.model);
         }
     }
 }

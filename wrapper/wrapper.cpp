@@ -1,7 +1,99 @@
 #include "wrapper.h"
+#include "verilated_fst_c.h"
+#include "Vtop.h"
+
+class VTop_container: public Vtop {
+    public:
+        const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
+        VTop_container(const char* scopep__V):
+        Vtop(scopep__V) {
+        }
+
+        VerilatedFstC* tfp = nullptr;
+        bool wave_trace_on;
+        void enable_wave_trace() {
+            if (!tfp) {
+                tfp = new VerilatedFstC;
+                this->trace(tfp, 99);
+                tfp->open("waveform.fst");
+            }
+            this->wave_trace_on = true;
+        }
+
+        void disable_wave_trace() {
+            this->wave_trace_on = false;
+        }
+
+        void cycle() {
+            this->clock = 0;
+            this->eval();
+            this->clock = 1;
+            this->eval();
+
+            if (this->tfp && this->wave_trace_on) {
+                this->tfp->dump(this->contextp->time());
+            }
+
+            this->contextp->timeInc(1);
+        }
+
+        uint64_t seq_tick(uint64_t time) {
+            for (uint64_t i = 0; i < time; i++) {
+                this->cycle();
+            }
+            return this->contextp->time();
+        }
+
+        void com_tick(uint64_t time) {
+            this->reset = 1;
+            this->seq_tick(time);
+            this->reset = 0;
+        }
+
+        void final_container() {
+            if (tfp) {
+                tfp->close();
+                delete tfp;
+                tfp = nullptr;
+            }
+            this->final();
+        }
+};
 
 extern "C" {
-    // basic callbacks
+    // debug functions
+    void* create_model(const char* scopep__V) {
+        Verilated::traceEverOn(true);
+        VTop_container* const handlep__V = new VTop_container{scopep__V};
+        return handlep__V;
+    }
+
+    uint64_t cycle(void* vhandlep__V, uint64_t time) {
+        VTop_container* const handlep__V = static_cast<VTop_container*>(vhandlep__V);
+        return handlep__V->seq_tick(time);
+    }
+
+    void reset(void* vhandlep__V, uint64_t time) {
+        VTop_container* const handlep__V = static_cast<VTop_container*>(vhandlep__V);
+        handlep__V->com_tick(time);
+    }
+
+    void enable_wave_trace(void* vhandlep__V) {
+        VTop_container* const handlep__V = static_cast<VTop_container*>(vhandlep__V);
+        handlep__V->enable_wave_trace();
+    }
+
+    void disable_wave_trace(void* vhandlep__V) {
+        VTop_container* const handlep__V = static_cast<VTop_container*>(vhandlep__V);
+        handlep__V->disable_wave_trace();
+    }
+
+    void delete_model(void* vhandlep__V) {
+        VTop_container* const handlep__V = static_cast<VTop_container*>(vhandlep__V);
+        handlep__V->final_container();
+    }
+
+    // basic cpu callbacks
 
     void set_basic_callbacks(Basic_Callbacks cb) {
         basic_callbacks = cb;

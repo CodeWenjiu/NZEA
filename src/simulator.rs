@@ -380,4 +380,10 @@ impl SimulatorItem for Nzea {
 
         Ok(())
     }
+
+    fn function_wave_trace(&self,enable:bool) -> ProcessResult<()> {
+        self.top.function_wave_trace(enable);
+
+        Ok(())
+    }
 }
