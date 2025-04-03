@@ -78,23 +78,3 @@ class FIX_AXI_BUS_Slave extends Bundle{
   val rlast  = Output(Bool())
   val rid    = Output(UInt(4.W))
 }
-
-// class top extends Module {
-//   val CPU = Module(new ysyx_23060198)
-
-//   val Xbar = Module(new Xbar)
-//   val SRAM = Module(new SRAM(1.U))
-//   val UART = Module(new UART)
-//   val CLINT = Module(new CLINT)
-
-//   UART.io.AXI <> Xbar.io.UART
-//   SRAM.io.AXI <> Xbar.io.SRAM
-//   CLINT.io.AXI <> Xbar.io.CLINT
-  
-//   Xbar.io.AXI <> CPU.io.master
-
-//   CPU.io.slave <> DontCare
-//   CPU.io.interrupt <> DontCare
-
-//   // Xbar.io.AXI <> CPU.io.AXI
-// }

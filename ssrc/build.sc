@@ -112,7 +112,7 @@ object nzea extends NZEA {
   override def scalacPluginIvyDeps = Agg(
     ivy"org.chipsalliance:::chisel-plugin:6.4.0"
   )
-  object test extends SbtModuleTests with TestModule.ScalaTest with ScalafmtModule{
+  object test extends SbtTests with TestModule.ScalaTest with ScalafmtModule{
     override def sources = T.sources {
       super.sources() ++ Seq(PathRef(this.millSourcePath / "src" / "ssrc" / "ysyx" / "riscv_soc" / "test"))
     }

@@ -8,11 +8,10 @@ object Elaboratenpc extends App {
     "-disable-all-randomization",
     "-strip-debug-info",
     "--lowering-options=" + List(
-      // make yosys happy
+      // make verilator happy
       // see https://github.com/llvm/circt/blob/main/docs/VerilogGeneration.md
+      "locationInfoStyle=wrapInAtSquareBracket",
       "disallowLocalVariables",
-      "disallowPackedArrays",
-      "locationInfoStyle=wrapInAtSquareBracket"
     ).reduce(_ + "," + _)
   )
   
