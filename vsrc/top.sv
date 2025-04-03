@@ -441,7 +441,8 @@ module LSU(
     end
   end // always @(posedge)
   LSU_catch Catch (
-    .LS        (io_EXU_2_WBU_valid_0 & ~reset),
+    .clock     (clock),
+    .valid     (io_EXU_2_WBU_valid_0 & ~reset),
     .diff_skip
       ({Catch_io_diff_skip_r[31:29], Catch_io_diff_skip_r[28:12] ^ 17'h10000} == 20'h0
        | Catch_io_diff_skip_r1[31:3] == 29'h14000009
@@ -1972,7 +1973,8 @@ endmodule
 // external module IDU_catch
 
 module IDU(
-  input         reset,
+  input         clock,
+                reset,
   output        io_IFU_2_IDU_ready,
   input         io_IFU_2_IDU_valid,
   input  [31:0] io_IFU_2_IDU_bits_data,
@@ -2341,7 +2343,8 @@ module IDU(
     endcase
   end // always_comb
   IDU_catch Catch (
-    .ID        (io_IDU_2_EXU_ready & io_IFU_2_IDU_valid & ~reset),
+    .clock     (clock),
+    .valid     (io_IDU_2_EXU_ready & io_IFU_2_IDU_valid & ~reset),
     .Inst_Type
       ({|{&{io_IFU_2_IDU_bits_data[4],
             io_IFU_2_IDU_bits_data[6],
@@ -2741,7 +2744,8 @@ endmodule
 // external module ALU_catch
 
 module ALU(
-  input         reset,
+  input         clock,
+                reset,
   output        io_IDU_2_EXU_ready,
   input         io_IDU_2_EXU_valid,
   input  [2:0]  io_IDU_2_EXU_bits_Branch,
@@ -2822,7 +2826,8 @@ module ALU(
     endcase
   end // always_comb
   ALU_catch Catch (
-    .AL (io_EXU_2_WBU_ready & io_IDU_2_EXU_valid & ~reset)
+    .clock (clock),
+    .valid (io_EXU_2_WBU_ready & io_IDU_2_EXU_valid & ~reset)
   );
   assign io_IDU_2_EXU_ready = io_EXU_2_WBU_ready;
   assign io_EXU_2_WBU_valid = io_IDU_2_EXU_valid;
@@ -3656,6 +3661,7 @@ module npc(
     .auto_in_rlast  (_lsram_auto_in_rlast)
   );
   IDU IDU (
+    .clock                       (clock),
     .reset                       (reset),
     .io_IFU_2_IDU_ready          (_IDU_io_IFU_2_IDU_ready),
     .io_IFU_2_IDU_valid          (IDU_io_IFU_2_IDU_valid_REG),
@@ -3680,6 +3686,7 @@ module npc(
     .io_IDU_2_REG_CSR_raddr      (_IDU_io_IDU_2_REG_CSR_raddr)
   );
   ALU ALU (
+    .clock                       (clock),
     .reset                       (reset),
     .io_IDU_2_EXU_ready          (_ALU_io_IDU_2_EXU_ready),
     .io_IDU_2_EXU_valid          (ALU_io_IDU_2_EXU_valid_REG),
@@ -3893,12 +3900,15 @@ endmodule
 // ----- 8< ----- FILE "./LSU_catch.v" ----- 8< -----
 
 module LSU_catch(
-   input LS,
+   input clock,
+   input valid,
    input diff_skip
 );
   import "DPI-C" function void LSU_catch(input bit diff_skip);
-  always @(posedge LS) begin
-       LSU_catch(diff_skip);
+  always @(posedge clock) begin
+     if(valid) begin
+         LSU_catch(diff_skip);
+     end
   end
 endmodule
     
@@ -3952,13 +3962,16 @@ endmodule
 // ----- 8< ----- FILE "./IDU_catch.v" ----- 8< -----
 
 module IDU_catch(
-   input ID,
+   input clock,
+   input valid,
    input [1:0] Inst_Type
 );
 import "DPI-C" function void IDU_catch(input bit [1:0] Inst_Type);
 
-always @(posedge ID) begin
-    IDU_catch(Inst_Type);
+always @(posedge clock) begin
+   if (valid) begin
+       IDU_catch(Inst_Type);
+   end
 end
 
 endmodule
@@ -3967,11 +3980,14 @@ endmodule
 // ----- 8< ----- FILE "./ALU_catch.v" ----- 8< -----
 
 module ALU_catch(
-   input AL
+    input clock,
+    input valid
 );
   import "DPI-C" function void ALU_catch();
-  always @(posedge AL) begin
+  always @(posedge clock) begin
+     if(valid) begin
        ALU_catch();
+     end
   end
 endmodule
   
