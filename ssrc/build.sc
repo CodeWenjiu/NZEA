@@ -79,14 +79,26 @@ trait RocketChip extends millbuild.`rocket-chip`.common.RocketChipModule with Ha
   }
 }
 
-trait npcModule extends ScalaModule {
+trait NzeaModule extends ScalaModule {
   def rocketModule: ScalaModule
   override def moduleDeps = super.moduleDeps ++ Seq(
     rocketModule,
   )
 }
 
-object npc extends NPC {
+trait NZEA extends NzeaModule with HasThisChisel {
+  override def millSourcePath = os.pwd
+  def rocketModule = rocketchip
+  override def sources = T.sources {
+    super.sources() ++ Seq(
+      PathRef(millSourcePath / "HDL"),
+      PathRef(millSourcePath / "platform"),
+      PathRef(millSourcePath / "rvdecoderdb"),
+    )
+  }
+}
+
+object nzea extends NZEA {
   val useChisel3 = false
   override def scalacOptions = Seq(
     "-language:reflectiveCalls",
@@ -110,15 +122,4 @@ object npc extends NPC {
     coursier.MavenRepository("https://oss.sonatype.org/content/repositories/releases"),
     coursier.MavenRepository("https://oss.sonatype.org/content/repositories/snapshots"),
   ) ++ super.repositoriesTask() }
-}
-trait NPC extends npcModule with HasThisChisel {
-  override def millSourcePath = os.pwd
-  def rocketModule = rocketchip
-  override def sources = T.sources {
-    super.sources() ++ Seq(
-      PathRef(millSourcePath / "HDL"),
-      PathRef(millSourcePath / "platform"),
-      PathRef(millSourcePath / "rvdecoderdb"),
-    )
-  }
 }

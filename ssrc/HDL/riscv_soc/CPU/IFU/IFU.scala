@@ -271,9 +271,11 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         
         Icache.io.replace_addr := pc
 
-        val block_num = Config.Icache_Param.block_size / 4
+        val block_size = Config.Icache_Param.block_size
 
-        val block_index = pc(log2Ceil(Config.Icache_Param.block_size), 2)
+        val block_num = block_size / 4
+
+        val block_index = pc(log2Ceil(Config.Icache_Param.block_size) - 1, 2)
 
         val Multi_transfer = RegInit(VecInit(Seq.fill(block_num)(0.U(32.W))))
         val Multi_transfer_counter = RegInit(0.U(log2Ceil(block_num).W))
