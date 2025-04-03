@@ -1,6 +1,6 @@
 .cache
-verilater_build
-compile_commands.json
 .metals
 .vscode
 ssrc/out
+compile_commands.json
+build
