@@ -12,6 +12,7 @@ import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 import freechips.rocketchip.util.Annotated.srams
+import org.chipsalliance.diplomacy.lazymodule._
 import riscv_cpu.LS_state.s_wait_valid
 import riscv_cpu.bus_state.s_wait_ready
 import riscv_cpu.bus_state.s_busy

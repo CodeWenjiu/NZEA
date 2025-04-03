@@ -8,7 +8,9 @@ import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.subsystem._
 import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.diplomacy._
+import org.chipsalliance.diplomacy._
 import freechips.rocketchip.util._
+import org.chipsalliance.diplomacy.lazymodule._
 
 class CLINT(address: Seq[AddressSet], Freq: UInt)(implicit p: Parameters) extends LazyModule {
     val beatBytes = 4

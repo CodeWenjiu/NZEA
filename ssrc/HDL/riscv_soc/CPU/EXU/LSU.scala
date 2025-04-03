@@ -12,6 +12,7 @@ import freechips.rocketchip.subsystem._
 import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
+import org.chipsalliance.diplomacy.lazymodule._
 
 class LSU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{

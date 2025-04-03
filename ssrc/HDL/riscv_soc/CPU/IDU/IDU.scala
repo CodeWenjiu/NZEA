@@ -220,7 +220,7 @@ class IDU extends Module{
     io.IDU_2_REG.GPR_Aaddr := io.IFU_2_IDU.bits.data(19, 15)
     io.IDU_2_REG.GPR_Baddr := io.IFU_2_IDU.bits.data(24, 20)
 
-    val instTable = rvdecoderdb.fromFile.instructions(os.pwd / "rvdecoderdb" / "rvdecoderdbtest" / "jvm" / "riscv-opcodes")
+    val instTable = rvdecoderdb.instructions(os.pwd / "rvdecoderdb" / "rvdecoderdbtest" / "jvm" / "riscv-opcodes")
 
     val rv32iExceptInstructions = 
         Set("sbreak", "scall", "pause", "fence.tso", "fence", "slli_rv32", "srli_rv32", "srai_rv32")

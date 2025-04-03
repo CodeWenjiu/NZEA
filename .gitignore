@@ -4,3 +4,4 @@
 ssrc/out
 compile_commands.json
 build
+ssrc/.bloop

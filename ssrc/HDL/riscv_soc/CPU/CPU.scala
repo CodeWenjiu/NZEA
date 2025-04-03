@@ -9,11 +9,11 @@ import config._
 import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.subsystem._
 import freechips.rocketchip.amba.axi4._
-import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 import org.chipsalliance.cde.config.{Parameters, Config}
 import freechips.rocketchip.system._
-import freechips.rocketchip.diplomacy.LazyModule
+import freechips.rocketchip.diplomacy._
+import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 
 class Inst_Comp extends BlackBox with HasBlackBoxInline{
   val io = IO(new Bundle{
@@ -68,7 +68,6 @@ object CPUAXI4BundleParameters {
 
 import peripheral._
 import ram._
-
 class riscv_CPU(idBits: Int)(implicit p: Parameters) extends LazyModule {
   val mmio = AddressSet.misaligned(0x0f000000, 0x2000) ++     // SRAM
              AddressSet.misaligned(0x10000000, 0x1000) ++     // UART
