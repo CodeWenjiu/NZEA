@@ -27,6 +27,13 @@ class VTop_container: public Vtop {
         void cycle() {
             this->clock = 0;
             this->eval();
+
+            if (this->tfp && this->wave_trace_on) {
+                this->tfp->dump(this->contextp->time());
+            }
+
+            this->contextp->timeInc(1);
+
             this->clock = 1;
             this->eval();
 

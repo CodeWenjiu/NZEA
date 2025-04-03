@@ -3141,7 +3141,8 @@ endmodule
 // external module Pipeline_catch
 
 module PipelineCtrl(
-  input         io_GPR_read_valid,
+  input         clock,
+                io_GPR_read_valid,
   input  [4:0]  io_GPR_read_bits_GPR_Aaddr,
                 io_GPR_read_bits_GPR_Baddr,
   input  [31:0] io_IFU_out_bits_PC,
@@ -3176,9 +3177,12 @@ module PipelineCtrl(
               : io_Branch_msg_valid & _io_EXUCtrl_flush_T;
   wire [4:0] _GEN = {1'h0, io_ALU_in_bits_GPR_waddr};
   wire [4:0] _GEN_0 = {1'h0, io_WBU_in_bits_GPR_waddr};
+  reg        pipeline_catch_io_pipeline_flush_REG;
+  always @(posedge clock)
+    pipeline_catch_io_pipeline_flush_REG <= io_IFUCtrl_flush_0;
   Pipeline_catch pipeline_catch (
-    .valid          (io_IFUCtrl_flush_0),
-    .pipeline_flush (io_IFUCtrl_flush_0)
+    .clock          (clock),
+    .pipeline_flush (pipeline_catch_io_pipeline_flush_REG)
   );
   assign io_IFUCtrl_flush = io_IFUCtrl_flush_0;
   assign io_IDUCtrl_stall =
@@ -3750,6 +3754,7 @@ module npc(
     .io_WBU_2_REG_CSR_wdataa (_WBU_io_WBU_2_REG_CSR_wdataa)
   );
   PipelineCtrl PipelineCtrl (
+    .clock                      (clock),
     .io_GPR_read_valid          (_IDU_io_IDU_2_EXU_valid),
     .io_GPR_read_bits_GPR_Aaddr (_IDU_io_IDU_2_REG_GPR_Aaddr),
     .io_GPR_read_bits_GPR_Baddr (_IDU_io_IDU_2_REG_GPR_Baddr),
@@ -4024,11 +4029,11 @@ endmodule
 // ----- 8< ----- FILE "./Pipeline_catch.v" ----- 8< -----
 
 module Pipeline_catch(
-  input valid,
+  input clock,
   input pipeline_flush
 );
 import "DPI-C" function void Pipeline_catch();
-always @(posedge valid) begin
+always @(posedge clock) begin
     if(pipeline_flush) begin
         Pipeline_catch();
     end

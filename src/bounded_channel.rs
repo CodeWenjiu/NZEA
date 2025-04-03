@@ -1,5 +1,6 @@
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
+#[derive(Debug)]
 pub struct BoundedChannel<T> {
     queue: Rc<RefCell<VecDeque<T>>>,
     capacity: usize,
