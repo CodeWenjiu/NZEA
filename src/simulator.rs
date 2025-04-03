@@ -1,5 +1,4 @@
-use core::panic;
-use std::{cell::RefCell, char, io::Write, rc::Rc, sync::OnceLock};
+use std::{cell::RefCell, char, io::Write, sync::OnceLock};
 
 use logger::Logger;
 use option_parser::OptionParser;
@@ -10,7 +9,7 @@ use state::{reg::RegfileIo, States};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
-use super::{BasicCallbacks, Input, NpcCallbacks, Output, Top};
+use super::{bounded_channel::BoundedChannel, BasicCallbacks, Input, NpcCallbacks, Output, Top};
 
 #[derive(Default)]
 pub struct NzeaTimes {
@@ -36,8 +35,14 @@ thread_local! {
     static NZEA_TIME : OnceLock<RefCell<NzeaTimes>> = OnceLock::new();
     static NZEA_RESULT : OnceLock<RefCell<ProcessResult<()>>> = OnceLock::new();
 
-    // for reliable instruction trace and difftesst
-    static INSTRUCTION_MESSAGE_QUENE : Rc<RefCell<Vec<(u32, u32)>>> = Rc::new(RefCell::new(Vec::new()));
+    // channel for simulate
+    static IFU2IDU_CHANNEL: BoundedChannel<(u32, u32)> = BoundedChannel::new(1);
+
+    static IDU2ALU_CHANNEL: BoundedChannel<(u32, u32)> = BoundedChannel::new(1);
+    static IDU2LSU_CHANNEL: BoundedChannel<(u32, u32)> = BoundedChannel::new(1);
+
+    static ALU2WBU_CHANNEL: BoundedChannel<(u32, u32)> = BoundedChannel::new(1);
+    static LSU2WBU_CHANNEL: BoundedChannel<(u32, u32)> = BoundedChannel::new(1);
 }
 
 fn nzea_result_write(result: ProcessResult<()>) {
@@ -50,30 +55,6 @@ fn nzea_result_write(result: ProcessResult<()>) {
     });
 }
 
-unsafe extern "C" fn alu_catch_handler() {
-    NZEA_TIME.with(|time| {
-        time.get().unwrap().borrow_mut().alu_catch += 1;
-    });
-}
-
-unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
-    let inst_type = unsafe { &*inst_type };
-
-    NZEA_TIME.with(|time| {
-        let mut time = time.get().unwrap().borrow_mut();
-
-        match inst_type {
-            0 => time.idu_catch_al += 1,
-            1 => time.idu_catch_ls += 1,
-            2 => time.idu_catch_cs += 1,
-            _ => {
-                log_error!(format!("Unknown instruction type: {}", inst_type));
-                nzea_result_write(Err(ProcessError::Recoverable));
-            }
-        }
-    });
-}
-
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
     let pc = unsafe { &*pc };
     let inst = unsafe { &*inst };
@@ -82,10 +63,90 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
         time.get().unwrap().borrow_mut().ifu_catch += 1;
     });
 
-    INSTRUCTION_MESSAGE_QUENE.with(|queue| {
-        let mut queue = queue.borrow_mut();
-        queue.push((*pc, *inst));
+    IFU2IDU_CHANNEL.with(|channel| {
+        if let Err(e) = channel.send((*pc, *inst)) {
+            log_error!(format!("IFU Failed to send instruction: {}", e));
+            nzea_result_write(Err(ProcessError::Recoverable));
+        }
     });
+}
+
+unsafe extern "C" fn alu_catch_handler() {
+    NZEA_TIME.with(|time| {
+        time.get().unwrap().borrow_mut().alu_catch += 1;
+    });
+
+    let res: ProcessResult<()> = (|| {
+        let (pc, inst) = IDU2ALU_CHANNEL.with(|channel| {
+            if let Some((pc, inst)) = channel.recv() {
+                Ok((pc, inst))
+            } else {
+                log_error!("ALU Failed to receive instruction");
+                Err(ProcessError::Recoverable)
+            }
+        })?;
+
+        ALU2WBU_CHANNEL.with(|channel| {
+            if let Err(e) = channel.send((pc, inst)) {
+                log_error!(format!("ALU Failed to send instruction: {}", e));
+                return Err(ProcessError::Recoverable);
+            }
+            Ok(())
+        })?;
+
+        Ok(())
+    })();
+    nzea_result_write(res);
+}
+
+unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
+    let inst_type = unsafe { &*inst_type };
+
+    nzea_result_write(NZEA_TIME.with(|time| {
+        let mut time = time.get().unwrap().borrow_mut();
+
+        let (pc, inst) = match IFU2IDU_CHANNEL.with(|channel| {
+            if let Some((pc, inst)) = channel.recv() {
+                Ok((pc, inst))
+            } else {
+                log_error!("IDU Failed to receive instruction");
+                Err(ProcessError::Recoverable)
+            }
+        }) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
+        };
+
+        match inst_type {
+            0 => {
+                time.idu_catch_al += 1;
+                if let Err(e) = IDU2ALU_CHANNEL.with(|channel| channel.send((pc, inst))) {
+                    log_error!(format!("IDU Failed to send instruction: {}", e));
+                    return Err(ProcessError::Recoverable);
+                }
+            },
+            1 => {
+                time.idu_catch_ls += 1;
+                if let Err(e) = IDU2LSU_CHANNEL.with(|channel| channel.send((pc, inst))) {
+                    log_error!(format!("IDU Failed to send instruction: {}", e));
+                    return Err(ProcessError::Recoverable);
+                }
+            },
+            2 => {
+                time.idu_catch_cs += 1;
+                if let Err(e) = IDU2ALU_CHANNEL.with(|channel| channel.send((pc, inst))) {
+                    log_error!(format!("IDU Failed to send instruction: {}", e));
+                    return Err(ProcessError::Recoverable);
+                }
+            },
+            _ => {
+                log_error!(format!("Unknown instruction type: {}", inst_type));
+                return Err(ProcessError::Recoverable);
+            }
+        };
+
+        Ok(())
+    }));
 }
 
 unsafe extern "C" fn icache_mat_catch_handler(count: Input) {
@@ -135,6 +196,28 @@ unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
         time.get().unwrap().borrow_mut().ifu_catch += 1;
     });
 
+    let res: ProcessResult<()> = (|| {
+        let (pc, inst) = IDU2LSU_CHANNEL.with(|channel| {
+            if let Some((pc, inst)) = channel.recv() {
+                Ok((pc, inst))
+            } else {
+                log_error!("LSU Failed to receive instruction");
+                Err(ProcessError::Recoverable)
+            }
+        })?;
+
+        LSU2WBU_CHANNEL.with(|channel| {
+            if let Err(e) = channel.send((pc, inst)) {
+                log_error!(format!("LSU Failed to send instruction: {}", e));
+                return Err(ProcessError::Recoverable);
+            }
+            Ok(())
+        })?;
+        
+        Ok(())
+    })();
+    nzea_result_write(res);
+
     NZEA_CALLBACK.with(|callback| {
         let callback = callback.get().unwrap().borrow_mut();
         if diff_skip == 1 {
@@ -144,7 +227,13 @@ unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
 }
 
 unsafe extern "C" fn pipeline_catch_handler() {
-    // log_debug!("pipeline_catch_p");
+    // pipeline flushed, should clear the instruction queue
+    // INSTRUCTION_MESSAGE_QUENE.with(|queue| {
+    //     let mut queue = queue.borrow_mut();
+    //     let last = *queue.last().unwrap();
+    //     queue.clear();
+    //     queue.push(last);
+    // });
 }
 
 unsafe extern "C" fn uart_catch_handler(c: Input) {
@@ -170,40 +259,45 @@ unsafe extern "C" fn wbu_catch_handler(
     let (csr_wena, csr_waddra, csr_wdataa) = unsafe { (&*csr_wena, &*csr_waddra, &*csr_wdataa) };
     let (csr_wenb, csr_waddrb, csr_wdatab) = unsafe { (&*csr_wenb, &*csr_waddrb, &*csr_wdatab) };
 
-    nzea_result_write(NZEA_STATES.with(|states| {
-        let mut states = states.get().unwrap().borrow_mut();
-        states.regfile.write_pc(*next_pc);
-        states
-            .regfile
-            .write_gpr(*gpr_waddr, *gpr_wdata)
-            .map_err(|_| ProcessError::Recoverable)?;
-        if *csr_wena == 1 {
-            states
-                .regfile
-                .write_csr(*csr_waddra, *csr_wdataa)
-                .map_err(|_| ProcessError::Recoverable)?
-        };
-        if *csr_wenb == 1 {
-            states
-                .regfile
-                .write_csr(*csr_waddrb, *csr_wdatab)
-                .map_err(|_| ProcessError::Recoverable)?
-        };
-
-        Ok(())
-    }));
-
     nzea_result_write(NZEA_CALLBACK.with(|callback| {
         let mut callback = callback.get().unwrap().borrow_mut();
-        let (pc, inst) = INSTRUCTION_MESSAGE_QUENE.with(|queue| {
-            let mut queue = queue.borrow_mut();
-            if queue.is_empty() {
-                panic!("Queue is empty");
+        let (pc, inst) = IDU2ALU_CHANNEL.with(|channel| {
+            if let Some((pc, inst)) = channel.recv() {
+                Ok((pc, inst))
             } else {
-                // get head
-                queue.remove(0)
+                log_error!("WBU Failed to receive instruction");
+                Err(ProcessError::Recoverable)
             }
-        });
+        })?;
+
+        let reg_pc = NZEA_STATES.with(|s| s.get().unwrap().borrow().regfile.read_pc());
+        if pc != reg_pc {
+            log_error!(format!("PC mismatch: {:#08x} != {:#08x}", pc, reg_pc));
+            return Err(ProcessError::Recoverable)
+        }
+
+        NZEA_STATES.with(|states| {
+            let mut states = states.get().unwrap().borrow_mut();
+            states.regfile.write_pc(*next_pc);
+            states
+                .regfile
+                .write_gpr(*gpr_waddr, *gpr_wdata)
+                .map_err(|_| ProcessError::Recoverable)?;
+            if *csr_wena == 1 {
+                states
+                    .regfile
+                    .write_csr(*csr_waddra, *csr_wdataa)
+                    .map_err(|_| ProcessError::Recoverable)?
+            };
+            if *csr_wenb == 1 {
+                states
+                    .regfile
+                    .write_csr(*csr_waddrb, *csr_wdatab)
+                    .map_err(|_| ProcessError::Recoverable)?
+            };
+    
+            Ok(())
+        })?;
 
         NZEA_TIME.with(|times| {
             let mut time = times.get().unwrap().borrow_mut();
@@ -215,7 +309,7 @@ unsafe extern "C" fn wbu_catch_handler(
 }
 
 unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
-    let addr = unsafe { &*addr };
+    let addr = unsafe { &(*addr & !0x3) };
     let data = unsafe { &mut *data };
 
     nzea_result_write(NZEA_STATES.with(|states| {
@@ -381,9 +475,7 @@ impl SimulatorItem for Nzea {
         Ok(())
     }
 
-    fn function_wave_trace(&self,enable:bool) -> ProcessResult<()> {
+    fn function_wave_trace(&self,enable:bool) {
         self.top.function_wave_trace(enable);
-
-        Ok(())
     }
 }
