@@ -26,4 +26,9 @@ impl<T> BoundedChannel<T> {
         let mut queue = self.queue.borrow_mut();
         queue.pop_front()
     }
+
+    pub fn flush(&self) {
+        let mut queue = self.queue.borrow_mut();
+        queue.clear();
+    }
 }

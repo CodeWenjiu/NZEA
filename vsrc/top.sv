@@ -416,7 +416,6 @@ module LSU(
   reg  [31:0] masterNodeOut_araddr_r;
   reg  [31:0] masterNodeOut_awaddr_r;
   reg  [31:0] masterNodeOut_wdata_r;
-  wire        masterNodeOut_arvalid = state == 3'h1;
   wire        masterNodeOut_awvalid = state == 3'h2;
   assign io_EXU_2_WBU_valid_0 =
     state == 3'h5 ? auto_master_out_bvalid : state == 3'h4 & auto_master_out_rvalid;
@@ -442,7 +441,7 @@ module LSU(
     end
   end // always @(posedge)
   LSU_catch Catch (
-    .LS        (masterNodeOut_arvalid | masterNodeOut_awvalid),
+    .LS        (io_EXU_2_WBU_valid_0 & ~reset),
     .diff_skip
       ({Catch_io_diff_skip_r[31:29], Catch_io_diff_skip_r[28:12] ^ 17'h10000} == 20'h0
        | Catch_io_diff_skip_r1[31:3] == 29'h14000009
@@ -466,7 +465,7 @@ module LSU(
                : {1'h0, masterNodeOut_awaddr_r[1:0] == 2'h1 ? 3'h6 : 3'h3})
           : 4'hF;
   assign auto_master_out_bready = state == 3'h5;
-  assign auto_master_out_arvalid = masterNodeOut_arvalid;
+  assign auto_master_out_arvalid = state == 3'h1;
   assign auto_master_out_araddr = masterNodeOut_araddr_r;
   assign auto_master_out_rready = state == 3'h4;
   assign io_IDU_2_EXU_ready = ~(|state);

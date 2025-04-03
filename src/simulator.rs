@@ -56,6 +56,8 @@ fn nzea_result_write(result: ProcessResult<()>) {
 }
 
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
+    // log_error!("ifu_catch_p");
+
     let pc = unsafe { &*pc };
     let inst = unsafe { &*inst };
 
@@ -72,6 +74,8 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
 }
 
 unsafe extern "C" fn alu_catch_handler() {
+    // log_error!("alu_catch_p");
+
     NZEA_TIME.with(|time| {
         time.get().unwrap().borrow_mut().alu_catch += 1;
     });
@@ -100,6 +104,8 @@ unsafe extern "C" fn alu_catch_handler() {
 }
 
 unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
+    // log_error!("idu_catch_p");
+
     let inst_type = unsafe { &*inst_type };
 
     nzea_result_write(NZEA_TIME.with(|time| {
@@ -150,6 +156,7 @@ unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
 }
 
 unsafe extern "C" fn icache_mat_catch_handler(count: Input) {
+    // log_error!("icache_mat_catch_p");
     let count = unsafe { &*count };
 
     NZEA_TIME.with(|time| {
@@ -161,6 +168,7 @@ unsafe extern "C" fn icache_mat_catch_handler(count: Input) {
 }
 
 unsafe extern "C" fn icache_catch_handler(map_hit: u8, cache_hit: u8) {
+    // log_error!("icache_catch_p");
     NZEA_TIME.with(|time| {
         let mut time = time.get().unwrap().borrow_mut();
 
@@ -179,7 +187,7 @@ unsafe extern "C" fn icache_catch_handler(map_hit: u8, cache_hit: u8) {
 }
 
 unsafe extern "C" fn icache_flush_handler() {
-    log_debug!("icache_flush_p");
+    // log_debug!("icache_flush_p");
 }
 
 unsafe extern "C" fn icache_state_catch_handler(
@@ -192,6 +200,8 @@ unsafe extern "C" fn icache_state_catch_handler(
 }
 
 unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
+    // log_error!("lsu_catch_p");
+
     NZEA_TIME.with(|time| {
         time.get().unwrap().borrow_mut().ifu_catch += 1;
     });
@@ -234,6 +244,24 @@ unsafe extern "C" fn pipeline_catch_handler() {
     //     queue.clear();
     //     queue.push(last);
     // });
+
+    log_error!("pipeline_flush");
+
+    LSU2WBU_CHANNEL.with(|channel| {
+        channel.flush();
+    });
+    ALU2WBU_CHANNEL.with(|channel| {
+        channel.flush();
+    });
+    IDU2ALU_CHANNEL.with(|channel| {
+        channel.flush();
+    });
+    IDU2LSU_CHANNEL.with(|channel| {
+        channel.flush();
+    });
+    IFU2IDU_CHANNEL.with(|channel| {
+        channel.flush();
+    });
 }
 
 unsafe extern "C" fn uart_catch_handler(c: Input) {
@@ -255,6 +283,8 @@ unsafe extern "C" fn wbu_catch_handler(
     csr_waddrb: Input,
     csr_wdatab: Input,
 ) {
+    // log_error!("sbu_catch_p");
+
     let (next_pc, gpr_waddr, gpr_wdata) = unsafe { (&*next_pc, &*gpr_waddr, &*gpr_wdata) };
     let (csr_wena, csr_waddra, csr_wdataa) = unsafe { (&*csr_wena, &*csr_waddra, &*csr_wdataa) };
     let (csr_wenb, csr_waddrb, csr_wdatab) = unsafe { (&*csr_wenb, &*csr_waddrb, &*csr_wdatab) };
@@ -309,13 +339,14 @@ unsafe extern "C" fn wbu_catch_handler(
 }
 
 unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
-    let addr = unsafe { &(*addr & !0x3) };
+    // log_debug!("sram_read");
+    let addr = unsafe { *addr };
     let data = unsafe { &mut *data };
 
     nzea_result_write(NZEA_STATES.with(|states| {
         let mut states = states.get().unwrap().borrow_mut();
         *data = log_err!(
-            states.mmu.read_memory(*addr, state::mmu::Mask::Word),
+            states.mmu.read_memory(addr, state::mmu::Mask::Word),
             ProcessError::Recoverable
         )?;
         Ok(())
@@ -323,6 +354,7 @@ unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
 }
 
 unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input) {
+    // log_debug!("sram_write");
     let (addr, data, mask) = unsafe { (&*_addr, &*_data, &*_mask) };
 
     let mut data = *data;
