@@ -1,0 +1,6 @@
+[submodule "ssrc/rocket-chip"]
+	path = ssrc/rocket-chip
+	url = git@github.com:TimeKeepper/rocket-chip.git
+[submodule "ssrc/rvdecoderdb"]
+	path = ssrc/rvdecoderdb
+	url = git@github.com:chipsalliance/rvdecoderdb.git
