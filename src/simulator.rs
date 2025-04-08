@@ -4,7 +4,7 @@ use logger::Logger;
 use option_parser::OptionParser;
 use owo_colors::OwoColorize;
 use petgraph::{algo::toposort, graph::NodeIndex, Graph};
-use remu_macro::{log_debug, log_err, log_error};
+use remu_macro::{log_err, log_error};
 use remu_utils::{ProcessError, ProcessResult};
 use state::{States, reg::RegfileIo};
 
@@ -65,6 +65,11 @@ impl MessageChannel {
         } else {
             Err(ProcessError::Recoverable)
         }
+    }
+
+    fn flush(&mut self) {
+        self.buffer.clear();
+        self.transmit_target = None;
     }
 }
 
@@ -205,10 +210,8 @@ impl NzeaModel {
     }
 
     fn flush(&mut self) {
-        for (cell, (channel, _)) in self.channels.iter_mut() {
-            if *cell != PipeCell::WBU {
-                channel.transmit_target = None;
-            }
+        for (_, (channel, _)) in self.channels.iter_mut() {
+            channel.flush();
         }
     }
 }
@@ -232,7 +235,7 @@ fn nzea_result_write(result: ProcessResult<()>) {
 }
 
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
-    log_debug!("ifu_catch_p");
+    // log_debug!("ifu_catch_p");
 
     let pc = unsafe { &*pc };
     let inst = unsafe { &*inst };
@@ -249,7 +252,7 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
 }
 
 unsafe extern "C" fn alu_catch_handler() {
-    log_debug!("alu_catch_p");
+    // log_debug!("alu_catch_p");
 
     NZEA_TIME.with(|time| {
         time.get().unwrap().borrow_mut().alu_catch += 1;
@@ -262,7 +265,7 @@ unsafe extern "C" fn alu_catch_handler() {
 }
 
 unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
-    log_debug!("idu_catch_p");
+    // log_debug!("idu_catch_p");
 
     let inst_type = unsafe { &*inst_type };
 
@@ -299,7 +302,7 @@ unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
 }
 
 unsafe extern "C" fn icache_mat_catch_handler(count: Input) {
-    log_debug!("icache_mat_catch_p");
+    // log_debug!("icache_mat_catch_p");
     let count = unsafe { &*count };
 
     NZEA_TIME.with(|time| {
@@ -311,7 +314,7 @@ unsafe extern "C" fn icache_mat_catch_handler(count: Input) {
 }
 
 unsafe extern "C" fn icache_catch_handler(map_hit: u8, cache_hit: u8) {
-    log_debug!("icache_catch_p");
+    // log_debug!("icache_catch_p");
     NZEA_TIME.with(|time| {
         let mut time = time.get().unwrap().borrow_mut();
 
@@ -330,7 +333,7 @@ unsafe extern "C" fn icache_catch_handler(map_hit: u8, cache_hit: u8) {
 }
 
 unsafe extern "C" fn icache_flush_handler() {
-    log_debug!("icache_flush_p");
+    // log_debug!("icache_flush_p");
 }
 
 unsafe extern "C" fn icache_state_catch_handler(
@@ -339,11 +342,11 @@ unsafe extern "C" fn icache_state_catch_handler(
     _write_tag: Input,
     _write_data: Input,
 ) {
-    log_debug!("icache_state_catch_p");
+    // log_debug!("icache_state_catch_p");
 }
 
 unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
-    log_debug!("lsu_catch_p");
+    // log_debug!("lsu_catch_p");
 
     NZEA_TIME.with(|time| {
         time.get().unwrap().borrow_mut().ifu_catch += 1;
@@ -362,7 +365,7 @@ unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
 }
 
 unsafe extern "C" fn pipeline_catch_handler() {
-    log_debug!("flush_p");
+    // log_debug!("flush_p");
     NZEA_PIPE_STATE.with(|model| {
         let mut model = model.get().unwrap().borrow_mut();
         model.flush();
@@ -388,7 +391,7 @@ unsafe extern "C" fn wbu_catch_handler(
     csr_waddrb: Input,
     csr_wdatab: Input,
 ) {
-    log_debug!("wbu_catch_p");
+    // log_debug!("wbu_catch_p");
 
     let (next_pc, gpr_waddr, gpr_wdata) = unsafe { (&*next_pc, &*gpr_waddr, &*gpr_wdata) };
     let (csr_wena, csr_waddra, csr_wdataa) = unsafe { (&*csr_wena, &*csr_waddra, &*csr_wdataa) };
