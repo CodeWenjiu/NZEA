@@ -627,4 +627,8 @@ impl SimulatorItem for Nzea {
     fn function_wave_trace(&self, enable: bool) {
         self.top.function_wave_trace(enable);
     }
+
+    fn function_nvboard(&self, enable:bool) {
+        self.top.function_nvboard(enable);
+    }
 }

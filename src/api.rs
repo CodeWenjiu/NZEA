@@ -37,6 +37,8 @@ struct VTop {
     enable_wave_trace: unsafe extern "C" fn(vhandlep_v: *mut c_void) -> c_void,
     disable_wave_trace: unsafe extern "C" fn(vhandlep_v: *mut c_void) -> c_void,
 
+    enable_nvboard: unsafe extern "C" fn(vhandlep_v: *mut c_void) -> c_void,
+
     set_basic_callbacks: unsafe extern "C" fn(callbacks: BasicCallbacks),
     set_npc_callbacks: unsafe extern "C" fn(callbacks: NpcCallbacks),
 }
@@ -50,7 +52,7 @@ pub struct Top {
 impl Top {
     pub fn new() -> Self {
         let container: Container<VTop> =
-            unsafe { Container::load("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/obj_dir/libnzea.so") }.expect("Could not open library or load symbols");
+            unsafe { Container::load("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/npc/obj_dir/libnzea.so") }.expect("Could not open library or load symbols");
 
         let scope = std::ffi::CString::new("0").expect("CString::new failed");
         let model = unsafe { container.create_model(scope.as_ptr()) };
@@ -86,6 +88,14 @@ impl Top {
     }
 
     pub fn function_wave_trace(&self, enable: bool) {
+        unsafe {
+            if enable == true {
+                (self.container.enable_nvboard)(self.model);
+            }
+        }
+    }
+
+    pub fn function_nvboard(&self, enable: bool) {
         unsafe {
             if enable == true {
                 (self.container.enable_wave_trace)(self.model);

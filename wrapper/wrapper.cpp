@@ -1,6 +1,7 @@
 #include "wrapper.h"
 #include "verilated_fst_c.h"
 #include "Vtop.h"
+#include <nvboard.h>
 
 class VTop_container: public Vtop {
     public:
@@ -24,6 +25,15 @@ class VTop_container: public Vtop {
             this->wave_trace_on = false;
         }
 
+        bool nvboard_on = false;
+        void enable_nvboard() {
+            void nvboard_bind_all_pins(Vtop* top);
+            if (!nvboard_on) {
+                nvboard_bind_all_pins(this);
+                nvboard_init();
+            }
+        }
+
         void cycle() {
             this->clock = 0;
             this->eval();
@@ -39,6 +49,10 @@ class VTop_container: public Vtop {
 
             if (this->tfp && this->wave_trace_on) {
                 this->tfp->dump(this->contextp->time());
+            }
+
+            if (this->nvboard_on) {
+                nvboard_update();
             }
 
             this->contextp->timeInc(1);
@@ -93,6 +107,11 @@ extern "C" {
     void disable_wave_trace(void* vhandlep__V) {
         VTop_container* const handlep__V = static_cast<VTop_container*>(vhandlep__V);
         handlep__V->disable_wave_trace();
+    }
+
+    void enable_nvboard(void* vhandlep__V) {
+        VTop_container* const handlep__V = static_cast<VTop_container*>(vhandlep__V);
+        handlep__V->enable_nvboard();
     }
 
     void delete_model(void* vhandlep__V) {
