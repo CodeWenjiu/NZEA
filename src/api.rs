@@ -98,7 +98,7 @@ impl Top {
     pub fn function_nvboard(&self, enable: bool) {
         unsafe {
             if enable == true {
-                (self.container.enable_wave_trace)(self.model);
+                (self.container.enable_nvboard)(self.model);
             } else {
                 (self.container.disable_wave_trace)(self.model);
             }

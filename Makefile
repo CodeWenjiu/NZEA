@@ -66,6 +66,7 @@ $(LIB): $(CSRC) $(VSRC) $(DESIGN_FILE) $(NVBOARD_ARCHIVE) $(DESIGN_FILE)
 		$(VERILATOR_COMPILEFLAGS) \
 		$(addprefix -LDFLAGS , $(LDFLAGS)) \
 		$(VERILATOR_SIMFLAGS)
+	@g++ -o $(OBJ_DIR)/libnzea.so -shared -Wl,--whole-archive $(OBJ_DIR)/libnzea.a -Wl,--no-whole-archive $(NVBOARD_ARCHIVE) -lSDL2 -lSDL2_image -lSDL2_ttf
 	@echo "Verilator simulation files generated in $(OBJ_DIR)"
 
 clean:
