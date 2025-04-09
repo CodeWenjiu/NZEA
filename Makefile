@@ -1,6 +1,7 @@
 default: generate
 
-BUILD_DIR = ./build
+PLATFORM ?= npc
+BUILD_DIR = ./build/$(PLATFORM)
 OBJ_DIR = $(BUILD_DIR)/obj_dir
 LIB = $(BUILD_DIR)/libnzea.so
 
@@ -15,10 +16,10 @@ SSRC = $(shell find $(abspath $(SSRC_HDL_DIR)) -name "*.scala")
 SSRC += $(shell find $(abspath $(SSRC_PLATFORM_DIR)) -name "*.scala")
 SSRC += $(SSRC_DIR)/build.sc
 
-DESIGN_FILE ?= build/top.sv
+DESIGN_FILE ?= $(BUILD_DIR)/top.sv
 
 $(DESIGN_FILE): $(SSRC)
-	$(MAKE) -C $(SSRC_DIR) verilog
+	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)
 
 VERILATOR = verilator
 VERILATOR_CFLAGS += -j `nproc` -MMD --build -cc  \

@@ -21,5 +21,41 @@ object Elaboratenpc extends App {
   Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
                         AddressSet.misaligned(0xa0000048L, 0x10))
 
-  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_cpu.top(), args, firtoolOptions)
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.npc.top(), args, firtoolOptions)
+}
+
+object Elaboratejyd extends App {
+  val firtoolOptions = Array(
+    "-disable-all-randomization",
+    "-strip-debug-info",
+    "--lowering-options=" + List(
+      // make vivado happy
+      "mitigateVivadoArrayIndexConstPropBug",
+    ).reduce(_ + "," + _)
+  )
+  
+  Config.Reset_Vector = "h80000000".U(32.W)
+  Config.setSimulate(true)
+  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 2, 2, 16)
+  Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
+                        AddressSet.misaligned(0xa0000048L, 0x10))
+
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.top(), args, firtoolOptions)
+}
+
+object Elaboratejyd_core extends App {
+  val firtoolOptions = Array(
+    "-disable-all-randomization",
+    "-strip-debug-info",
+    "--lowering-options=" + List(
+      // make vivado happy
+      "mitigateVivadoArrayIndexConstPropBug",
+    ).reduce(_ + "," + _)
+  )
+  
+  Config.Reset_Vector = "h80000000".U(32.W)
+  Config.setSimulate(false)
+  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 2, 2, 16)
+
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.top(), args, firtoolOptions)
 }

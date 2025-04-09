@@ -263,6 +263,88 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
   }
 }
 
+class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
+  ElaborationArtefacts.add("graphml", graphML)
+  val LazyIFU = LazyModule(new IFU(idBits = idBits))
+  val LazyLSU = LazyModule(new LSU(idBits = idBits))
+
+  val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
+  xbar := LazyIFU.masterNode
+  xbar := LazyLSU.masterNode
+
+  val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x1000)))
+  val lclint = LazyModule(new CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U))
+  val lsram = LazyModule(new SRAM(AddressSet.misaligned(0x80000000L, 0x8000000)))
+
+  luart.node := xbar
+  lclint.node := xbar
+  lsram.node := xbar
+  override lazy val module = new Impl
+  class Impl extends LazyModuleImp(this) with DontTouch {
+    
+    val IFU = LazyIFU.module
+    val IDU = Module(new IDU)
+    val ALU = Module(new ALU)
+    val LSU = LazyLSU.module
+    val WBU = Module(new WBU)
+    val REG = Module(new REG) 
+    
+    val PipelineCtrl = Module(new PipelineCtrl)
+    PipelineCtrl.io.GPR_read.valid := IDU.io.IDU_2_EXU.valid
+    PipelineCtrl.io.GPR_read.bits := IDU.io.IDU_2_REG
+
+    PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
+    PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
+    PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
+    PipelineCtrl.io.LSU_in := LSU.io.IDU_2_EXU
+    PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
+
+    PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU
+    
+    val to_LSU = IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
+
+    // bus IFU -> IDU
+    IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
+    // IFU.io.IFU_2_IDU     <> IDU.io.IFU_2_IDU
+    pipelineConnect(IFU.io.IFU_2_IDU, IDU.io.IFU_2_IDU, IDU.io.IDU_2_EXU, PipelineCtrl.io.IFUCtrl)
+    pipelineConnect(
+      IDU.io.IDU_2_EXU, 
+      Seq(
+        (to_LSU, LSU.io.IDU_2_EXU, LSU.io.EXU_2_WBU),
+        (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
+      ), 
+      PipelineCtrl.io.IDUCtrl
+    )
+    // pipelineConnect(EXU.io.EXU_2_WBU, WBU.io.EXU_2_WBU, WBU.io.WBU_2_IFU, PipelineCtrl.io.EXUCtrl)
+    pipelineConnect(
+      Seq(
+        (LSU.io.EXU_2_WBU),
+        (ALU.io.EXU_2_WBU)
+      ),
+      WBU.io.EXU_2_WBU,
+      WBU.io.WBU_2_IFU,
+      PipelineCtrl.io.EXUCtrl
+    )
+
+    WBU.io.WBU_2_IFU.ready := true.B
+
+    // bus IFU -> REG -> IDU without delay
+    REG.io.REG_2_IDU     <> IDU.io.REG_2_IDU
+
+    // // bus IDU -> REG -> EXU without delay
+    IDU.io.IDU_2_REG     <> REG.io.IDU_2_REG
+    // REG.io.REG_2_EXU     <> EXU.io.REG_2_EXU   
+
+    // // bus WBU -> IFU
+    WBU.io.WBU_2_IFU.bits     <> IFU.io.WBU_2_IFU
+
+    // // bus WBU -> REG -> IFU without delay
+    WBU.io.WBU_2_REG     <> REG.io.WBU_2_REG
+
+    LSU.io.flush := PipelineCtrl.io.EXUCtrl.flush
+  }
+}
+
 import sifive._
 
 class ysyx_23060198 extends Module {
@@ -287,12 +369,4 @@ class ysyx_23060198 extends Module {
   mdut.io.master <> io.master
   io.slave <> mdut.io.slave
   io.interrupt <> mdut.io.interrupt
-}
-
-class top extends Module {
-  implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
-
-  val dut = LazyModule(new npc(idBits = ChipLinkParam.idBits))
-  val mdut = Module(dut.module)
-  mdut.dontTouchPorts()
 }
