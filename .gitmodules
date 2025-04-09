@@ -7,3 +7,6 @@
 [submodule "nvboard"]
 	path = nvboard
 	url = git@github.com:TimeKeepper/nvboard.git
+[submodule "ssrc/platform/NZ-jyd"]
+	path = ssrc/platform/NZ-jyd
+	url = git@github.com:TimeKeepper/NZ-jyd.git

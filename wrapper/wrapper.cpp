@@ -77,6 +77,9 @@ class VTop_container: public Vtop {
                 delete tfp;
                 tfp = nullptr;
             }
+            if (nvboard_on) {
+                nvboard_quit();
+            }
             this->final();
         }
 };
