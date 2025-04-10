@@ -34,7 +34,7 @@ SSRC += $(SSRC_DIR)/build.sc
 
 # 8< -------- verilator -------- 8< #
 
-DESIGN_FILE ?= $(BUILD_DIR)/top.sv
+DESIGN_FILE ?= $(shell find $(abspath $(BUILD_DIR)) -maxdepth 1 -name "*.v" -or -name "*.sv")
 
 $(DESIGN_FILE): $(SSRC)
 	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)

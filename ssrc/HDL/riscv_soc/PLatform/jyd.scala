@@ -29,6 +29,13 @@ class apb_peripheral extends BlackBox {
     })
 }
 
+class peripheral extends Bundle {
+    val LED = Output(UInt(32.W))
+    val SW1 = Input(UInt(32.W))
+    val SW2 = Input(UInt(32.W))
+    val SEG = Output(UInt(32.W))
+}
+
 class ApbPeripheralWrapper(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {
     val beatBytes = 4
     val node = APBSlaveNode(Seq(APBSlavePortParameters(
@@ -56,5 +63,11 @@ class ApbPeripheralWrapper(address: Seq[AddressSet])(implicit p: Parameters) ext
         APB.prdata <> apb_peripheral_0.io.Prdata
         APB.pready <> apb_peripheral_0.io.Pready
         APB.pslverr <> apb_peripheral_0.io.Pslverr
+
+        val peripheral = IO(new peripheral())
+        peripheral.SW1 <> apb_peripheral_0.io.SW1
+        peripheral.SW2 <> apb_peripheral_0.io.SW2
+        peripheral.SEG <> apb_peripheral_0.io.SEG
+        peripheral.LED <> apb_peripheral_0.io.LED
     }
 }

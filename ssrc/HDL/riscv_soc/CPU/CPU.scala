@@ -16,6 +16,7 @@ import freechips.rocketchip.diplomacy._
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.platform.jyd.ApbPeripheralWrapper
 import freechips.rocketchip.amba.apb.APBFanout
+import _root_.riscv_soc.platform
 
 class Inst_Comp extends BlackBox with HasBlackBoxInline{
   val io = IO(new Bundle{
@@ -289,7 +290,9 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
   lsram.node := xbar
   override lazy val module = new Impl
   class Impl extends LazyModuleImp(this) with DontTouch {
-    
+    val peripheral = IO(new platform.jyd.peripheral())
+    peripheral <> lperipheral.module.peripheral
+
     val IFU = LazyIFU.module
     val IDU = Module(new IDU)
     val ALU = Module(new ALU)

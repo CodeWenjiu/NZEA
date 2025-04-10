@@ -20,5 +20,8 @@ class top extends Module {
 
   val dut = LazyModule(new riscv_cpu.jyd(idBits = riscv_cpu.ChipLinkParam.idBits))
   val mdut = Module(dut.module)
+
+  val peripheral = IO(new peripheral())
+  mdut.peripheral <> peripheral
   mdut.dontTouchPorts()
 }
