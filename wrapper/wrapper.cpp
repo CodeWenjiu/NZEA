@@ -31,6 +31,7 @@ class VTop_container: public Vtop {
             if (!nvboard_on) {
                 nvboard_bind_all_pins(this);
                 nvboard_init();
+                nvboard_on = true;
             }
         }
 

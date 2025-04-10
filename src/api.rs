@@ -52,7 +52,7 @@ pub struct Top {
 impl Top {
     pub fn new() -> Self {
         let container: Container<VTop> =
-            unsafe { Container::load("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/npc/obj_dir/libnzea.so") }.expect("Could not open library or load symbols");
+            unsafe { Container::load("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/jyd/obj_dir/libnzea.so") }.expect("Could not open library or load symbols");
 
         let scope = std::ffi::CString::new("0").expect("CString::new failed");
         let model = unsafe { container.create_model(scope.as_ptr()) };

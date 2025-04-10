@@ -1,6 +1,6 @@
 default: generate
 
-PLATFORM ?= npc
+PLATFORM ?= jyd
 ROOT_BUILD_DIR = ./build
 BUILD_DIR = $(ROOT_BUILD_DIR)/$(PLATFORM)
 OBJ_DIR = $(BUILD_DIR)/obj_dir

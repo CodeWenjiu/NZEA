@@ -18,7 +18,7 @@ module apb_peripheral(
 // APB write operation
 always @(posedge Pclk or posedge Prst) begin
     if (!Prst)
-        LED <= 32'h00000000; // reset value
+        LED <= 32'hff00ff00; // reset value
     else if (Psel && Penable && Pwrite && (Paddr == 32'h20000000))
         LED <= Pwdata;
     else if (Psel && Penable && Pwrite && (Paddr == 32'h2000000c))
