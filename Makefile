@@ -34,10 +34,14 @@ SSRC += $(SSRC_DIR)/build.sc
 
 # 8< -------- verilator -------- 8< #
 
-DESIGN_FILE ?= $(shell find $(abspath $(BUILD_DIR)) -maxdepth 1 -name "*.v" -or -name "*.sv")
+DESIGN_FILE ?= $(BUILD_DIR)/top.sv
 
 $(DESIGN_FILE): $(SSRC)
 	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)
+
+VSRC_DIR = vsrc/$(PLATFORM)
+VSRC = $(shell find $(abspath $(VSRC_DIR)) -name "*.v" -or -name "*.sv")
+VSRC += $(DESIGN_FILE)
 
 VERILATOR = verilator
 VERILATOR_CFLAGS += -j `nproc` -MMD --build -cc  \
@@ -52,14 +56,14 @@ NVBOARD_HOME = $(shell pwd)/nvboard
 
 include $(NVBOARD_HOME)/scripts/nvboard.mk
 
-VERILATOR_COMPILEFLAGS += $(DESIGN_FILE) \
+VERILATOR_COMPILEFLAGS += $(VSRC) \
 				$(CSRC) \
 				--Mdir $(OBJ_DIR) \
 				--lib-create nzea
 
 LDFLAGS = -L$(NVBOARD_ARCHIVE)
 
-$(LIB): $(CSRC) $(VSRC) $(DESIGN_FILE) $(NVBOARD_ARCHIVE) $(DESIGN_FILE)
+$(LIB): $(CSRC) $(VSRC) $(NVBOARD_ARCHIVE)
 	@mkdir -p $(OBJ_DIR)
 	@ccache $(VERILATOR) $(VERILATOR_CFLAGS) \
 		$(addprefix -CFLAGS , $(HSRC)) \
