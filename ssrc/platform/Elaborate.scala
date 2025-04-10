@@ -37,8 +37,7 @@ object Elaboratejyd extends App {
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(true)
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 2, 2, 16)
-  Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
-                        AddressSet.misaligned(0xa0000048L, 0x10))
+  Config.setDiffMisMap(AddressSet.misaligned(0x20000000, 0x1000))
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.top(), args, firtoolOptions)
 }

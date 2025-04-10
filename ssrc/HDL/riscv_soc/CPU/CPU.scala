@@ -14,6 +14,8 @@ import org.chipsalliance.cde.config.{Parameters, Config}
 import freechips.rocketchip.system._
 import freechips.rocketchip.diplomacy._
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
+import riscv_soc.platform.jyd.ApbPeripheralWrapper
+import freechips.rocketchip.amba.apb.APBFanout
 
 class Inst_Comp extends BlackBox with HasBlackBoxInline{
   val io = IO(new Bundle{
@@ -269,12 +271,18 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
   val LazyLSU = LazyModule(new LSU(idBits = idBits))
 
   val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
+  val apbxbar = LazyModule(new APBFanout).node
   xbar := LazyIFU.masterNode
   xbar := LazyLSU.masterNode
+
+  apbxbar := AXI4ToAPB() := xbar
 
   val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x1000)))
   val lclint = LazyModule(new CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U))
   val lsram = LazyModule(new SRAM(AddressSet.misaligned(0x80000000L, 0x8000000)))
+  val lperipheral = LazyModule(new ApbPeripheralWrapper(AddressSet.misaligned(0x20000000, 0x2000)))
+
+  lperipheral.node := apbxbar
 
   luart.node := xbar
   lclint.node := xbar
@@ -343,30 +351,4 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
     LSU.io.flush := PipelineCtrl.io.EXUCtrl.flush
   }
-}
-
-import sifive._
-
-class ysyx_23060198 extends Module {
-  implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
-  
-  val io = IO(new Bundle {
-      val master = AXI4Bundle(CPUAXI4BundleParameters())
-      val slave  = Flipped(AXI4Bundle(CPUAXI4BundleParameters()))
-      val interrupt = Input(Bool()) 
-  })
-  val dut = LazyModule(new riscv_CPU(idBits = ChipLinkParam.idBits))
-  val mdut = Module(dut.module)
-
-  chisel3.experimental.annotate(
-    new chisel3.experimental.ChiselAnnotation {
-      override def toFirrtl = sifive.enterprise.firrtl.NestedPrefixModulesAnnotation(mdut.toTarget, "ysyx_23060198_", true)
-    }
-  )
-
-  mdut.dontTouchPorts()
-  
-  mdut.io.master <> io.master
-  io.slave <> mdut.io.slave
-  io.interrupt <> mdut.io.interrupt
 }
