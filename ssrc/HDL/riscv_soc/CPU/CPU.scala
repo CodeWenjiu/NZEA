@@ -278,16 +278,20 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
   apbxbar := AXI4ToAPB() := xbar
 
-  val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x1000)))
+  if(Config.Simulate){
+    val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x1000)))
+    val lsram = LazyModule(new SRAM(AddressSet.misaligned(0x80000000L, 0x8000000)))
+
+    luart.node := xbar
+    lsram.node := xbar
+  }
+
   val lclint = LazyModule(new CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U))
-  val lsram = LazyModule(new SRAM(AddressSet.misaligned(0x80000000L, 0x8000000)))
-  val lperipheral = LazyModule(new ApbPeripheralWrapper(AddressSet.misaligned(0x20000000, 0x2000)))
-
-  lperipheral.node := apbxbar
-
-  luart.node := xbar
   lclint.node := xbar
-  lsram.node := xbar
+
+  val lperipheral = LazyModule(new ApbPeripheralWrapper(AddressSet.misaligned(0x20000000, 0x2000)))
+  lperipheral.node := apbxbar
+  
   override lazy val module = new Impl
   class Impl extends LazyModuleImp(this) with DontTouch {
     val peripheral = IO(new platform.jyd.peripheral())

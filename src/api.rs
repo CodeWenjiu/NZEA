@@ -90,7 +90,9 @@ impl Top {
     pub fn function_wave_trace(&self, enable: bool) {
         unsafe {
             if enable == true {
-                (self.container.enable_nvboard)(self.model);
+                (self.container.enable_wave_trace)(self.model);
+            } else {
+                (self.container.disable_wave_trace)(self.model);
             }
         }
     }
@@ -100,7 +102,6 @@ impl Top {
             if enable == true {
                 (self.container.enable_nvboard)(self.model);
             } else {
-                (self.container.disable_wave_trace)(self.model);
             }
         }
     }

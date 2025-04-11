@@ -36,6 +36,8 @@ SSRC += $(SSRC_DIR)/build.sc
 
 DESIGN_FILE ?= $(BUILD_DIR)/top.sv
 
+verilog: $(DESIGN_FILE)
+
 $(DESIGN_FILE): $(SSRC)
 	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)
 
