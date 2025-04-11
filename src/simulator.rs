@@ -1,16 +1,15 @@
-use std::{cell::RefCell, char, collections::HashMap, io::Write, sync::OnceLock};
+use std::{cell::RefCell, char, io::Write, sync::OnceLock};
 
 use logger::Logger;
 use option_parser::OptionParser;
 use owo_colors::OwoColorize;
-use petgraph::{algo::toposort, graph::NodeIndex, Graph};
 use remu_macro::{log_err, log_error};
 use remu_utils::{ProcessError, ProcessResult};
 use state::{States, reg::RegfileIo};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
-use super::{BasicCallbacks, Input, NpcCallbacks, Output, Top};
+use super::{BasicCallbacks, BasicPipeCell, Input, NpcCallbacks, Output, PipelineModel, Top};
 
 #[derive(Default)]
 pub struct NzeaTimes {
@@ -30,198 +29,12 @@ pub struct NzeaTimes {
     pub alu_catch: u64,
 }
 
-use bitflags::bitflags;
-bitflags! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub struct PipeCell: u32 {
-        const IFU = 1 << 0;
-        const IDU = 1 << 1;
-        const ALU = 1 << 2;
-        const LSU = 1 << 3;
-        const WBU = 1 << 4;
-    }
-}
-
-#[derive(Debug)]
-struct MessageChannel {
-    buffer: Vec<(u32, u32)>,
-    capacity: usize,
-    transmit_target: Option<PipeCell>,
-}
-
-impl MessageChannel {
-    fn new(capacity: usize) -> Self {
-        Self {
-            buffer: Vec::new(),
-            capacity,
-            transmit_target: None,
-        }
-    }
-
-    fn push(&mut self, data: (u32, u32)) -> ProcessResult<()> {
-        if self.buffer.len() < self.capacity {
-            self.buffer.push(data);
-            Ok(())
-        } else {
-            Err(ProcessError::Recoverable)
-        }
-    }
-
-    fn flush(&mut self) {
-        self.buffer.clear();
-        self.transmit_target = None;
-    }
-}
-
-#[derive(Debug)]
-struct NzeaModel {
-    channels: HashMap<PipeCell, (MessageChannel, NodeIndex)>,
-    graph: Graph<PipeCell, ()>,
-    input: PipeCell,
-    output: PipeCell,
-}
-
-impl NzeaModel {
-    fn new() -> Self {
-        let mut graph = Graph::new();
-        let mut channels = HashMap::new();
-
-        let input = PipeCell::IFU;
-        let input_node = graph.add_node(input);
-        channels.insert(input, (MessageChannel::new(1), input_node));
-
-        let idu = PipeCell::IDU;
-        let idu_node = graph.add_node(idu);
-        graph.add_edge(input_node, idu_node, ());
-        channels.insert(idu, (MessageChannel::new(1), idu_node));
-
-        let alu = PipeCell::ALU;
-        let alu_node = graph.add_node(alu);
-        graph.add_edge(idu_node, alu_node, ());
-        channels.insert(alu, (MessageChannel::new(1), alu_node));
-
-        let lsu = PipeCell::LSU;
-        let lsu_node = graph.add_node(lsu);
-        graph.add_edge(idu_node, lsu_node, ());
-        channels.insert(lsu, (MessageChannel::new(1), lsu_node));
-
-        let output = PipeCell::WBU;
-        let output_node = graph.add_node(output);
-        graph.add_edge(alu_node, output_node, ());
-        graph.add_edge(lsu_node, output_node, ());
-        channels.insert(output, (MessageChannel::new(1), output_node));
-
-        Self {
-            channels,
-            graph,
-            input,
-            output,
-        }
-    }
-
-    fn send(&mut self, data: (u32, u32), to: PipeCell) -> ProcessResult<()> {
-        self.channels
-            .get_mut(&self.input)
-            .unwrap()
-            .0
-            .push(data)
-            .map_err(|e| {
-                log_error!(format!("{:?}: buffer is full", self.input));
-                e
-            })?;
-        
-        self.trans(self.input, to);
-
-        Ok(())
-    }
-
-    fn check_connect(&self, from: PipeCell, to: PipeCell) -> bool {
-        // check if from and to are connected
-        if self.graph.contains_edge(self.channels.get(&from).unwrap().1, self.channels.get(&to).unwrap().1) {
-            return true;
-        }
-        false
-    }
-
-    fn trans(&mut self, from: PipeCell, to: PipeCell) {
-        if !self.check_connect(from, to) {
-            log_error!(format!("{:?} and {:?} are not connected", from, to));
-            return;
-        }
-        
-        self.channels
-            .get_mut(&from)
-            .unwrap()
-            .0
-            .transmit_target = Some(to);
-    }
-
-    fn get(&mut self) -> ProcessResult<(u32, u32)> {
-        let channel = &mut self.channels.get_mut(&self.output).unwrap().0;
-        let data = channel.buffer.pop().ok_or({
-            ProcessError::Recoverable
-        }).map_err(|e|{
-            log_error!(format!("{:?}: buffer is empty", self.output));
-            e
-        })?;
-
-        Ok(data)
-    }
-
-    fn update(&mut self) -> ProcessResult<()> {
-        let order = toposort(&self.graph, None)
-            .map_err(|_| {log_error!("WTF"); ProcessError::Fatal})?;
-
-        for &node in order.iter().rev() {
-            let channel = self.graph[node];
-            let transmit_target;
-            let from_node;
-            {
-                let channel_obj = self.channels.get_mut(&channel).unwrap();
-                transmit_target = channel_obj.0.transmit_target.take();
-                from_node = channel_obj.1;
-            }
-            if let Some(to) = transmit_target {
-                let to_node = self.channels.get(&to).unwrap().1;
-                if !self.graph.contains_edge(from_node, to_node) {
-                    log_error!(format!("{:?} and {:?} are not connected", channel, to));
-                    return Err(ProcessError::Fatal);
-                }
-                
-                let channel_obj = self.channels.get_mut(&channel).unwrap();
-                let data = {
-                    channel_obj.0.buffer.pop().ok_or({
-                        ProcessError::Recoverable
-                    })
-                }.map_err(|e| {
-                    log_error!(format!("{:?} buffer is empty", channel));
-                    e
-                })?;
-                
-                let target_channel = self.channels.get_mut(&to).unwrap();
-                target_channel.0.push(data).map_err(|e| {
-                    log_error!(format!("Buffer overflow: {:?}", to));
-                    e
-                })?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn flush(&mut self) {
-        for (_, (channel, _)) in self.channels.iter_mut() {
-            channel.flush();
-        }
-    }
-}
-
 thread_local! {
     static NZEA_STATES : OnceLock<RefCell<States>> = OnceLock::new();
     static NZEA_CALLBACK : OnceLock<RefCell<SimulatorCallback>> = OnceLock::new();
     static NZEA_TIME : OnceLock<RefCell<NzeaTimes>> = OnceLock::new();
     static NZEA_RESULT : OnceLock<RefCell<ProcessResult<()>>> = OnceLock::new();
-    static NZEA_PIPE_STATE : OnceLock<RefCell<NzeaModel>> = OnceLock::new();
+    static NZEA_PIPE_STATE : OnceLock<RefCell<PipelineModel<BasicPipeCell>>> = OnceLock::new();
 }
 
 fn nzea_result_write(result: ProcessResult<()>) {
@@ -246,7 +59,7 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
 
     nzea_result_write(
         NZEA_PIPE_STATE.with(|model| {
-            model.get().unwrap().borrow_mut().send((*pc, *inst), PipeCell::IDU)
+            model.get().unwrap().borrow_mut().send((*pc, *inst), BasicPipeCell::IDU)
         })
     );
 }
@@ -260,7 +73,7 @@ unsafe extern "C" fn alu_catch_handler() {
 
 
     NZEA_PIPE_STATE.with(|model| {
-        model.get().unwrap().borrow_mut().trans(PipeCell::ALU, PipeCell::WBU);
+        model.get().unwrap().borrow_mut().trans(BasicPipeCell::ALU, BasicPipeCell::WBU);
     });
 }
 
@@ -276,19 +89,19 @@ unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
             0 => {
                 time.idu_catch_al += 1;
                 NZEA_PIPE_STATE.with(|model| {
-                    model.get().unwrap().borrow_mut().trans(PipeCell::IDU, PipeCell::ALU);
+                    model.get().unwrap().borrow_mut().trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
                 });
             }
             1 => {
                 time.idu_catch_ls += 1;
                 NZEA_PIPE_STATE.with(|model| {
-                    model.get().unwrap().borrow_mut().trans(PipeCell::IDU, PipeCell::LSU);
+                    model.get().unwrap().borrow_mut().trans(BasicPipeCell::IDU, BasicPipeCell::LSU);
                 });
             }
             2 => {
                 time.idu_catch_cs += 1;
                 NZEA_PIPE_STATE.with(|model| {
-                    model.get().unwrap().borrow_mut().trans(PipeCell::IDU, PipeCell::ALU);
+                    model.get().unwrap().borrow_mut().trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
                 });
             }
             _ => {
@@ -353,7 +166,7 @@ unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
     });
 
     NZEA_PIPE_STATE.with(|model| {
-        model.get().unwrap().borrow_mut().trans(PipeCell::LSU, PipeCell::WBU);
+        model.get().unwrap().borrow_mut().trans(BasicPipeCell::LSU, BasicPipeCell::WBU);
     });
 
     NZEA_CALLBACK.with(|callback| {
@@ -550,7 +363,7 @@ impl Nzea {
         });
 
         NZEA_PIPE_STATE.with(|model_ref| {
-            model_ref.get_or_init(|| std::cell::RefCell::new(NzeaModel::new()));
+            model_ref.get_or_init(|| std::cell::RefCell::new(PipelineModel::new()));
         });
 
         Self { top }
