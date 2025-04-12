@@ -284,6 +284,9 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
     luart.node := xbar
     lsram.node := xbar
+  } else {
+    val lsram = LazyModule(new platform.jyd.SystemRAMWrapper(AddressSet.misaligned(0x80000000L, 0x8000000)))
+    lsram.node := xbar
   }
 
   val lclint = LazyModule(new CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U))
@@ -296,6 +299,125 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
   class Impl extends LazyModuleImp(this) with DontTouch {
     val peripheral = IO(new platform.jyd.peripheral())
     peripheral <> lperipheral.module.peripheral
+
+    val IFU = LazyIFU.module
+    val IDU = Module(new IDU)
+    val ALU = Module(new ALU)
+    val LSU = LazyLSU.module
+    val WBU = Module(new WBU)
+    val REG = Module(new REG) 
+    
+    val PipelineCtrl = Module(new PipelineCtrl)
+    PipelineCtrl.io.GPR_read.valid := IDU.io.IDU_2_EXU.valid
+    PipelineCtrl.io.GPR_read.bits := IDU.io.IDU_2_REG
+
+    PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
+    PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
+    PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
+    PipelineCtrl.io.LSU_in := LSU.io.IDU_2_EXU
+    PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
+
+    PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU
+    
+    val to_LSU = IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
+
+    // bus IFU -> IDU
+    IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
+    // IFU.io.IFU_2_IDU     <> IDU.io.IFU_2_IDU
+    pipelineConnect(IFU.io.IFU_2_IDU, IDU.io.IFU_2_IDU, IDU.io.IDU_2_EXU, PipelineCtrl.io.IFUCtrl)
+    pipelineConnect(
+      IDU.io.IDU_2_EXU, 
+      Seq(
+        (to_LSU, LSU.io.IDU_2_EXU, LSU.io.EXU_2_WBU),
+        (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
+      ), 
+      PipelineCtrl.io.IDUCtrl
+    )
+    // pipelineConnect(EXU.io.EXU_2_WBU, WBU.io.EXU_2_WBU, WBU.io.WBU_2_IFU, PipelineCtrl.io.EXUCtrl)
+    pipelineConnect(
+      Seq(
+        (LSU.io.EXU_2_WBU),
+        (ALU.io.EXU_2_WBU)
+      ),
+      WBU.io.EXU_2_WBU,
+      WBU.io.WBU_2_IFU,
+      PipelineCtrl.io.EXUCtrl
+    )
+
+    WBU.io.WBU_2_IFU.ready := true.B
+
+    // bus IFU -> REG -> IDU without delay
+    REG.io.REG_2_IDU     <> IDU.io.REG_2_IDU
+
+    // // bus IDU -> REG -> EXU without delay
+    IDU.io.IDU_2_REG     <> REG.io.IDU_2_REG
+    // REG.io.REG_2_EXU     <> EXU.io.REG_2_EXU   
+
+    // // bus WBU -> IFU
+    WBU.io.WBU_2_IFU.bits     <> IFU.io.WBU_2_IFU
+
+    // // bus WBU -> REG -> IFU without delay
+    WBU.io.WBU_2_REG     <> REG.io.WBU_2_REG
+
+    LSU.io.flush := PipelineCtrl.io.EXUCtrl.flush
+  }
+}
+
+class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
+  val mmio = AddressSet.misaligned(0x0f000000, 0x2000) ++     // SRAM
+             AddressSet.misaligned(0x10000000, 0x1000) ++     // UART
+             AddressSet.misaligned(0x10001000, 0x1000) ++     // SPI
+             AddressSet.misaligned(0x10002000, 0x10) ++       // GPIO
+             AddressSet.misaligned(0x10011000, 0x8) ++        // PS2
+             AddressSet.misaligned(0x21000000, 0x200000) ++   // VGA
+             AddressSet.misaligned(0x30000000, 0x10000000) ++ // FLASH
+             AddressSet.misaligned(0x80000000L, 0x400000) ++  // PSRAM
+             AddressSet.misaligned(0xa0000000L, 0x2000000) ++ // SDRAM
+             AddressSet.misaligned(0xc0000000L, 0x40000000L)  // ChipLink
+
+  ElaborationArtefacts.add("graphml", graphML)
+  val LazyIFU = LazyModule(new IFU(idBits = idBits-1))
+  val LazyLSU = LazyModule(new LSU(idBits = idBits-1))
+
+  val xbar_if = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
+  val xbar_ls = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
+
+  xbar_if := LazyIFU.masterNode
+  xbar_ls := LazyLSU.masterNode
+
+  val beatBytes = 4
+  val node_if = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
+    Seq(AXI4SlaveParameters(
+        address       = mmio,
+        executable    = true,
+        supportsWrite = TransferSizes(1, beatBytes),
+        supportsRead  = TransferSizes(1, beatBytes),
+        interleavedId = Some(0))
+    ),
+    beatBytes  = beatBytes)))
+
+  val node_ls = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
+    Seq(AXI4SlaveParameters(
+        address       = mmio,
+        executable    = true,
+        supportsWrite = TransferSizes(1, beatBytes),
+        supportsRead  = TransferSizes(1, beatBytes),
+        interleavedId = Some(0))
+    ),
+    beatBytes  = beatBytes)))
+
+  node_if := xbar_if
+  node_ls := xbar_ls
+  
+  override lazy val module = new Impl
+  class Impl extends LazyModuleImp(this) with DontTouch {
+    val io = IO(new Bundle {
+      val master_if = AXI4Bundle(CPUAXI4BundleParameters())
+      val master_ls = AXI4Bundle(CPUAXI4BundleParameters())
+    })
+
+    io.master_if <> node_if.in(0)._1
+    io.master_ls <> node_ls.in(0)._1
 
     val IFU = LazyIFU.module
     val IDU = Module(new IDU)
