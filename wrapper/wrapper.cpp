@@ -129,8 +129,8 @@ extern "C" {
         basic_callbacks = cb;
     }
 
-    void ALU_catch() {
-        basic_callbacks.ALU_catch_p();
+    void ALU_catch(const svBitVecVal *pc) {
+        basic_callbacks.ALU_catch_p(pc);
     }
 
     void IDU_catch(const svBitVecVal *Inst_Type) {

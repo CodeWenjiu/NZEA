@@ -5,11 +5,11 @@ use option_parser::OptionParser;
 use owo_colors::OwoColorize;
 use remu_macro::{log_err, log_error};
 use remu_utils::{ProcessError, ProcessResult};
-use state::{States, reg::RegfileIo};
+use state::{model::BasicPipeCell, reg::RegfileIo, States};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
-use super::{BasicCallbacks, BasicPipeCell, Input, NpcCallbacks, Output, PipelineModel, Top};
+use super::{BasicCallbacks, Input, NpcCallbacks, Output, Top};
 
 #[derive(Default)]
 pub struct NzeaTimes {
@@ -34,7 +34,6 @@ thread_local! {
     static NZEA_CALLBACK : OnceLock<RefCell<SimulatorCallback>> = OnceLock::new();
     static NZEA_TIME : OnceLock<RefCell<NzeaTimes>> = OnceLock::new();
     static NZEA_RESULT : OnceLock<RefCell<ProcessResult<()>>> = OnceLock::new();
-    static NZEA_PIPE_STATE : OnceLock<RefCell<PipelineModel<BasicPipeCell>>> = OnceLock::new();
 }
 
 fn nzea_result_write(result: ProcessResult<()>) {
@@ -58,23 +57,31 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
     });
 
     nzea_result_write(
-        NZEA_PIPE_STATE.with(|model| {
-            model.get().unwrap().borrow_mut().send((*pc, *inst), BasicPipeCell::IDU)
+        NZEA_STATES.with(|state| {
+            state.get().unwrap().borrow_mut().pipe_state.send((*pc, *inst), BasicPipeCell::IDU)
         })
     );
 }
 
-unsafe extern "C" fn alu_catch_handler() {
+unsafe extern "C" fn alu_catch_handler(pc: Input) {
     // log_debug!("alu_catch_p");
+    let pc = unsafe { &*pc };
 
     NZEA_TIME.with(|time| {
         time.get().unwrap().borrow_mut().alu_catch += 1;
     });
 
 
-    NZEA_PIPE_STATE.with(|model| {
-        model.get().unwrap().borrow_mut().trans(BasicPipeCell::ALU, BasicPipeCell::WBU);
-    });
+    nzea_result_write(NZEA_STATES.with(|state| {
+        let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
+        pipe_state.trans(BasicPipeCell::ALU, BasicPipeCell::WBU); // Consider adding '?' if trans returns Result
+        let (fetched_pc, _) = pipe_state.fetch(BasicPipeCell::ALU)?;
+        if fetched_pc != *pc {
+            log_error!(format!("ALU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
+            return Err(ProcessError::Recoverable);
+        }
+        Ok(())
+    }));
 }
 
 unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
@@ -88,20 +95,20 @@ unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
         match inst_type {
             0 => {
                 time.idu_catch_al += 1;
-                NZEA_PIPE_STATE.with(|model| {
-                    model.get().unwrap().borrow_mut().trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
+                NZEA_STATES.with(|state| {
+                    state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
                 });
             }
             1 => {
                 time.idu_catch_ls += 1;
-                NZEA_PIPE_STATE.with(|model| {
-                    model.get().unwrap().borrow_mut().trans(BasicPipeCell::IDU, BasicPipeCell::LSU);
+                NZEA_STATES.with(|state| {
+                    state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::LSU);
                 });
             }
             2 => {
                 time.idu_catch_cs += 1;
-                NZEA_PIPE_STATE.with(|model| {
-                    model.get().unwrap().borrow_mut().trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
+                NZEA_STATES.with(|state| {
+                    state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
                 });
             }
             _ => {
@@ -165,8 +172,8 @@ unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
         time.get().unwrap().borrow_mut().ifu_catch += 1;
     });
 
-    NZEA_PIPE_STATE.with(|model| {
-        model.get().unwrap().borrow_mut().trans(BasicPipeCell::LSU, BasicPipeCell::WBU);
+    NZEA_STATES.with(|state| {
+        state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::LSU, BasicPipeCell::WBU);
     });
 
     NZEA_CALLBACK.with(|callback| {
@@ -179,9 +186,8 @@ unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
 
 unsafe extern "C" fn pipeline_catch_handler() {
     // log_debug!("flush_p");
-    NZEA_PIPE_STATE.with(|model| {
-        let mut model = model.get().unwrap().borrow_mut();
-        model.flush();
+    NZEA_STATES.with(|state| {
+        state.get().unwrap().borrow_mut().pipe_state.flush();
     });
 }
 
@@ -213,9 +219,8 @@ unsafe extern "C" fn wbu_catch_handler(
     nzea_result_write(NZEA_CALLBACK.with(|callback| {
         let mut callback = callback.get().unwrap().borrow_mut();
 
-        let (pc, inst) = NZEA_PIPE_STATE.with(|model| {
-            let mut model = model.get().unwrap().borrow_mut();
-            let data = model.get()?;
+        let (pc, inst) = NZEA_STATES.with(|state| {
+            let data = state.get().unwrap().borrow_mut().pipe_state.get()?;
             Ok(data)
         })?;
 
@@ -362,10 +367,6 @@ impl Nzea {
             result_ref.get_or_init(|| std::cell::RefCell::new(Ok(())));
         });
 
-        NZEA_PIPE_STATE.with(|model_ref| {
-            model_ref.get_or_init(|| std::cell::RefCell::new(PipelineModel::new()));
-        });
-
         Self { top }
     }
 }
@@ -379,10 +380,8 @@ impl SimulatorItem for Nzea {
     fn step_cycle(&mut self) -> ProcessResult<()> {
         self.top.cycle(1);
 
-        NZEA_PIPE_STATE.with(|model| -> ProcessResult<()> {
-            let mut model = model.get().unwrap().borrow_mut();
-            model.update()?;
-            // println!("{:#?}", model.channels);
+        NZEA_STATES.with(|state| -> ProcessResult<()> {
+            state.get().unwrap().borrow_mut().pipe_state.update()?;
             Ok(())
         })?;
 

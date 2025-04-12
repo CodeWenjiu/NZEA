@@ -1,1 +1,1 @@
-remu_macro::mod_flat!(api, simulator, bounded_channel, model);
+remu_macro::mod_flat!(api, simulator, bounded_channel);

@@ -7,7 +7,7 @@ typedef svBitVecVal* output;
 typedef svBit bits;
 
 typedef struct {
-    void(*ALU_catch_p)();
+    void(*ALU_catch_p)(input);
     void(*IDU_catch_p)(input);
     void(*IFU_catch_p)(input, input);
     void(*Icache_MAT_catch_p)(input);

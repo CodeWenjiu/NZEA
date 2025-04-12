@@ -6,7 +6,7 @@ fn test() {
     use logger::Logger;
     let top = Top::new();
 
-    unsafe extern "C" fn alu_catch_handler() {
+    unsafe extern "C" fn alu_catch_handler(_pc: Input) {
         log_debug!("alu_catch_p");
     }
 
