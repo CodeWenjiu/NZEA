@@ -268,8 +268,8 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
 class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new IFU(idBits = idBits))
-  val LazyLSU = LazyModule(new LSU(idBits = idBits))
+  val LazyIFU = LazyModule(new IFU(idBits = idBits-1))
+  val LazyLSU = LazyModule(new LSU(idBits = idBits-1))
 
   val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
   val apbxbar = LazyModule(new APBFanout).node

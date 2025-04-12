@@ -10,7 +10,7 @@ fn test() {
         log_debug!("alu_catch_p");
     }
 
-    unsafe extern "C" fn idu_catch_handler(_inst_type: Input) {
+    unsafe extern "C" fn idu_catch_handler(_pc: Input, _inst_type: Input) {
         log_debug!("idu_catch_p");
     }
 
@@ -39,7 +39,7 @@ fn test() {
         log_debug!("icache_state_catch_p");
     }
 
-    unsafe extern "C" fn lsu_catch_handler(_diff_skip: u8) {
+    unsafe extern "C" fn lsu_catch_handler(_pc: Input, _diff_skip: u8) {
         log_debug!("lsu_catch_p");
     }
 

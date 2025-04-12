@@ -56,5 +56,5 @@ object Elaboratejyd_core extends App {
   Config.setSimulate(false)
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 2, 2, 16)
 
-  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.core(), args, firtoolOptions)
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.top(), args, firtoolOptions)
 }
