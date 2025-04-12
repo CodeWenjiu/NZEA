@@ -8,13 +8,13 @@ typedef svBit bits;
 
 typedef struct {
     void(*ALU_catch_p)(input);
-    void(*IDU_catch_p)(input);
+    void(*IDU_catch_p)(input, input);
     void(*IFU_catch_p)(input, input);
     void(*Icache_MAT_catch_p)(input);
     void(*Icache_catch_p)(bits, bits);
     void(*Icache_flush_p)();
     void(*Icache_state_catch_p)(input, input, input, input);
-    void(*LSU_catch_p)(bits);
+    void(*LSU_catch_p)(input, bits);
     void(*Pipeline_catch_p)();
     void(*WBU_catch_p)(input, input, input, input, input, input, input, input, input);
 } Basic_Callbacks;

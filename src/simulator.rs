@@ -84,40 +84,46 @@ unsafe extern "C" fn alu_catch_handler(pc: Input) {
     }));
 }
 
-unsafe extern "C" fn idu_catch_handler(inst_type: Input) {
+unsafe extern "C" fn idu_catch_handler(pc: Input, inst_type: Input) {
     // log_debug!("idu_catch_p");
 
+    let pc = unsafe { &*pc };
     let inst_type = unsafe { &*inst_type };
 
     nzea_result_write(NZEA_TIME.with(|time| {
         let mut time = time.get().unwrap().borrow_mut();
 
-        match inst_type {
-            0 => {
-                time.idu_catch_al += 1;
-                NZEA_STATES.with(|state| {
-                    state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
-                });
-            }
-            1 => {
-                time.idu_catch_ls += 1;
-                NZEA_STATES.with(|state| {
-                    state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::LSU);
-                });
-            }
-            2 => {
-                time.idu_catch_cs += 1;
-                NZEA_STATES.with(|state| {
-                    state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
-                });
-            }
-            _ => {
-                log_error!(format!("Unknown instruction type: {}", inst_type));
+        NZEA_STATES.with(|state| {
+            let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
+
+            match inst_type {
+                0 => {
+                    time.idu_catch_al += 1;
+                    pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
+                }
+                1 => {
+                    time.idu_catch_ls += 1;
+                    pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::LSU);
+                }
+                2 => {
+                    time.idu_catch_cs += 1;
+                    pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
+                }
+                _ => {
+                    log_error!(format!("Unknown instruction type: {}", inst_type));
+                    return Err(ProcessError::Recoverable);
+                }
+            };
+
+            let (fetched_pc, _) = pipe_state.fetch(BasicPipeCell::IDU)?;
+
+            if fetched_pc != *pc {
+                log_error!(format!("IDU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
                 return Err(ProcessError::Recoverable);
             }
-        };
-
-        Ok(())
+            
+            Ok(())
+        })
     }));
 }
 
@@ -165,8 +171,21 @@ unsafe extern "C" fn icache_state_catch_handler(
     // log_debug!("icache_state_catch_p");
 }
 
-unsafe extern "C" fn lsu_catch_handler(diff_skip: u8) {
+unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
     // log_debug!("lsu_catch_p");
+
+    let pc = unsafe { &*pc };
+    nzea_result_write(
+        NZEA_STATES.with(|state| {
+            let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
+            let (fetched_pc, _) = pipe_state.fetch(BasicPipeCell::LSU)?;
+            if fetched_pc != *pc {
+                log_error!(format!("LSU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
+                return Err(ProcessError::Recoverable);
+            }
+            Ok(())
+        })
+    );
 
     NZEA_TIME.with(|time| {
         time.get().unwrap().borrow_mut().ifu_catch += 1;

@@ -21,19 +21,21 @@ class IDU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle {
         val clock = Input(Clock())
         val valid = Input(Bool())
+        val pc    = Input(UInt(32.W))
         val Inst_Type = Input(UInt(2.W))
     })
     val code =
     s"""module IDU_catch(
     |   input clock,
     |   input valid,
+    |   input [31:0] pc,
     |   input [1:0] Inst_Type
     |);
-    |import "DPI-C" function void IDU_catch(input bit [1:0] Inst_Type);
+    |import "DPI-C" function void IDU_catch(input bit [31:0] pc, input bit [1:0] Inst_Type);
     |
     |always @(posedge clock) begin
     |   if (valid) begin
-    |       IDU_catch(Inst_Type);
+    |       IDU_catch(pc, Inst_Type);
     |   end
     |end
     |
@@ -275,6 +277,7 @@ class IDU extends Module{
         val Catch = Module(new IDU_catch)
         Catch.io.clock := clock
         Catch.io.valid := io.IDU_2_EXU.fire && !reset.asBool
+        Catch.io.pc := io.IFU_2_IDU.bits.PC
         Catch.io.Inst_Type := catchResult(PC_Field)
     }
 

@@ -8,13 +8,13 @@ pub type Output = *mut u32;
 #[repr(C)]
 pub struct BasicCallbacks {
     pub alu_catch_p: unsafe extern "C" fn(Input),
-    pub idu_catch_p: unsafe extern "C" fn(Input),
+    pub idu_catch_p: unsafe extern "C" fn(Input, Input),
     pub ifu_catch_p: unsafe extern "C" fn(Input, Input),
     pub icache_mat_catch_p: unsafe extern "C" fn(Input),
     pub icache_catch_p: unsafe extern "C" fn(u8, u8),
     pub icache_flush_p: unsafe extern "C" fn(),
     pub icache_state_catch_p: unsafe extern "C" fn(Input, Input, Input, Input),
-    pub lsu_catch_p: unsafe extern "C" fn(u8),
+    pub lsu_catch_p: unsafe extern "C" fn(Input, u8),
     pub pipeline_catch_p: unsafe extern "C" fn(),
     pub wbu_catch: unsafe extern "C" fn(Input, Input, Input, Input, Input, Input, Input, Input, Input),
 }
