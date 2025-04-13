@@ -135,7 +135,8 @@ class riscv_CPU(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
     PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU
     
-    val to_LSU = IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
+    val to_LSU = WireDefault(false.B)
+    to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
 
     // bus IFU -> IDU
     IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
