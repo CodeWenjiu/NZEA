@@ -243,6 +243,13 @@ unsafe extern "C" fn wbu_catch_handler(
             Ok(data)
         })?;
 
+        if inst == 0b00000000000100000000000001110011 {
+            (callback.trap)(NZEA_STATES.with(|s| {
+                s.get().unwrap().borrow().regfile.read_gpr(10).unwrap() == 0
+            }));
+            return Err(ProcessError::Recoverable);
+        }
+
         let reg_pc = NZEA_STATES.with(|s| s.get().unwrap().borrow().regfile.read_pc());
         if pc != reg_pc {
             log_error!(format!("PC mismatch: {:#08x} != {:#08x}", pc, reg_pc));
