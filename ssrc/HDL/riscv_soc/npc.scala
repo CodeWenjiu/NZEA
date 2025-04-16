@@ -1,6 +1,6 @@
 package npc
 
-import riscv_cpu._
+import riscv_soc._
 import ram._
 import peripheral._
 

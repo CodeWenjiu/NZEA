@@ -10,18 +10,18 @@ import freechips.rocketchip.util._
 import freechips.rocketchip.amba.axi4.AXI4SlaveNode
 import freechips.rocketchip.amba.axi4.AXI4SlavePortParameters
 import freechips.rocketchip.amba.axi4.AXI4SlaveParameters
-import riscv_cpu.IFU
-import riscv_cpu.LSU
+import riscv_soc.IFU
+import riscv_soc.LSU
 import freechips.rocketchip.amba.axi4.AXI4Xbar
-import riscv_cpu.AXI4ToAPB
+import riscv_soc.AXI4ToAPB
 import config.Config
 import _root_.peripheral.UART
 import scopt.platform
-import riscv_cpu.HasCoreModules
-import riscv_cpu.CoreConnect
+import riscv_soc.HasCoreModules
+import riscv_soc.CoreConnect
 import _root_.peripheral.CLINT
 import freechips.rocketchip.amba.axi4.AXI4Bundle
-import riscv_cpu.CPUAXI4BundleParameters
+import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 
 class apb_peripheral extends BlackBox {
@@ -235,12 +235,12 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
     // --- 实例化模块 ---
     val IFU = LazyIFU.module
-    val IDU = Module(new riscv_cpu.IDU)
-    val ALU = Module(new riscv_cpu.ALU)
+    val IDU = Module(new riscv_soc.IDU)
+    val ALU = Module(new riscv_soc.ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new riscv_cpu.WBU)
-    val REG = Module(new riscv_cpu.REG)
-    val PipelineCtrl = Module(new riscv_cpu.PipelineCtrl)
+    val WBU = Module(new riscv_soc.WBU)
+    val REG = Module(new riscv_soc.REG)
+    val PipelineCtrl = Module(new riscv_soc.PipelineCtrl)
     
     CoreConnect(this)
   }
@@ -317,12 +317,12 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     io.master_ls <> node_ls.in(0)._1
 
     val IFU = LazyIFU.module
-    val IDU = Module(new riscv_cpu.IDU)
-    val ALU = Module(new riscv_cpu.ALU)
+    val IDU = Module(new riscv_soc.IDU)
+    val ALU = Module(new riscv_soc.ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new riscv_cpu.WBU)
-    val REG = Module(new riscv_cpu.REG)
-    val PipelineCtrl = Module(new riscv_cpu.PipelineCtrl)
+    val WBU = Module(new riscv_soc.WBU)
+    val REG = Module(new riscv_soc.REG)
+    val PipelineCtrl = Module(new riscv_soc.PipelineCtrl)
     
     CoreConnect(this)
   }

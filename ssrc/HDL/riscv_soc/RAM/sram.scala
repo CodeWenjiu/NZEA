@@ -1,6 +1,6 @@
 package ram
 
-import riscv_cpu._
+import riscv_soc._
 
 import chisel3._
 import chisel3.util._

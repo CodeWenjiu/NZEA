@@ -21,11 +21,11 @@ class ysyx_23060198 extends Module {
   implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
   
   val io = IO(new Bundle {
-      val master = AXI4Bundle(riscv_cpu.CPUAXI4BundleParameters())
-      val slave  = Flipped(AXI4Bundle(riscv_cpu.CPUAXI4BundleParameters()))
+      val master = AXI4Bundle(riscv_soc.CPUAXI4BundleParameters())
+      val slave  = Flipped(AXI4Bundle(riscv_soc.CPUAXI4BundleParameters()))
       val interrupt = Input(Bool()) 
   })
-  val dut = LazyModule(new riscv_cpu.riscv_CPU(idBits = riscv_cpu.ChipLinkParam.idBits))
+  val dut = LazyModule(new riscv_soc.riscv_CPU(idBits = riscv_soc.ChipLinkParam.idBits))
   val mdut = Module(dut.module)
 
   chisel3.experimental.annotate(
