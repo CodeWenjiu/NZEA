@@ -16,11 +16,12 @@ import freechips.rocketchip.diplomacy._
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.CPUAXI4BundleParameters
 import scopt.platform
+import riscv_soc.bus._
 
 class top extends Module {
   implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
 
-  val dut = LazyModule(new riscv_soc.platform.jyd.jyd(idBits = riscv_soc.ChipLinkParam.idBits))
+  val dut = LazyModule(new riscv_soc.platform.jyd.jyd(idBits = ChipLinkParam.idBits))
   val mdut = Module(dut.module)
 
   val peripheral = IO(new peripheral())
@@ -36,7 +37,7 @@ class core extends Module {
 
   implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
 
-  val dut = LazyModule(new riscv_soc.platform.jyd.jyd_core(idBits = riscv_soc.ChipLinkParam.idBits))
+  val dut = LazyModule(new riscv_soc.platform.jyd.jyd_core(idBits = ChipLinkParam.idBits))
   val mdut = Module(dut.module)
 
   mdut.dontTouchPorts()

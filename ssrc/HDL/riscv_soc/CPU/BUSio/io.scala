@@ -1,9 +1,8 @@
-package riscv_soc
+package riscv_soc.bus
 
 import chisel3._
 import chisel3.util._
 
-import signal_value._
 import firrtl2.getWidth
 
 

@@ -1,9 +1,11 @@
-package riscv_soc
+package riscv_soc.reg
 
 import chisel3._
 import chisel3.util._
 
+import riscv_soc.bus._
 import signal_value._
+import riscv_soc.bus._
 import config._
 
 // riscv cpu register file

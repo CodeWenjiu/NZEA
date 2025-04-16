@@ -3,8 +3,8 @@ package riscv_soc
 import chisel3._
 import chisel3.util._
 
+import bus._
 import signal_value._
-import bus_state._
 import config._
 
 class WBU_catch extends BlackBox with HasBlackBoxInline {

@@ -13,8 +13,8 @@ import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.subsystem._
 import freechips.rocketchip.util._
 
+import bus._
 import signal_value._
-import bus_state._
 import os.copy.over
 
 class IDU_catch extends BlackBox with HasBlackBoxInline {

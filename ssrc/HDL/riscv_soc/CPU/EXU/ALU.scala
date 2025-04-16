@@ -4,8 +4,8 @@ import chisel3._
 import chisel3.util._
 import chisel3.util.MuxLookup
 
+import bus._
 import signal_value._
-import bus_state._
 import config._
 
 // riscv cpu analogic and logical unit

@@ -5,6 +5,7 @@ import circt.stage.ChiselStage
 import chisel3.util._
 
 import config._
+import riscv_soc.bus._
 
 import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.subsystem._
@@ -25,7 +26,7 @@ class ysyx_23060198 extends Module {
       val slave  = Flipped(AXI4Bundle(riscv_soc.CPUAXI4BundleParameters()))
       val interrupt = Input(Bool()) 
   })
-  val dut = LazyModule(new riscv_soc.riscv_CPU(idBits = riscv_soc.ChipLinkParam.idBits))
+  val dut = LazyModule(new riscv_soc.riscv_CPU(idBits = ChipLinkParam.idBits))
   val mdut = Module(dut.module)
 
   chisel3.experimental.annotate(
