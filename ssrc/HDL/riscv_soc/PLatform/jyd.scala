@@ -3,25 +3,23 @@ package riscv_soc.platform.jyd
 import chisel3._
 import chisel3.util._
 
-import freechips.rocketchip.amba.apb._
-import org.chipsalliance.cde.config.Parameters
-import freechips.rocketchip.diplomacy._
-import freechips.rocketchip.util._
-import freechips.rocketchip.amba.axi4.AXI4SlaveNode
-import freechips.rocketchip.amba.axi4.AXI4SlavePortParameters
-import freechips.rocketchip.amba.axi4.AXI4SlaveParameters
-import freechips.rocketchip.amba.axi4.AXI4Xbar
-import riscv_soc.bus.AXI4ToAPB
 import config.Config
-import _root_.peripheral.UART
+import org.chipsalliance.cde.config.Parameters
+import freechips.rocketchip.util._
+import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.amba.axi4._
+import freechips.rocketchip.amba.apb._
+import riscv_soc.bus.AXI4ToAPB
+
+import riscv_soc.peripheral._
 import scopt.platform
 import riscv_soc.HasCoreModules
 import riscv_soc.CoreConnect
-import _root_.peripheral.CLINT
 import freechips.rocketchip.amba.axi4.AXI4Bundle
 import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
+import _root_.peripheral.UART
 
 class apb_peripheral extends BlackBox {
     val io = IO(new Bundle {

@@ -1,4 +1,4 @@
-package peripheral
+package riscv_soc.peripheral
 
 import riscv_soc._
 

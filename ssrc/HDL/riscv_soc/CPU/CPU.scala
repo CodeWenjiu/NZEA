@@ -20,6 +20,7 @@ import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.platform.jyd.ApbPeripheralWrapper
 import freechips.rocketchip.amba.apb.APBFanout
 import _root_.riscv_soc.platform
+import _root_.peripheral.UART
 
 class Inst_Comp extends BlackBox with HasBlackBoxInline {
   val io = IO(new Bundle {
