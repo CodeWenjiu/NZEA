@@ -2,6 +2,7 @@
 #include "verilated_fst_c.h"
 #include "Vtop.h"
 #include <nvboard.h>
+#include <iostream>
 
 class VTop_container: public Vtop {
     public:

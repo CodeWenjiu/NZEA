@@ -30,6 +30,7 @@ class apb_peripheral extends BlackBox {
         val Psel = Input(Bool())
         val Penable = Input(Bool())
         val Pwdata = Input(UInt(32.W))
+        val Pstrb = Input(UInt(4.W))
         
         val Prdata = Output(UInt(32.W))
         val Pready = Output(Bool())
@@ -73,6 +74,8 @@ class ApbPeripheralWrapper(address: Seq[AddressSet])(implicit p: Parameters) ext
         apb_peripheral_0.io.Psel <> APB.psel
         apb_peripheral_0.io.Penable <> APB.penable
         apb_peripheral_0.io.Pwdata <> APB.pwdata
+        apb_peripheral_0.io.Pstrb <> APB.pstrb
+        
         APB.prdata <> apb_peripheral_0.io.Prdata
         APB.pready <> apb_peripheral_0.io.Pready
         APB.pslverr <> apb_peripheral_0.io.Pslverr

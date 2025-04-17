@@ -54,9 +54,9 @@ VERILATOR_SIMFLAGS += --timescale "1ns/1ns" --no-timing --top-module top
 
 generate: $(LIB)
 
-NVBOARD_HOME = $(shell pwd)/nvboard
+NVBOARD_HOME_PATH = $(shell pwd)/nvboard
 
-include $(NVBOARD_HOME)/scripts/nvboard.mk
+include $(NVBOARD_HOME_PATH)/scripts/nvboard.mk
 
 VERILATOR_COMPILEFLAGS += $(VSRC) \
 				$(CSRC) \
@@ -72,7 +72,7 @@ $(LIB): $(CSRC) $(VSRC) $(NVBOARD_ARCHIVE)
 		$(VERILATOR_COMPILEFLAGS) \
 		$(addprefix -LDFLAGS , $(LDFLAGS)) \
 		$(VERILATOR_SIMFLAGS)
-	@g++ -o $(OBJ_DIR)/libnzea.so -shared -Wl,--whole-archive $(OBJ_DIR)/libnzea.a -Wl,--no-whole-archive $(NVBOARD_ARCHIVE) -lSDL2 -lSDL2_image -lSDL2_ttf
+	@g++ -o $(OBJ_DIR)/libnzea.so -shared -Wl,--whole-archive $(OBJ_DIR)/libnzea.a -Wl,--no-whole-archive $(NVBOARD_ARCHIVE) $(shell sdl2-config --libs) -lSDL2_image -lSDL2_ttf
 	@echo "Verilator simulation files generated in $(OBJ_DIR)"
 
 clean:
