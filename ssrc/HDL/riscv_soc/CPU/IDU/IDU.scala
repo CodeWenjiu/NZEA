@@ -1,4 +1,4 @@
-package riscv_soc
+package riscv_soc.cpu
 
 import chisel3._
 import chisel3.util._
@@ -13,7 +13,7 @@ import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.subsystem._
 import freechips.rocketchip.util._
 
-import bus._
+import riscv_soc.bus._
 import signal_value._
 import os.copy.over
 

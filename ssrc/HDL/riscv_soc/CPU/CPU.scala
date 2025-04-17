@@ -7,7 +7,7 @@ import chisel3.util._
 import bus._
 import signal_value._
 import config._
-import riscv_soc.reg._
+import riscv_soc.cpu._
 
 import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.subsystem._

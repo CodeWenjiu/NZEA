@@ -13,7 +13,7 @@ import freechips.rocketchip.amba.axi4.AXI4SlaveParameters
 import riscv_soc.IFU
 import riscv_soc.LSU
 import freechips.rocketchip.amba.axi4.AXI4Xbar
-import riscv_soc.AXI4ToAPB
+import riscv_soc.bus.AXI4ToAPB
 import config.Config
 import _root_.peripheral.UART
 import scopt.platform
@@ -235,11 +235,11 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
     // --- 实例化模块 ---
     val IFU = LazyIFU.module
-    val IDU = Module(new riscv_soc.IDU)
+    val IDU = Module(new riscv_soc.cpu.IDU)
     val ALU = Module(new riscv_soc.ALU)
     val LSU = LazyLSU.module
     val WBU = Module(new riscv_soc.WBU)
-    val REG = Module(new riscv_soc.REG)
+    val REG = Module(new riscv_soc.cpu.REG)
     val PipelineCtrl = Module(new riscv_soc.PipelineCtrl)
     
     CoreConnect(this)
@@ -317,11 +317,11 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     io.master_ls <> node_ls.in(0)._1
 
     val IFU = LazyIFU.module
-    val IDU = Module(new riscv_soc.IDU)
+    val IDU = Module(new riscv_soc.cpu.IDU)
     val ALU = Module(new riscv_soc.ALU)
     val LSU = LazyLSU.module
     val WBU = Module(new riscv_soc.WBU)
-    val REG = Module(new riscv_soc.REG)
+    val REG = Module(new riscv_soc.cpu.REG)
     val PipelineCtrl = Module(new riscv_soc.PipelineCtrl)
     
     CoreConnect(this)
