@@ -1,10 +1,10 @@
-package riscv_soc
+package riscv_soc.cpu
 
 import chisel3._
 import chisel3.util._
 import chisel3.util.MuxLookup
 
-import bus._
+import riscv_soc.bus._
 import signal_value._
 import config._
 

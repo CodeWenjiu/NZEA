@@ -3,9 +3,6 @@ package riscv_soc.bus
 import chisel3._
 import chisel3.util._
 
-import firrtl2.getWidth
-
-
 class WBU_output extends Bundle{
     val addr = Output(UInt(32.W))
 }

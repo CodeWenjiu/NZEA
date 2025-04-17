@@ -1,9 +1,8 @@
-package riscv_soc
+package riscv_soc.bus
 
 import chisel3._
 import chisel3.util._
 
-import bus._
 import signal_value._
 import config._
 import freechips.rocketchip.tilelink.TLMessages.d

@@ -90,8 +90,6 @@ trait HasCoreModules extends Module{
 
 object CoreConnect {
   def apply(core: HasCoreModules): Unit = {
-    // 将原 Trait 中的连接逻辑移到这里
-    // 使用 core.X 或 import core._ 来访问成员
     import core._
 
     PipelineCtrl.io.GPR_read.valid := IDU.io.IDU_2_EXU.valid

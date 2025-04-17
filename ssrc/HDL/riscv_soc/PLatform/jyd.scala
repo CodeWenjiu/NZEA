@@ -10,8 +10,6 @@ import freechips.rocketchip.util._
 import freechips.rocketchip.amba.axi4.AXI4SlaveNode
 import freechips.rocketchip.amba.axi4.AXI4SlavePortParameters
 import freechips.rocketchip.amba.axi4.AXI4SlaveParameters
-import riscv_soc.IFU
-import riscv_soc.LSU
 import freechips.rocketchip.amba.axi4.AXI4Xbar
 import riscv_soc.bus.AXI4ToAPB
 import config.Config
@@ -23,6 +21,7 @@ import _root_.peripheral.CLINT
 import freechips.rocketchip.amba.axi4.AXI4Bundle
 import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
+import riscv_soc.bus
 
 class apb_peripheral extends BlackBox {
     val io = IO(new Bundle {
@@ -191,8 +190,8 @@ class SystemRAMWrapper(address: Seq[AddressSet])(implicit p: Parameters) extends
 
 class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new IFU(idBits = idBits - 1))
-  val LazyLSU = LazyModule(new LSU(idBits = idBits - 1))
+  val LazyIFU = LazyModule(new riscv_soc.cpu.IFU(idBits = idBits - 1))
+  val LazyLSU = LazyModule(new riscv_soc.cpu.LSU(idBits = idBits - 1))
 
   val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
   val apbxbar = LazyModule(new APBFanout).node
@@ -236,11 +235,11 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
     // --- 实例化模块 ---
     val IFU = LazyIFU.module
     val IDU = Module(new riscv_soc.cpu.IDU)
-    val ALU = Module(new riscv_soc.ALU)
+    val ALU = Module(new riscv_soc.cpu.ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new riscv_soc.WBU)
+    val WBU = Module(new riscv_soc.cpu.WBU)
     val REG = Module(new riscv_soc.cpu.REG)
-    val PipelineCtrl = Module(new riscv_soc.PipelineCtrl)
+    val PipelineCtrl = Module(new bus.PipelineCtrl)
     
     CoreConnect(this)
   }
@@ -259,8 +258,8 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     AddressSet.misaligned(0xc0000000L, 0x40000000L) // ChipLink
 
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new IFU(idBits = idBits - 1))
-  val LazyLSU = LazyModule(new LSU(idBits = idBits - 1))
+  val LazyIFU = LazyModule(new riscv_soc.cpu.IFU(idBits = idBits - 1))
+  val LazyLSU = LazyModule(new riscv_soc.cpu.LSU(idBits = idBits - 1))
 
   val xbar_if = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
   val xbar_ls = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
@@ -318,11 +317,11 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
     val IFU = LazyIFU.module
     val IDU = Module(new riscv_soc.cpu.IDU)
-    val ALU = Module(new riscv_soc.ALU)
+    val ALU = Module(new riscv_soc.cpu.ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new riscv_soc.WBU)
+    val WBU = Module(new riscv_soc.cpu.WBU)
     val REG = Module(new riscv_soc.cpu.REG)
-    val PipelineCtrl = Module(new riscv_soc.PipelineCtrl)
+    val PipelineCtrl = Module(new bus.PipelineCtrl)
     
     CoreConnect(this)
   }

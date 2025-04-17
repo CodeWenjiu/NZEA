@@ -1,4 +1,4 @@
-package riscv_soc
+package riscv_soc.cpu
 
 import chisel3._
 import chisel3.util._
@@ -13,11 +13,11 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 import freechips.rocketchip.util.Annotated.srams
 import org.chipsalliance.diplomacy.lazymodule._
-import riscv_soc.LS_state.s_wait_valid
-import bus._
+import riscv_soc.cpu.LS_state.s_wait_valid
+import riscv_soc.bus._
 import signal_value._
 import scala.collection.Parallel
-import riscv_soc.IFU_state.s_try_fetch
+import riscv_soc.cpu.IFU_state.s_try_fetch
 
 class IFU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
