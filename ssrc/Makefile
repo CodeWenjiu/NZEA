@@ -2,7 +2,7 @@ PRJ = playground
 
 PLATFORM ?= npc
 BUILD_DIR = ../build/$(PLATFORM)
-DESIGN_FILE ?= $(abspath $(BUILD_DIR))/top.sv
+DESIGN_FILE ?= $(shell find $(abspath $(BUILD_DIR)) -name "*.sv")
 
 verilog:
 	@mkdir -p $(BUILD_DIR)
