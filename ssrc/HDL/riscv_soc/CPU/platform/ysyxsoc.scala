@@ -26,7 +26,7 @@ class ysyx_23060198 extends Module {
       val slave  = Flipped(AXI4Bundle(riscv_soc.CPUAXI4BundleParameters()))
       val interrupt = Input(Bool()) 
   })
-  val dut = LazyModule(new riscv_soc.riscv_CPU(idBits = ChipLinkParam.idBits))
+  val dut = LazyModule(new riscv_soc.platform.ysyxsoc.core(idBits = ChipLinkParam.idBits))
   val mdut = Module(dut.module)
 
   chisel3.experimental.annotate(

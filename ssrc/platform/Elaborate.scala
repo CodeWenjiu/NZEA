@@ -24,6 +24,28 @@ object Elaboratenpc extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.npc.top(), args, firtoolOptions)
 }
 
+object Elaborateysyxsoc extends App {
+  val firtoolOptions = Array(
+    "--lowering-options=" + List(
+      // make yosys happy
+      // see https://github.com/llvm/circt/blob/main/docs/VerilogGeneration.md
+      "disallowLocalVariables",
+      "disallowPackedArrays",
+      "locationInfoStyle=wrapInAtSquareBracket"
+    ).reduce(_ + "," + _)
+  )
+  
+  Config.Reset_Vector = "h30000000".U(32.W)
+  Config.setSimulate(true)
+  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 2, 2, 16)
+  Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
+                        AddressSet.misaligned(0x10002000, 0x10) ++
+                        AddressSet.misaligned(0x10011000, 0x8) ++
+                        AddressSet.misaligned(0x02000000L, 0x10000))
+
+  circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.ysyx_23060198(), args = args, firtoolOpts  = firtoolOptions)
+}
+
 object Elaboratejyd extends App {
   val firtoolOptions = Array(
     "-disable-all-randomization",
