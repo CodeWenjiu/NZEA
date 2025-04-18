@@ -42,7 +42,9 @@ $(DESIGN_FILE): $(SSRC)
 	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)
 
 VSRC_DIR = vsrc/$(PLATFORM)
-VSRC = $(shell find $(abspath $(VSRC_DIR)) -name "*.v" -or -name "*.sv")
+VSRC_INCLUDE_DIR = $(VSRC_DIR)/include
+VSRC += $(shell find $(abspath $(VSRC_DIR)/perip) -name "*.v" -or -name "*.sv")
+VSRC += $(shell find $(abspath $(VSRC_DIR)/build) -name "*.v" -or -name "*.sv")
 VSRC += $(DESIGN_FILE)
 
 VERILATOR = verilator
@@ -59,6 +61,7 @@ NVBOARD_HOME_PATH = $(shell pwd)/nvboard
 include $(NVBOARD_HOME_PATH)/scripts/nvboard.mk
 
 VERILATOR_COMPILEFLAGS += $(VSRC) \
+				-y $(VSRC_INCLUDE_DIR) \
 				$(CSRC) \
 				--Mdir $(OBJ_DIR) \
 				--lib-create nzea

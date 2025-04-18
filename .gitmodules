@@ -10,3 +10,6 @@
 [submodule "ssrc/platform/NZ-jyd"]
 	path = ssrc/platform/NZ-jyd
 	url = git@github.com:TimeKeepper/NZ-jyd.git
+[submodule "vsrc/ysyxsoc"]
+	path = vsrc/ysyxsoc
+	url = git@github.com:TimeKeepper/ysyxSoC.git
