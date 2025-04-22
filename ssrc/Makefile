@@ -14,5 +14,11 @@ verilog:
 	echo "Found design file: $$DESIGN_FILE"; \
 	sed -i -e 's/_\(aw\|ar\|w\|r\|b\)_\(\|bits_\)/_\1/g' $$DESIGN_FILE; \
 	sed -i '/firrtl_black_box_resource_files.f/, $$d' $$DESIGN_FILE; \
-	mv $(notdir $$DESIGN_FILE) $(BUILD_DIR)/top.sv
+	DESIGN_BASENAME=$$(basename "$$DESIGN_FILE"); \
+	if [ "$$DESIGN_BASENAME" != "top.sv" ]; then \
+		echo "Renaming $$DESIGN_BASENAME to top.sv"; \
+		mv "$$DESIGN_FILE" "$(BUILD_DIR)/top.sv"; \
+	else \
+		echo "File is already named top.sv, no need to rename."; \
+	fi
 
