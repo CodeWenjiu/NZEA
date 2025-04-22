@@ -35,6 +35,9 @@ SSRC += $(SSRC_DIR)/build.sc
 # 8< -------- verilator -------- 8< #
 
 DESIGN_FILE ?= $(BUILD_DIR)/top.sv
+TOP_NAME = top
+
+CFLAGS += $(addprefix -CFLAGS , $(HSRC))
 
 verilog: $(DESIGN_FILE)
 
@@ -45,6 +48,7 @@ VSRC_DIR = vsrc/$(PLATFORM)
 VSRC_INCLUDE_DIR = $(VSRC_DIR)/include
 VSRC += $(shell find $(abspath $(VSRC_DIR)/perip) -name "*.v" -or -name "*.sv")
 VSRC += $(shell find $(abspath $(VSRC_DIR)/build) -name "*.v" -or -name "*.sv")
+VSRC += $(shell find $(abspath $(VSRC_DIR)/vsrc) -name "*.v" -or -name "*.sv")
 VSRC += $(DESIGN_FILE)
 
 VERILATOR = verilator
@@ -52,7 +56,7 @@ VERILATOR_CFLAGS += -j `nproc` -MMD --build -cc  \
 				-O3 --x-assign fast --x-initial fast --noassert  \
 				--trace --trace-fst 
 
-VERILATOR_SIMFLAGS += --timescale "1ns/1ns" --no-timing --top-module top
+VERILATOR_SIMFLAGS += --timescale "1ns/1ns" --no-timing --top-module $(TOP_NAME)
 
 generate: $(LIB)
 
@@ -71,7 +75,7 @@ LDFLAGS = -L$(NVBOARD_ARCHIVE)
 $(LIB): $(CSRC) $(VSRC) $(NVBOARD_ARCHIVE)
 	@mkdir -p $(OBJ_DIR)
 	@ccache $(VERILATOR) $(VERILATOR_CFLAGS) \
-		$(addprefix -CFLAGS , $(HSRC)) \
+		$(CFLAGS) \
 		$(VERILATOR_COMPILEFLAGS) \
 		$(addprefix -LDFLAGS , $(LDFLAGS)) \
 		$(VERILATOR_SIMFLAGS)

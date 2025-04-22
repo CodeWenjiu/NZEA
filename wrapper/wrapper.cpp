@@ -5,11 +5,11 @@
 #include <iostream>
 
 class VTop_container: public Vtop {
-    public:
-        const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
+public:
+    const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
         VTop_container(const char* scopep__V):
         Vtop(scopep__V) {
-        }
+    }
 
         VerilatedFstC* tfp = nullptr;
         bool wave_trace_on;

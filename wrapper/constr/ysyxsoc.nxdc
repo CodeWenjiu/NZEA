@@ -1,4 +1,4 @@
-top=ysyxSoCFull
+top=top
 
 # VGA_CLK is set to clk in this example
 externalPins_vga_sync_vsync VGA_VSYNC
