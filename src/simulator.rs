@@ -400,7 +400,9 @@ unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input
 // ysyxsoc callback
 
 unsafe extern "C" fn flash_read_handler(addr: u32, data: *mut u32) {
-    read_by_name("FLASH", addr, data);
+    let mut buffer: u32 = 0;
+    read_by_name("FLASH", addr, &mut buffer);
+    unsafe { *data = buffer.swap_bytes(); }
 }
 
 unsafe extern "C" fn mrom_read_handler(addr: u32, data: *mut u32) {
