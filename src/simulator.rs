@@ -9,7 +9,7 @@ use state::{model::BasicPipeCell, reg::RegfileIo, States};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
-use super::{BasicCallbacks, Input, NpcCallbacks, Output, Top};
+use super::{BasicCallbacks, Input, NpcCallbacks, Output, Top, YsyxsocCallbacks};
 
 #[derive(Default)]
 pub struct NzeaTimes {
@@ -210,14 +210,6 @@ unsafe extern "C" fn pipeline_catch_handler() {
     });
 }
 
-unsafe extern "C" fn uart_catch_handler(c: Input) {
-    let c = unsafe { &char::from_u32(*c) };
-    if let Some(c) = c {
-        print!("{}", c);
-        std::io::stdout().flush().unwrap();
-    }
-}
-
 unsafe extern "C" fn wbu_catch_handler(
     next_pc: Input,
     gpr_waddr: Input,
@@ -288,26 +280,9 @@ unsafe extern "C" fn wbu_catch_handler(
     }));
 }
 
-unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
-    let addr = unsafe { *addr & !0x3 };
-    // log_debug!(format!("sram_read addr: {:#08x}", addr));
-    let data = unsafe { &mut *data };
-
-    nzea_result_write(NZEA_STATES.with(|states| {
-        let mut states = states.get().unwrap().borrow_mut();
-        *data = log_err!(
-            states.mmu.read_memory(addr, state::mmu::Mask::Word),
-            ProcessError::Recoverable
-        )?;
-        Ok(())
-    }));
-}
-
-unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input) {
-    // log_debug!("sram_write");
-    let (addr, data, mask) = unsafe { (&*_addr, &*_data, &*_mask) };
-
-    let mut data = *data;
+// npc callback
+fn read_mask_trans(data: u32, mask: u32) -> (u32, state::mmu::Mask) {
+    let mut data = data;
     let mask = match mask {
         0b0001 => state::mmu::Mask::Byte,
         0b0010 => {
@@ -334,9 +309,56 @@ unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input
         _ => {
             log_error!(format!("Unknown mask: {}", mask));
             nzea_result_write(Err(ProcessError::Recoverable));
-            return;
+            return (data, state::mmu::Mask::Word);
         }
     };
+    (data, mask)
+}
+
+fn write_mask_trans(len: u32) -> state::mmu::Mask {
+    match len {
+        1 => state::mmu::Mask::Byte,
+        2 => state::mmu::Mask::Half,
+        4 => state::mmu::Mask::Word,
+        _ => {
+            log_error!(format!("Unknown mask: {}", len));
+            nzea_result_write(Err(ProcessError::Recoverable));
+            state::mmu::Mask::Word
+        }
+    }
+}
+
+fn read_by_name(name: &str, addr: u32, data: *mut u32) {
+    let addr = addr & !0x3;
+
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        unsafe { *data = log_err!(
+            states.mmu.read_by_name(name, addr, state::mmu::Mask::Word),
+            ProcessError::Recoverable
+        )? };
+        Ok(())
+    }));
+}
+
+fn write_by_name(name: &str, addr: u32, data: u32, len: u32) {
+    let mask = write_mask_trans(len);
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        log_err!(
+            states.mmu.write_by_name(name, addr, data, mask),
+            ProcessError::Recoverable
+        )?;
+        Ok(())
+    }));
+}
+
+fn write_by_addr(addr: Input, data: Input, mask: Input) {
+    let (addr, data, mask) = unsafe { (&*addr, &*data, &*mask) };
+
+    let data = *data;
+    let mask = *mask;
+    let (data, mask) = read_mask_trans(data, mask);
 
     nzea_result_write(NZEA_STATES.with(|states| {
         let mut states = states.get().unwrap().borrow_mut();
@@ -344,6 +366,93 @@ unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input
             states.mmu.write(*addr, data, mask),
             ProcessError::Recoverable
         )?;
+        Ok(())
+    }));
+}
+
+unsafe extern "C" fn uart_catch_handler(c: Input) {
+    let c = unsafe { &char::from_u32(*c) };
+    if let Some(c) = c {
+        print!("{}", c);
+        std::io::stdout().flush().unwrap();
+    }
+}
+
+unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
+    let addr = unsafe { *addr & !0x3 };
+    // log_debug!(format!("sram_read addr: {:#08x}", addr));
+    let data = unsafe { &mut *data };
+
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        *data = log_err!(
+            states.mmu.read_memory(addr, state::mmu::Mask::Word),
+            ProcessError::Recoverable
+        )?;
+        Ok(())
+    }));
+}
+
+unsafe extern "C" fn sram_write_handler(_addr: Input, _data: Input, _mask: Input) {
+    write_by_addr(_addr, _data, _mask);
+}
+
+// ysyxsoc callback
+
+unsafe extern "C" fn flash_read_handler(addr: u32, data: *mut u32) {
+    read_by_name("FLASH", addr, data);
+}
+
+unsafe extern "C" fn mrom_read_handler(addr: u32, data: *mut u32) {
+    read_by_name("MROM", addr, data);
+}
+
+unsafe extern "C" fn psram_write_handler(addr: u32, data: u32, len: u32) {
+    let mut data = data;
+    match len {
+        2 => {
+            data = data.wrapping_shl(8);
+        }
+        4 => {
+            data = data.wrapping_shl(16);
+        }
+        _ => {}
+    }
+    write_by_name("PSRAM", addr, data, len);
+}
+
+unsafe extern "C" fn psram_read(addr: u32, data: *mut u32) {
+    read_by_name("PSRAM", addr, data);
+}
+
+unsafe extern "C" fn sdram_write_handler(addr: u32, data: u32, len: u32) {
+    write_by_name("SDRAM", addr, data, len);
+}
+
+unsafe extern "C" fn sdram_read(addr: u32, data: *mut u32) {
+    read_by_name("SDRAM", addr, data);
+}
+
+unsafe extern "C" fn vga_write_handler(addr: u32, data: u32) {
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        log_err!(
+            states.mmu.write(addr, data, state::mmu::Mask::Word),
+            ProcessError::Recoverable
+        )?;
+        Ok(())
+    }));
+}
+
+unsafe extern "C" fn vga_read(xaddr: u32, yaddr: u32, data: *mut u32) {
+    let addr = (yaddr * 640 + xaddr) * 4;
+    
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        unsafe { *data = log_err!(
+            states.mmu.read_memory(addr, state::mmu::Mask::Word),
+            ProcessError::Recoverable
+        )? };
         Ok(())
     }));
 }
@@ -375,7 +484,18 @@ impl Nzea {
             sram_write: sram_write_handler,
         };
 
-        top.init(basic_callbacks, npc_callbacks);
+        let ysyxsoc_callbacks = YsyxsocCallbacks {
+            flash_read: flash_read_handler,
+            mrom_read: mrom_read_handler,
+            psram_write: psram_write_handler,
+            psram_read: psram_read,
+            sdram_write: sdram_write_handler,
+            sdram_read: sdram_read,
+            vga_write: vga_write_handler,
+            vga_read: vga_read,
+        };
+
+        top.init(basic_callbacks, npc_callbacks, ysyxsoc_callbacks);
 
         NZEA_STATES.with(|states_ref| {
             states_ref.get_or_init(|| std::cell::RefCell::new(states));

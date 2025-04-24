@@ -187,4 +187,42 @@ extern "C" {
     void sram_write(const svBitVecVal *addr, const svBitVecVal *data, const svBitVecVal *mask) {
         npc_callbacks.sram_write_p(addr, data, mask);
     }
+
+    // ysyxsoc callback
+
+    void set_ysyxsoc_callbacks(YSYXSOC_Callbacks cb) {
+        ysyxsoc_callbacks = cb;
+    }
+
+    void flash_read(int32_t addr, int32_t* data) {
+        ysyxsoc_callbacks.flash_read(addr, data);
+    }
+
+    void mrom_read(int32_t addr, int32_t* data) {
+        ysyxsoc_callbacks.mrom_read(addr, data);
+    }
+
+    void psram_write(int32_t waddr, int32_t wdata, int32_t wlen){
+        ysyxsoc_callbacks.psram_write(waddr, wdata, wlen);
+    }
+
+    void psram_read(int32_t addr, int32_t* data) {
+        ysyxsoc_callbacks.psram_read(addr, data);
+    }
+
+    void sdram_write(int32_t waddr, int32_t wdata, int32_t wlen) {
+        ysyxsoc_callbacks.sdram_write(waddr, wdata, wlen);
+    }
+
+    void sdram_read(int32_t addr, int32_t* data) {
+        ysyxsoc_callbacks.sdram_read(addr, data);
+    }
+    
+    void vga_write(int32_t waddr, int32_t wdata) {
+        ysyxsoc_callbacks.vga_write(waddr, wdata);
+    }
+    
+    void vga_read(int32_t x_addr, int32_t y_addr, int32_t* rdata) {
+        ysyxsoc_callbacks.vga_read(x_addr, y_addr, rdata);
+    }
 }

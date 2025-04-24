@@ -27,6 +27,18 @@ pub struct NpcCallbacks {
     pub sram_write: unsafe extern "C" fn(Input, Input, Input),
 }
 
+#[repr(C)]
+pub struct YsyxsocCallbacks {
+    pub flash_read: unsafe extern "C" fn(u32, *mut u32),
+    pub mrom_read: unsafe extern "C" fn(u32, *mut u32),
+    pub psram_write: unsafe extern "C" fn(u32, u32, u32),
+    pub psram_read: unsafe extern "C" fn(u32, *mut u32),
+    pub sdram_write: unsafe extern "C" fn(u32, u32, u32),
+    pub sdram_read: unsafe extern "C" fn(u32, *mut u32),
+    pub vga_write: unsafe extern "C" fn(u32, u32),
+    pub vga_read: unsafe extern "C" fn(u32, u32, *mut u32),
+}
+
 #[derive(WrapperApi)]
 struct VTop {
     create_model: unsafe extern "C" fn(scopep_v: *const c_char) -> *mut c_void,
@@ -42,6 +54,7 @@ struct VTop {
 
     set_basic_callbacks: unsafe extern "C" fn(callbacks: BasicCallbacks),
     set_npc_callbacks: unsafe extern "C" fn(callbacks: NpcCallbacks),
+    set_ysyxsoc_callbacks: unsafe extern "C" fn(callbacks: YsyxsocCallbacks),
 }
 
 pub struct Top {
@@ -77,10 +90,12 @@ impl Top {
         &self, 
         basic_callbacks: BasicCallbacks,
         npc_callbacks: NpcCallbacks,
+        ysyxsoc_callbacks: YsyxsocCallbacks,
     ) {
         unsafe {
             self.container.set_basic_callbacks(basic_callbacks);
             self.container.set_npc_callbacks(npc_callbacks);
+            self.container.set_ysyxsoc_callbacks(ysyxsoc_callbacks);
         }
     }
 
