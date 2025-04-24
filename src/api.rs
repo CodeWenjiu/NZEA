@@ -1,6 +1,7 @@
 use std::{ffi::c_char, os::raw::c_void};
 
 use dlopen2::wrapper::{Container, WrapperApi};
+use option_parser::OptionParser;
 
 pub type Input = *const u32;
 pub type Output = *mut u32;
@@ -50,9 +51,17 @@ pub struct Top {
 }
 
 impl Top {
-    pub fn new() -> Self {
+    pub fn new(option: &OptionParser) -> Self {
+        let target = option.cli.platform.simulator;
+        let target = match target {
+            remu_utils::Simulators::NZEA(sim) => Into::<&str>::into(sim),
+            _ => panic!("WTF")
+        };
+
+        let so_path = format!("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/{}/obj_dir/libnzea.so", target);
+
         let container: Container<VTop> =
-            unsafe { Container::load("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/jyd/obj_dir/libnzea.so") }.expect("Could not open library or load symbols");
+            unsafe { Container::load(so_path) }.expect("Could not open library or load symbols");
 
         let scope = std::ffi::CString::new("0").expect("CString::new failed");
         let model = unsafe { container.create_model(scope.as_ptr()) };

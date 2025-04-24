@@ -353,8 +353,8 @@ pub struct Nzea {
 }
 
 impl Nzea {
-    pub fn new(_option: &OptionParser, states: States, callback: SimulatorCallback) -> Self {
-        let top = Top::new();
+    pub fn new(option: &OptionParser, states: States, callback: SimulatorCallback) -> Self {
+        let top = Top::new(option);
 
         let basic_callbacks = BasicCallbacks {
             alu_catch_p: alu_catch_handler,
