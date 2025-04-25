@@ -27,11 +27,8 @@ object Elaboratenpc extends App {
 object Elaborateysyxsoc extends App {
   val firtoolOptions = Array(
     "--lowering-options=" + List(
-      // make yosys happy
-      // see https://github.com/llvm/circt/blob/main/docs/VerilogGeneration.md
+      "locationInfoStyle=wrapInAtSquareBracket",
       "disallowLocalVariables",
-      "disallowPackedArrays",
-      "locationInfoStyle=wrapInAtSquareBracket"
     ).reduce(_ + "," + _)
   )
   
@@ -44,6 +41,24 @@ object Elaborateysyxsoc extends App {
                         AddressSet.misaligned(0x02000000L, 0x10000))
 
   circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.ysyx_23060198(), args = args, firtoolOpts  = firtoolOptions)
+}
+
+object Elaborateysyxsoc_core extends App {
+  val firtoolOptions = Array(
+    "--lowering-options=" + List(
+      // make yosys happy
+      // see https://github.com/llvm/circt/blob/main/docs/VerilogGeneration.md
+      "disallowLocalVariables",
+      "disallowPackedArrays",
+      "locationInfoStyle=wrapInAtSquareBracket"
+    ).reduce(_ + "," + _)
+  )
+  
+  Config.Reset_Vector = "h80000000".U(32.W)
+  Config.setSimulate(false)
+  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 2, 2, 16)
+
+  circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.top(), args = args, firtoolOpts  = firtoolOptions)
 }
 
 object Elaboratejyd extends App {

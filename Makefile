@@ -1,6 +1,6 @@
 default: generate
 
-PLATFORM ?= jyd
+PLATFORM ?= ysyxsoc
 ROOT_BUILD_DIR = ./build
 BUILD_DIR = $(ROOT_BUILD_DIR)/$(PLATFORM)
 OBJ_DIR = $(BUILD_DIR)/obj_dir
@@ -34,14 +34,14 @@ SSRC += $(SSRC_DIR)/build.sc
 
 # 8< -------- verilator -------- 8< #
 
-DESIGN_FILE ?= $(BUILD_DIR)/top.sv
+SIM_DESIGN_FILE ?= $(BUILD_DIR)/top.sv
 TOP_NAME = top
 
 CFLAGS += $(addprefix -CFLAGS , $(HSRC))
 
-verilog: $(DESIGN_FILE)
+verilog: $(SIM_DESIGN_FILE)
 
-$(DESIGN_FILE): $(SSRC)
+$(SIM_DESIGN_FILE): $(SSRC)
 	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)
 
 VSRC_DIR = vsrc/$(PLATFORM)
@@ -49,7 +49,7 @@ VSRC_INCLUDE_DIR = $(VSRC_DIR)/include
 VSRC += $(shell find $(abspath $(VSRC_DIR)/perip) -name "*.v" -or -name "*.sv")
 VSRC += $(shell find $(abspath $(VSRC_DIR)/build) -name "*.v" -or -name "*.sv")
 VSRC += $(shell find $(abspath $(VSRC_DIR)/vsrc) -name "*.v" -or -name "*.sv")
-VSRC += $(DESIGN_FILE)
+VSRC += $(SIM_DESIGN_FILE)
 
 VERILATOR = verilator
 VERILATOR_CFLAGS += -j `nproc` -MMD --build -cc  \
@@ -82,9 +82,33 @@ $(LIB): $(CSRC) $(VSRC) $(NVBOARD_ARCHIVE)
 	@g++ -o $(OBJ_DIR)/libnzea.so -shared -Wl,--whole-archive $(OBJ_DIR)/libnzea.a -Wl,--no-whole-archive $(NVBOARD_ARCHIVE) $(shell sdl2-config --libs) -lSDL2_image -lSDL2_ttf
 	@echo "Verilator simulation files generated in $(OBJ_DIR)"
 
+# 8< -------- yosys -------- 8< #
+
+IMPL_DIR = $(BUILD_DIR)_core
+
+IMPL_DESIGN_FILE ?= $(abspath $(IMPL_DIR)/top.sv)
+RPT_FILE = $(IMPL_DIR)/result/top.rpt
+STAT_FILE = $(IMPL_DIR)/result/synth_stat.txt
+
+SDC_FILE = $(abspath $(WRAPPER_DIR)/sdc/$(PLATFORM).sdc)
+
+$(IMPL_DESIGN_FILE): $(SSRC)
+	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)_core
+
+$(RPT_FILE) $(STAT_FILE): $(IMPL_DESIGN_FILE)
+	$(MAKE) syn
+
+syn: $(IMPL_DESIGN_FILE)
+	$(MAKE) -C $(YOSYS_HOME) sta \
+		DESIGN=top SDC_FILE=$(SDC_FILE) \
+		RTL_FILES=$(IMPL_DESIGN_FILE) \
+		CLK_FREQ_MHZ=500 \
+		RESULT_DIR=$(abspath $(IMPL_DIR)/result)
+
 clean:
 	@rm -rf $(ROOT_BUILD_DIR)
-	@echo "Cleaned up $(ROOT_BUILD_DIR)"
+	@rm -rf $(ROOT_IMPL_DIR)
+	@echo "Cleaned up"
 
 clean_pla:
 	@rm -rf $(BUILD_DIR)
@@ -94,4 +118,4 @@ clean_obj:
 	@rm -rf $(OBJ_DIR)
 	@echo "Cleaned up $(OBJ_DIR)"
 
-.PHONY: default generate clean clean_pla clean_obj
+.PHONY: default generate clean clean_pla clean_obj impl
