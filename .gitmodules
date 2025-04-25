@@ -13,3 +13,6 @@
 [submodule "vsrc/ysyxsoc"]
 	path = vsrc/ysyxsoc
 	url = git@github.com:TimeKeepper/ysyxSoC.git
+[submodule "yosys-sta"]
+	path = yosys-sta
+	url = git@github.com:OSCPU/yosys-sta.git
