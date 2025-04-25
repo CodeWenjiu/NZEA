@@ -327,3 +327,35 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     CoreConnect(this)
   }
 }
+
+import org.chipsalliance.cde.config.{Parameters, Config}
+import freechips.rocketchip.system._
+import riscv_soc.bus._
+
+class top extends Module {
+  implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
+
+  val dut = LazyModule(new riscv_soc.platform.jyd.jyd(idBits = ChipLinkParam.idBits))
+  val mdut = Module(dut.module)
+
+  val peripheral = IO(new peripheral())
+  mdut.peripheral <> peripheral
+  mdut.dontTouchPorts()
+}
+
+class core extends Module {
+  val io = IO(new Bundle {
+    val master_if = AXI4Bundle(CPUAXI4BundleParameters())
+    val master_ls = AXI4Bundle(CPUAXI4BundleParameters())
+  })
+
+  implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
+
+  val dut = LazyModule(new riscv_soc.platform.jyd.jyd_core(idBits = ChipLinkParam.idBits))
+  val mdut = Module(dut.module)
+
+  mdut.dontTouchPorts()
+
+  io.master_if <> mdut.io.master_if
+  io.master_ls <> mdut.io.master_ls
+}
