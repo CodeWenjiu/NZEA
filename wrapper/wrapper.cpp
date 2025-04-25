@@ -36,28 +36,27 @@ public:
             }
         }
 
+        void dump_wave() {
+            if (this->tfp && this->wave_trace_on) {
+                this->tfp->dump(this->contextp->time());
+                this->contextp->timeInc(1);
+            }
+        }
+
         void cycle() {
             this->clock = 0;
             this->eval();
 
-            if (this->tfp && this->wave_trace_on) {
-                this->tfp->dump(this->contextp->time());
-            }
-
-            this->contextp->timeInc(1);
+            this->dump_wave();
 
             this->clock = 1;
             this->eval();
 
-            if (this->tfp && this->wave_trace_on) {
-                this->tfp->dump(this->contextp->time());
-            }
+            this->dump_wave();
 
             if (this->nvboard_on) {
                 nvboard_update();
             }
-
-            this->contextp->timeInc(1);
         }
 
         uint64_t seq_tick(uint64_t time) {

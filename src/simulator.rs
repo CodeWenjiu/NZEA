@@ -71,7 +71,6 @@ unsafe extern "C" fn alu_catch_handler(pc: Input) {
         time.get().unwrap().borrow_mut().alu_catch += 1;
     });
 
-
     nzea_result_write(NZEA_STATES.with(|state| {
         let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
         pipe_state.trans(BasicPipeCell::ALU, BasicPipeCell::WBU); // Consider adding '?' if trans returns Result
@@ -334,7 +333,7 @@ fn read_by_name(name: &str, addr: u32, data: *mut u32) {
     nzea_result_write(NZEA_STATES.with(|states| {
         let mut states = states.get().unwrap().borrow_mut();
         unsafe { *data = log_err!(
-            states.mmu.read_by_name(name, addr, state::mmu::Mask::Word),
+            {states.mmu.read_by_name(name, addr, state::mmu::Mask::Word)},
             ProcessError::Recoverable
         )? };
         Ok(())
@@ -432,7 +431,14 @@ unsafe extern "C" fn sdram_write_handler(addr: u32, data: u32, len: u32) {
 }
 
 unsafe extern "C" fn sdram_read(addr: u32, data: *mut u32) {
-    read_by_name("SDRAM", addr, data);
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        unsafe { *data = log_err!(
+            {states.mmu.read_by_name("SDRAM", addr, state::mmu::Mask::Half)},
+            ProcessError::Recoverable
+        )? };
+        Ok(())
+    }));
 }
 
 unsafe extern "C" fn vga_write_handler(addr: u32, data: u32) {
@@ -449,14 +455,7 @@ unsafe extern "C" fn vga_write_handler(addr: u32, data: u32) {
 unsafe extern "C" fn vga_read(xaddr: u32, yaddr: u32, data: *mut u32) {
     let addr = (yaddr * 640 + xaddr) * 4;
     
-    nzea_result_write(NZEA_STATES.with(|states| {
-        let mut states = states.get().unwrap().borrow_mut();
-        unsafe { *data = log_err!(
-            states.mmu.read_memory(addr, state::mmu::Mask::Word),
-            ProcessError::Recoverable
-        )? };
-        Ok(())
-    }));
+    read_by_name("VGA", addr, data);
 }
 
 pub struct Nzea {
