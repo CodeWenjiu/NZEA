@@ -16,3 +16,6 @@
 [submodule "yosys-sta"]
 	path = yosys-sta
 	url = git@github.com:OSCPU/yosys-sta.git
+[submodule "vsrc/jyd_core/NZ-jyd"]
+	path = vsrc/jyd_core/NZ-jyd
+	url = git@github.com:TimeKeepper/NZ-jyd.git
