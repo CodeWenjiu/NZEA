@@ -27,9 +27,9 @@ HSRC += $(INCFLAGS)
 
 SSRC_DIR = ./ssrc
 SSRC_HDL_DIR = $(SSRC_DIR)/HDL
-SSRC_PLATFORM_DIR = $(SSRC_DIR)/platform
+SSRC_Elaborate_DIR = $(SSRC_DIR)/Elaborate
 SSRC = $(shell find $(abspath $(SSRC_HDL_DIR)) -name "*.scala")
-SSRC += $(shell find $(abspath $(SSRC_PLATFORM_DIR)) -name "*.scala")
+SSRC += $(shell find $(abspath $(SSRC_Elaborate_DIR)) -name "*.scala")
 SSRC += $(SSRC_DIR)/build.sc
 
 # 8< -------- verilator -------- 8< #

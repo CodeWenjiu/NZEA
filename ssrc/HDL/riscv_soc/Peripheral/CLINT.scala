@@ -55,7 +55,7 @@ class CLINT(address: Seq[AddressSet], Freq: UInt)(implicit p: Parameters) extend
         val m_counter = RegInit(0.U(Freq.getWidth.W))
 
         m_counter := m_counter + 1.U
-        when(m_counter === Freq){//目前npc能够跑到800MHz
+        when(m_counter === Freq){
             m_counter := 0.U
             mtime := mtime + 1.U
         }

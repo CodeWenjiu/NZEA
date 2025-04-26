@@ -92,7 +92,7 @@ trait NZEA extends NzeaModule with HasThisChisel {
   override def sources = T.sources {
     super.sources() ++ Seq(
       PathRef(millSourcePath / "HDL"),
-      PathRef(millSourcePath / "platform"),
+      PathRef(millSourcePath / "Elaborate"),
       PathRef(millSourcePath / "rvdecoderdb"),
     )
   }
