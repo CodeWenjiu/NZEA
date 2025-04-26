@@ -43,6 +43,19 @@ class apb_peripheral extends BlackBox {
     })
 }
 
+class display_seg extends BlackBox {
+    val io = IO(new Bundle {
+        val clk = Input(Clock())
+        val rst = Input(Bool())
+        val s = Input(UInt(32.W))
+        val seg1 = Input(UInt(7.W))
+        val seg2 = Input(UInt(7.W))
+        val seg3 = Input(UInt(7.W))
+        val seg4 = Input(UInt(7.W))
+        val ans = Input(UInt(8.W))
+    })
+}
+
 class peripheral extends Bundle {
     val LED = Output(UInt(32.W))
     val SW1 = Input(UInt(32.W))
