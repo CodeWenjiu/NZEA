@@ -13,7 +13,7 @@ import $file.`rocket-chip`.dependencies.cde.common
 import $file.`rocket-chip`.dependencies.diplomacy.common
 import $file.`rocket-chip`.common
 
-val chiselVersion = "7.0.0-M1"
+val chiselVersion = "7.0.0-M2"
 val defaultScalaVersion = "2.13.10"
 
 object v {
