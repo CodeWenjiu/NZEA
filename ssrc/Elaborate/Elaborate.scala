@@ -56,7 +56,7 @@ object Elaborateysyxsoc_core extends App {
   
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(false)
-  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 16, 2, 16)
+  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 2, 2, 16)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.top(), args = args, firtoolOpts  = firtoolOptions)
 }

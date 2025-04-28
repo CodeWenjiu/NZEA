@@ -94,6 +94,7 @@ SDC_FILE = $(abspath $(WRAPPER_DIR)/sdc/$(PLATFORM).sdc)
 
 $(IMPL_DESIGN_FILE): $(SSRC)
 	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)_core
+	@sed -i 's/\bmodule\b/(\* keep_hierarchy ="yes" \*)\nmodule/g' $(IMPL_DESIGN_FILE)
 
 $(RPT_FILE) $(STAT_FILE): $(IMPL_DESIGN_FILE)
 	$(MAKE) syn
