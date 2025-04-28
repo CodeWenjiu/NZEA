@@ -104,7 +104,6 @@ object CoreConnect {
     val to_LSU = WireDefault(false.B)
     to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
 
-    // bus IFU -> IDU
     IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
     pipelineConnect(
       IFU.io.IFU_2_IDU,
@@ -112,6 +111,7 @@ object CoreConnect {
       IDU.io.IDU_2_EXU,
       PipelineCtrl.io.IFUCtrl
     )
+
     pipelineConnect(
       IDU.io.IDU_2_EXU,
       Seq(
@@ -120,6 +120,7 @@ object CoreConnect {
       ),
       PipelineCtrl.io.IDUCtrl
     )
+
     pipelineConnect(
       Seq(
         (LSU.io.EXU_2_WBU),
@@ -133,7 +134,7 @@ object CoreConnect {
     WBU.io.WBU_2_IFU.ready := true.B
     REG.io.REG_2_IDU <> IDU.io.REG_2_IDU
     IDU.io.IDU_2_REG <> REG.io.IDU_2_REG
-    WBU.io.WBU_2_IFU.bits <> IFU.io.WBU_2_IFU
+    IFU.io.WBU_2_IFU <> WBU.io.WBU_2_IFU.bits
     WBU.io.WBU_2_REG <> REG.io.WBU_2_REG
     LSU.io.flush := PipelineCtrl.io.EXUCtrl.flush
   }

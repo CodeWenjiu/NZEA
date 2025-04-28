@@ -20,6 +20,7 @@ import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
+import riscv_soc.cpu.EXUctr_Field
 
 class apb_peripheral extends BlackBox {
     val io = IO(new Bundle {
@@ -143,6 +144,103 @@ class System_RAM extends BlackBox {
         val s_axi_rvalid    = Output    (Bool())
         val s_axi_rready    = Input     (Bool())
     })
+}
+
+class IROM extends BlackBox {
+    val io = new Bundle{
+        val addr = Input(UInt(32.W))
+        val data = Output(UInt(32.W))
+    }
+}
+
+class jydIFU extends Module {
+    val io = IO(new Bundle {
+        val WBU_2_IFU = Flipped(new riscv_soc.bus.BUS_WBU_2_IFU)
+        val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.BUS_IFU_2_IDU))
+
+        val Pipeline_ctrl = Flipped(new riscv_soc.bus.Pipeline_ctrl)
+    })
+
+    
+    val pc = RegInit(Config.Reset_Vector)
+    val snpc = pc + 4.U
+    val dnpc = io.WBU_2_IFU.Next_PC
+    
+    val IROM = Module(new IROM)
+    IROM.io.addr := pc
+    pc := MuxCase(pc, Seq(
+        (io.Pipeline_ctrl.flush) -> dnpc,
+        (io.IFU_2_IDU.fire) -> snpc
+    ))
+
+    io.IFU_2_IDU.valid := true.B
+
+    io.IFU_2_IDU.bits.PC := pc
+    io.IFU_2_IDU.bits.data := IROM.io.data
+}
+
+trait jydHasCoreModules extends Module{
+  val IFU: jydIFU
+  val IDU: riscv_soc.cpu.IDU
+  val ALU: riscv_soc.cpu.ALU
+  val LSU: riscv_soc.cpu.LSU#Impl
+  val WBU: riscv_soc.cpu.WBU
+  val REG: riscv_soc.cpu.REG
+  val PipelineCtrl: riscv_soc.bus.PipelineCtrl
+}
+
+object jydCoreConnect {
+  def apply(core: jydHasCoreModules): Unit = {
+    import core._
+
+    PipelineCtrl.io.GPR_read.valid := IDU.io.IDU_2_EXU.valid
+    PipelineCtrl.io.GPR_read.bits := IDU.io.IDU_2_REG
+
+    PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
+    PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
+    PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
+    PipelineCtrl.io.LSU_in := LSU.io.IDU_2_EXU
+    PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
+
+    PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU
+
+    val to_LSU = WireDefault(false.B)
+    to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_ST
+
+    IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
+    riscv_soc.bus.pipelineConnect(
+      IFU.io.IFU_2_IDU,
+      IDU.io.IFU_2_IDU,
+      IDU.io.IDU_2_EXU,
+      PipelineCtrl.io.IFUCtrl
+    )
+
+    riscv_soc.bus.pipelineConnect(
+      IDU.io.IDU_2_EXU,
+      Seq(
+        (to_LSU, LSU.io.IDU_2_EXU, LSU.io.EXU_2_WBU),
+        (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
+      ),
+      PipelineCtrl.io.IDUCtrl
+    )
+
+    riscv_soc.bus.pipelineConnect(
+      Seq(
+        (LSU.io.EXU_2_WBU),
+        (ALU.io.EXU_2_WBU)
+      ),
+      WBU.io.EXU_2_WBU,
+      WBU.io.WBU_2_IFU,
+      PipelineCtrl.io.EXUCtrl
+    )
+
+    WBU.io.WBU_2_IFU.ready := true.B
+    REG.io.REG_2_IDU <> IDU.io.REG_2_IDU
+    IDU.io.IDU_2_REG <> REG.io.IDU_2_REG
+    IFU.io.WBU_2_IFU <> WBU.io.WBU_2_IFU.bits
+    WBU.io.WBU_2_REG <> REG.io.WBU_2_REG
+    LSU.io.flush := PipelineCtrl.io.EXUCtrl.flush
+  }
 }
 
 class SystemRAMWrapper(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {

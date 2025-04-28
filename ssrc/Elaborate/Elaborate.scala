@@ -72,7 +72,7 @@ object Elaboratejyd extends App {
   )
   
   Config.Reset_Vector = "h80000000".U(32.W)
-  Config.setSimulate(true)
+  Config.setSimulate(false)
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 2, 2, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x20000000, 0x1000))
 

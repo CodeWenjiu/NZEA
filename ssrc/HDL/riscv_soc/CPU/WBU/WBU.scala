@@ -122,5 +122,4 @@ class WBU extends Module {
         Catch.io.csr_waddrb := "h342".U
         Catch.io.csr_wdatab := 11.U
     }
-
 }
