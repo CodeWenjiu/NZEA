@@ -79,6 +79,24 @@ object Elaboratejyd extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.top(), args, firtoolOptions)
 }
 
+object Elaboratejyd_remote extends App {
+  val firtoolOptions = Array(
+    "-disable-all-randomization",
+    "-strip-debug-info",
+    "--lowering-options=" + List(
+      // make vivado happy
+      "mitigateVivadoArrayIndexConstPropBug",
+    ).reduce(_ + "," + _)
+  )
+  
+  Config.Reset_Vector = "h80000000".U(32.W)
+  Config.setSimulate(false)
+  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 2, 2, 16)
+  Config.setDiffMisMap(AddressSet.misaligned(0x20000000, 0x1000))
+
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.jyd_remote(), args, firtoolOptions)
+}
+
 object Elaboratejyd_core extends App {
   val firtoolOptions = Array(
     "-disable-all-randomization",
