@@ -123,12 +123,12 @@ class SystemRAMWrapper(address: Seq[AddressSet])(implicit p: Parameters) extends
     }
 }
 
-class IROM extends Bundle {
+class IROM_bus extends Bundle {
   val addr = Output(UInt(32.W))
   val data = Input(UInt(32.W))
 }
 
-class DRAM extends Bundle {
+class DRAM_bus extends Bundle {
   val addr = Output(UInt(32.W))
   val wen = Output(Bool())
   val mask = Output(UInt(2.W))

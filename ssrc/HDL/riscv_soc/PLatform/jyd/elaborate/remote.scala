@@ -1,4 +1,5 @@
-package riscv_soc.platform.jyd
+package riscv_soc.platform.jyd.remote
+import riscv_soc.platform.jyd._
 
 import chisel3._
 import chisel3.util._
@@ -24,8 +25,8 @@ import riscv_soc.cpu.EXUctr_Field
 
 class jyd_remote_cpu extends Module {
   val io = IO(new Bundle{
-    val IROM = new IROM
-    val DRAM = new DRAM
+    val IROM = new IROM_bus
+    val DRAM = new DRAM_bus
   })
 
   val IFU = Module(new jydIFU)
@@ -88,3 +89,109 @@ class jyd_remote_cpu extends Module {
   io.DRAM <> LSU.io.DRAM
 }
 
+import org.chipsalliance.cde.config.{Parameters, Config}
+import freechips.rocketchip.system._
+import riscv_soc.bus._
+
+class core extends Module {
+  val io = IO(new Bundle{
+    val IROM = new IROM_bus
+    val DRAM = new DRAM_bus
+  })
+
+  implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
+
+  val mdut = Module(new jyd_remote_cpu)
+
+  io.IROM <> mdut.io.IROM
+  io.DRAM <> mdut.io.DRAM
+}
+
+class IROM extends BlackBox with HasBlackBoxInline {
+    val io = IO(new Bundle{
+        val clock = Input(Clock())
+        val valid = Input(Bool())
+        val addr = Input(UInt(32.W))
+        val data = Output(UInt(32.W))
+    })
+    val code = 
+    s"""
+    |module IROM(
+    |    input clock,
+    |    input valid,
+    |    input [31:0] addr,
+    |    output [31:0] data
+    |);
+    |
+    |   import "DPI-C" function void IROM_read(input bit [31:0] addr, output bit [31:0] data);
+    |   always @(posedge clock) begin
+    |       if(valid) begin
+    |           IROM_read(addr, data);
+    |       end
+    |   end
+    |
+    |endmodule
+    """
+
+    setInline("IROM.v", code.stripMargin)
+}
+
+class DRAM extends BlackBox with HasBlackBoxInline {
+    val io = IO(new Bundle{
+        val clock = Input(Clock())
+        val valid = Input(Bool())
+        val addr  = Input(UInt(32.W))
+        val wen   = Input(Bool())
+        val mask  = Input(UInt(2.W))
+        val wdata = Input(UInt(32.W))
+        val rdata = Output(UInt(32.W))
+    })
+    val code = 
+    s"""
+    |module DRAM(
+    |    input clock,
+    |    input valid,
+    |    input [31:0] addr,
+    |    input wen,
+    |    input [1:0] mask,
+    |    input [31:0] wdata,
+    |    output [31:0] rdata
+    |);
+    |
+    |   import "DPI-C" function void DRAM_read(input bit [31:0] addr, output bit [31:0] data);
+    |   import "DPI-C" function void DRAM_write(input bit [31:0] addr, input bit [1:0] mask, input bit [31:0] data);
+    |   always @(posedge clock) begin
+    |       if(wen) begin
+    |           DRAM_write(addr, mask, wdata);
+    |       end
+    |       else begin
+    |           DRAM_read(addr, rdata);
+    |       end
+    |   end
+    |
+    |endmodule
+    """
+
+    setInline("DRAM.v", code.stripMargin)
+}
+
+class top extends Module {
+  implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
+
+  val mdut = Module(new jyd_remote_cpu)
+  val irom = Module(new IROM)
+  val dram = Module(new DRAM)
+
+  irom.io.clock := clock
+  irom.io.valid := true.B
+  irom.io.addr := mdut.io.IROM.addr
+  mdut.io.IROM.data := irom.io.data
+
+  dram.io.clock := clock  
+  dram.io.valid := true.B
+  dram.io.addr := mdut.io.DRAM.addr
+  dram.io.wen := mdut.io.DRAM.wen
+  dram.io.mask := mdut.io.DRAM.mask
+  dram.io.wdata := mdut.io.DRAM.wdata
+  mdut.io.DRAM.rdata := dram.io.rdata
+}

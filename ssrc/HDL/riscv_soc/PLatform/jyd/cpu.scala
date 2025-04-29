@@ -28,7 +28,7 @@ class jydIFU extends Module {
         val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.BUS_IFU_2_IDU))
 
         val Pipeline_ctrl = Flipped(new riscv_soc.bus.Pipeline_ctrl)
-        val IROM = new IROM
+        val IROM = new IROM_bus
     })
 
     val pc = RegInit(Config.Reset_Vector)
@@ -60,7 +60,7 @@ class jydLSU extends Module {
     val IDU_2_EXU = Flipped(Decoupled(Input(new riscv_soc.bus.BUS_IDU_2_EXU)))
     val EXU_2_WBU = Decoupled(Output(new riscv_soc.bus.BUS_EXU_2_WBU))
     val flush = Input(Bool())
-    val DRAM = new DRAM
+    val DRAM = new DRAM_bus
   })
 
   val addr = WireDefault(io.IDU_2_EXU.bits.EXU_A + io.IDU_2_EXU.bits.Imm)
