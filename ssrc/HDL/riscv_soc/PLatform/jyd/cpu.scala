@@ -57,38 +57,28 @@ class jydIFU extends Module {
 
 class jydLSU extends Module {
   val io = IO(new Bundle{
-    val IDU_2_EXU = Flipped(Decoupled(Input(new riscv_soc.bus.BUS_IDU_2_EXU)))
+    val AGU_2_LSU = Flipped(Decoupled(Input(new riscv_soc.bus.BUS_AGU_2_LSU)))
     val EXU_2_WBU = Decoupled(Output(new riscv_soc.bus.BUS_EXU_2_WBU))
     val flush = Input(Bool())
     val DRAM = new DRAM_bus
   })
 
-  val addr = WireDefault(io.IDU_2_EXU.bits.EXU_A + io.IDU_2_EXU.bits.Imm)
-  val data = WireDefault(io.IDU_2_EXU.bits.EXU_B)
-  val mask = MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
-    bus.MemOp_TypeEnum.MemOp_1BS -> "b00".U,
-    bus.MemOp_TypeEnum.MemOp_1BU -> "b00".U,
-    bus.MemOp_TypeEnum.MemOp_2BS -> "b01".U,
-    bus.MemOp_TypeEnum.MemOp_2BU -> "b01".U,
-    bus.MemOp_TypeEnum.MemOp_4BU -> "b10".U,
-  ))
+  io.AGU_2_LSU.ready := io.EXU_2_WBU.ready
+  io.EXU_2_WBU.valid := io.AGU_2_LSU.valid
 
-  io.IDU_2_EXU.ready := io.EXU_2_WBU.ready
-  io.EXU_2_WBU.valid := io.IDU_2_EXU.valid
+  io.DRAM.addr := io.AGU_2_LSU.bits.addr
+  io.DRAM.wdata := io.AGU_2_LSU.bits.wdata
+  io.DRAM.wen := io.AGU_2_LSU.bits.wen
+  io.DRAM.mask := io.AGU_2_LSU.bits.mask
 
-  io.DRAM.addr := RegEnable(addr, 0.U, io.IDU_2_EXU.fire)
-  io.DRAM.wdata := RegEnable(data, 0.U, io.IDU_2_EXU.fire)
-  io.DRAM.wen := RegEnable(io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_ST, 0.U, io.IDU_2_EXU.fire)
-  io.DRAM.mask := mask
-
-  io.EXU_2_WBU.bits.Branch        := io.IDU_2_EXU.bits.Branch 
+  io.EXU_2_WBU.bits.Branch        := bus.Bran_TypeEnum.Bran_NJmp
   io.EXU_2_WBU.bits.Jmp_Pc        := 0.U   
-  io.EXU_2_WBU.bits.MemtoReg      := io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_LD   
-  io.EXU_2_WBU.bits.csr_ctr       := io.IDU_2_EXU.bits.csr_ctr         
-  io.EXU_2_WBU.bits.CSR_waddr     := io.IDU_2_EXU.bits.Imm(11, 0)  
-  io.EXU_2_WBU.bits.GPR_waddr     := io.IDU_2_EXU.bits.GPR_waddr
-  io.EXU_2_WBU.bits.PC            := io.IDU_2_EXU.bits.PC     
-  io.EXU_2_WBU.bits.CSR_rdata     := io.IDU_2_EXU.bits.EXU_B  
+  io.EXU_2_WBU.bits.MemtoReg      := !io.AGU_2_LSU.bits.wen
+  io.EXU_2_WBU.bits.csr_ctr       := bus.CSR_TypeEnum.CSR_N  
+  io.EXU_2_WBU.bits.CSR_waddr     := 0.U
+  io.EXU_2_WBU.bits.GPR_waddr     := io.AGU_2_LSU.bits.GPR_waddr
+  io.EXU_2_WBU.bits.PC            := io.AGU_2_LSU.bits.PC     
+  io.EXU_2_WBU.bits.CSR_rdata     := 0.U 
   io.EXU_2_WBU.bits.Result        := 0.U
   io.EXU_2_WBU.bits.Mem_rdata     := io.DRAM.rdata
 
@@ -96,7 +86,7 @@ class jydLSU extends Module {
     val Catch = Module(new riscv_soc.cpu.LSU_catch)
     Catch.io.clock := clock
     Catch.io.valid := io.EXU_2_WBU.fire && !reset.asBool
-    Catch.io.pc    := io.IDU_2_EXU.bits.PC
-    Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(RegEnable(addr, io.IDU_2_EXU.fire))).reduce(_ || _)
+    Catch.io.pc    := io.AGU_2_LSU.bits.PC
+    Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(RegEnable(io.AGU_2_LSU.bits.addr, io.AGU_2_LSU.fire))).reduce(_ || _)
   }
 }

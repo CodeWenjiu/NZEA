@@ -38,9 +38,13 @@ class BUS_IDU_2_EXU extends Bundle{
 }
 
 class BUS_AGU_2_LSU extends Bundle{
-    val MemOp    = MemOp_TypeEnum()
-    val MemAddr  = UInt(32.W)
-    val MemData  = UInt(32.W)
+    val addr  = UInt(32.W)
+    val wdata = UInt(32.W)
+    val wen   = Bool()
+    val mask  = UInt(2.W)
+
+    val PC = UInt(32.W)
+    val GPR_waddr = UInt(4.W)
 }
 
 class BUS_IDU_2_REG extends Bundle{

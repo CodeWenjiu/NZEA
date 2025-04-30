@@ -1,4 +1,4 @@
-package riscv_soc
+package riscv_soc.cpu
 
 import chisel3._
 import chisel3.util._
@@ -13,20 +13,24 @@ class AGU extends Module {
         val AGU_2_LSU = Decoupled(Output(new BUS_AGU_2_LSU))
     })
 
-    val state = RegInit(bus_state.s_wait_valid)
-
-    state := MuxLookup(state, bus_state.s_wait_valid)(
-        Seq(
-            bus_state.s_wait_valid -> Mux(io.IDU_2_EXU.valid,  bus_state.s_wait_ready, bus_state.s_wait_valid),
-            bus_state.s_wait_ready -> Mux(io.AGU_2_LSU.ready, bus_state.s_wait_valid, bus_state.s_wait_ready),
-        )
-    )
-
-    io.AGU_2_LSU.valid := state === bus_state.s_wait_ready
-    io.IDU_2_EXU.ready := state === bus_state.s_wait_valid
+    io.AGU_2_LSU.valid := io.IDU_2_EXU.valid
+    io.IDU_2_EXU.ready := io.AGU_2_LSU.ready
 
     val addr = WireDefault(io.IDU_2_EXU.bits.EXU_A + io.IDU_2_EXU.bits.Imm)
+    val data = WireDefault(io.IDU_2_EXU.bits.EXU_B)
+    val mask = MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
+        MemOp_TypeEnum.MemOp_1BS -> "b00".U,
+        MemOp_TypeEnum.MemOp_1BU -> "b00".U,
+        MemOp_TypeEnum.MemOp_2BS -> "b01".U,
+        MemOp_TypeEnum.MemOp_2BU -> "b01".U,
+        MemOp_TypeEnum.MemOp_4BU -> "b10".U,
+    ))
 
-    io.AGU_2_LSU.bits.MemAddr := addr
-    io.AGU_2_LSU.bits.MemData := (io.IDU_2_EXU.bits.EXU_B << (addr(1,0) << 3.U))(31, 0)
+    io.AGU_2_LSU.bits.addr := addr
+    io.AGU_2_LSU.bits.wdata := data
+    io.AGU_2_LSU.bits.wen := io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
+    io.AGU_2_LSU.bits.mask := mask
+
+    io.AGU_2_LSU.bits.PC := io.IDU_2_EXU.bits.PC
+    io.AGU_2_LSU.bits.GPR_waddr := io.IDU_2_EXU.bits.GPR_waddr
 }

@@ -23,6 +23,80 @@ import riscv_soc.bus
 import _root_.peripheral.UART
 import riscv_soc.cpu.EXUctr_Field
 
+class Pipeline_catch extends BlackBox with HasBlackBoxInline{
+  val io = IO(new Bundle {
+      val clock = Input(Clock())
+      val pipeline_flush = Input(Bool())
+  })
+  setInline("Pipeline_catch.v",
+  """module Pipeline_catch(
+  |  input clock,
+  |  input pipeline_flush
+  |);
+  |import "DPI-C" function void Pipeline_catch();
+  |always @(posedge clock) begin
+  |    if(pipeline_flush) begin
+  |        Pipeline_catch();
+  |    end
+  |end
+  |endmodule
+  """.stripMargin)
+}
+
+class PipelineCtrl extends Module {
+    val io = IO(new Bundle {
+        val GPR_read = Flipped(ValidIO((new bus.BUS_IDU_2_REG)))
+
+        val IFU_out = Flipped(ValidIO(new bus.BUS_IFU_2_IDU))
+        val IDU_in  = Flipped(ValidIO((new bus.BUS_IFU_2_IDU)))
+        val ALU_in  = Flipped(ValidIO((new bus.BUS_IDU_2_EXU)))
+        val AGU_in  = Flipped(ValidIO((new bus.BUS_IDU_2_EXU)))
+        val WBU_in  = Flipped(ValidIO((new bus.BUS_EXU_2_WBU)))
+        val Branch_msg = Flipped(ValidIO((new bus.BUS_WBU_2_IFU)))
+
+        val IFUCtrl = new bus.Pipeline_ctrl
+        val IDUCtrl = new bus.Pipeline_ctrl
+        val EXUCtrl = new bus.Pipeline_ctrl
+    })
+
+    def conflict(rs: UInt, rd: UInt) = (rs === rd)
+
+    def conflict_gpr(rs: UInt, rd:UInt) = (conflict(rs, rd) && (rs =/= 0.U))
+    def conflict_gpr_valid(rs: UInt) = 
+        (conflict_gpr(rs, io.ALU_in.bits.GPR_waddr) & io.ALU_in.valid) ||
+        (conflict_gpr(rs, io.WBU_in.bits.GPR_waddr) & io.WBU_in.valid)
+
+    def is_gpr_RAW = io.GPR_read.valid && 
+                     (conflict_gpr_valid(io.GPR_read.bits.GPR_Aaddr) ||
+                     conflict_gpr_valid(io.GPR_read.bits.GPR_Baddr))
+
+    def conflict_pc(target: UInt) =
+        io.Branch_msg.valid && (target =/= io.Branch_msg.bits.Next_PC)
+
+    def is_bp_error = MuxCase(conflict_pc(io.IFU_out.bits.PC), Seq(
+        (io.ALU_in.valid -> conflict_pc(io.ALU_in.bits.PC)),
+        (io.AGU_in.valid -> conflict_pc(io.AGU_in.bits.PC)),
+        (io.IDU_in.valid -> conflict_pc(io.IDU_in.bits.PC)),
+    ))
+
+    def is_ls_hazard = io.AGU_in.valid
+
+    io.IFUCtrl.flush := is_bp_error
+    io.IFUCtrl.stall := false.B
+
+    io.IDUCtrl.flush := is_bp_error
+    io.IDUCtrl.stall := is_gpr_RAW || is_ls_hazard
+
+    io.EXUCtrl.flush := is_bp_error
+    io.EXUCtrl.stall := false.B
+
+    if(Config.Simulate) {
+        val pipeline_catch = Module(new Pipeline_catch)
+        pipeline_catch.io.clock := clock
+        pipeline_catch.io.pipeline_flush := RegNext(io.IFUCtrl.flush)
+    }
+}
+
 class jyd_remote_cpu extends Module {
   val io = IO(new Bundle{
     val IROM = new IROM_bus
@@ -32,10 +106,11 @@ class jyd_remote_cpu extends Module {
   val IFU = Module(new jydIFU)
   val IDU = Module(new riscv_soc.cpu.IDU)
   val ALU = Module(new riscv_soc.cpu.ALU)
+  val AGU = Module(new riscv_soc.cpu.AGU)
   val LSU = Module(new jydLSU)
   val WBU = Module(new riscv_soc.cpu.WBU)
   val REG = Module(new riscv_soc.cpu.REG)
-  val PipelineCtrl = Module(new bus.PipelineCtrl)
+  val PipelineCtrl = Module(new PipelineCtrl)
 
   PipelineCtrl.io.GPR_read.valid := IDU.io.IDU_2_EXU.valid
   PipelineCtrl.io.GPR_read.bits := IDU.io.IDU_2_REG
@@ -43,7 +118,7 @@ class jyd_remote_cpu extends Module {
   PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
   PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
   PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
-  PipelineCtrl.io.LSU_in := LSU.io.IDU_2_EXU
+  PipelineCtrl.io.AGU_in := AGU.io.IDU_2_EXU
   PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
 
   PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU
@@ -62,10 +137,17 @@ class jyd_remote_cpu extends Module {
   riscv_soc.bus.pipelineConnect(
     IDU.io.IDU_2_EXU,
     Seq(
-      (to_LSU, LSU.io.IDU_2_EXU, LSU.io.EXU_2_WBU),
+      (to_LSU, AGU.io.IDU_2_EXU, LSU.io.EXU_2_WBU),
       (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
     ),
     PipelineCtrl.io.IDUCtrl
+  )
+
+  riscv_soc.bus.pipelineConnect(
+    AGU.io.IDU_2_EXU,
+    LSU.io.AGU_2_LSU,
+    LSU.io.EXU_2_WBU,
+    PipelineCtrl.io.EXUCtrl
   )
 
   riscv_soc.bus.pipelineConnect(
