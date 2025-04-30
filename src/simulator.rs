@@ -464,6 +464,10 @@ unsafe extern "C" fn irom_read_handler(addr: Input, data: Output) {
     let addr = unsafe { *addr };
     let data = unsafe { &mut *data };
 
+    if !(0x8000_0000..0x8000_3fff).contains(&addr) {
+        return;
+    }
+
     nzea_result_write(NZEA_STATES.with(|states| {
         let mut states = states.get().unwrap().borrow_mut();
         *data = log_err!(
@@ -477,6 +481,10 @@ unsafe extern "C" fn irom_read_handler(addr: Input, data: Output) {
 unsafe extern "C" fn dram_read_handler(addr: Input, data: Output) {
     let addr = unsafe { *addr };
     let data = unsafe { &mut *data };
+
+    if !(0x8010_0000..0x801f_ffff).contains(&addr) {
+        return;
+    }
 
     nzea_result_write(NZEA_STATES.with(|states| {
         let mut states = states.get().unwrap().borrow_mut();
@@ -492,6 +500,10 @@ unsafe extern "C" fn dram_write_handler(addr: Input, mask: Input, data: Input) {
     let addr = unsafe { *addr };
     let data = unsafe { *data };
     let mask = unsafe { *mask };
+
+    if !(0x8010_0000..0x801f_ffff).contains(&addr) {
+        return;
+    }
 
     nzea_result_write(NZEA_STATES.with(|states| {
         let mask = match mask {
