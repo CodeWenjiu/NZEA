@@ -5,7 +5,7 @@ use option_parser::OptionParser;
 use owo_colors::OwoColorize;
 use remu_macro::{log_err, log_error};
 use remu_utils::{ProcessError, ProcessResult};
-use state::{model::BasicPipeCell, reg::RegfileIo, States};
+use state::{model::JydPipeCell, reg::RegfileIo, States};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
@@ -58,7 +58,7 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
 
     nzea_result_write(
         NZEA_STATES.with(|state| {
-            state.get().unwrap().borrow_mut().pipe_state.send((*pc, *inst), BasicPipeCell::IDU)
+            state.get().unwrap().borrow_mut().pipe_state.send((*pc, *inst), JydPipeCell::IDU)
         })
     );
 }
@@ -73,10 +73,30 @@ unsafe extern "C" fn alu_catch_handler(pc: Input) {
 
     nzea_result_write(NZEA_STATES.with(|state| {
         let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
-        pipe_state.trans(BasicPipeCell::ALU, BasicPipeCell::WBU); // Consider adding '?' if trans returns Result
-        let (fetched_pc, _) = pipe_state.fetch(BasicPipeCell::ALU)?;
+        pipe_state.trans(JydPipeCell::ALU, JydPipeCell::WBU); // Consider adding '?' if trans returns Result
+        let (fetched_pc, _) = pipe_state.fetch(JydPipeCell::ALU)?;
         if fetched_pc != *pc {
             log_error!(format!("ALU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
+            return Err(ProcessError::Recoverable);
+        }
+        Ok(())
+    }));
+}
+
+unsafe extern "C" fn agu_catch_handler(pc: Input) {
+    // log_debug!("alu_catch_p");
+    let pc = unsafe { &*pc };
+
+    NZEA_TIME.with(|time| {
+        time.get().unwrap().borrow_mut().alu_catch += 1;
+    });
+
+    nzea_result_write(NZEA_STATES.with(|state| {
+        let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
+        pipe_state.trans(JydPipeCell::AGU, JydPipeCell::LSU); // Consider adding '?' if trans returns Result
+        let (fetched_pc, _) = pipe_state.fetch(JydPipeCell::AGU)?;
+        if fetched_pc != *pc {
+            log_error!(format!("AGU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
             return Err(ProcessError::Recoverable);
         }
         Ok(())
@@ -98,15 +118,15 @@ unsafe extern "C" fn idu_catch_handler(pc: Input, inst_type: Input) {
             match inst_type {
                 0 => {
                     time.idu_catch_al += 1;
-                    pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
+                    pipe_state.trans(JydPipeCell::IDU, JydPipeCell::ALU);
                 }
                 1 => {
                     time.idu_catch_ls += 1;
-                    pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::LSU);
+                    pipe_state.trans(JydPipeCell::IDU, JydPipeCell::AGU);
                 }
                 2 => {
                     time.idu_catch_cs += 1;
-                    pipe_state.trans(BasicPipeCell::IDU, BasicPipeCell::ALU);
+                    pipe_state.trans(JydPipeCell::IDU, JydPipeCell::ALU);
                 }
                 _ => {
                     log_error!(format!("Unknown instruction type: {}", inst_type));
@@ -114,7 +134,7 @@ unsafe extern "C" fn idu_catch_handler(pc: Input, inst_type: Input) {
                 }
             };
 
-            let (fetched_pc, _) = pipe_state.fetch(BasicPipeCell::IDU)?;
+            let (fetched_pc, _) = pipe_state.fetch(JydPipeCell::IDU)?;
 
             if fetched_pc != *pc {
                 log_error!(format!("IDU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
@@ -177,7 +197,7 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
     nzea_result_write(
         NZEA_STATES.with(|state| {
             let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
-            let (fetched_pc, _) = pipe_state.fetch(BasicPipeCell::LSU)?;
+            let (fetched_pc, _) = pipe_state.fetch(JydPipeCell::LSU)?;
             if fetched_pc != *pc {
                 log_error!(format!("LSU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
                 return Err(ProcessError::Recoverable);
@@ -191,7 +211,7 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
     });
 
     NZEA_STATES.with(|state| {
-        state.get().unwrap().borrow_mut().pipe_state.trans(BasicPipeCell::LSU, BasicPipeCell::WBU);
+        state.get().unwrap().borrow_mut().pipe_state.trans(JydPipeCell::LSU, JydPipeCell::WBU);
     });
 
     NZEA_CALLBACK.with(|callback| {
@@ -243,7 +263,7 @@ unsafe extern "C" fn wbu_catch_handler(
 
         let reg_pc = NZEA_STATES.with(|s| s.get().unwrap().borrow().regfile.read_pc());
         if pc != reg_pc {
-            log_error!(format!("PC mismatch: {:#08x} != {:#08x}", pc, reg_pc));
+            log_error!(format!("PC mismatch: Ref: {:#08x} != Dut: {:#08x}", pc, reg_pc));
             return Err(ProcessError::Recoverable);
         }
 
@@ -482,7 +502,7 @@ unsafe extern "C" fn dram_read_handler(addr: Input, data: Output) {
     let addr = unsafe { *addr };
     let data = unsafe { &mut *data };
 
-    if !(0x8010_0000..0x801f_ffff).contains(&addr) {
+    if !(0x8010_0000..=0x801f_ffff).contains(&addr) && !(0x8000_0000..=0x8000_3fff).contains(&addr) {
         return;
     }
 
@@ -535,6 +555,7 @@ impl Nzea {
 
         let basic_callbacks = BasicCallbacks {
             alu_catch_p: alu_catch_handler,
+            agu_catch_p: agu_catch_handler,
             idu_catch_p: idu_catch_handler,
             ifu_catch_p: ifu_catch_handler,
             icache_mat_catch_p: icache_mat_catch_handler,

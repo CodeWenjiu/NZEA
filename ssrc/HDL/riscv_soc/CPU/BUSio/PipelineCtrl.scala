@@ -69,7 +69,7 @@ class PipelineCtrl extends Module {
     io.IFUCtrl.stall := false.B
 
     io.IDUCtrl.flush := is_bp_error
-    io.IDUCtrl.stall := is_gpr_RAW || is_ls_hazard
+    io.IDUCtrl.stall := is_gpr_RAW
 
     io.EXUCtrl.flush := is_bp_error
     io.EXUCtrl.stall := false.B

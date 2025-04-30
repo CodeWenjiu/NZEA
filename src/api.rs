@@ -9,6 +9,7 @@ pub type Output = *mut u32;
 #[repr(C)]
 pub struct BasicCallbacks {
     pub alu_catch_p: unsafe extern "C" fn(Input),
+    pub agu_catch_p: unsafe extern "C" fn(Input),
     pub idu_catch_p: unsafe extern "C" fn(Input, Input),
     pub ifu_catch_p: unsafe extern "C" fn(Input, Input),
     pub icache_mat_catch_p: unsafe extern "C" fn(Input),

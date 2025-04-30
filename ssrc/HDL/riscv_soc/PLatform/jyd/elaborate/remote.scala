@@ -56,6 +56,7 @@ class PipelineCtrl extends Module {
 
         val IFUCtrl = new bus.Pipeline_ctrl
         val IDUCtrl = new bus.Pipeline_ctrl
+        val AGUCtrl = new bus.Pipeline_ctrl
         val EXUCtrl = new bus.Pipeline_ctrl
     })
 
@@ -85,7 +86,10 @@ class PipelineCtrl extends Module {
     io.IFUCtrl.stall := false.B
 
     io.IDUCtrl.flush := is_bp_error
-    io.IDUCtrl.stall := is_gpr_RAW || is_ls_hazard
+    io.IDUCtrl.stall := is_gpr_RAW | is_ls_hazard
+
+    io.AGUCtrl.flush := is_bp_error
+    io.AGUCtrl.stall := false.B
 
     io.EXUCtrl.flush := is_bp_error
     io.EXUCtrl.stall := false.B
@@ -137,17 +141,17 @@ class jyd_remote_cpu extends Module {
   riscv_soc.bus.pipelineConnect(
     IDU.io.IDU_2_EXU,
     Seq(
-      (to_LSU, AGU.io.IDU_2_EXU, LSU.io.EXU_2_WBU),
+      (to_LSU, AGU.io.IDU_2_EXU, AGU.io.AGU_2_LSU),
       (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
     ),
     PipelineCtrl.io.IDUCtrl
   )
 
   riscv_soc.bus.pipelineConnect(
-    AGU.io.IDU_2_EXU,
+    AGU.io.AGU_2_LSU,
     LSU.io.AGU_2_LSU,
     LSU.io.EXU_2_WBU,
-    PipelineCtrl.io.EXUCtrl
+    PipelineCtrl.io.AGUCtrl
   )
 
   riscv_soc.bus.pipelineConnect(

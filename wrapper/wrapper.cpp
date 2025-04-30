@@ -133,6 +133,11 @@ extern "C" {
         basic_callbacks.ALU_catch_p(pc);
     }
 
+    void AGU_catch(const svBitVecVal *pc) {
+        basic_callbacks.AGU_catch_p(pc);
+    }
+
+
     void IDU_catch(const svBitVecVal *pc, const svBitVecVal *Inst_Type) {
         basic_callbacks.IDU_catch_p(pc, Inst_Type);
     }

@@ -8,6 +8,7 @@ typedef svBit bits;
 
 typedef struct {
     void(*ALU_catch_p)(input);
+    void(*AGU_catch_p)(input);
     void(*IDU_catch_p)(input, input);
     void(*IFU_catch_p)(input, input);
     void(*Icache_MAT_catch_p)(input);
@@ -54,6 +55,7 @@ typedef struct {
 
 // Define panic functions for Basic_Callbacks
 DEFINE_PANIC_FUNCTION(ALU_catch_p, input a)
+DEFINE_PANIC_FUNCTION(AGU_catch_p, input a)
 DEFINE_PANIC_FUNCTION(IDU_catch_p, input a, input b)
 DEFINE_PANIC_FUNCTION(IFU_catch_p, input a, input b)
 DEFINE_PANIC_FUNCTION(Icache_MAT_catch_p, input a)
@@ -86,6 +88,7 @@ DEFINE_PANIC_FUNCTION(DRAM_write, input addr, input mask, input data)
 
 static Basic_Callbacks basic_callbacks = {
     .ALU_catch_p = default_ALU_catch_p,
+    .AGU_catch_p = default_AGU_catch_p,
     .IDU_catch_p = default_IDU_catch_p,
     .IFU_catch_p = default_IFU_catch_p,
     .Icache_MAT_catch_p = default_Icache_MAT_catch_p,
