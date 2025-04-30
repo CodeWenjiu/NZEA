@@ -224,4 +224,22 @@ extern "C" {
     void vga_read(int32_t x_addr, int32_t y_addr, int32_t* rdata) {
         ysyxsoc_callbacks.vga_read(x_addr, y_addr, rdata);
     }
+
+    // jyd remote callback
+
+    void set_jyd_remote_callbacks(JYD_REMOTE_Callbacks cb) {
+        jyd_remote_callbacks = cb;
+    }
+
+    void IROM_read(const svBitVecVal *addr, svBitVecVal *data) {
+        jyd_remote_callbacks.IROM_read(addr, data);
+    }
+
+    void DRAM_read(const svBitVecVal *addr, svBitVecVal *data) {
+        jyd_remote_callbacks.DRAM_read(addr, data);
+    }
+
+    void DRAM_write(const svBitVecVal *addr, const svBitVecVal *mask, const svBitVecVal *data) {
+        jyd_remote_callbacks.DRAM_write(addr, mask, data);
+    }
 }

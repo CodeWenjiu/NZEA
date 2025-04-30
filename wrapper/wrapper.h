@@ -36,6 +36,12 @@ typedef struct {
     void(*vga_read)(int32_t, int32_t, int32_t*);
 } YSYXSOC_Callbacks;
 
+typedef struct {
+    void(*IROM_read)(input, output);
+    void(*DRAM_read)(input, output);
+    void(*DRAM_write)(input, input, input);
+} JYD_REMOTE_Callbacks;
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -73,6 +79,11 @@ DEFINE_PANIC_FUNCTION(sdram_read, int32_t a, int32_t* b)
 DEFINE_PANIC_FUNCTION(vga_write, int32_t a, int32_t b)
 DEFINE_PANIC_FUNCTION(vga_read, int32_t a, int32_t b, int32_t* c)
 
+// Define panic functions for JYD_REMOTE_Callbacks
+DEFINE_PANIC_FUNCTION(IROM_read, input addr, output data)
+DEFINE_PANIC_FUNCTION(DRAM_read, input addr, output data)
+DEFINE_PANIC_FUNCTION(DRAM_write, input addr, input mask, input data)
+
 static Basic_Callbacks basic_callbacks = {
     .ALU_catch_p = default_ALU_catch_p,
     .IDU_catch_p = default_IDU_catch_p,
@@ -101,6 +112,12 @@ static YSYXSOC_Callbacks ysyxsoc_callbacks = {
     .sdram_read = default_sdram_read,
     .vga_write = default_vga_write,
     .vga_read = default_vga_read,
+};
+
+static JYD_REMOTE_Callbacks jyd_remote_callbacks = {
+    .IROM_read = default_IROM_read,
+    .DRAM_read = default_DRAM_read,
+    .DRAM_write = default_DRAM_write,
 };
 
 #endif // NZEA_WRAPPER_H

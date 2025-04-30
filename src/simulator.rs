@@ -9,7 +9,7 @@ use state::{model::BasicPipeCell, reg::RegfileIo, States};
 
 use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
 
-use super::{BasicCallbacks, Input, NpcCallbacks, Output, Top, YsyxsocCallbacks};
+use super::{BasicCallbacks, Input, JydRemoteCallbacks, NpcCallbacks, Output, Top, YsyxsocCallbacks};
 
 #[derive(Default)]
 pub struct NzeaTimes {
@@ -458,6 +458,61 @@ unsafe extern "C" fn vga_read(xaddr: u32, yaddr: u32, data: *mut u32) {
     read_by_name("VGA", addr, data);
 }
 
+// jyd remote callback
+
+unsafe extern "C" fn irom_read_handler(addr: Input, data: Output) {
+    let addr = unsafe { *addr };
+    let data = unsafe { &mut *data };
+
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        *data = log_err!(
+            states.mmu.read_memory(addr, state::mmu::Mask::Word),
+            ProcessError::Recoverable
+        )?;
+        Ok(())
+    }));
+}
+
+unsafe extern "C" fn dram_read_handler(addr: Input, data: Output) {
+    let addr = unsafe { *addr };
+    let data = unsafe { &mut *data };
+
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mut states = states.get().unwrap().borrow_mut();
+        *data = log_err!(
+            states.mmu.read_memory(addr, state::mmu::Mask::Word),
+            ProcessError::Recoverable
+        )?;
+        Ok(())
+    }));
+}
+
+unsafe extern "C" fn dram_write_handler(addr: Input, mask: Input, data: Input) {
+    let addr = unsafe { *addr };
+    let data = unsafe { *data };
+    let mask = unsafe { *mask };
+
+    nzea_result_write(NZEA_STATES.with(|states| {
+        let mask = match mask {
+            0 => state::mmu::Mask::Byte,
+            1 => state::mmu::Mask::Half,
+            2 => state::mmu::Mask::Word,
+            _ => {
+                log_error!(format!("Unknown mask: {}", mask));
+                nzea_result_write(Err(ProcessError::Recoverable));
+                return Ok(());
+            }
+        };
+        let mut states = states.get().unwrap().borrow_mut();
+        log_err!(
+            states.mmu.write(addr, data, mask),
+            ProcessError::Recoverable
+        )?;
+        Ok(())
+    }));
+}
+
 pub struct Nzea {
     pub top: Top,
 }
@@ -496,7 +551,13 @@ impl Nzea {
             vga_read: vga_read,
         };
 
-        top.init(basic_callbacks, npc_callbacks, ysyxsoc_callbacks);
+        let jyd_remote_callbacks = JydRemoteCallbacks {
+            irom_read: irom_read_handler,
+            dramm_read: dram_read_handler,
+            dramm_write: dram_write_handler,
+        };
+
+        top.init(basic_callbacks, npc_callbacks, ysyxsoc_callbacks, jyd_remote_callbacks);
 
         NZEA_STATES.with(|states_ref| {
             states_ref.get_or_init(|| std::cell::RefCell::new(states));
