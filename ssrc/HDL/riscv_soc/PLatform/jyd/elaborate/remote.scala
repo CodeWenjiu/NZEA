@@ -110,7 +110,6 @@ class core extends Module {
 class IROM extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
         val clock = Input(Clock())
-        val valid = Input(Bool())
         val addr = Input(UInt(32.W))
         val data = Output(UInt(32.W))
     })
@@ -118,16 +117,13 @@ class IROM extends BlackBox with HasBlackBoxInline {
     s"""
     |module IROM(
     |    input clock,
-    |    input valid,
     |    input [31:0] addr,
     |    output [31:0] data
     |);
     |
     |   import "DPI-C" function void IROM_read(input bit [31:0] addr, output bit [31:0] data);
-    |   always @(posedge clock) begin
-    |       if(valid) begin
-    |           IROM_read(addr, data);
-    |       end
+    |   always @(*) begin
+    |       IROM_read(addr, data);
     |   end
     |
     |endmodule
@@ -183,7 +179,6 @@ class top extends Module {
   val dram = Module(new DRAM)
 
   irom.io.clock := clock
-  irom.io.valid := true.B
   irom.io.addr := mdut.io.IROM.addr
   mdut.io.IROM.data := irom.io.data
 
