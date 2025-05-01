@@ -39,7 +39,7 @@ typedef struct {
 
 typedef struct {
     void(*IROM_read)(input, output);
-    void(*DRAM_read)(input, output);
+    void(*DRAM_read)(input, input, output);
     void(*DRAM_write)(input, input, input);
 } JYD_REMOTE_Callbacks;
 
@@ -83,7 +83,7 @@ DEFINE_PANIC_FUNCTION(vga_read, int32_t a, int32_t b, int32_t* c)
 
 // Define panic functions for JYD_REMOTE_Callbacks
 DEFINE_PANIC_FUNCTION(IROM_read, input addr, output data)
-DEFINE_PANIC_FUNCTION(DRAM_read, input addr, output data)
+DEFINE_PANIC_FUNCTION(DRAM_read, input addr, input mask, output data)
 DEFINE_PANIC_FUNCTION(DRAM_write, input addr, input mask, input data)
 
 static Basic_Callbacks basic_callbacks = {

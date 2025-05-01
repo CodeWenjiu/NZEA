@@ -42,18 +42,18 @@ class AGU extends Module {
 
     val addr = WireDefault(io.IDU_2_EXU.bits.EXU_A + io.IDU_2_EXU.bits.Imm)
     val data = WireDefault(io.IDU_2_EXU.bits.EXU_B)
-    val mask = MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
-        MemOp_TypeEnum.MemOp_1BS -> "b00".U,
-        MemOp_TypeEnum.MemOp_1BU -> "b00".U,
-        MemOp_TypeEnum.MemOp_2BS -> "b01".U,
-        MemOp_TypeEnum.MemOp_2BU -> "b01".U,
-        MemOp_TypeEnum.MemOp_4BU -> "b10".U,
-    ))
+    // val mask = MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
+    //     MemOp_TypeEnum.MemOp_1BS -> "b00".U,
+    //     MemOp_TypeEnum.MemOp_1BU -> "b00".U,
+    //     MemOp_TypeEnum.MemOp_2BS -> "b01".U,
+    //     MemOp_TypeEnum.MemOp_2BU -> "b01".U,
+    //     MemOp_TypeEnum.MemOp_4BU -> "b10".U,
+    // ))
 
     io.AGU_2_LSU.bits.addr := addr
     io.AGU_2_LSU.bits.wdata := data
     io.AGU_2_LSU.bits.wen := io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
-    io.AGU_2_LSU.bits.mask := mask
+    io.AGU_2_LSU.bits.MemOp := io.IDU_2_EXU.bits.MemOp
 
     io.AGU_2_LSU.bits.PC := io.IDU_2_EXU.bits.PC
     io.AGU_2_LSU.bits.GPR_waddr := io.IDU_2_EXU.bits.GPR_waddr

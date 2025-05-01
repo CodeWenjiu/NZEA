@@ -68,8 +68,16 @@ class jydLSU extends Module {
 
   io.DRAM.addr := io.AGU_2_LSU.bits.addr
   io.DRAM.wdata := io.AGU_2_LSU.bits.wdata
-  io.DRAM.wen := io.AGU_2_LSU.bits.wen
-  io.DRAM.mask := io.AGU_2_LSU.bits.mask
+  io.DRAM.wen := io.AGU_2_LSU.bits.wen && io.AGU_2_LSU.fire
+
+  val mask = MuxLookup(io.AGU_2_LSU.bits.MemOp, 0.U)(Seq(
+      bus.MemOp_TypeEnum.MemOp_1BS -> "b00".U,
+      bus.MemOp_TypeEnum.MemOp_1BU -> "b00".U,
+      bus.MemOp_TypeEnum.MemOp_2BS -> "b01".U,
+      bus.MemOp_TypeEnum.MemOp_2BU -> "b01".U,
+      bus.MemOp_TypeEnum.MemOp_4BU -> "b10".U,
+  ))
+  io.DRAM.mask := mask
 
   io.EXU_2_WBU.bits.Branch        := bus.Bran_TypeEnum.Bran_NJmp
   io.EXU_2_WBU.bits.Jmp_Pc        := 0.U   
@@ -80,13 +88,16 @@ class jydLSU extends Module {
   io.EXU_2_WBU.bits.PC            := io.AGU_2_LSU.bits.PC     
   io.EXU_2_WBU.bits.CSR_rdata     := 0.U 
   io.EXU_2_WBU.bits.Result        := 0.U
-  io.EXU_2_WBU.bits.Mem_rdata     := io.DRAM.rdata
+  io.EXU_2_WBU.bits.Mem_rdata     := MuxLookup(io.AGU_2_LSU.bits.MemOp, io.DRAM.rdata)(Seq(
+      bus.MemOp_TypeEnum.MemOp_1BS -> Cat(Fill(24, io.DRAM.rdata(7)), io.DRAM.rdata(7,0)),
+      bus.MemOp_TypeEnum.MemOp_2BS -> Cat(Fill(16, io.DRAM.rdata(15)), io.DRAM.rdata(15,0)),
+  ))
 
   if(Config.Simulate){
     val Catch = Module(new riscv_soc.cpu.LSU_catch)
     Catch.io.clock := clock
     Catch.io.valid := io.EXU_2_WBU.fire && !reset.asBool
     Catch.io.pc    := io.AGU_2_LSU.bits.PC
-    Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(RegEnable(io.AGU_2_LSU.bits.addr, io.AGU_2_LSU.fire))).reduce(_ || _)
+    Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.AGU_2_LSU.bits.addr)).reduce(_ || _)
   }
 }

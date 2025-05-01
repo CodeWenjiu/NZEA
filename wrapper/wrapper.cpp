@@ -240,8 +240,8 @@ extern "C" {
         jyd_remote_callbacks.IROM_read(addr, data);
     }
 
-    void DRAM_read(const svBitVecVal *addr, svBitVecVal *data) {
-        jyd_remote_callbacks.DRAM_read(addr, data);
+    void DRAM_read(const svBitVecVal *addr, const svBitVecVal *mask, svBitVecVal *data) {
+        jyd_remote_callbacks.DRAM_read(addr, mask, data);
     }
 
     void DRAM_write(const svBitVecVal *addr, const svBitVecVal *mask, const svBitVecVal *data) {

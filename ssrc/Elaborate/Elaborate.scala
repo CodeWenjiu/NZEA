@@ -125,7 +125,7 @@ object Elaboratejyd_remote extends App {
   
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(true)
-  Config.setDiffMisMap(AddressSet.misaligned(0x20000000, 0x1000))
+  Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
 }

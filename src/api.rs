@@ -43,7 +43,7 @@ pub struct YsyxsocCallbacks {
 #[repr(C)]
 pub struct JydRemoteCallbacks {
     pub irom_read: unsafe extern "C" fn(Input, Output),
-    pub dramm_read: unsafe extern "C" fn(Input, Output),
+    pub dramm_read: unsafe extern "C" fn(Input, Input, Output),
     pub dramm_write: unsafe extern "C" fn(Input, Input, Input),
 }
 

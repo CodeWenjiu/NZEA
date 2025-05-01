@@ -1,4 +1,4 @@
-use std::{cell::RefCell, char, io::Write, sync::OnceLock};
+use std::{cell::RefCell, char, io::Write, sync::OnceLock, time::Instant};
 
 use logger::Logger;
 use option_parser::OptionParser;
@@ -498,18 +498,41 @@ unsafe extern "C" fn irom_read_handler(addr: Input, data: Output) {
     }));
 }
 
-unsafe extern "C" fn dram_read_handler(addr: Input, data: Output) {
+static TIMER: OnceLock<Instant> = OnceLock::new();
+
+unsafe extern "C" fn dram_read_handler(addr: Input, mask: Input, data: Output) {
     let addr = unsafe { *addr };
     let data = unsafe { &mut *data };
+    let mask = unsafe { *mask };
+
+    if addr == 0x8014_0000 {
+        return;
+    }
+
+    if addr == 0x8020_0050 {
+        let timer = TIMER.get().unwrap();
+        let elapsed = timer.elapsed();
+        *data = elapsed.as_micros() as u32;
+    }
 
     if !(0x8010_0000..=0x801f_ffff).contains(&addr) && !(0x8000_0000..=0x8000_3fff).contains(&addr) {
         return;
     }
 
     nzea_result_write(NZEA_STATES.with(|states| {
+        let mask = match mask {
+            0 => state::mmu::Mask::Byte,
+            1 => state::mmu::Mask::Half,
+            2 => state::mmu::Mask::Word,
+            _ => {
+                log_error!(format!("Unknown mask: {}", mask));
+                nzea_result_write(Err(ProcessError::Recoverable));
+                return Ok(());
+            }
+        };
         let mut states = states.get().unwrap().borrow_mut();
         *data = log_err!(
-            states.mmu.read_memory(addr, state::mmu::Mask::Word),
+            states.mmu.read_memory(addr, mask),
             ProcessError::Recoverable
         )?;
         Ok(())
@@ -520,6 +543,32 @@ unsafe extern "C" fn dram_write_handler(addr: Input, mask: Input, data: Input) {
     let addr = unsafe { *addr };
     let data = unsafe { *data };
     let mask = unsafe { *mask };
+
+    if addr == 0x8014_0000 {
+        let c = &char::from_u32(data);
+        if let Some(c) = c {
+            print!("{}", c);
+            std::io::stdout().flush().unwrap();
+        }
+        return;
+    }
+
+    if addr == 0x8020_0050 {
+        // 定时器
+        use std::time::Instant;
+
+        match data {
+            0x8000_0000 => { // 启动定时器
+                let _timer = TIMER.get_or_init(|| Instant::now());
+            }
+
+            0xffff_ffff => { // 停止定时器
+            }
+
+            _ => ()
+        }
+        return;
+    }
 
     if !(0x8010_0000..0x801f_ffff).contains(&addr) {
         return;

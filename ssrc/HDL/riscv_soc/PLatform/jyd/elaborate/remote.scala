@@ -240,14 +240,14 @@ class DRAM extends BlackBox with HasBlackBoxInline {
     |    output [31:0] rdata
     |);
     |
-    |   import "DPI-C" function void DRAM_read(input bit [31:0] addr, output bit [31:0] data);
+    |   import "DPI-C" function void DRAM_read(input bit [31:0] addr, input bit [1:0] mask, output bit [31:0] data);
     |   import "DPI-C" function void DRAM_write(input bit [31:0] addr, input bit [1:0] mask, input bit [31:0] data);
     |   always @(posedge clock) begin
     |       if(wen) begin
     |           DRAM_write(addr, mask, wdata);
     |       end
     |       else begin
-    |           DRAM_read(addr, rdata);
+    |           DRAM_read(addr, mask, rdata);
     |       end
     |   end
     |
