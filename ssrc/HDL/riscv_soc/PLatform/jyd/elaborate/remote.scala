@@ -51,6 +51,7 @@ class PipelineCtrl extends Module {
         val IDU_in  = Flipped(ValidIO((new bus.BUS_IFU_2_IDU)))
         val ALU_in  = Flipped(ValidIO((new bus.BUS_IDU_2_EXU)))
         val AGU_in  = Flipped(ValidIO((new bus.BUS_IDU_2_EXU)))
+        val LSU_in  = Flipped(ValidIO((new bus.BUS_AGU_2_LSU)))
         val WBU_in  = Flipped(ValidIO((new bus.BUS_EXU_2_WBU)))
         val Branch_msg = Flipped(ValidIO((new bus.BUS_WBU_2_IFU)))
 
@@ -65,7 +66,9 @@ class PipelineCtrl extends Module {
     def conflict_gpr(rs: UInt, rd:UInt) = (conflict(rs, rd) && (rs =/= 0.U))
     def conflict_gpr_valid(rs: UInt) = 
         (conflict_gpr(rs, io.ALU_in.bits.GPR_waddr) & io.ALU_in.valid) ||
-        (conflict_gpr(rs, io.WBU_in.bits.GPR_waddr) & io.WBU_in.valid)
+        (conflict_gpr(rs, io.WBU_in.bits.GPR_waddr) & io.WBU_in.valid) ||
+        (conflict_gpr(rs, io.AGU_in.bits.GPR_waddr) & io.AGU_in.valid) ||
+        (conflict_gpr(rs, io.LSU_in.bits.GPR_waddr) & io.LSU_in.valid)
 
     def is_gpr_RAW = io.GPR_read.valid && 
                      (conflict_gpr_valid(io.GPR_read.bits.GPR_Aaddr) ||
@@ -86,7 +89,7 @@ class PipelineCtrl extends Module {
     io.IFUCtrl.stall := false.B
 
     io.IDUCtrl.flush := is_bp_error
-    io.IDUCtrl.stall := is_gpr_RAW | is_ls_hazard
+    io.IDUCtrl.stall := is_ls_hazard | is_gpr_RAW
 
     io.AGUCtrl.flush := is_bp_error
     io.AGUCtrl.stall := false.B
@@ -123,6 +126,7 @@ class jyd_remote_cpu extends Module {
   PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
   PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
   PipelineCtrl.io.AGU_in := AGU.io.IDU_2_EXU
+  PipelineCtrl.io.LSU_in := LSU.io.AGU_2_LSU
   PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
 
   PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU

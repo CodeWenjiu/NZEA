@@ -42,13 +42,6 @@ class AGU extends Module {
 
     val addr = WireDefault(io.IDU_2_EXU.bits.EXU_A + io.IDU_2_EXU.bits.Imm)
     val data = WireDefault(io.IDU_2_EXU.bits.EXU_B)
-    // val mask = MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
-    //     MemOp_TypeEnum.MemOp_1BS -> "b00".U,
-    //     MemOp_TypeEnum.MemOp_1BU -> "b00".U,
-    //     MemOp_TypeEnum.MemOp_2BS -> "b01".U,
-    //     MemOp_TypeEnum.MemOp_2BU -> "b01".U,
-    //     MemOp_TypeEnum.MemOp_4BU -> "b10".U,
-    // ))
 
     io.AGU_2_LSU.bits.addr := addr
     io.AGU_2_LSU.bits.wdata := data
