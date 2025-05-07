@@ -45,15 +45,15 @@ class Pipeline_catch extends BlackBox with HasBlackBoxInline{
 
 class PipelineCtrl extends Module {
     val io = IO(new Bundle {
-        val GPR_read = Flipped(ValidIO((new bus.BUS_IDU_2_REG)))
+        val IDU_2_REG = Flipped(ValidIO((new bus.BUS_IDU_2_REG)))
 
         val IFU_out = Flipped(ValidIO(new bus.BUS_IFU_2_IDU))
-        val IDU_in  = Flipped(ValidIO((new bus.BUS_IFU_2_IDU)))
-        val ALU_in  = Flipped(ValidIO((new bus.BUS_IDU_2_EXU)))
-        val AGU_in  = Flipped(ValidIO((new bus.BUS_IDU_2_EXU)))
-        val LSU_in  = Flipped(ValidIO((new bus.BUS_AGU_2_LSU)))
-        val WBU_in  = Flipped(ValidIO((new bus.BUS_EXU_2_WBU)))
-        val Branch_msg = Flipped(ValidIO((new bus.BUS_WBU_2_IFU)))
+        val IDU_in  = Flipped(ValidIO(new bus.BUS_IFU_2_IDU))
+        val ALU_in  = Flipped(ValidIO(new bus.BUS_IDU_2_EXU))
+        val AGU_in  = Flipped(ValidIO(new bus.BUS_IDU_2_EXU))
+        val LSU_in  = Flipped(ValidIO(new bus.BUS_AGU_2_LSU))
+        val WBU_in  = Flipped(ValidIO(new bus.BUS_EXU_2_WBU))
+        val WBU_out = Flipped(ValidIO(new bus.BUS_WBU_2_IFU))
 
         val IFUCtrl = new bus.Pipeline_ctrl
         val IDUCtrl = new bus.Pipeline_ctrl
@@ -70,12 +70,12 @@ class PipelineCtrl extends Module {
         (conflict_gpr(rs, io.AGU_in.bits.GPR_waddr) & io.AGU_in.valid) ||
         (conflict_gpr(rs, io.LSU_in.bits.GPR_waddr) & io.LSU_in.valid)
 
-    def is_gpr_RAW = io.GPR_read.valid && 
-                     (conflict_gpr_valid(io.GPR_read.bits.GPR_Aaddr) ||
-                     conflict_gpr_valid(io.GPR_read.bits.GPR_Baddr))
+    def is_gpr_RAW = io.IDU_2_REG.valid && 
+                     (conflict_gpr_valid(io.IDU_2_REG.bits.GPR_Aaddr) ||
+                     conflict_gpr_valid(io.IDU_2_REG.bits.GPR_Baddr))
 
     def conflict_pc(target: UInt) =
-        io.Branch_msg.valid && (target =/= io.Branch_msg.bits.Next_PC)
+        io.WBU_out.valid && (target =/= io.WBU_out.bits.Next_PC)
 
     def is_bp_error = MuxCase(conflict_pc(io.IFU_out.bits.PC), Seq(
         (io.ALU_in.valid -> conflict_pc(io.ALU_in.bits.PC)),
@@ -119,8 +119,8 @@ class jyd_remote_cpu extends Module {
   val REG = Module(new riscv_soc.cpu.REG)
   val PipelineCtrl = Module(new PipelineCtrl)
 
-  PipelineCtrl.io.GPR_read.valid := IDU.io.IDU_2_EXU.valid
-  PipelineCtrl.io.GPR_read.bits := IDU.io.IDU_2_REG
+  PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_EXU.valid
+  PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_REG
 
   PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
   PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
@@ -129,7 +129,7 @@ class jyd_remote_cpu extends Module {
   PipelineCtrl.io.LSU_in := LSU.io.AGU_2_LSU
   PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
 
-  PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU
+  PipelineCtrl.io.WBU_out := WBU.io.WBU_2_IFU
   
   val to_LSU = WireDefault(false.B)
   to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_ST
