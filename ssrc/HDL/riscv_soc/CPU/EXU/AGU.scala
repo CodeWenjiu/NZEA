@@ -13,6 +13,7 @@ class AGU_catch extends BlackBox with HasBlackBoxInline {
     val valid = Input(Bool())
     val pc    = Input(UInt(32.W))
   })
+  
   val code = 
   s"""module AGU_catch(
   |    input clock,

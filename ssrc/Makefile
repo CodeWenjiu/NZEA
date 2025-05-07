@@ -6,7 +6,7 @@ BUILD_DIR = ../build/$(PLATFORM)
 verilog:
 	@mkdir -p $(BUILD_DIR)
 	@mill -i nzea.runMain config.Elaborate$(PLATFORM) --target-dir $(BUILD_DIR)
-	@DESIGN_FILE=$$(find $(BUILD_DIR) -name "*.sv"); \
+	@DESIGN_FILE=$$(find $(BUILD_DIR) -maxdepth 1 -name "*.sv"); \
 	if [ -z "$$DESIGN_FILE" ]; then \
 		echo "Error: No .sv file found in $(BUILD_DIR) after mill command."; \
 		exit 1; \
