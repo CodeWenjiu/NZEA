@@ -19,3 +19,6 @@
 [submodule "vsrc/jyd_core/NZ-jyd"]
 	path = vsrc/jyd_core/NZ-jyd
 	url = git@github.com:TimeKeepper/NZ-jyd.git
+[submodule "on_board/NZ-jyd"]
+	path = on_board/NZ-jyd
+	url = git@github.com:SZU-NiZhou-402/NZ-jyd.git
