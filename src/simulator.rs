@@ -295,7 +295,7 @@ unsafe extern "C" fn wbu_catch_handler(
             time.instructions += 1;
         });
 
-        (callback.instruction_complete)(pc, inst)
+        (callback.instruction_complete)(pc, *next_pc, inst)
     }));
 }
 
