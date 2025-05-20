@@ -17,6 +17,10 @@ public:
             if (!tfp) {
                 tfp = new VerilatedFstC;
                 this->trace(tfp, 99);
+                if (FILE *file = fopen("waveform.fst", "r")) {
+                    fclose(file);
+                    remove("waveform.fst");
+                }
                 tfp->open("waveform.fst");
             }
             this->wave_trace_on = true;

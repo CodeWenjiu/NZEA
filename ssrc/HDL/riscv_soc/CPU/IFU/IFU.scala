@@ -13,7 +13,6 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 import freechips.rocketchip.util.Annotated.srams
 import org.chipsalliance.diplomacy.lazymodule._
-import riscv_soc.cpu.LS_state.s_wait_valid
 import riscv_soc.bus._
 import signal_value._
 import scala.collection.Parallel

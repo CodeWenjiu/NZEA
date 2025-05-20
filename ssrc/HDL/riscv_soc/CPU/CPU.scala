@@ -80,6 +80,7 @@ trait HasCoreModules extends Module{
   val IFU: IFU#Impl
   val IDU: IDU
   val ALU: ALU
+  val AGU: AGU
   val LSU: LSU#Impl
   val WBU: WBU
   val REG: REG
@@ -90,38 +91,46 @@ object CoreConnect {
   def apply(core: HasCoreModules): Unit = {
     import core._
 
-    PipelineCtrl.io.GPR_read.valid := IDU.io.IDU_2_EXU.valid
-    PipelineCtrl.io.GPR_read.bits := IDU.io.IDU_2_REG
+    PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_EXU.valid
+    PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_REG
 
     PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
     PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
     PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
-    PipelineCtrl.io.LSU_in := LSU.io.IDU_2_EXU
+    PipelineCtrl.io.AGU_in := AGU.io.IDU_2_EXU
+    PipelineCtrl.io.LSU_in := LSU.io.AGU_2_LSU
     PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
 
-    PipelineCtrl.io.Branch_msg := WBU.io.WBU_2_IFU
+    PipelineCtrl.io.WBU_out := WBU.io.WBU_2_IFU
 
     val to_LSU = WireDefault(false.B)
-    to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_ST
+    to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_ST
 
     IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
-    pipelineConnect(
+    riscv_soc.bus.pipelineConnect(
       IFU.io.IFU_2_IDU,
       IDU.io.IFU_2_IDU,
       IDU.io.IDU_2_EXU,
       PipelineCtrl.io.IFUCtrl
     )
 
-    pipelineConnect(
+    riscv_soc.bus.pipelineConnect(
       IDU.io.IDU_2_EXU,
       Seq(
-        (to_LSU, LSU.io.IDU_2_EXU, LSU.io.EXU_2_WBU),
+        (to_LSU, AGU.io.IDU_2_EXU, AGU.io.AGU_2_LSU),
         (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
       ),
       PipelineCtrl.io.IDUCtrl
     )
 
-    pipelineConnect(
+    riscv_soc.bus.pipelineConnect(
+      AGU.io.AGU_2_LSU,
+      LSU.io.AGU_2_LSU,
+      LSU.io.EXU_2_WBU,
+      PipelineCtrl.io.AGUCtrl
+    )
+
+    riscv_soc.bus.pipelineConnect(
       Seq(
         (LSU.io.EXU_2_WBU),
         (ALU.io.EXU_2_WBU)
@@ -166,6 +175,7 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
     val IFU = LazyIFU.module
     val IDU = Module(new IDU)
     val ALU = Module(new ALU)
+    val AGU = Module(new AGU)
     val LSU = LazyLSU.module
     val WBU = Module(new WBU)
     val REG = Module(new REG)

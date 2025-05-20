@@ -41,12 +41,12 @@ class LSU_catch extends BlackBox with HasBlackBoxInline {
 }
 
 object LS_state extends ChiselEnum{
-  val s_wait_valid,
-      s_load,
-      s_store,
-      s_store_1,
-      s_wb,
-      s_sd
+  val s_idle,
+      s_cache_miss,
+      s_ar_busy,
+      s_aw_busy,
+      s_w_busy,
+      s_cache_update
       = Value
 }
 
@@ -60,13 +60,13 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
 
     class Impl extends LazyModuleImp(this) {
         val io = IO(new Bundle{
-            val IDU_2_EXU = Flipped(Decoupled(Input(new BUS_IDU_2_EXU)))
+            val AGU_2_LSU = Flipped(Decoupled(Input(new BUS_AGU_2_LSU)))
 
             val EXU_2_WBU = Decoupled(Output(new BUS_EXU_2_WBU))
 
             val flush = Input(Bool())
         })
-        
+
         val (master, _) = masterNode.out(0)
 
         master.ar.bits.id    := 1.U
@@ -84,59 +84,57 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         master.aw.bits.prot  := 0.U
         master.aw.bits.qos   := 0.U
         master.w.bits.last   := 1.U
-
-        val state = RegInit(LS_state.s_wait_valid)
-
-        state := MuxLookup(state, LS_state.s_wait_valid)(
-            Seq(
-                LS_state.s_wait_valid -> Mux(io.IDU_2_EXU.valid && !io.flush, MuxLookup(io.IDU_2_EXU.bits.EXUctr, LS_state.s_wait_valid)(Seq(
-                    EXUctr_TypeEnum.EXUctr_LD -> LS_state.s_load,
-                    EXUctr_TypeEnum.EXUctr_ST -> LS_state.s_store
-                )), LS_state.s_wait_valid),
-
-                LS_state.s_load -> Mux(master.ar.ready, LS_state.s_wb, LS_state.s_load),
-
-                LS_state.s_store -> Mux(master.aw.ready, Mux(master.w.ready, LS_state.s_sd, LS_state.s_store_1), LS_state.s_store),
-                LS_state.s_store_1 -> Mux(master.w.ready, LS_state.s_sd, LS_state.s_store_1),
-
-                LS_state.s_wb -> Mux(io.EXU_2_WBU.fire, LS_state.s_wait_valid, LS_state.s_wb),
-
-                LS_state.s_sd -> Mux(io.EXU_2_WBU.fire, LS_state.s_wait_valid, LS_state.s_sd)
-            )
-        )
-
-        io.IDU_2_EXU.ready := state === LS_state.s_wait_valid && io.EXU_2_WBU.ready
-
-        val addr = WireDefault(io.IDU_2_EXU.bits.EXU_A + io.IDU_2_EXU.bits.Imm)
-        val data = WireDefault((io.IDU_2_EXU.bits.EXU_B << (addr(1,0) << 3.U))(31, 0))
-
-        master.ar.bits.addr  := RegEnable(addr, io.IDU_2_EXU.fire)
-        master.aw.bits.addr  := RegEnable(addr, io.IDU_2_EXU.fire)
-        master.w.bits.data   := RegEnable(data, io.IDU_2_EXU.fire)
-
-        master.ar.valid := state === LS_state.s_load
-        master.r.ready := Mux(state === LS_state.s_wb, io.EXU_2_WBU.ready, false.B)
-
-        master.aw.valid := state === LS_state.s_store
-        master.w.valid := state === LS_state.s_store || state === LS_state.s_store_1
-
-        master.b.ready := state === LS_state.s_sd
         
-        io.EXU_2_WBU.valid := MuxLookup(state, false.B)(
-            Seq(
-                LS_state.s_wb -> master.r.valid,
-                LS_state.s_sd -> master.b.valid
-            )
-        )
+        val addr  = io.AGU_2_LSU.bits.addr
+        val fire  = io.AGU_2_LSU.fire
+        val wdata = WireDefault((io.AGU_2_LSU.bits.wdata << (addr(1,0) << 3.U))(31, 0))
+        val is_st = io.AGU_2_LSU.bits.wen
+
+        val state = RegInit(LS_state.s_idle)
+
+        state := MuxLookup(state, LS_state.s_idle)(Seq(
+            LS_state.s_idle -> Mux(fire, LS_state.s_cache_miss, state),
+
+            LS_state.s_cache_miss -> MuxCase(LS_state.s_cache_update, Seq(
+                (is_st && !master.aw.fire)  -> LS_state.s_aw_busy,
+                (is_st && !master.w.fire)   -> LS_state.s_w_busy,
+                (!is_st && !master.ar.fire) -> LS_state.s_ar_busy,
+            )),
+
+            LS_state.s_ar_busy -> Mux(master.ar.fire, LS_state.s_cache_update, state),
+
+            LS_state.s_aw_busy -> MuxCase(state, Seq(
+                (master.aw.fire && !master.w.fire) -> LS_state.s_w_busy,
+                (master.aw.fire) -> LS_state.s_cache_update,
+            )),
+
+            LS_state.s_w_busy -> Mux(master.w.fire, LS_state.s_cache_update, state),
+
+            LS_state.s_cache_update -> Mux(io.EXU_2_WBU.fire, LS_state.s_idle, state),
+        ))
+
+        io.AGU_2_LSU.ready := io.EXU_2_WBU.ready /*is it needed?*/ && state === (LS_state.s_idle)
+
+        master.ar.bits.addr := addr
+        master.ar.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_ar_busy)) && !is_st
+
+        io.EXU_2_WBU.valid := master.r.valid || master.b.valid
+        master.r.ready := io.EXU_2_WBU.ready
+        master.b.ready := io.EXU_2_WBU.ready
         
-        when(io.IDU_2_EXU.bits.MemOp === MemOp_TypeEnum.MemOp_1BU || io.IDU_2_EXU.bits.MemOp === MemOp_TypeEnum.MemOp_1BS){
+        master.aw.bits.addr := addr
+        master.aw.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy)) && is_st
+
+        master.w.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy) || (state === LS_state.s_w_busy)) && is_st
+
+        when(io.AGU_2_LSU.bits.MemOp === MemOp_TypeEnum.MemOp_1BU || io.AGU_2_LSU.bits.MemOp === MemOp_TypeEnum.MemOp_1BS){
             master.w.bits.strb   := MuxLookup(master.aw.bits.addr(1,0), "b0001".U)(Seq(
                 "b00".U -> "b0001".U,
                 "b01".U -> "b0010".U,
                 "b10".U -> "b0100".U,
                 "b11".U -> "b1000".U,
             ))
-        }.elsewhen(io.IDU_2_EXU.bits.MemOp === MemOp_TypeEnum.MemOp_2BU || io.IDU_2_EXU.bits.MemOp === MemOp_TypeEnum.MemOp_2BS){
+        }.elsewhen(io.AGU_2_LSU.bits.MemOp === MemOp_TypeEnum.MemOp_2BU || io.AGU_2_LSU.bits.MemOp === MemOp_TypeEnum.MemOp_2BS){
             master.w.bits.strb   := MuxLookup(master.aw.bits.addr(1,0), "b0011".U)(Seq(
                 "b00".U -> "b0011".U,
                 "b01".U -> "b0110".U,
@@ -145,43 +143,25 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         }.otherwise{
             master.w.bits.strb   := "b1111".U
         }
-        
-        master.aw.bits.size  := MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
-            MemOp_TypeEnum.MemOp_1BU -> 0.U,
-            MemOp_TypeEnum.MemOp_1BS -> 0.U,
-            MemOp_TypeEnum.MemOp_2BU -> 1.U,
-            MemOp_TypeEnum.MemOp_2BS -> 1.U,
-            MemOp_TypeEnum.MemOp_4BU -> 2.U,
-        ))
-        master.ar.bits.size  := MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
-            MemOp_TypeEnum.MemOp_1BU -> 0.U,
-            MemOp_TypeEnum.MemOp_1BS -> 0.U,
-            MemOp_TypeEnum.MemOp_2BU -> 1.U,
-            MemOp_TypeEnum.MemOp_2BS -> 1.U,
-            MemOp_TypeEnum.MemOp_4BU -> 2.U,
-        ))
+        master.w.bits.data := wdata
 
-        val AXI_rdata = Wire(UInt(32.W))
-        AXI_rdata := (master.r.bits.data >> (master.ar.bits.addr(1,0) << 3.U))(31, 0)
-
-        val mem_rd = Wire(Bits(32.W))
-
-        mem_rd := MuxLookup(io.IDU_2_EXU.bits.MemOp, 0.U)(Seq(
+        val AXI_rdata = (master.r.bits.data >> (master.ar.bits.addr(1,0) << 3.U))(31, 0)
+        val mem_rd = MuxLookup(io.AGU_2_LSU.bits.MemOp, 0.U)(Seq(
             MemOp_TypeEnum.MemOp_1BU -> Cat(Fill(24, 0.U), AXI_rdata(7,0)),
             MemOp_TypeEnum.MemOp_1BS -> Cat(Fill(24, AXI_rdata(7)), AXI_rdata(7,0)),
             MemOp_TypeEnum.MemOp_2BU -> Cat(Fill(16, 0.U), AXI_rdata(15,0)),
             MemOp_TypeEnum.MemOp_2BS -> Cat(Fill(16, AXI_rdata(15)), AXI_rdata(15,0)),
             MemOp_TypeEnum.MemOp_4BU -> AXI_rdata(31,0).asUInt,
         ))
-
-        io.EXU_2_WBU.bits.Branch        := io.IDU_2_EXU.bits.Branch 
+        
+        io.EXU_2_WBU.bits.Branch        := Bran_TypeEnum.Bran_NJmp
         io.EXU_2_WBU.bits.Jmp_Pc        := 0.U                   
-        io.EXU_2_WBU.bits.MemtoReg      := io.IDU_2_EXU.bits.EXUctr === EXUctr_TypeEnum.EXUctr_LD 
-        io.EXU_2_WBU.bits.csr_ctr       := io.IDU_2_EXU.bits.csr_ctr
-        io.EXU_2_WBU.bits.CSR_waddr     := io.IDU_2_EXU.bits.Imm(11, 0)  
-        io.EXU_2_WBU.bits.GPR_waddr     := io.IDU_2_EXU.bits.GPR_waddr
-        io.EXU_2_WBU.bits.PC            := io.IDU_2_EXU.bits.PC     
-        io.EXU_2_WBU.bits.CSR_rdata     := io.IDU_2_EXU.bits.EXU_B  
+        io.EXU_2_WBU.bits.MemtoReg      := !io.AGU_2_LSU.bits.wen
+        io.EXU_2_WBU.bits.csr_ctr       := CSR_TypeEnum.CSR_N
+        io.EXU_2_WBU.bits.CSR_waddr     := 0.U 
+        io.EXU_2_WBU.bits.GPR_waddr     := io.AGU_2_LSU.bits.GPR_waddr
+        io.EXU_2_WBU.bits.PC            := io.AGU_2_LSU.bits.PC     
+        io.EXU_2_WBU.bits.CSR_rdata     := 0.U  
         io.EXU_2_WBU.bits.Result        := 0.U
         io.EXU_2_WBU.bits.Mem_rdata     := mem_rd
 
@@ -189,8 +169,18 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
             val Catch = Module(new LSU_catch)
             Catch.io.clock := clock
             Catch.io.valid := io.EXU_2_WBU.fire && !reset.asBool
-            Catch.io.pc    := io.IDU_2_EXU.bits.PC
-            Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(RegEnable(addr, io.IDU_2_EXU.fire))).reduce(_ || _)
+            Catch.io.pc    := io.AGU_2_LSU.bits.PC
+            Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.AGU_2_LSU.bits.addr)).reduce(_ || _)
         }
+    }
+}
+
+object HoldBypass {
+    def apply[T <: Data](data: T, valid: Bool): T = {
+      Mux(valid, data, RegEnable(data, valid))
+    }
+  
+    def apply[T <: Data](data: T, init: T, valid: Bool): T = {
+      Mux(valid, data, RegEnable(data, init, valid))
     }
 }

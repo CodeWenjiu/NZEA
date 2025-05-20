@@ -41,7 +41,7 @@ class BUS_AGU_2_LSU extends Bundle{
     val addr  = UInt(32.W)
     val wdata = UInt(32.W)
     val wen   = Bool()
-    val MemOp    = MemOp_TypeEnum()
+    val MemOp = MemOp_TypeEnum()
 
     val PC = UInt(32.W)
     val GPR_waddr = UInt(5.W)

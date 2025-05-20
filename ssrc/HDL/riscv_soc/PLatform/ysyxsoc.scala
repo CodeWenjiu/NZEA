@@ -80,6 +80,7 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     val IFU = LazyIFU.module
     val IDU = Module(new IDU)
     val ALU = Module(new ALU)
+    val AGU = Module(new riscv_soc.cpu.AGU)
     val LSU = LazyLSU.module
     val WBU = Module(new WBU)
     val REG = Module(new REG)

@@ -71,6 +71,7 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
     val IFU = LazyIFU.module
     val IDU = Module(new riscv_soc.cpu.IDU)
     val ALU = Module(new riscv_soc.cpu.ALU)
+    val AGU = Module(new riscv_soc.cpu.AGU)
     val LSU = LazyLSU.module
     val WBU = Module(new riscv_soc.cpu.WBU)
     val REG = Module(new riscv_soc.cpu.REG)
@@ -153,6 +154,7 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
       val IFU = LazyIFU.module
       val IDU = Module(new riscv_soc.cpu.IDU)
       val ALU = Module(new riscv_soc.cpu.ALU)
+      val AGU = Module(new riscv_soc.cpu.AGU)
       val LSU = LazyLSU.module
       val WBU = Module(new riscv_soc.cpu.WBU)
       val REG = Module(new riscv_soc.cpu.REG)
