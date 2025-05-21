@@ -78,15 +78,15 @@ unsafe extern "C" fn idu_catch_handler(pc: Input, inst_type: Input) {
             match inst_type {
                 0 => {
                     time.idu_catch_al += 1;
-                    pipe_state.trans(BasePipeCell::IDU, BasePipeCell::ALU);
+                    pipe_state.trans(BasePipeCell::IDU, BasePipeCell::ALU)?;
                 }
                 1 => {
                     time.idu_catch_ls += 1;
-                    pipe_state.trans(BasePipeCell::IDU, BasePipeCell::AGU);
+                    pipe_state.trans(BasePipeCell::IDU, BasePipeCell::AGU)?;
                 }
                 2 => {
                     time.idu_catch_cs += 1;
-                    pipe_state.trans(BasePipeCell::IDU, BasePipeCell::ALU);
+                    pipe_state.trans(BasePipeCell::IDU, BasePipeCell::ALU)?;
                 }
                 _ => {
                     log_error!(format!("Unknown instruction type: {}", inst_type));
@@ -116,7 +116,7 @@ unsafe extern "C" fn alu_catch_handler(pc: Input) {
 
     nzea_result_write(NZEA_STATES.with(|state| {
         let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
-        pipe_state.trans(BasePipeCell::ALU, BasePipeCell::WBU); // Consider adding '?' if trans returns Result
+        pipe_state.trans(BasePipeCell::ALU, BasePipeCell::WBU)?; 
         let (fetched_pc, _) = pipe_state.fetch(BasePipeCell::ALU)?;
         if fetched_pc != *pc {
             log_error!(format!("ALU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
@@ -137,7 +137,7 @@ unsafe extern "C" fn agu_catch_handler(pc: Input) {
 
     nzea_result_write(NZEA_STATES.with(|state| {
         let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
-        pipe_state.trans(BasePipeCell::AGU, BasePipeCell::LSU); // Consider adding '?' if trans returns Result
+        pipe_state.trans(BasePipeCell::AGU, BasePipeCell::LSU)?;
         let (fetched_pc, _) = pipe_state.fetch(BasePipeCell::AGU)?;
         if fetched_pc != *pc {
             log_error!(format!("AGU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
@@ -154,6 +154,7 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
     nzea_result_write(
         NZEA_STATES.with(|state| {
             let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
+        pipe_state.trans(BasePipeCell::LSU, BasePipeCell::WBU)?;
             let (fetched_pc, _) = pipe_state.fetch(BasePipeCell::LSU)?;
             if fetched_pc != *pc {
                 log_error!(format!("LSU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
@@ -165,10 +166,6 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
 
     NZEA_TIME.with(|time| {
         time.get().unwrap().borrow_mut().ifu_catch += 1;
-    });
-
-    NZEA_STATES.with(|state| {
-        state.get().unwrap().borrow_mut().pipe_state.trans(BasePipeCell::LSU, BasePipeCell::WBU);
     });
 
     NZEA_CALLBACK.with(|callback| {
