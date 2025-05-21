@@ -1,10 +1,20 @@
 default: generate
 
+PLATFORMS = ysyxsoc npc jyd jyd_remote
+
 PLATFORM ?= ysyxsoc
 ROOT_BUILD_DIR = ./build
 BUILD_DIR = $(ROOT_BUILD_DIR)/$(PLATFORM)
 OBJ_DIR = $(BUILD_DIR)/obj_dir
 LIB = $(BUILD_DIR)/libnzea.so
+
+ifeq ($(filter clean clean_pla clean_obj ,$(MAKECMDGOALS)),)
+
+ifeq ($(filter $(PLATFORMS), $(PLATFORM)), )
+$(error Expected $$PLATFORM in {$(PLATFORMS)}, Got "$(PLATFORM)")
+endif
+
+endif
 
 # 8< -------- lib c -------- 8< #
 

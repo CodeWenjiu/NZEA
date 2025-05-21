@@ -75,8 +75,9 @@ pub struct Top {
 impl Top {
     pub fn new(option: &OptionParser) -> Self {
         let target = option.cli.platform.simulator;
+        use remu_utils::Simulators::NZEA;
         let target = match target {
-            remu_utils::Simulators::NZEA(sim) => Into::<&str>::into(sim),
+            NZEA(sim) => Into::<&str>::into(sim),
             _ => panic!("WTF")
         };
 
