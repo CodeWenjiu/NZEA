@@ -253,9 +253,7 @@ unsafe extern "C" fn wbu_catch_handler(
         })?;
 
         if inst == 0b00000000000100000000000001110011 {
-            (callback.trap)(NZEA_STATES.with(|s| {
-                s.get().unwrap().borrow().regfile.read_gpr(10).unwrap() == 0
-            }));
+            (callback.trap)();
             return Err(ProcessError::Recoverable);
         }
 
