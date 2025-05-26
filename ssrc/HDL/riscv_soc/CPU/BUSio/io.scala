@@ -37,6 +37,29 @@ class BUS_IDU_2_EXU extends Bundle{
     val PC       = UInt(32.W)
 }
 
+class ISU_2_ALU extends Bundle {
+    val PC = UInt(32.W)
+    val trap = new trap()
+
+    val SRCA = UInt(32.W)
+    val SRCB = UInt(32.W)
+
+    val Ctrl = AlCtrl()
+    val wbCtrl = WbCtrl()
+
+    val GPR_waddr = UInt(5.W)
+}
+
+class ISU_2_LSU extends Bundle {
+    val PC = UInt(32.W)
+
+    val Ctrl = LsCtrl()
+    val GPR_waddr = UInt(5.W)
+
+    val addr = UInt(32.W)
+    val data = UInt(32.W)
+}
+
 class BUS_AGU_2_LSU extends Bundle{
     val addr  = UInt(32.W)
     val wdata = UInt(32.W)
@@ -69,6 +92,19 @@ class BUS_EXU_2_WBU extends Bundle{
     val Mem_rdata  = Bits(32.W)
 }
 
+class EXU_2_WBU extends Bundle {
+    val PC = UInt(32.W)
+    val trap = new trap()
+
+    val Result   = UInt(32.W)
+    val CSR_rdata = UInt(32.W)
+    
+    val GPR_waddr = UInt(5.W)
+    val CSR_waddr= UInt(12.W)
+
+    val wbCtrl = WbCtrl()
+}
+
 class BUS_WBU_2_REG extends Bundle{
     val inst_valid= Bool()
     val GPR_waddr = UInt(5.W)
@@ -78,6 +114,21 @@ class BUS_WBU_2_REG extends Bundle{
     val CSR_waddrb= UInt(12.W)
     val CSR_wdataa= UInt(32.W)
     val CSR_wdatab= UInt(32.W)
+}
+
+class WBU_2_REG extends Bundle {
+    val GPR_waddr = UInt(5.W)
+    val GPR_wdata = UInt(32.W)
+
+    val CSR_wen   = Bool()
+    val CSR_waddr = UInt(12.W)
+    val CSR_wdata = UInt(32.W)
+
+    val trap = new trap()
+}
+
+class REG_2_WBU extends Bundle {
+    val MTVEC = UInt(32.W)
 }
 
 class BUS_WBU_2_IFU extends Bundle{

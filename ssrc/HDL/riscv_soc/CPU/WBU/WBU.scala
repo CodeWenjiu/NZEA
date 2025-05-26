@@ -123,3 +123,39 @@ class WBU extends Module {
         Catch.io.csr_wdatab := 11.U
     }
 }
+
+class WBU_n extends Module {
+    val io = IO(new Bundle{
+        val EXU_2_WBU = Flipped(Decoupled(Input(new EXU_2_WBU)))
+
+        val WBU_2_IFU = Decoupled(Output(new BUS_WBU_2_IFU))
+
+        val WBU_2_REG = ValidIO(new WBU_2_REG)
+        val REG_2_WBU = Input(new REG_2_WBU)
+    })
+
+    io.EXU_2_WBU.ready := io.WBU_2_IFU.ready
+    io.WBU_2_IFU.valid := io.EXU_2_WBU.valid
+
+    io.WBU_2_REG.bits.trap := io.EXU_2_WBU.bits.trap
+    
+    io.WBU_2_REG.valid := io.EXU_2_WBU.fire
+
+    val Default_Next_Pc = io.EXU_2_WBU.bits.PC + 4.U
+
+    io.WBU_2_IFU.bits.Next_PC := MuxCase(Default_Next_Pc, Seq(
+        (io.EXU_2_WBU.bits.trap.traped) -> io.REG_2_WBU.MTVEC,
+        (io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Jump) -> io.EXU_2_WBU.bits.Result,
+    ))
+
+    io.WBU_2_REG.bits.GPR_waddr := io.EXU_2_WBU.bits.GPR_waddr
+    io.WBU_2_REG.bits.GPR_wdata := MuxLookup(io.EXU_2_WBU.bits.wbCtrl, io.EXU_2_WBU.bits.Result)(Seq(
+        WbCtrl.Write_GPR -> io.EXU_2_WBU.bits.Result,
+        WbCtrl.Jump -> Default_Next_Pc, // link to register
+        WbCtrl.Csr  -> io.EXU_2_WBU.bits.CSR_rdata,
+    ))
+
+    io.WBU_2_REG.bits.CSR_wen := io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Csr
+    io.WBU_2_REG.bits.CSR_waddr := io.EXU_2_WBU.bits.CSR_waddr
+    io.WBU_2_REG.bits.CSR_wdata := io.EXU_2_WBU.bits.Result
+}

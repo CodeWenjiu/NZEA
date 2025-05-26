@@ -163,6 +163,37 @@ object EXUctr_TypeEnum extends ChiselEnum{
       = Value
 }
 
+object IsCtrl extends ChiselEnum {
+}
+
+object AlCtrl extends ChiselEnum {
+  val ADD,
+      SUB,
+
+      AND,
+      OR,
+      XOR,
+
+      SLL,
+      SRL,
+      SRA
+
+      = Value
+}
+
+object LsCtrl extends ChiselEnum {
+  val LB,
+      LH,
+      LW,
+      LBU,
+      LHU,
+
+      SB,
+      SH,
+      SW
+      = Value
+}
+
 object CSR_TypeEnum extends ChiselEnum{
   val CSR_N   ,    // 非csr读写指令
       CSR_R1W0,    // 不读写一， 目前只有 mret 符合
@@ -182,4 +213,22 @@ object bus_state extends ChiselEnum{
       s_busy,
       s_pipeline
       = Value
+}
+
+// new enums
+object WbCtrl extends ChiselEnum {
+  val Write_GPR,
+      Jump,
+      Csr
+      = Value
+}
+
+object Trap_type extends ChiselEnum {
+  val Ebreak = Value(3.U)
+  val EcallM = Value(11.U)
+}
+
+class trap extends Bundle {
+  val traped = Bool()
+  val trap_type = Trap_type()
 }
