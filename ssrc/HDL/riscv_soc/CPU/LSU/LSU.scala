@@ -108,7 +108,7 @@ class LSU_n(idBits: Int)(implicit p: Parameters) extends LazyModule{
             LsCtrl.LW -> AXI_rdata(31,0).asUInt,
         ))
         
-        val gpr_waddr = MuxLookup(io.ISU_2_LSU.bits.Ctrl, io.ISU_2_LSU.bits.GPR_waddr)(Seq(
+        val gpr_waddr = MuxLookup(io.ISU_2_LSU.bits.Ctrl, io.ISU_2_LSU.bits.gpr_waddr)(Seq(
             LsCtrl.SB -> 0.U,
             LsCtrl.SH -> 0.U,
             LsCtrl.SW -> 0.U
@@ -121,7 +121,7 @@ class LSU_n(idBits: Int)(implicit p: Parameters) extends LazyModule{
         io.LSU_2_WBU.bits.Result := rdata
         io.LSU_2_WBU.bits.CSR_rdata := 0.U
 
-        io.LSU_2_WBU.bits.GPR_waddr := gpr_waddr
+        io.LSU_2_WBU.bits.gpr_waddr := gpr_waddr
         io.LSU_2_WBU.bits.CSR_waddr := 0.U
         io.LSU_2_WBU.bits.wbCtrl := WbCtrl.Write_GPR
     }

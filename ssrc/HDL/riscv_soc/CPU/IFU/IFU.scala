@@ -234,7 +234,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
     lazy val module = new Impl
     class Impl extends LazyModuleImp(this) {
         val io = IO(new Bundle{
-            val WBU_2_IFU = Flipped(new BUS_WBU_2_IFU)
+            val WBU_2_IFU = Flipped(new WBU_2_IFU)
             val IFU_2_IDU = Decoupled(Output(new BUS_IFU_2_IDU))
 
             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
@@ -253,7 +253,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         
         val pc = RegInit(Config.Reset_Vector)
         val snpc = pc + 4.U
-        val dnpc = RegEnable(io.WBU_2_IFU.Next_PC, 0.U, io.Pipeline_ctrl.flush)
+        val dnpc = RegEnable(io.WBU_2_IFU.next_pc, 0.U, io.Pipeline_ctrl.flush)
 
         pc := MuxCase(pc, Seq(
             (flush && (state === IFU_state.s_try_fetch))    -> dnpc,

@@ -163,11 +163,60 @@ object EXUctr_TypeEnum extends ChiselEnum{
       = Value
 }
 
-object IsCtrl extends ChiselEnum {
+object IsLogic extends ChiselEnum {
+  val 
+      EQ,
+      NE,
+
+      LT,
+      GE,
+
+      LTU,
+      GEU,
+
+      SLTI,
+      SLTIU
+
+      = Value
+}
+
+object Inst_Type extends ChiselEnum {
+  val 
+      AL,
+      LS
+
+      = Value
+}
+
+object SRCA extends ChiselEnum {
+  val 
+      RS1,
+      ZERO,
+      PC
+
+      = Value
+}
+
+object SRCB extends ChiselEnum {
+  val 
+      RS2,
+      IMM,
+      LogicBranch,
+      LogicSet
+
+      = Value
+}
+
+class IsCtrl extends Bundle {
+  val inst_Type = Inst_Type()
+  val isLogic = IsLogic()
+  val srca = SRCA()
+  val srcb = SRCB()
 }
 
 object AlCtrl extends ChiselEnum {
-  val ADD,
+  val 
+      ADD,
       SUB,
 
       AND,

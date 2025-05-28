@@ -12,6 +12,11 @@ class BUS_IFU_2_IDU extends Bundle{
     val PC         = UInt(32.W)
 }
 
+class IFU_2_IDU extends Bundle {
+    val inst = UInt(32.W)
+    val PC   = UInt(32.W)
+}
+
 class BUS_IDU_2_IFU extends Bundle{
     val hazard = Bool()
 }
@@ -37,6 +42,26 @@ class BUS_IDU_2_EXU extends Bundle{
     val PC       = UInt(32.W)
 }
 
+class IDU_2_ISU extends Bundle {
+    val PC = UInt(32.W)
+    val trap = new trap()
+
+    val rs1_addr = UInt(5.W)
+    val rs1_val  = UInt(32.W)
+    val rs2_addr = UInt(5.W)
+    val rs2_val  = UInt(32.W)
+
+    val gpr_waddr = UInt(5.W)
+    val imm = UInt(32.W)
+
+    val is_ctrl = new IsCtrl()
+    
+    val al_ctrl = AlCtrl()
+    val ls_ctrl = LsCtrl()
+
+    val wb_ctrl = WbCtrl()
+}
+
 class ISU_2_ALU extends Bundle {
     val PC = UInt(32.W)
     val trap = new trap()
@@ -44,17 +69,17 @@ class ISU_2_ALU extends Bundle {
     val SRCA = UInt(32.W)
     val SRCB = UInt(32.W)
 
-    val Ctrl = AlCtrl()
-    val wbCtrl = WbCtrl()
+    val al_ctrl = AlCtrl()
+    val wb_ctrl = WbCtrl()
 
-    val GPR_waddr = UInt(5.W)
+    val gpr_waddr = UInt(5.W)
 }
 
 class ISU_2_LSU extends Bundle {
     val PC = UInt(32.W)
 
     val Ctrl = LsCtrl()
-    val GPR_waddr = UInt(5.W)
+    val gpr_waddr = UInt(5.W)
 
     val addr = UInt(32.W)
     val data = UInt(32.W)
@@ -74,6 +99,16 @@ class BUS_IDU_2_REG extends Bundle{
     val GPR_Aaddr  = UInt(5.W)
     val GPR_Baddr  = UInt(5.W)
     val CSR_raddr   = UInt(12.W)
+}
+
+class IDU_2_REG extends Bundle {
+    val rs1_addr = UInt(5.W)
+    val rs2_addr = UInt(5.W)
+}
+
+class REG_2_IDU extends Bundle {
+    val rs1_val  = UInt(32.W)
+    val rs2_val  = UInt(32.W)
 }
 
 class BUS_REG_2_EXU extends Bundle{
@@ -99,7 +134,7 @@ class EXU_2_WBU extends Bundle {
     val Result   = UInt(32.W)
     val CSR_rdata = UInt(32.W)
     
-    val GPR_waddr = UInt(5.W)
+    val gpr_waddr = UInt(5.W)
     val CSR_waddr= UInt(12.W)
 
     val wbCtrl = WbCtrl()
@@ -131,8 +166,8 @@ class REG_2_WBU extends Bundle {
     val MTVEC = UInt(32.W)
 }
 
-class BUS_WBU_2_IFU extends Bundle{
-    val Next_PC = UInt(32.W)
+class WBU_2_IFU extends Bundle{
+    val next_pc = UInt(32.W)
 }
 
 trait Bus_default_value {

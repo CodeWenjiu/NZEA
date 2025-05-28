@@ -58,7 +58,7 @@ class WBU_catch extends BlackBox with HasBlackBoxInline {
 class WBU extends Module {
     val io = IO(new Bundle{
         val EXU_2_WBU = Flipped(Decoupled(Input(new BUS_EXU_2_WBU)))
-        val WBU_2_IFU = Decoupled(Output(new BUS_WBU_2_IFU))
+        val WBU_2_IFU = Decoupled(Output(new WBU_2_IFU))
         val WBU_2_REG = Output(new BUS_WBU_2_REG)
     })
 
@@ -94,7 +94,7 @@ class WBU extends Module {
         CSR_TypeEnum.CSR_R1W2 -> io.EXU_2_WBU.bits.PC,
     ))
 
-    io.WBU_2_IFU.bits.Next_PC := Next_Pc
+    io.WBU_2_IFU.bits.next_pc := Next_Pc
 
     io.WBU_2_REG.GPR_waddr     := io.EXU_2_WBU.bits.GPR_waddr
     io.WBU_2_REG.GPR_wdata     := GPR_wdata
@@ -128,7 +128,7 @@ class WBU_n extends Module {
     val io = IO(new Bundle{
         val EXU_2_WBU = Flipped(Decoupled(Input(new EXU_2_WBU)))
 
-        val WBU_2_IFU = Decoupled(Output(new BUS_WBU_2_IFU))
+        val WBU_2_IFU = Decoupled(Output(new WBU_2_IFU))
 
         val WBU_2_REG = ValidIO(new WBU_2_REG)
         val REG_2_WBU = Input(new REG_2_WBU)
@@ -143,12 +143,12 @@ class WBU_n extends Module {
 
     val Default_Next_Pc = io.EXU_2_WBU.bits.PC + 4.U
 
-    io.WBU_2_IFU.bits.Next_PC := MuxCase(Default_Next_Pc, Seq(
+    io.WBU_2_IFU.bits.next_pc := MuxCase(Default_Next_Pc, Seq(
         (io.EXU_2_WBU.bits.trap.traped) -> io.REG_2_WBU.MTVEC,
         (io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Jump) -> io.EXU_2_WBU.bits.Result,
     ))
 
-    io.WBU_2_REG.bits.GPR_waddr := io.EXU_2_WBU.bits.GPR_waddr
+    io.WBU_2_REG.bits.GPR_waddr := io.EXU_2_WBU.bits.gpr_waddr
     io.WBU_2_REG.bits.GPR_wdata := MuxLookup(io.EXU_2_WBU.bits.wbCtrl, io.EXU_2_WBU.bits.Result)(Seq(
         WbCtrl.Write_GPR -> io.EXU_2_WBU.bits.Result,
         WbCtrl.Jump -> Default_Next_Pc, // link to register

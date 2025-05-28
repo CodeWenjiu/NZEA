@@ -24,7 +24,7 @@ import riscv_soc.cpu.EXUctr_Field
 
 class jydIFU extends Module {
     val io = IO(new Bundle {
-        val WBU_2_IFU = Flipped(new riscv_soc.bus.BUS_WBU_2_IFU)
+        val WBU_2_IFU = Flipped(new riscv_soc.bus.WBU_2_IFU)
         val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.BUS_IFU_2_IDU))
 
         val Pipeline_ctrl = Flipped(new riscv_soc.bus.Pipeline_ctrl)
@@ -33,7 +33,7 @@ class jydIFU extends Module {
 
     val pc = RegInit(Config.Reset_Vector)
     val snpc = pc + 4.U
-    val dnpc = io.WBU_2_IFU.Next_PC
+    val dnpc = io.WBU_2_IFU.next_pc
     
     io.IROM.addr := pc
     pc := MuxCase(pc, Seq(

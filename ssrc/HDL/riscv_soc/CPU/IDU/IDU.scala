@@ -207,6 +207,128 @@ object PC_Field extends DecodeField[rvInstructionPattern, UInt] with DecodeAPI {
     }
 }
 
+object IsLogic_Field extends DecodeField[rvInstructionPattern, IsLogic.Type] with DecodeAPI {
+    override def name: String = "is_logic"
+    override def chiselType = IsLogic()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "beq"              => Get_BitPat(IsLogic.EQ)
+            case "bne"              => Get_BitPat(IsLogic.NE)
+            case "slt" | "blt"      => Get_BitPat(IsLogic.LT)
+            case "bge"              => Get_BitPat(IsLogic.GE)
+            case "bltu" | "sltu"    => Get_BitPat(IsLogic.LTU)
+            case "bgeu"             => Get_BitPat(IsLogic.GEU)
+            case "slti"             => Get_BitPat(IsLogic.SLTI)
+            case "sltiu"            => Get_BitPat(IsLogic.SLTIU)
+            case _ => BitPat.dontCare(IsLogic.getWidth)
+        }
+    }
+}
+
+object Inst_Type_Field extends DecodeField[rvInstructionPattern, Inst_Type.Type] with DecodeAPI {
+    override def name: String = "inst_type"
+    override def chiselType = Inst_Type()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "lb" | "lh" | "lw" | "lbu" | "lhu" | "sb" | "sh" | "sw" => Get_BitPat(Inst_Type.LS)
+            case _ => Get_BitPat(Inst_Type.AL)
+        }
+    }
+}
+
+object SRCA_Field extends DecodeField[rvInstructionPattern, SRCA.Type] with DecodeAPI {
+    override def name: String = "srca"
+    override def chiselType = SRCA()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "lui" | "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCA.ZERO)
+            case "auipc" | "jal" |
+                 "beq" | "bne"  | "blt"  | "bge"  | "bltu" | "bgeu" => Get_BitPat(SRCA.PC)
+            case _ => Get_BitPat(SRCA.RS1)
+        }
+    }
+}
+
+object SRCB_Field extends DecodeField[rvInstructionPattern, SRCB.Type] with DecodeAPI {
+    override def name: String = "srcb"
+    override def chiselType = SRCB()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "lui"  | "auipc" | "jal" | "jalr" | "addi" |
+                 "xori" | "ori"   | "andi"| 
+                 "slli" | "srli"  | "srai" => Get_BitPat(SRCB.IMM)
+
+            case "beq"  | "bne"  | "blt"  | "bge"  | "bltu" | "bgeu" => Get_BitPat(SRCB.LogicBranch)
+
+            case "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCB.LogicSet)
+
+            case _ => Get_BitPat(SRCB.RS2)
+        }
+    }
+}
+
+object AlCtrl_Field extends DecodeField[rvInstructionPattern, AlCtrl.Type] with DecodeAPI {
+    override def name: String = "al_ctrl"
+    override def chiselType = AlCtrl()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "lui"  | "auipc" | 
+                 "jal" | "jalr" | 
+                 "beq" | "bne"  | "blt"  | "bge"  | "bltu" | "bgeu" |
+                 "slti" | "sltiu" | "slt" | "sltu" |
+                 "add" | "addi" => Get_BitPat(AlCtrl.ADD)
+
+            case "sub" => Get_BitPat(AlCtrl.SUB)
+
+            case "xori" | "xor" => Get_BitPat(AlCtrl.XOR)
+            case "or"   | "ori" => Get_BitPat(AlCtrl.OR)
+            case "and" | "andi" => Get_BitPat(AlCtrl.AND)
+
+            case "sll" | "slli" => Get_BitPat(AlCtrl.SLL)
+            case "srl" | "srli" => Get_BitPat(AlCtrl.SRL)
+            case "sra" | "srai" => Get_BitPat(AlCtrl.SRA)
+
+            case _ => BitPat.dontCare(AlCtrl.getWidth)
+        }
+    }
+}
+
+object LsCtrl_Field extends DecodeField[rvInstructionPattern, LsCtrl.Type] with DecodeAPI {
+    override def name: String = "ls_ctrl"
+    override def chiselType = LsCtrl()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "lb" => Get_BitPat(LsCtrl.LB)
+            case "lh" => Get_BitPat(LsCtrl.LH)
+            case "lw" => Get_BitPat(LsCtrl.LW)
+
+            case "lbu" => Get_BitPat(LsCtrl.LBU)
+            case "lhu" => Get_BitPat(LsCtrl.LHU)
+
+            case "sb" => Get_BitPat(LsCtrl.SB)
+            case "sh" => Get_BitPat(LsCtrl.SH)
+            case "sw" => Get_BitPat(LsCtrl.SW)
+
+            case _    => BitPat.dontCare(LsCtrl.getWidth)
+        }
+    }
+}
+
+object WbCtrl_Field extends DecodeField[rvInstructionPattern, WbCtrl.Type] with DecodeAPI {
+    override def name: String = "wb_ctrl"
+    override def chiselType = WbCtrl()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "jal" | "jalr"|
+                 "beq" | "bne" | "blt" | "bge" | "bltu" | "bgeu" => Get_BitPat(WbCtrl.Jump)
+
+            case "fence" | "ecall" | "ebreak" => BitPat.dontCare(WbCtrl.getWidth)
+            
+            case _ => Get_BitPat(WbCtrl.Write_GPR)
+        }
+    }
+}
+
 class IDU extends Module{
     val io = IO(new Bundle{
         val IFU_2_IDU     = Flipped(Decoupled(Input(new BUS_IFU_2_IDU)))
@@ -324,4 +446,106 @@ class IDU extends Module{
     io.IDU_2_EXU.bits.Imm          <> imm            
     io.IDU_2_EXU.bits.GPR_waddr    <> gpr_waddr   
     io.IDU_2_EXU.bits.PC           <> io.IFU_2_IDU.bits.PC        
+}
+
+class IDU_n extends Module {
+    val io = IO(new Bundle {
+        val IFU_2_IDU = Flipped(Decoupled(Input(new IFU_2_IDU)))
+        
+        val IDU_2_ISU = Decoupled(Output(new IDU_2_ISU))
+
+        val IDU_2_REG = Output(new IDU_2_REG)
+        val REG_2_IDU = Input(new REG_2_IDU)
+    })
+
+    io.IDU_2_ISU.valid := io.IFU_2_IDU.valid
+    io.IFU_2_IDU.ready := io.IDU_2_ISU.ready
+
+    io.IDU_2_REG.rs1_addr := io.IFU_2_IDU.bits.inst(19, 15)
+    io.IDU_2_REG.rs2_addr := io.IFU_2_IDU.bits.inst(24, 20)
+    val rs1_val = io.REG_2_IDU.rs1_val
+    val rs2_val = io.REG_2_IDU.rs2_val
+
+    val instTable = rvdecoderdb.instructions(os.pwd / "rvdecoderdb" / "rvdecoderdbtest" / "jvm" / "riscv-opcodes")
+
+    val rv32iExceptInstructions = 
+        Set("sbreak", "scall", "pause", "fence.tso", "fence", "slli_rv32", "srli_rv32", "srai_rv32")
+    val rviTargetSets = Set("rv_i")
+    val rv32iTargetSets = Set("rv32_i")
+    val rvsysTargetSets = Set("rv_system")
+    val rvzicsrTargetSets = Set("rv_zicsr")
+    val rvzifencei = Set("rv_zifencei")
+
+    val rviInstList = instTable
+        .filter(instr => rviTargetSets.contains(instr.instructionSet.name))
+        .filter(instr => !rv32iExceptInstructions.contains(instr.name))
+        .filter(_.pseudoFrom.isEmpty)
+        .map(rvInstructionPattern(_))
+        .toSeq
+    val rv32iInstList = instTable
+        .filter(instr => rv32iTargetSets.contains(instr.instructionSet.name))
+        .filter(instr => !rv32iExceptInstructions.contains(instr.name))
+        .map(rvInstructionPattern(_))
+    val rvsysInstList = instTable
+        .filter(instr => rvsysTargetSets.contains(instr.instructionSet.name))
+        .filter(_.pseudoFrom.isEmpty)
+        .map(rvInstructionPattern(_))
+    val rvzicsrInstList = instTable
+        .filter(instr => rvzicsrTargetSets.contains(instr.instructionSet.name))
+        .filter(_.pseudoFrom.isEmpty)
+        .map(rvInstructionPattern(_))
+        .toSeq
+    val rvzifenceiInstList = instTable
+        .filter(instr => rvzifencei.contains(instr.instructionSet.name))
+        .filter(_.pseudoFrom.isEmpty)
+        .map(rvInstructionPattern(_))
+        .toSeq
+
+    val instList = rviInstList ++ rv32iInstList ++ rvsysInstList ++ rvzicsrInstList ++ rvzifenceiInstList
+
+    val allField = Seq(Inst_Type_Field, Imm_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field)
+
+    require(instList.map(_.bitPat.getWidth).distinct.size == 1, "All instructions must have the same width")
+    def Decode_bundle: DecodeBundle = new DecodeBundle(allField)
+    val table: TruthTable = TruthTable(
+        instList.map { op => op.bitPat -> allField.reverse.map(field => field.genTable(op)).reduce(_ ## _) },
+        allField.reverse.map(_.default).reduce(_ ## _)
+    )
+    def Decode_decode(input: UInt): DecodeBundle = chisel3.util.experimental.decode.decoder(QMCMinimizer, input, table).asTypeOf(Decode_bundle)
+    
+    val inst = io.IFU_2_IDU.bits.inst
+
+    val rvdecoderResult = chisel3.util.experimental.decode.decoder(QMCMinimizer, inst, table).asTypeOf(Decode_bundle)
+    
+    val imm = MuxLookup(rvdecoderResult(Imm_Field), 0.U)(
+        Seq(
+            Imm_TypeEnum.Imm_I -> Cat(Fill(21, inst(31)), inst(31, 20)),
+            Imm_TypeEnum.Imm_U -> Cat(inst(31, 12), Fill(12, 0.U)),
+            Imm_TypeEnum.Imm_S -> Cat(Fill(20, inst(31)), inst(31, 25), inst(11, 7)),
+            Imm_TypeEnum.Imm_B -> Cat(Fill(20, inst(31)), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W)),
+            Imm_TypeEnum.Imm_J -> Cat(Fill(12, inst(31)), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W)),
+        )
+    )
+
+    io.IDU_2_ISU.bits.PC := io.IFU_2_IDU.bits.PC
+    io.IDU_2_ISU.bits.trap.traped := false.B
+    io.IDU_2_ISU.bits.trap.trap_type := Trap_type.Ebreak
+
+    io.IDU_2_ISU.bits.rs1_addr := io.IDU_2_REG.rs1_addr
+    io.IDU_2_ISU.bits.rs1_val := rs1_val
+    io.IDU_2_ISU.bits.rs2_addr := io.IDU_2_REG.rs2_addr
+    io.IDU_2_ISU.bits.rs2_val := rs2_val
+
+    io.IDU_2_ISU.bits.gpr_waddr := inst(11, 7)
+    io.IDU_2_ISU.bits.imm := imm
+
+    io.IDU_2_ISU.bits.is_ctrl.inst_Type := rvdecoderResult(Inst_Type_Field)
+    io.IDU_2_ISU.bits.is_ctrl.isLogic := rvdecoderResult(IsLogic_Field)
+    io.IDU_2_ISU.bits.is_ctrl.srca := rvdecoderResult(SRCA_Field)
+    io.IDU_2_ISU.bits.is_ctrl.srcb := rvdecoderResult(SRCB_Field)
+
+    io.IDU_2_ISU.bits.al_ctrl := rvdecoderResult(AlCtrl_Field)
+    io.IDU_2_ISU.bits.ls_ctrl := rvdecoderResult(LsCtrl_Field)
+    
+    io.IDU_2_ISU.bits.wb_ctrl := rvdecoderResult(WbCtrl_Field)
 }

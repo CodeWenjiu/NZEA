@@ -92,3 +92,7 @@ class REG extends Module {
     // csr((io.WBU_2_REG.CSR_waddrb - "h300".U)(6, 0)) := io.WBU_2_REG.CSR_wdatab
   }
 }
+
+class REG_n extends Module {
+
+}

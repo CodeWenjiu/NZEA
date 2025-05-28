@@ -22,7 +22,7 @@ class ALU_n extends Module {
 
     val srca = io.ISU_2_ALU.bits.SRCA
     val srcb = io.ISU_2_ALU.bits.SRCB
-    io.ALU_2_LSU.bits.Result := MuxLookup(io.ISU_2_ALU.bits.Ctrl, 0.U)(Seq(
+    io.ALU_2_LSU.bits.Result := MuxLookup(io.ISU_2_ALU.bits.al_ctrl, 0.U)(Seq(
         AlCtrl.ADD -> (srca + srcb),
         AlCtrl.SUB -> (srca - srcb),
 
@@ -37,8 +37,8 @@ class ALU_n extends Module {
 
     io.ALU_2_LSU.bits.CSR_rdata := 0.U
     
-    io.ALU_2_LSU.bits.GPR_waddr := io.ISU_2_ALU.bits.GPR_waddr
+    io.ALU_2_LSU.bits.gpr_waddr := io.ISU_2_ALU.bits.gpr_waddr
     io.ALU_2_LSU.bits.CSR_waddr := 0.U
 
-    io.ALU_2_LSU.bits.wbCtrl := io.ISU_2_ALU.bits.wbCtrl
+    io.ALU_2_LSU.bits.wbCtrl := io.ISU_2_ALU.bits.wb_ctrl
 }
