@@ -94,5 +94,22 @@ class REG extends Module {
 }
 
 class REG_n extends Module {
+  val io = IO(new Bundle {
+    val IDU_2_REG = Input(new IDU_2_REG)
+    val REG_2_IDU = Output(new REG_2_IDU)
 
+    val WBU_2_REG = Flipped(ValidIO(Input(new WBU_2_REG)))
+    val REG_2_WBU = Output(new REG_2_WBU)
+  })
+
+  val gpr = RegInit(VecInit(Seq.fill(31)(0.U(32.W))))
+  val gpr_waddr = io.WBU_2_REG.bits.gpr_waddr
+  val gpr_wdata = io.WBU_2_REG.bits.gpr_wdata
+  val gpr_wen = gpr_waddr =/= 0.U
+
+  when(io.WBU_2_REG.valid) {
+    when(gpr_wen) {
+      gpr((gpr_waddr - 1.U)(4, 0)) := gpr_wdata
+    }
+  }
 }

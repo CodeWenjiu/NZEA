@@ -152,8 +152,8 @@ class BUS_WBU_2_REG extends Bundle{
 }
 
 class WBU_2_REG extends Bundle {
-    val GPR_waddr = UInt(5.W)
-    val GPR_wdata = UInt(32.W)
+    val gpr_waddr = UInt(5.W)
+    val gpr_wdata = UInt(32.W)
 
     val CSR_wen   = Bool()
     val CSR_waddr = UInt(12.W)

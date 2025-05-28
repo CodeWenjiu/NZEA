@@ -139,4 +139,16 @@ class PipelineCtrl_n extends Module {
     io.IFUCtrl.flush := is_bp_error
     io.IFUCtrl.stall := false.B
 
+    io.IDUCtrl.flush := is_bp_error
+    io.IDUCtrl.stall := false.B
+
+    io.ISUCtrl.flush := is_bp_error
+    io.ISUCtrl.stall := is_ls_hazard | is_gpr_RAW
+
+    io.ALUCtrl.flush := is_bp_error
+    io.ALUCtrl.stall := false.B
+
+    io.LSUCtrl.flush := is_bp_error
+    io.LSUCtrl.stall := false.B
+
 }

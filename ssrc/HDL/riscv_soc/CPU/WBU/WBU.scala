@@ -148,8 +148,8 @@ class WBU_n extends Module {
         (io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Jump) -> io.EXU_2_WBU.bits.Result,
     ))
 
-    io.WBU_2_REG.bits.GPR_waddr := io.EXU_2_WBU.bits.gpr_waddr
-    io.WBU_2_REG.bits.GPR_wdata := MuxLookup(io.EXU_2_WBU.bits.wbCtrl, io.EXU_2_WBU.bits.Result)(Seq(
+    io.WBU_2_REG.bits.gpr_waddr := io.EXU_2_WBU.bits.gpr_waddr
+    io.WBU_2_REG.bits.gpr_wdata := MuxLookup(io.EXU_2_WBU.bits.wbCtrl, io.EXU_2_WBU.bits.Result)(Seq(
         WbCtrl.Write_GPR -> io.EXU_2_WBU.bits.Result,
         WbCtrl.Jump -> Default_Next_Pc, // link to register
         WbCtrl.Csr  -> io.EXU_2_WBU.bits.CSR_rdata,
