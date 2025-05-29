@@ -91,10 +91,10 @@ class PipelineCtrl extends Module {
 
 class PipelineCtrl_n extends Module {
     val io = IO(new Bundle {
-        val IFU_out = Flipped(ValidIO(new IFU_2_IDU))
+        val IDU_2_REG = Flipped(ValidIO(new IDU_2_REG))
 
+        val IFU_out = Flipped(ValidIO(new IFU_2_IDU))
         val IDU_in  = Flipped(ValidIO(new IFU_2_IDU))
-        val IDU_2_REG = ValidIO(new IDU_2_REG)
 
         val ISU_in  = Flipped(ValidIO(new IDU_2_ISU))
 
@@ -106,9 +106,9 @@ class PipelineCtrl_n extends Module {
 
         val IFUCtrl = new Pipeline_ctrl
         val IDUCtrl = new Pipeline_ctrl
-        val ISUCtrl = new Pipeline_ctrl
-        val ALUCtrl = new Pipeline_ctrl
-        val LSUCtrl = new Pipeline_ctrl
+        val ISU_2_LSUCtrl = new Pipeline_ctrl
+        val ISU_2_ALUCtrl = new Pipeline_ctrl
+        val EXUCtrl = new Pipeline_ctrl
     })
 
     def conflict(rs: UInt, rd: UInt) = (rs === rd)
@@ -130,6 +130,7 @@ class PipelineCtrl_n extends Module {
     def is_bp_error = 
         MuxCase(conflict_pc(io.IFU_out.bits.PC), Seq(
         (io.ALU_in.valid -> conflict_pc(io.ALU_in.bits.PC)),
+        (io.WBU_in.valid -> conflict_pc(io.WBU_in.bits.PC)),
         (io.ISU_in.valid -> conflict_pc(io.ISU_in.bits.PC)),
         (io.IDU_in.valid -> conflict_pc(io.IDU_in.bits.PC)),
     ))
@@ -140,15 +141,20 @@ class PipelineCtrl_n extends Module {
     io.IFUCtrl.stall := false.B
 
     io.IDUCtrl.flush := is_bp_error
-    io.IDUCtrl.stall := false.B
+    io.IDUCtrl.stall := is_gpr_RAW
 
-    io.ISUCtrl.flush := is_bp_error
-    io.ISUCtrl.stall := is_ls_hazard | is_gpr_RAW
+    io.ISU_2_ALUCtrl.flush := is_bp_error
+    io.ISU_2_ALUCtrl.stall := is_ls_hazard
 
-    io.ALUCtrl.flush := is_bp_error
-    io.ALUCtrl.stall := false.B
+    io.ISU_2_LSUCtrl.flush := is_bp_error
+    io.ISU_2_LSUCtrl.stall := is_ls_hazard
 
-    io.LSUCtrl.flush := is_bp_error
-    io.LSUCtrl.stall := false.B
+    io.EXUCtrl.flush := is_bp_error
+    io.EXUCtrl.stall := false.B
 
+    if(Config.Simulate) {
+        val pipeline_catch = Module(new Pipeline_catch)
+        pipeline_catch.io.clock := clock
+        pipeline_catch.io.pipeline_flush := RegNext(io.IFUCtrl.flush)
+    }
 }

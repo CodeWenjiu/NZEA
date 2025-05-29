@@ -7,6 +7,34 @@ import riscv_soc.bus._
 import signal_value._
 import config._
 
+class ISU_catch extends BlackBox with HasBlackBoxInline {
+    val io = IO(new Bundle {
+        val clock = Input(Clock())
+        val valid = Input(Bool())
+        val pc    = Input(UInt(32.W))
+        val inst_type = Input(UInt(1.W))
+    })
+    val code =
+    s"""module ISU_catch(
+    |   input clock,
+    |   input valid,
+    |   input [31:0] pc,
+    |   input bit inst_type
+    |);
+    |import "DPI-C" function void ISU_catch(input bit [31:0] pc, input bit inst_type);
+    |
+    |always @(posedge clock) begin
+    |   if (valid) begin
+    |       ISU_catch(pc, inst_type);
+    |   end
+    |end
+    |
+    |endmodule
+    """
+
+    setInline("ISU_catch.v", code.stripMargin)
+}
+
 class ISU extends Module {
     val io = IO(new Bundle {
         val IDU_2_ISU = Flipped(Decoupled(Input(new IDU_2_ISU)))
@@ -68,4 +96,13 @@ class ISU extends Module {
     io.ISU_2_LSU.bits.gpr_waddr := io.IDU_2_ISU.bits.gpr_waddr
     io.ISU_2_LSU.bits.addr := rs1_val + imm
     io.ISU_2_LSU.bits.data := rs2_val
+
+    if (Config.Simulate) {
+        val Catch = Module(new ISU_catch)
+        val inst_type_kn = inst_type === Inst_Type.AL 
+        Catch.io.clock := clock
+        Catch.io.valid := (io.ISU_2_ALU.fire || io.ISU_2_LSU.fire) && !reset.asBool
+        Catch.io.pc := io.IDU_2_ISU.bits.PC
+        Catch.io.inst_type := inst_type_kn
+    }
 }

@@ -22,20 +22,18 @@ class IDU_catch extends BlackBox with HasBlackBoxInline {
         val clock = Input(Clock())
         val valid = Input(Bool())
         val pc    = Input(UInt(32.W))
-        val Inst_Type = Input(UInt(2.W))
     })
     val code =
     s"""module IDU_catch(
     |   input clock,
     |   input valid,
-    |   input [31:0] pc,
-    |   input [1:0] Inst_Type
+    |   input [31:0] pc
     |);
-    |import "DPI-C" function void IDU_catch(input bit [31:0] pc, input bit [1:0] Inst_Type);
+    |import "DPI-C" function void IDU_catch(input bit [31:0] pc);
     |
     |always @(posedge clock) begin
     |   if (valid) begin
-    |       IDU_catch(pc, Inst_Type);
+    |       IDU_catch(pc);
     |   end
     |end
     |
@@ -329,6 +327,17 @@ object WbCtrl_Field extends DecodeField[rvInstructionPattern, WbCtrl.Type] with 
     }
 }
 
+object GPR_WriteNot_Field extends DecodeField[rvInstructionPattern, Bool] with DecodeAPI {
+    override def name: String = "gpr_write_not"
+    override def chiselType = Bool()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "beq" | "bne" | "blt" | "bge" | "bltu" | "bgeu" => Get_BitPat(true.B)
+            case _ => Get_BitPat(false.B)
+        }
+    }
+}
+
 class IDU extends Module{
     val io = IO(new Bundle{
         val IFU_2_IDU     = Flipped(Decoupled(Input(new BUS_IFU_2_IDU)))
@@ -392,16 +401,6 @@ class IDU extends Module{
     def Decode_decode(input: UInt): DecodeBundle = chisel3.util.experimental.decode.decoder(QMCMinimizer, input, table).asTypeOf(Decode_bundle)
 
     val rvdecoderResult = chisel3.util.experimental.decode.decoder(QMCMinimizer, io.IFU_2_IDU.bits.data, table).asTypeOf(Decode_bundle)
-    
-    if(Config.Simulate) {
-        val catchTable = new DecodeTable(instList, Seq(PC_Field))
-        val catchResult = catchTable.decode(io.IFU_2_IDU.bits.data)
-        val Catch = Module(new IDU_catch)
-        Catch.io.clock := clock
-        Catch.io.valid := io.IDU_2_EXU.fire && !reset.asBool
-        Catch.io.pc := io.IFU_2_IDU.bits.PC
-        Catch.io.Inst_Type := catchResult(PC_Field)
-    }
 
     // io.IDU_2_IFU.hazard := rvdecoderResult(Special_inst) === Special_instTypeEnum.fence_I
 
@@ -503,7 +502,7 @@ class IDU_n extends Module {
 
     val instList = rviInstList ++ rv32iInstList ++ rvsysInstList ++ rvzicsrInstList ++ rvzifenceiInstList
 
-    val allField = Seq(Inst_Type_Field, Imm_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field)
+    val allField = Seq(Inst_Type_Field, Imm_Field, GPR_WriteNot_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field)
 
     require(instList.map(_.bitPat.getWidth).distinct.size == 1, "All instructions must have the same width")
     def Decode_bundle: DecodeBundle = new DecodeBundle(allField)
@@ -536,7 +535,7 @@ class IDU_n extends Module {
     io.IDU_2_ISU.bits.rs2_addr := io.IDU_2_REG.rs2_addr
     io.IDU_2_ISU.bits.rs2_val := rs2_val
 
-    io.IDU_2_ISU.bits.gpr_waddr := inst(11, 7)
+    io.IDU_2_ISU.bits.gpr_waddr := Mux(rvdecoderResult(GPR_WriteNot_Field), 0.U(5.W), inst(11, 7))
     io.IDU_2_ISU.bits.imm := imm
 
     io.IDU_2_ISU.bits.is_ctrl.inst_Type := rvdecoderResult(Inst_Type_Field)
@@ -546,6 +545,13 @@ class IDU_n extends Module {
 
     io.IDU_2_ISU.bits.al_ctrl := rvdecoderResult(AlCtrl_Field)
     io.IDU_2_ISU.bits.ls_ctrl := rvdecoderResult(LsCtrl_Field)
-    
+
     io.IDU_2_ISU.bits.wb_ctrl := rvdecoderResult(WbCtrl_Field)
+
+    if(Config.Simulate) {
+        val Catch = Module(new IDU_catch)
+        Catch.io.clock := clock
+        Catch.io.valid := io.IDU_2_ISU.fire && !reset.asBool
+        Catch.io.pc := io.IFU_2_IDU.bits.PC
+    }
 }

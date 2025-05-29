@@ -235,7 +235,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
     class Impl extends LazyModuleImp(this) {
         val io = IO(new Bundle{
             val WBU_2_IFU = Flipped(new WBU_2_IFU)
-            val IFU_2_IDU = Decoupled(Output(new BUS_IFU_2_IDU))
+            val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
 
             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
         })
@@ -317,7 +317,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
         val inst = Mux(state === IFU_state.s_try_fetch, Icache.io.data.asTypeOf(Vec(Config.Icache_Param.block_size / 4, UInt(32.W)))(block_index), transfer)
             
-        io.IFU_2_IDU.bits.data := inst
+        io.IFU_2_IDU.bits.inst := inst
 
         state := MuxLookup(state, IFU_state.s_wait_valid)(
             Seq(
@@ -352,7 +352,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             val Catch = Module(new IFU_catch)
             Catch.io.clock := clock
             Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
-            Catch.io.inst := io.IFU_2_IDU.bits.data
+            Catch.io.inst := io.IFU_2_IDU.bits.inst
             Catch.io.pc := io.IFU_2_IDU.bits.PC
 
             val cache_Catch = Module(new Icache_catch)

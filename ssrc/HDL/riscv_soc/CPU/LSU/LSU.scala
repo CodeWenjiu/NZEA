@@ -27,6 +27,8 @@ class LSU_n(idBits: Int)(implicit p: Parameters) extends LazyModule{
             val ISU_2_LSU = Flipped(Decoupled(Input(new ISU_2_LSU)))
             
             val LSU_2_WBU = Decoupled(Output(new EXU_2_WBU))
+
+            val is_flush = Input(Bool())
         })
 
         val (master, _) = masterNode.out(0)
@@ -59,7 +61,7 @@ class LSU_n(idBits: Int)(implicit p: Parameters) extends LazyModule{
 
         val state = RegInit(LS_state.s_idle)
         state := MuxLookup(state, LS_state.s_idle)(Seq(
-            LS_state.s_idle -> Mux(fire, LS_state.s_cache_miss, state),
+            LS_state.s_idle -> Mux(fire && !io.is_flush, LS_state.s_cache_miss, state),
 
             LS_state.s_cache_miss -> MuxCase(LS_state.s_cache_update, Seq(
                 (is_st && !master.aw.fire)  -> LS_state.s_aw_busy,
@@ -124,5 +126,13 @@ class LSU_n(idBits: Int)(implicit p: Parameters) extends LazyModule{
         io.LSU_2_WBU.bits.gpr_waddr := gpr_waddr
         io.LSU_2_WBU.bits.CSR_waddr := 0.U
         io.LSU_2_WBU.bits.wbCtrl := WbCtrl.Write_GPR
+
+        if(Config.Simulate) {
+            val Catch = Module(new LSU_catch)
+            Catch.io.clock := clock
+            Catch.io.valid := io.LSU_2_WBU.fire && !reset.asBool
+            Catch.io.pc    := io.ISU_2_LSU.bits.PC
+            Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.ISU_2_LSU.bits.addr)).reduce(_ || _)
+        }
     }
 }

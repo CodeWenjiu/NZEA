@@ -312,9 +312,30 @@ object pipelineConnect {
             MuxCase(
                 thisIn.valid,
                 Seq(
-                ctrl.flush   -> false.B,
-                prevOut.fire -> true.B,
-                thisOut.fire -> false.B
+                    ctrl.flush   -> false.B,
+                    prevOut.fire -> true.B,
+                    thisOut.fire -> false.B
+                )
+            ),
+            false.B
+        )
+    }
+
+    def apply[T <: Data, T2 <: Data](
+        prevOut: DecoupledIO[T],
+        thisIn: DecoupledIO[T], 
+        thisOut: Seq[DecoupledIO[T2]],
+        ctrl: Pipeline_ctrl) = {
+
+        prevOut.ready := thisIn.ready & ~ctrl.stall
+        thisIn.bits := RegEnable(prevOut.bits, 0.U.asTypeOf(prevOut.bits), prevOut.fire)
+        thisIn.valid := RegNext(
+            MuxCase(
+                thisIn.valid,
+                Seq(
+                    ctrl.flush   -> false.B,
+                    prevOut.fire -> true.B,
+                    thisOut.map(_.fire).reduce(_ || _) -> false.B
                 )
             ),
             false.B

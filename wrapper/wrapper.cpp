@@ -137,13 +137,8 @@ extern "C" {
         basic_callbacks.ALU_catch_p(pc);
     }
 
-    void AGU_catch(const svBitVecVal *pc) {
-        basic_callbacks.AGU_catch_p(pc);
-    }
-
-
-    void IDU_catch(const svBitVecVal *pc, const svBitVecVal *Inst_Type) {
-        basic_callbacks.IDU_catch_p(pc, Inst_Type);
+    void IDU_catch(const svBitVecVal *pc) {
+        basic_callbacks.IDU_catch_p(pc);
     }
 
     void IFU_catch(const svBitVecVal *pc, const svBitVecVal *inst) {
@@ -164,6 +159,10 @@ extern "C" {
 
     void Icache_state_catch(const svBitVecVal *write_index, const svBitVecVal *write_way, const svBitVecVal *write_tag, const svBitVecVal *write_data) {
         basic_callbacks.Icache_state_catch_p(write_index, write_way, write_tag, write_data);
+    }
+
+    void ISU_catch(const svBitVecVal *pc, svBit inst_type) {
+        basic_callbacks.ISU_catch_p(pc, inst_type);
     }
 
     void LSU_catch(const svBitVecVal *pc, svBit diff_skip) {
