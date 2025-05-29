@@ -1,4 +1,4 @@
-package riscv_soc.cpu
+package riscv_soc.cpu.frontend
 
 import chisel3._
 import chisel3.util._
@@ -16,7 +16,6 @@ import org.chipsalliance.diplomacy.lazymodule._
 import riscv_soc.bus._
 import signal_value._
 import scala.collection.Parallel
-import riscv_soc.cpu.IFU_state.s_try_fetch
 
 class IFU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
@@ -344,7 +343,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 IFU_state.s_replace_get_data -> Mux(master.r.fire && (Multi_transfer_counter === (block_num - 1).U),
                     IFU_state.s_Icache_write, IFU_state.s_replace_get_data),
 
-                IFU_state.s_Icache_write -> s_try_fetch
+                IFU_state.s_Icache_write -> IFU_state.s_try_fetch
             )
         )
 

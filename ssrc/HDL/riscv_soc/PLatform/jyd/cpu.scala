@@ -20,8 +20,7 @@ import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
-import riscv_soc.cpu.EXUctr_Field
-import riscv_soc.cpu.LSU_catch
+import riscv_soc.cpu.backend.LSU_catch
 
 class jydIFU extends Module {
     val io = IO(new Bundle {
@@ -48,7 +47,7 @@ class jydIFU extends Module {
     io.IFU_2_IDU.bits.data := io.IROM.data
 
     if(Config.Simulate){
-        val Catch = Module(new riscv_soc.cpu.IFU_catch)
+        val Catch = Module(new riscv_soc.cpu.frontend.IFU_catch)
         Catch.io.clock := clock
         Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
         Catch.io.inst := io.IFU_2_IDU.bits.data

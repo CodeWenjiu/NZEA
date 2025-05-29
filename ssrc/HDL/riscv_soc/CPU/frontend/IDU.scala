@@ -1,4 +1,4 @@
-package riscv_soc.cpu
+package riscv_soc.cpu.frontend
 
 import chisel3._
 import chisel3.util._
@@ -53,17 +53,6 @@ case class rvInstructionPattern(val inst: rvdecoderdb.Instruction) extends Decod
     override def bitPat: BitPat = BitPat("b" + inst.encoding.toString())
 }
 
-object Special_inst extends DecodeField[rvInstructionPattern, Special_instTypeEnum.Type] with DecodeAPI{
-    override def name: String = "special_inst"
-    override def chiselType = Special_instTypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "fence.i" => Get_BitPat(Special_instTypeEnum.fence_I)
-            case _ => Get_BitPat(Special_instTypeEnum.None)
-        }
-    }
-}
-
 object Imm_Field extends DecodeField[rvInstructionPattern, Imm_TypeEnum.Type] with DecodeAPI{
     override def name: String = "imm"
     override def chiselType = Imm_TypeEnum()
@@ -75,133 +64,6 @@ object Imm_Field extends DecodeField[rvInstructionPattern, Imm_TypeEnum.Type] wi
             case "imm20"                        => Get_BitPat(Imm_TypeEnum.Imm_U)
             case "jimm20"                       => Get_BitPat(Imm_TypeEnum.Imm_J)
         }.getOrElse(BitPat.dontCare(Imm_TypeEnum.getWidth))
-    }
-}
-
-object Bran_Field extends DecodeField[rvInstructionPattern, Bran_TypeEnum.Type] with DecodeAPI {
-    override def name: String = "branch"
-    override def chiselType = Bran_TypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "beq"      => Get_BitPat(Bran_TypeEnum.Bran_Jeq)
-            case "bne"      => Get_BitPat(Bran_TypeEnum.Bran_Jne)
-            case "blt"      => Get_BitPat(Bran_TypeEnum.Bran_Jlt)
-            case "bge"      => Get_BitPat(Bran_TypeEnum.Bran_Jge)
-            case "bltu"     => Get_BitPat(Bran_TypeEnum.Bran_Jlt)
-            case "bgeu"     => Get_BitPat(Bran_TypeEnum.Bran_Jge)
-            case "jal"      => Get_BitPat(Bran_TypeEnum.Bran_Jmp)
-            case "jalr"     => Get_BitPat(Bran_TypeEnum.Bran_Jmpr)
-            case "ecall"    => Get_BitPat(Bran_TypeEnum.Bran_Jcsr)
-            case "mret"     => Get_BitPat(Bran_TypeEnum.Bran_Jcsr)
-            case _          => Get_BitPat(Bran_TypeEnum.Bran_NJmp)
-        }
-    }
-}
-
-object RegWr_Field extends DecodeField[rvInstructionPattern, RegWr_TypeEnum.Type] with DecodeAPI {
-    override def name: String = "regwr"
-    override def chiselType = RegWr_TypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.args.map(_.toString).collectFirst {
-            case "rd" => Get_BitPat(RegWr_TypeEnum.RegWr_Yes)
-        }.getOrElse(Get_BitPat(RegWr_TypeEnum.RegWr_No))
-    }
-}
-
-object EXUAsrc_Field extends DecodeField[rvInstructionPattern, EXUAsrc_TypeEnum.Type] with DecodeAPI {
-    override def name: String = "EXUAsrc"
-    override def chiselType = EXUAsrc_TypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "auipc"                            => Get_BitPat(EXUAsrc_TypeEnum.EXUAsrc_PC)
-            case _ => i.inst.args.map(_.toString).collectFirst {
-                case "rs1" => Get_BitPat(EXUAsrc_TypeEnum.EXUAsrc_RS1)
-            }.getOrElse(BitPat.dontCare(EXUAsrc_TypeEnum.getWidth))
-        }
-    }
-}
-
-object EXUBsrc_Field extends DecodeField[rvInstructionPattern, EXUBsrc_TypeEnum.Type] with DecodeAPI {
-    override def name: String = "EXUBsrc"
-    override def chiselType = EXUBsrc_TypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "mret" | "ecall" => Get_BitPat(EXUBsrc_TypeEnum.EXUBsrc_CSR)
-            case _ => i.inst.args.map(_.toString).collectFirst {
-                case "rs2" => Get_BitPat(EXUBsrc_TypeEnum.EXUBsrc_RS2)
-                case "imm12" | "imm20" | "shamtw" => Get_BitPat(EXUBsrc_TypeEnum.EXUBsrc_IMM)
-                case "csr" => Get_BitPat(EXUBsrc_TypeEnum.EXUBsrc_CSR)
-            }.getOrElse(BitPat.dontCare(EXUBsrc_TypeEnum.getWidth))
-        }
-    }
-}
-
-object EXUctr_Field extends DecodeField[rvInstructionPattern, EXUctr_TypeEnum.Type] with DecodeAPI {
-    override def name: String = "EXUctr"
-    override def chiselType = EXUctr_TypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "add" | "addi" | "auipc" | "jal" | "jalr" => Get_BitPat(EXUctr_TypeEnum.EXUctr_ADD)
-            case "sub" | "beq" | "bne" => Get_BitPat(EXUctr_TypeEnum.EXUctr_SUB)
-            case "xor" | "xori" => Get_BitPat(EXUctr_TypeEnum.EXUctr_XOR)
-            case "or" | "ori" | "csrrs" => Get_BitPat(EXUctr_TypeEnum.EXUctr_OR)
-            case "and" | "andi" => Get_BitPat(EXUctr_TypeEnum.EXUctr_AND)
-            case "slt" | "slti" | "blt" | "bge" => Get_BitPat(EXUctr_TypeEnum.EXUctr_Less_S)
-            case "sltu" | "sltiu" | "bltu" | "bgeu" => Get_BitPat(EXUctr_TypeEnum.EXUctr_Less_U)
-            case "sll" | "slli" => Get_BitPat(EXUctr_TypeEnum.EXUctr_SLL)
-            case "srl" | "srli" => Get_BitPat(EXUctr_TypeEnum.EXUctr_SRL)
-            case "sra" | "srai" => Get_BitPat(EXUctr_TypeEnum.EXUctr_SRA)
-            case "csrrw"=> Get_BitPat(EXUctr_TypeEnum.EXUctr_A)
-            case "lui" => Get_BitPat(EXUctr_TypeEnum.EXUctr_B)
-            case "lb" | "lh" | "lw" | "lbu" | "lhu"  => Get_BitPat(EXUctr_TypeEnum.EXUctr_LD)
-            case "sb" | "sh" | "sw"  => Get_BitPat(EXUctr_TypeEnum.EXUctr_ST)
-            case _ => BitPat.dontCare(EXUctr_TypeEnum.getWidth)
-        }
-    }
-}
-
-object MemOp_Field extends DecodeField[rvInstructionPattern, MemOp_TypeEnum.Type] with DecodeAPI {
-    override def name: String = "memop"
-    override def chiselType = MemOp_TypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "lb"       => Get_BitPat(MemOp_TypeEnum.MemOp_1BS)
-            case "lh"       => Get_BitPat(MemOp_TypeEnum.MemOp_2BS)
-            case "lw"       => Get_BitPat(MemOp_TypeEnum.MemOp_4BU)
-            case "lbu"      => Get_BitPat(MemOp_TypeEnum.MemOp_1BU)
-            case "lhu"      => Get_BitPat(MemOp_TypeEnum.MemOp_2BU)
-            case "sb"       => Get_BitPat(MemOp_TypeEnum.MemOp_1BS)
-            case "sh"       => Get_BitPat(MemOp_TypeEnum.MemOp_2BS)
-            case "sw"       => Get_BitPat(MemOp_TypeEnum.MemOp_4BU)
-            case _          => BitPat.dontCare(MemOp_TypeEnum.getWidth)
-        }
-    }
-}
-
-object csr_ctr_Field extends DecodeField[rvInstructionPattern, CSR_TypeEnum.Type] with DecodeAPI {
-    override def name: String = "csr_ctr"
-    override def chiselType = CSR_TypeEnum()
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "ecall" => Get_BitPat(CSR_TypeEnum.CSR_R1W2)
-            case "mret"  => Get_BitPat(CSR_TypeEnum.CSR_R1W0)
-            case _       => i.inst.args.map(_.toString).collectFirst {
-                case "csr" => Get_BitPat(CSR_TypeEnum.CSR_R1W1)
-            }.getOrElse(Get_BitPat(CSR_TypeEnum.CSR_N))
-        }
-    }
-}
-
-object PC_Field extends DecodeField[rvInstructionPattern, UInt] with DecodeAPI {
-    override def name: String = "pc"
-    override def chiselType = UInt(2.W)
-    override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "lb" | "lh" | "lw" | "lbu" | "lhu" | "sb" | "sh" | "sw" => BitPat("b01")
-            case _ => i.inst.args.map(_.toString()).collectFirst {
-                case "csr" => BitPat("b10")
-            }.getOrElse(BitPat("b00"))
-        }
     }
 }
 

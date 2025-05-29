@@ -36,9 +36,8 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     AddressSet.misaligned(0xc0000000L, 0x40000000L) // ChipLink
 
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new IFU(idBits = idBits - 1))
-  // val LazyEXU = LazyModule(new EXU(idBits = idBits-1))
-  val LazyLSU = LazyModule(new LSU(idBits = idBits - 1))
+  val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits - 1))
+  val LazyLSU = LazyModule(new backend.LSU(idBits = idBits - 1))
 
   val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
   xbar := LazyIFU.masterNode
@@ -79,11 +78,11 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     })
 
     val IFU = LazyIFU.module
-    val IDU = Module(new IDU)
-    val ISU = Module(new ISU)
-    val ALU = Module(new ALU)
+    val IDU = Module(new frontend.IDU)
+    val ISU = Module(new frontend.ISU)
+    val ALU = Module(new backend.ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new WBU)
+    val WBU = Module(new backend.WBU)
     val REG = Module(new REG)
     val PipelineCtrl = Module(new bus.PipelineCtrl)
 

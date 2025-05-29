@@ -28,12 +28,14 @@ object CPUAXI4BundleParameters {
 }
 
 trait HasCoreModules extends Module {
-  val IFU: IFU#Impl
-  val IDU: IDU
-  val ISU: ISU
-  val ALU: ALU
-  val LSU: LSU#Impl
-  val WBU: WBU
+  val IFU: frontend.IFU#Impl
+  val IDU: frontend.IDU
+  val ISU: frontend.ISU
+
+  val ALU: backend.ALU
+  val LSU: backend.LSU#Impl
+  val WBU: backend.WBU
+  
   val REG: REG
   val PipelineCtrl: PipelineCtrl
 }
@@ -107,8 +109,8 @@ object CoreConnect {
 
 class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new IFU(idBits = idBits))
-  val LazyLSU = LazyModule(new LSU(idBits = idBits))
+  val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits))
+  val LazyLSU = LazyModule(new backend.LSU(idBits = idBits))
 
   val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
   xbar := LazyIFU.masterNode
@@ -129,11 +131,13 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
   override lazy val module = new Impl
   class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {
     val IFU = LazyIFU.module
-    val IDU = Module(new IDU)
-    val ISU = Module(new ISU)
-    val ALU = Module(new ALU)
+    val IDU = Module(new frontend.IDU)
+    val ISU = Module(new frontend.ISU)
+
+    val ALU = Module(new backend.ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new WBU)
+    val WBU = Module(new backend.WBU)
+    
     val REG = Module(new REG)
     val PipelineCtrl = Module(new PipelineCtrl)
 

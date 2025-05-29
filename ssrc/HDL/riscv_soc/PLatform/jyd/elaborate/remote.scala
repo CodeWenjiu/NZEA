@@ -21,7 +21,6 @@ import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
-import riscv_soc.cpu.EXUctr_Field
 
 class Pipeline_catch extends BlackBox with HasBlackBoxInline{
   val io = IO(new Bundle {
@@ -50,11 +49,13 @@ class jyd_remote_cpu extends Module {
   })
 
   val IFU = Module(new jydIFU)
-  val IDU = Module(new riscv_soc.cpu.IDU)
-  val ISU = Module(new riscv_soc.cpu.ISU)
-  val ALU = Module(new riscv_soc.cpu.ALU)
+  val IDU = Module(new riscv_soc.cpu.frontend.IDU)
+  val ISU = Module(new riscv_soc.cpu.frontend.ISU)
+
+  val ALU = Module(new riscv_soc.cpu.backend.ALU)
   val LSU = Module(new jydLSU)
-  val WBU = Module(new riscv_soc.cpu.WBU)
+  val WBU = Module(new riscv_soc.cpu.backend.WBU)
+  
   val REG = Module(new riscv_soc.cpu.REG)
   val PipelineCtrl = Module(new riscv_soc.bus.PipelineCtrl)
 

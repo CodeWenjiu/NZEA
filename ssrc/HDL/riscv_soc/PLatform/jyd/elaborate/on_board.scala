@@ -21,12 +21,11 @@ import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
-import riscv_soc.cpu.EXUctr_Field
 
 class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new riscv_soc.cpu.IFU(idBits = idBits - 1))
-  val LazyLSU = LazyModule(new riscv_soc.cpu.LSU(idBits = idBits - 1))
+  val LazyIFU = LazyModule(new riscv_soc.cpu.frontend.IFU(idBits = idBits - 1))
+  val LazyLSU = LazyModule(new riscv_soc.cpu.backend.LSU(idBits = idBits - 1))
 
   val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
   val apbxbar = LazyModule(new APBFanout).node
@@ -69,11 +68,11 @@ class jyd(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
     // --- 实例化模块 ---
     val IFU = LazyIFU.module
-    val IDU = Module(new riscv_soc.cpu.IDU)
-    val ISU = Module(new riscv_soc.cpu.ISU)
-    val ALU = Module(new riscv_soc.cpu.ALU)
+    val IDU = Module(new riscv_soc.cpu.frontend.IDU)
+    val ISU = Module(new riscv_soc.cpu.frontend.ISU)
+    val ALU = Module(new riscv_soc.cpu.backend.ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new riscv_soc.cpu.WBU)
+    val WBU = Module(new riscv_soc.cpu.backend.WBU)
     val REG = Module(new riscv_soc.cpu.REG)
     val PipelineCtrl = Module(new bus.PipelineCtrl)
     
@@ -94,8 +93,8 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
       AddressSet.misaligned(0xc0000000L, 0x40000000L) // ChipLink
 
     ElaborationArtefacts.add("graphml", graphML)
-    val LazyIFU = LazyModule(new riscv_soc.cpu.IFU(idBits = idBits - 1))
-    val LazyLSU = LazyModule(new riscv_soc.cpu.LSU(idBits = idBits - 1))
+    val LazyIFU = LazyModule(new riscv_soc.cpu.frontend.IFU(idBits = idBits - 1))
+    val LazyLSU = LazyModule(new riscv_soc.cpu.backend.LSU(idBits = idBits - 1))
 
     val xbar_if = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
     val xbar_ls = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
@@ -152,11 +151,13 @@ class jyd_core(idBits: Int)(implicit p: Parameters) extends LazyModule {
       io.master_ls <> node_ls.in(0)._1
 
       val IFU = LazyIFU.module
-      val IDU = Module(new riscv_soc.cpu.IDU)
-      val ALU = Module(new riscv_soc.cpu.ALU)
-      val ISU = Module(new riscv_soc.cpu.ISU)
+      val IDU = Module(new riscv_soc.cpu.frontend.IDU)
+      val ISU = Module(new riscv_soc.cpu.frontend.ISU)
+
+      val ALU = Module(new riscv_soc.cpu.backend.ALU)
       val LSU = LazyLSU.module
-      val WBU = Module(new riscv_soc.cpu.WBU)
+      val WBU = Module(new riscv_soc.cpu.backend.WBU)
+      
       val REG = Module(new riscv_soc.cpu.REG)
       val PipelineCtrl = Module(new bus.PipelineCtrl)
       

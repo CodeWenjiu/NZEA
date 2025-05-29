@@ -1,4 +1,4 @@
-package riscv_soc.cpu
+package riscv_soc.cpu.backend
 
 import chisel3._
 import chisel3.util._

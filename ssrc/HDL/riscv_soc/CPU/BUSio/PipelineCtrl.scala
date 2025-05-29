@@ -6,7 +6,6 @@ import chisel3.util._
 import signal_value._
 import config._
 import freechips.rocketchip.tilelink.TLMessages.d
-import riscv_soc.cpu.WBU
 
 class Pipeline_catch extends BlackBox with HasBlackBoxInline{
   val io = IO(new Bundle {

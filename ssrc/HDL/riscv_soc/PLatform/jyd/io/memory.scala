@@ -20,7 +20,6 @@ import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
-import riscv_soc.cpu.EXUctr_Field
 
 class System_RAM extends BlackBox {
   val io = IO(new Bundle {
