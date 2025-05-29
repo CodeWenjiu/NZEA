@@ -51,68 +51,70 @@ class jyd_remote_cpu extends Module {
 
   val IFU = Module(new jydIFU)
   val IDU = Module(new riscv_soc.cpu.IDU)
+  val ISU = Module(new riscv_soc.cpu.ISU)
   val ALU = Module(new riscv_soc.cpu.ALU)
-  val AGU = Module(new riscv_soc.cpu.AGU)
   val LSU = Module(new jydLSU)
   val WBU = Module(new riscv_soc.cpu.WBU)
   val REG = Module(new riscv_soc.cpu.REG)
   val PipelineCtrl = Module(new riscv_soc.bus.PipelineCtrl)
 
-  PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_EXU.valid
-  PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_REG
+  PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_ISU.valid
+  PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_ISU.bits
 
   PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
   PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
-  PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
-  PipelineCtrl.io.AGU_in := AGU.io.IDU_2_EXU
-  PipelineCtrl.io.LSU_in := LSU.io.AGU_2_LSU
+  PipelineCtrl.io.ISU_in := ISU.io.IDU_2_ISU
+  PipelineCtrl.io.ALU_in := ALU.io.ISU_2_ALU
+  PipelineCtrl.io.LSU_in := LSU.io.ISU_2_LSU
   PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
 
   PipelineCtrl.io.WBU_out := WBU.io.WBU_2_IFU
-  
-  val to_LSU = WireDefault(false.B)
-  to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_ST
 
   IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
   riscv_soc.bus.pipelineConnect(
     IFU.io.IFU_2_IDU,
     IDU.io.IFU_2_IDU,
-    IDU.io.IDU_2_EXU,
+    IDU.io.IDU_2_ISU,
     PipelineCtrl.io.IFUCtrl
   )
 
   riscv_soc.bus.pipelineConnect(
-    IDU.io.IDU_2_EXU,
-    Seq(
-      (to_LSU, AGU.io.IDU_2_EXU, AGU.io.AGU_2_LSU),
-      (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
-    ),
+    IDU.io.IDU_2_ISU,
+    ISU.io.IDU_2_ISU,
+    Seq(ISU.io.ISU_2_ALU, ISU.io.ISU_2_LSU),
     PipelineCtrl.io.IDUCtrl
   )
 
   riscv_soc.bus.pipelineConnect(
-    AGU.io.AGU_2_LSU,
-    LSU.io.AGU_2_LSU,
-    LSU.io.EXU_2_WBU,
-    PipelineCtrl.io.AGUCtrl
+    ISU.io.ISU_2_ALU,
+    ALU.io.ISU_2_ALU,
+    ALU.io.ALU_2_WBU,
+    PipelineCtrl.io.ISU_2_ALUCtrl
+  )
+
+  riscv_soc.bus.pipelineConnect(
+    ISU.io.ISU_2_LSU,
+    LSU.io.ISU_2_LSU,
+    LSU.io.LSU_2_WBU,
+    PipelineCtrl.io.ISU_2_LSUCtrl
   )
 
   riscv_soc.bus.pipelineConnect(
     Seq(
-      (LSU.io.EXU_2_WBU),
-      (ALU.io.EXU_2_WBU)
+      (LSU.io.LSU_2_WBU),
+      (ALU.io.ALU_2_WBU)
     ),
     WBU.io.EXU_2_WBU,
     WBU.io.WBU_2_IFU,
     PipelineCtrl.io.EXUCtrl
   )
 
-  WBU.io.WBU_2_IFU.ready := true.B
+  REG.io.IDU_2_REG <> IDU.io.IDU_2_REG
   REG.io.REG_2_IDU <> IDU.io.REG_2_IDU
-  IDU.io.IDU_2_REG <> REG.io.IDU_2_REG
-  IFU.io.WBU_2_IFU <> WBU.io.WBU_2_IFU.bits
-  WBU.io.WBU_2_REG <> REG.io.WBU_2_REG
-  LSU.io.flush := PipelineCtrl.io.EXUCtrl.flush
+  REG.io.WBU_2_REG <> WBU.io.WBU_2_REG
+  REG.io.REG_2_WBU <> WBU.io.REG_2_WBU
+
+  LSU.io.is_flush := PipelineCtrl.io.EXUCtrl.flush
 
   io.IROM <> IFU.io.IROM
   io.DRAM <> LSU.io.DRAM

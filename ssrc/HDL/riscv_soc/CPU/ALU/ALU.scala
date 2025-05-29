@@ -7,7 +7,31 @@ import riscv_soc.bus._
 import signal_value._
 import config._
 
-class ALU_n extends Module {
+class ALU_catch extends BlackBox with HasBlackBoxInline {
+  val io = IO(new Bundle{
+    val clock = Input(Clock())
+    val valid = Input(Bool())
+    val pc    = Input(UInt(32.W))
+  })
+  val code = 
+  s"""module ALU_catch(
+  |    input clock,
+  |    input valid,
+  |    input [31:0] pc
+  |);
+  |  import "DPI-C" function void ALU_catch(input bit [31:0] pc);
+  |  always @(posedge clock) begin
+  |     if(valid) begin
+  |       ALU_catch(pc);
+  |     end
+  |  end
+  |endmodule
+  """
+
+  setInline("ALU_catch.v", code.stripMargin)
+}
+
+class ALU extends Module {
     val io = IO(new Bundle {
         val ISU_2_ALU = Flipped(Decoupled(Input(new ISU_2_ALU)))
 

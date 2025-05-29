@@ -21,6 +21,7 @@ import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
 import riscv_soc.cpu.EXUctr_Field
+import riscv_soc.cpu.LSU_catch
 
 class jydIFU extends Module {
     val io = IO(new Bundle {
@@ -57,47 +58,59 @@ class jydIFU extends Module {
 
 class jydLSU extends Module {
   val io = IO(new Bundle{
-    val AGU_2_LSU = Flipped(Decoupled(Input(new riscv_soc.bus.BUS_AGU_2_LSU)))
-    val EXU_2_WBU = Decoupled(Output(new riscv_soc.bus.BUS_EXU_2_WBU))
-    val flush = Input(Bool())
+    val ISU_2_LSU = Flipped(Decoupled(Input(new riscv_soc.bus.ISU_2_LSU)))
+    
+    val LSU_2_WBU = Decoupled(Output(new riscv_soc.bus.EXU_2_WBU))
+
+    val is_flush = Input(Bool())
+    
     val DRAM = new DRAM_bus
   })
 
-  io.AGU_2_LSU.ready := io.EXU_2_WBU.ready
-  io.EXU_2_WBU.valid := io.AGU_2_LSU.valid
+  io.ISU_2_LSU.ready := io.LSU_2_WBU.ready
+  io.LSU_2_WBU.valid := io.ISU_2_LSU.valid
 
-  io.DRAM.addr := io.AGU_2_LSU.bits.addr
-  io.DRAM.wdata := io.AGU_2_LSU.bits.wdata
-  io.DRAM.wen := io.AGU_2_LSU.bits.wen && io.AGU_2_LSU.fire
-
-  val mask = MuxLookup(io.AGU_2_LSU.bits.MemOp, 0.U)(Seq(
-      bus.MemOp_TypeEnum.MemOp_1BS -> "b00".U,
-      bus.MemOp_TypeEnum.MemOp_1BU -> "b00".U,
-      bus.MemOp_TypeEnum.MemOp_2BS -> "b01".U,
-      bus.MemOp_TypeEnum.MemOp_2BU -> "b01".U,
-      bus.MemOp_TypeEnum.MemOp_4BU -> "b10".U,
+  io.DRAM.addr := io.ISU_2_LSU.bits.addr
+  io.DRAM.wdata := io.ISU_2_LSU.bits.data
+  val is_st = MuxLookup(io.ISU_2_LSU.bits.Ctrl, false.B)(Seq(
+      bus.LsCtrl.SB -> true.B,
+      bus.LsCtrl.SH -> true.B,
+      bus.LsCtrl.SW -> true.B
+  ))
+  io.DRAM.wen := is_st && io.ISU_2_LSU.fire
+  val mask = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
+      bus.LsCtrl.SB -> "b00".U,
+      bus.LsCtrl.SH -> "b01".U, 
+      bus.LsCtrl.SW -> "b10".U,
+      bus.LsCtrl.LB -> "b00".U,
+      bus.LsCtrl.LH -> "b01".U,
+      bus.LsCtrl.LW -> "b10".U,
+      bus.LsCtrl.LBU -> "b00".U,
+      bus.LsCtrl.LHU -> "b01".U
   ))
   io.DRAM.mask := mask
 
-  io.EXU_2_WBU.bits.Branch        := bus.Bran_TypeEnum.Bran_NJmp
-  io.EXU_2_WBU.bits.Jmp_Pc        := 0.U   
-  io.EXU_2_WBU.bits.MemtoReg      := !io.AGU_2_LSU.bits.wen
-  io.EXU_2_WBU.bits.csr_ctr       := bus.CSR_TypeEnum.CSR_N  
-  io.EXU_2_WBU.bits.CSR_waddr     := 0.U
-  io.EXU_2_WBU.bits.GPR_waddr     := io.AGU_2_LSU.bits.GPR_waddr
-  io.EXU_2_WBU.bits.PC            := io.AGU_2_LSU.bits.PC     
-  io.EXU_2_WBU.bits.CSR_rdata     := 0.U 
-  io.EXU_2_WBU.bits.Result        := 0.U
-  io.EXU_2_WBU.bits.Mem_rdata     := MuxLookup(io.AGU_2_LSU.bits.MemOp, io.DRAM.rdata)(Seq(
-      bus.MemOp_TypeEnum.MemOp_1BS -> Cat(Fill(24, io.DRAM.rdata(7)), io.DRAM.rdata(7,0)),
-      bus.MemOp_TypeEnum.MemOp_2BS -> Cat(Fill(16, io.DRAM.rdata(15)), io.DRAM.rdata(15,0)),
+  val rdata = MuxLookup(io.ISU_2_LSU.bits.Ctrl, io.DRAM.rdata)(Seq(
+    bus.LsCtrl.LB -> Cat(Fill(24, io.DRAM.rdata(7)), io.DRAM.rdata(7,0)),
+    bus.LsCtrl.LH -> Cat(Fill(16, io.DRAM.rdata(15)), io.DRAM.rdata(15,0)),
   ))
 
-  if(Config.Simulate){
-    val Catch = Module(new riscv_soc.cpu.LSU_catch)
-    Catch.io.clock := clock
-    Catch.io.valid := io.EXU_2_WBU.fire && !reset.asBool
-    Catch.io.pc    := io.AGU_2_LSU.bits.PC
-    Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.AGU_2_LSU.bits.addr)).reduce(_ || _)
+  io.LSU_2_WBU.bits.PC := io.ISU_2_LSU.bits.PC
+  io.LSU_2_WBU.bits.trap.traped := false.B
+  io.LSU_2_WBU.bits.trap.trap_type := bus.Trap_type.Ebreak
+
+  io.LSU_2_WBU.bits.Result := rdata
+  io.LSU_2_WBU.bits.CSR_rdata := 0.U
+
+  io.LSU_2_WBU.bits.gpr_waddr := io.ISU_2_LSU.bits.gpr_waddr
+  io.LSU_2_WBU.bits.CSR_waddr := 0.U
+  io.LSU_2_WBU.bits.wbCtrl := bus.WbCtrl.Write_GPR
+
+  if(Config.Simulate) {
+      val Catch = Module(new LSU_catch)
+      Catch.io.clock := clock
+      Catch.io.valid := io.LSU_2_WBU.fire && !reset.asBool
+      Catch.io.pc    := io.ISU_2_LSU.bits.PC
+      Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.ISU_2_LSU.bits.addr)).reduce(_ || _)
   }
 }

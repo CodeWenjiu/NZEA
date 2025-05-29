@@ -3,7 +3,7 @@ use std::{cell::RefCell, char, io::Write, sync::OnceLock, time::Instant};
 use logger::Logger;
 use option_parser::OptionParser;
 use owo_colors::OwoColorize;
-use remu_macro::{log_debug, log_err, log_error};
+use remu_macro::{log_err, log_error};
 use remu_utils::{ProcessError, ProcessResult};
 use state::{model::BasePipeCell, reg::RegfileIo, States};
 

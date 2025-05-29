@@ -14,7 +14,43 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 import org.chipsalliance.diplomacy.lazymodule._
 
-class LSU_n(idBits: Int)(implicit p: Parameters) extends LazyModule{
+class LSU_catch extends BlackBox with HasBlackBoxInline {
+    val io = IO(new Bundle{
+        val clock = Input(Clock())
+        val valid = Input(Bool())
+        val pc    = Input(UInt(32.W))
+        val diff_skip = Input(Bool())
+    })
+    val code = 
+    s"""module LSU_catch(
+    |   input clock,
+    |   input valid,
+    |    input [31:0] pc,
+    |   input diff_skip
+    |);
+    |  import "DPI-C" function void LSU_catch(input bit [31:0] pc, input bit diff_skip);
+    |  always @(posedge clock) begin
+    |     if(valid) begin
+    |         LSU_catch(pc, diff_skip);
+    |     end
+    |  end
+    |endmodule
+    """
+
+    setInline("LSU_catch.v", code.stripMargin)
+}
+
+object LS_state extends ChiselEnum{
+  val s_idle,
+      s_cache_miss,
+      s_ar_busy,
+      s_aw_busy,
+      s_w_busy,
+      s_cache_update
+      = Value
+}
+
+class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
     val masterNode = AXI4MasterNode(p(ExtIn).map(params =>
         AXI4MasterPortParameters(
         masters = Seq(AXI4MasterParameters(

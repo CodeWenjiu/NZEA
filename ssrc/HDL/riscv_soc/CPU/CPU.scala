@@ -27,92 +27,19 @@ object CPUAXI4BundleParameters {
   )
 }
 
-import peripheral._
-import ram._
-trait HasCoreModules extends Module{
+trait HasCoreModules extends Module {
   val IFU: IFU#Impl
   val IDU: IDU
+  val ISU: ISU
   val ALU: ALU
-  val AGU: AGU
   val LSU: LSU#Impl
   val WBU: WBU
   val REG: REG
   val PipelineCtrl: PipelineCtrl
 }
 
-trait HasCoreModules_n extends Module {
-  val IFU: IFU#Impl
-  val IDU: IDU_n
-  val ISU: ISU
-  val ALU: ALU_n
-  val LSU: LSU_n#Impl
-  val WBU: WBU_n
-  val REG: REG_n
-  val PipelineCtrl: PipelineCtrl_n
-}
-
 object CoreConnect {
   def apply(core: HasCoreModules): Unit = {
-    import core._
-
-    PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_EXU.valid
-    PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_REG
-
-    PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
-    PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
-    PipelineCtrl.io.ALU_in := ALU.io.IDU_2_EXU
-    PipelineCtrl.io.AGU_in := AGU.io.IDU_2_EXU
-    PipelineCtrl.io.LSU_in := LSU.io.AGU_2_LSU
-    PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
-
-    PipelineCtrl.io.WBU_out := WBU.io.WBU_2_IFU
-
-    val to_LSU = WireDefault(false.B)
-    to_LSU := IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_LD || IDU.io.IDU_2_EXU.bits.EXUctr === riscv_soc.bus.EXUctr_TypeEnum.EXUctr_ST
-
-    IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
-    riscv_soc.bus.pipelineConnect(
-      IFU.io.IFU_2_IDU,
-      IDU.io.IFU_2_IDU,
-      IDU.io.IDU_2_EXU,
-      PipelineCtrl.io.IFUCtrl
-    )
-
-    riscv_soc.bus.pipelineConnect(
-      IDU.io.IDU_2_EXU,
-      Seq(
-        (to_LSU, AGU.io.IDU_2_EXU, AGU.io.AGU_2_LSU),
-        (!to_LSU, ALU.io.IDU_2_EXU, ALU.io.EXU_2_WBU)
-      ),
-      PipelineCtrl.io.IDUCtrl
-    )
-
-    riscv_soc.bus.pipelineConnect(
-      AGU.io.AGU_2_LSU,
-      LSU.io.AGU_2_LSU,
-      LSU.io.EXU_2_WBU,
-      PipelineCtrl.io.AGUCtrl
-    )
-
-    riscv_soc.bus.pipelineConnect(
-      Seq(
-        (LSU.io.EXU_2_WBU),
-        (ALU.io.EXU_2_WBU)
-      ),
-      WBU.io.EXU_2_WBU,
-      WBU.io.WBU_2_IFU,
-      PipelineCtrl.io.EXUCtrl
-    )
-
-    WBU.io.WBU_2_IFU.ready := true.B
-    REG.io.REG_2_IDU <> IDU.io.REG_2_IDU
-    IDU.io.IDU_2_REG <> REG.io.IDU_2_REG
-    IFU.io.WBU_2_IFU <> WBU.io.WBU_2_IFU.bits
-    WBU.io.WBU_2_REG <> REG.io.WBU_2_REG
-    LSU.io.flush := PipelineCtrl.io.EXUCtrl.flush
-  }
-
-  def apply(core: HasCoreModules_n): Unit = {
     import core._
 
     PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_ISU.valid
@@ -179,7 +106,6 @@ object CoreConnect {
 }
 
 class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
-
   ElaborationArtefacts.add("graphml", graphML)
   val LazyIFU = LazyModule(new IFU(idBits = idBits))
   val LazyLSU = LazyModule(new LSU(idBits = idBits))
@@ -190,45 +116,10 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
   val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x1000)))
   val lclint = LazyModule(
-    new CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U)
+    new peripheral.CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U)
   )
   val lsram = LazyModule(
-    new SRAM(AddressSet.misaligned(0x80000000L, 0x8000000))
-  )
-
-  luart.node := xbar
-  lclint.node := xbar
-  lsram.node := xbar
-  override lazy val module = new Impl
-  class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {
-    val IFU = LazyIFU.module
-    val IDU = Module(new IDU)
-    val ALU = Module(new ALU)
-    val AGU = Module(new AGU)
-    val LSU = LazyLSU.module
-    val WBU = Module(new WBU)
-    val REG = Module(new REG)
-    val PipelineCtrl = Module(new PipelineCtrl)
-    
-    CoreConnect(this)
-  }
-}
-
-class npc_n(idBits: Int)(implicit p: Parameters) extends LazyModule {
-  ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new IFU(idBits = idBits))
-  val LazyLSU = LazyModule(new LSU_n(idBits = idBits))
-
-  val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
-  xbar := LazyIFU.masterNode
-  xbar := LazyLSU.masterNode
-
-  val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x1000)))
-  val lclint = LazyModule(
-    new CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U)
-  )
-  val lsram = LazyModule(
-    new SRAM(AddressSet.misaligned(0x80000000L, 0x8000000))
+    new ram.SRAM(AddressSet.misaligned(0x80000000L, 0x8000000))
   )
 
   luart.node := xbar
@@ -236,15 +127,15 @@ class npc_n(idBits: Int)(implicit p: Parameters) extends LazyModule {
   lsram.node := xbar
   
   override lazy val module = new Impl
-  class Impl extends LazyModuleImp(this) with HasCoreModules_n with DontTouch {
+  class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {
     val IFU = LazyIFU.module
-    val IDU = Module(new IDU_n)
+    val IDU = Module(new IDU)
     val ISU = Module(new ISU)
-    val ALU = Module(new ALU_n)
+    val ALU = Module(new ALU)
     val LSU = LazyLSU.module
-    val WBU = Module(new WBU_n)
-    val REG = Module(new REG_n)
-    val PipelineCtrl = Module(new PipelineCtrl_n)
+    val WBU = Module(new WBU)
+    val REG = Module(new REG)
+    val PipelineCtrl = Module(new PipelineCtrl)
 
     CoreConnect(this)
   }

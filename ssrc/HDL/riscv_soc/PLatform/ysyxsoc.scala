@@ -13,7 +13,6 @@ import riscv_soc.bus.AXI4ToAPB
 
 import riscv_soc.peripheral._
 import scopt.platform
-import riscv_soc.HasCoreModules
 import riscv_soc.CoreConnect
 import freechips.rocketchip.amba.axi4.AXI4Bundle
 import riscv_soc.CPUAXI4BundleParameters
@@ -22,6 +21,7 @@ import riscv_soc.bus
 import _root_.peripheral.UART
 
 import riscv_soc.cpu._
+import riscv_soc.HasCoreModules
 
 class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
   val mmio = AddressSet.misaligned(0x0f000000, 0x2000) ++ // SRAM
@@ -77,10 +77,11 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
       val slave = Flipped(AXI4Bundle(CPUAXI4BundleParameters()))
       val interrupt = Input(Bool())
     })
+
     val IFU = LazyIFU.module
     val IDU = Module(new IDU)
+    val ISU = Module(new ISU)
     val ALU = Module(new ALU)
-    val AGU = Module(new riscv_soc.cpu.AGU)
     val LSU = LazyLSU.module
     val WBU = Module(new WBU)
     val REG = Module(new REG)
@@ -90,7 +91,7 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     io.slave <> DontCare
     io.interrupt <> DontCare
 
-    CoreConnect(this)
+    CoreConnect(this) 
   }
 }
 
