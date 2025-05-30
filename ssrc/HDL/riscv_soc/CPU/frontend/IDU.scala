@@ -236,7 +236,7 @@ class IDU extends Module {
 
         val WB_Bypass = Flipped(ValidIO(Output(new WB_Bypass)))
 
-        val IDU_GPR_READMSG = Output(new IDU_GPR_READMSG)
+        val IDU_GPR_READMSG = Output(new GPR_READMSG)
     })
 
     io.IDU_2_ISU.valid := io.IFU_2_IDU.valid

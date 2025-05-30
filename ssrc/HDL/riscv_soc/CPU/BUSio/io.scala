@@ -58,7 +58,7 @@ class IDU_2_REG extends Bundle {
     val rs2_addr = UInt(5.W)
 }
 
-class IDU_GPR_READMSG extends Bundle {
+class GPR_READMSG extends Bundle {
     val rs1_addr = UInt(5.W)
     val rs2_addr = UInt(5.W)
 }

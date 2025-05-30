@@ -44,8 +44,8 @@ object CoreConnect {
   def apply(core: HasCoreModules): Unit = {
     import core._
 
-    PipelineCtrl.io.IDU_GPR_READMSG.valid := IDU.io.IDU_2_ISU.valid
-    PipelineCtrl.io.IDU_GPR_READMSG.bits := IDU.io.IDU_GPR_READMSG
+    PipelineCtrl.io.GPR_READMSG.valid := IDU.io.IDU_2_ISU.valid
+    PipelineCtrl.io.GPR_READMSG.bits := IDU.io.IDU_2_REG
 
     PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
     PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
