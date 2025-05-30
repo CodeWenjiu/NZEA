@@ -104,6 +104,8 @@ object CoreConnect {
 
     WBU.io.WBU_2_IFU.ready := true.B
     IFU.io.WBU_2_IFU <> WBU.io.WBU_2_IFU.bits
+
+    IDU.io.WB_Bypass <> WBU.io.WB_Bypass
   }
 }
 

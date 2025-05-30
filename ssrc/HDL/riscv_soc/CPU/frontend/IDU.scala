@@ -208,6 +208,8 @@ class IDU extends Module {
 
         val IDU_2_REG = Output(new IDU_2_REG)
         val REG_2_IDU = Input(new REG_2_IDU)
+
+        val WB_Bypass = Flipped(ValidIO(Output(new WB_Bypass)))
     })
 
     io.IDU_2_ISU.valid := io.IFU_2_IDU.valid
@@ -215,8 +217,17 @@ class IDU extends Module {
 
     io.IDU_2_REG.rs1_addr := io.IFU_2_IDU.bits.inst(19, 15)
     io.IDU_2_REG.rs2_addr := io.IFU_2_IDU.bits.inst(24, 20)
-    val rs1_val = io.REG_2_IDU.rs1_val
-    val rs2_val = io.REG_2_IDU.rs2_val
+
+    def conflict(rs: UInt, rd: UInt) = (rs === rd)
+    def conflict_gpr(rs: UInt, rd:UInt) = (conflict(rs, rd) && (rs =/= 0.U))
+    def conflict_gpr_valid(rs: UInt) = 
+        (conflict_gpr(rs, io.WB_Bypass.bits.gpr_waddr) & io.WB_Bypass.valid)
+
+    val rs1_conflict = conflict_gpr_valid(io.IDU_2_REG.rs1_addr)
+    val rs2_conflict = conflict_gpr_valid(io.IDU_2_REG.rs2_addr)
+
+    val rs1_val = Mux(rs1_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs1_val)
+    val rs2_val = Mux(rs2_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs2_val)
 
     val instTable = rvdecoderdb.instructions(os.pwd / "rvdecoderdb" / "rvdecoderdbtest" / "jvm" / "riscv-opcodes")
 

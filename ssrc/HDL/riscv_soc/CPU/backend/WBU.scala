@@ -63,6 +63,8 @@ class WBU extends Module {
 
         val WBU_2_REG = ValidIO(new WBU_2_REG)
         val REG_2_WBU = Input(new REG_2_WBU)
+
+        val WB_Bypass = ValidIO(Output(new WB_Bypass))
     })
 
     io.EXU_2_WBU.ready := io.WBU_2_IFU.ready
@@ -91,6 +93,10 @@ class WBU extends Module {
     io.WBU_2_REG.bits.CSR_wen := io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Csr
     io.WBU_2_REG.bits.CSR_waddr := io.EXU_2_WBU.bits.CSR_waddr
     io.WBU_2_REG.bits.CSR_wdata := io.EXU_2_WBU.bits.Result
+
+    io.WB_Bypass.valid := io.EXU_2_WBU.fire
+    io.WB_Bypass.bits.gpr_waddr := io.EXU_2_WBU.bits.gpr_waddr
+    io.WB_Bypass.bits.gpr_wdata := gpr_wdata
 
     if(Config.Simulate){
         val Catch = Module(new WBU_catch)

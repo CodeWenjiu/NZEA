@@ -100,6 +100,11 @@ class WBU_2_REG extends Bundle {
     val trap = new trap()
 }
 
+class WB_Bypass extends Bundle {
+    val gpr_waddr = UInt(5.W)
+    val gpr_wdata = UInt(32.W)
+}
+
 class REG_2_WBU extends Bundle {
     val MTVEC = UInt(32.W)
 }
