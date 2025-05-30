@@ -304,13 +304,24 @@ class IDU extends Module {
 
     val rvdecoderResult = chisel3.util.experimental.decode.decoder(QMCMinimizer, inst, table).asTypeOf(Decode_bundle)
     
-    val imm = MuxLookup(rvdecoderResult(Imm_Field), 0.U)(
+    // val imm = MuxLookup(rvdecoderResult(Imm_Field), 0.U)(
+    //     Seq(
+    //         Imm_TypeEnum.Imm_I -> Cat(Fill(21, inst(31)), inst(31, 20)),
+    //         Imm_TypeEnum.Imm_U -> Cat(inst(31, 12), Fill(12, 0.U)),
+    //         Imm_TypeEnum.Imm_S -> Cat(Fill(20, inst(31)), inst(31, 25), inst(11, 7)),
+    //         Imm_TypeEnum.Imm_B -> Cat(Fill(20, inst(31)), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W)),
+    //         Imm_TypeEnum.Imm_J -> Cat(Fill(12, inst(31)), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W)),
+    //     )
+    // )
+
+    val imm = Mux1H(
+        rvdecoderResult(Imm_Field).asUInt,
         Seq(
-            Imm_TypeEnum.Imm_I -> Cat(Fill(21, inst(31)), inst(31, 20)),
-            Imm_TypeEnum.Imm_U -> Cat(inst(31, 12), Fill(12, 0.U)),
-            Imm_TypeEnum.Imm_S -> Cat(Fill(20, inst(31)), inst(31, 25), inst(11, 7)),
-            Imm_TypeEnum.Imm_B -> Cat(Fill(20, inst(31)), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W)),
-            Imm_TypeEnum.Imm_J -> Cat(Fill(12, inst(31)), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W)),
+            Cat(Fill(21, inst(31)), inst(31, 20)),
+            Cat(inst(31, 12), Fill(12, 0.U)),
+            Cat(Fill(20, inst(31)), inst(31, 25), inst(11, 7)),
+            Cat(Fill(20, inst(31)), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W)),
+            Cat(Fill(12, inst(31)), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W)),
         )
     )
 

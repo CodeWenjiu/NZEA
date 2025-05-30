@@ -97,16 +97,14 @@ object Special_instTypeEnum extends ChiselEnum {
 }
 
 object Imm_TypeEnum extends ChiselEnum{
-  val Imm_I,    //I型指令
-      Imm_U,    //U型指令
-      Imm_S,    //S型指令
-      Imm_B,    //B型指令
-      Imm_J     //J型指令
-      = Value
+  val Imm_I = Value((1 << 0).U)
+  val Imm_U = Value((1 << 1).U)
+  val Imm_S = Value((1 << 2).U)
+  val Imm_B = Value((1 << 3).U)
+  val Imm_J = Value((1 << 4).U)
 }
 
 object IsLogic extends ChiselEnum {
-  
   val EQ = Value((1 << 0).U)
   val NE = Value((1 << 1).U)
 
