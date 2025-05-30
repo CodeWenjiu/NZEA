@@ -7,39 +7,9 @@ class WBU_output extends Bundle{
     val addr = Output(UInt(32.W))
 }
 
-class BUS_IFU_2_IDU extends Bundle{
-    val data = UInt(32.W)
-    val PC         = UInt(32.W)
-}
-
 class IFU_2_IDU extends Bundle {
     val inst = UInt(32.W)
     val PC   = UInt(32.W)
-}
-
-class BUS_IDU_2_IFU extends Bundle{
-    val hazard = Bool()
-}
-
-class BUS_IFU_2_REG extends Bundle{
-}
-
-class BUS_REG_2_IDU extends Bundle{
-    val CSR_rdata  = UInt(32.W)
-    val GPR_Adata  = UInt(32.W)
-    val GPR_Bdata  = UInt(32.W)
-}
-
-class BUS_IDU_2_EXU extends Bundle{
-    val Branch   = Bran_TypeEnum()
-    val MemOp    = MemOp_TypeEnum()
-    val EXU_A    = UInt(32.W)
-    val EXU_B    = UInt(32.W)
-    val EXUctr   = EXUctr_TypeEnum()
-    val csr_ctr  = CSR_TypeEnum() 
-    val Imm      = UInt(32.W)
-    val GPR_waddr = UInt(5.W)
-    val PC       = UInt(32.W)
 }
 
 class IDU_2_ISU extends Bundle {
@@ -85,22 +55,6 @@ class ISU_2_LSU extends Bundle {
     val data = UInt(32.W)
 }
 
-class BUS_AGU_2_LSU extends Bundle{
-    val addr  = UInt(32.W)
-    val wdata = UInt(32.W)
-    val wen   = Bool()
-    val MemOp = MemOp_TypeEnum()
-
-    val PC = UInt(32.W)
-    val GPR_waddr = UInt(5.W)
-}
-
-class BUS_IDU_2_REG extends Bundle{
-    val GPR_Aaddr  = UInt(5.W)
-    val GPR_Baddr  = UInt(5.W)
-    val CSR_raddr   = UInt(12.W)
-}
-
 class IDU_2_REG extends Bundle {
     val rs1_addr = UInt(5.W)
     val rs2_addr = UInt(5.W)
@@ -109,22 +63,6 @@ class IDU_2_REG extends Bundle {
 class REG_2_IDU extends Bundle {
     val rs1_val  = UInt(32.W)
     val rs2_val  = UInt(32.W)
-}
-
-class BUS_REG_2_EXU extends Bundle{
-}
-
-class BUS_EXU_2_WBU extends Bundle{
-    val Branch   = Bran_TypeEnum()
-    val Jmp_Pc   = UInt(32.W)
-    val MemtoReg = Bool()
-    val csr_ctr  = CSR_TypeEnum()
-    val CSR_waddr= UInt(12.W)
-    val GPR_waddr = UInt(5.W)
-    val PC       = UInt(32.W)
-    val CSR_rdata = UInt(32.W)
-    val Result   = UInt(32.W)
-    val Mem_rdata  = Bits(32.W)
 }
 
 class EXU_2_WBU extends Bundle {

@@ -25,7 +25,7 @@ import riscv_soc.cpu.backend.LSU_catch
 class jydIFU extends Module {
     val io = IO(new Bundle {
         val WBU_2_IFU = Flipped(new riscv_soc.bus.WBU_2_IFU)
-        val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.BUS_IFU_2_IDU))
+        val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.IFU_2_IDU))
 
         val Pipeline_ctrl = Flipped(new riscv_soc.bus.Pipeline_ctrl)
         val IROM = new IROM_bus
@@ -44,13 +44,13 @@ class jydIFU extends Module {
     io.IFU_2_IDU.valid := true.B
 
     io.IFU_2_IDU.bits.PC := pc
-    io.IFU_2_IDU.bits.data := io.IROM.data
+    io.IFU_2_IDU.bits.inst := io.IROM.data
 
     if(Config.Simulate){
         val Catch = Module(new riscv_soc.cpu.frontend.IFU_catch)
         Catch.io.clock := clock
         Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
-        Catch.io.inst := io.IFU_2_IDU.bits.data
+        Catch.io.inst := io.IFU_2_IDU.bits.inst
         Catch.io.pc := io.IFU_2_IDU.bits.PC
     }
 }
