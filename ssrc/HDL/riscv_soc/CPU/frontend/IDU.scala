@@ -189,13 +189,38 @@ object WbCtrl_Field extends DecodeField[rvInstructionPattern, WbCtrl.Type] with 
     }
 }
 
-object GPR_WriteNot_Field extends DecodeField[rvInstructionPattern, Bool] with DecodeAPI {
+object GPR_Write_Field extends DecodeField[rvInstructionPattern, Bool] with DecodeAPI {
     override def name: String = "gpr_write_not"
     override def chiselType = Bool()
     override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.name match {
-            case "beq" | "bne" | "blt" | "bge" | "bltu" | "bgeu" => Get_BitPat(true.B)
-            case _ => Get_BitPat(false.B)
+        if (i.inst.args.map(_.toString).contains("rd")) {
+            Get_BitPat(true.B)
+        } else {
+            Get_BitPat(false.B)
+        }
+    }
+}
+
+object RS1_Used_Field extends DecodeField[rvInstructionPattern, Bool] with DecodeAPI {
+    override def name: String = "rs1_used"
+    override def chiselType = Bool()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        if (i.inst.args.map(_.toString).contains("rs1")) {
+            Get_BitPat(true.B)
+        } else {
+            Get_BitPat(false.B)
+        }
+    }
+}
+
+object RS2_Used_Field extends DecodeField[rvInstructionPattern, Bool] with DecodeAPI {
+    override def name: String = "rs2_used"
+    override def chiselType = Bool()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        if (i.inst.args.map(_.toString).contains("rs2")) {
+            Get_BitPat(true.B)
+        } else {
+            Get_BitPat(false.B)
         }
     }
 }
@@ -210,24 +235,23 @@ class IDU extends Module {
         val REG_2_IDU = Input(new REG_2_IDU)
 
         val WB_Bypass = Flipped(ValidIO(Output(new WB_Bypass)))
+
+        val IDU_GPR_READMSG = Output(new IDU_GPR_READMSG)
     })
 
     io.IDU_2_ISU.valid := io.IFU_2_IDU.valid
     io.IFU_2_IDU.ready := io.IDU_2_ISU.ready
 
-    io.IDU_2_REG.rs1_addr := io.IFU_2_IDU.bits.inst(19, 15)
-    io.IDU_2_REG.rs2_addr := io.IFU_2_IDU.bits.inst(24, 20)
+    val rs1_addr_origin = io.IFU_2_IDU.bits.inst(19, 15)
+    val rs2_addr_origin = io.IFU_2_IDU.bits.inst(24, 20)
+
+    io.IDU_2_REG.rs1_addr := rs1_addr_origin
+    io.IDU_2_REG.rs2_addr := rs2_addr_origin
 
     def conflict(rs: UInt, rd: UInt) = (rs === rd)
     def conflict_gpr(rs: UInt, rd:UInt) = (conflict(rs, rd) && (rs =/= 0.U))
     def conflict_gpr_valid(rs: UInt) = 
         (conflict_gpr(rs, io.WB_Bypass.bits.gpr_waddr) & io.WB_Bypass.valid)
-
-    val rs1_conflict = conflict_gpr_valid(io.IDU_2_REG.rs1_addr)
-    val rs2_conflict = conflict_gpr_valid(io.IDU_2_REG.rs2_addr)
-
-    val rs1_val = Mux(rs1_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs1_val)
-    val rs2_val = Mux(rs2_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs2_val)
 
     val instTable = rvdecoderdb.instructions(os.pwd / "rvdecoderdb" / "rvdecoderdbtest" / "jvm" / "riscv-opcodes")
 
@@ -266,7 +290,7 @@ class IDU extends Module {
 
     val instList = rviInstList ++ rv32iInstList ++ rvsysInstList ++ rvzicsrInstList ++ rvzifenceiInstList
 
-    val allField = Seq(Inst_Type_Field, Imm_Field, GPR_WriteNot_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field)
+    val allField = Seq(Inst_Type_Field, Imm_Field, GPR_Write_Field, RS1_Used_Field, RS2_Used_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field)
 
     require(instList.map(_.bitPat.getWidth).distinct.size == 1, "All instructions must have the same width")
     def Decode_bundle: DecodeBundle = new DecodeBundle(allField)
@@ -290,6 +314,18 @@ class IDU extends Module {
         )
     )
 
+    val rs1_addr_fix = Mux(rvdecoderResult(RS1_Used_Field), io.IFU_2_IDU.bits.inst(19, 15), 0.U(5.W))
+    val rs2_addr_fix = Mux(rvdecoderResult(RS2_Used_Field), io.IFU_2_IDU.bits.inst(24, 20), 0.U(5.W))
+
+    io.IDU_GPR_READMSG.rs1_addr := rs1_addr_fix
+    io.IDU_GPR_READMSG.rs2_addr := rs2_addr_fix
+
+    val rs1_conflict = conflict_gpr_valid(rs1_addr_fix)
+    val rs2_conflict = conflict_gpr_valid(rs2_addr_fix)
+
+    val rs1_val = Mux(rs1_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs1_val)
+    val rs2_val = Mux(rs2_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs2_val)
+
     io.IDU_2_ISU.bits.PC := io.IFU_2_IDU.bits.PC
     io.IDU_2_ISU.bits.trap.traped := false.B
     io.IDU_2_ISU.bits.trap.trap_type := Trap_type.Ebreak
@@ -297,7 +333,7 @@ class IDU extends Module {
     io.IDU_2_ISU.bits.rs1_val := rs1_val
     io.IDU_2_ISU.bits.rs2_val := rs2_val
 
-    io.IDU_2_ISU.bits.gpr_waddr := Mux(rvdecoderResult(GPR_WriteNot_Field), 0.U(5.W), inst(11, 7))
+    io.IDU_2_ISU.bits.gpr_waddr := Mux(rvdecoderResult(GPR_Write_Field), inst(11, 7), 0.U(5.W))
     io.IDU_2_ISU.bits.imm := imm
 
     io.IDU_2_ISU.bits.is_ctrl.inst_Type := rvdecoderResult(Inst_Type_Field)

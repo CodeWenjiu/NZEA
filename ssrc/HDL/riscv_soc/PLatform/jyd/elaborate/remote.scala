@@ -39,8 +39,8 @@ class jyd_remote_cpu extends Module {
   val REG = Module(new riscv_soc.cpu.REG)
   val PipelineCtrl = Module(new riscv_soc.bus.PipelineCtrl)
 
-  PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_ISU.valid
-  PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_ISU.bits
+  PipelineCtrl.io.IDU_GPR_READMSG.valid := IDU.io.IDU_2_ISU.valid
+  PipelineCtrl.io.IDU_GPR_READMSG.bits := IDU.io.IDU_2_ISU.bits
 
   PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
   PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU

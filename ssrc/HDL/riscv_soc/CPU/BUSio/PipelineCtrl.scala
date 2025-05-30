@@ -29,7 +29,7 @@ class Pipeline_catch extends BlackBox with HasBlackBoxInline{
 
 class PipelineCtrl extends Module {
     val io = IO(new Bundle {
-        val IDU_2_REG = Flipped(ValidIO(new IDU_2_REG))
+        val IDU_GPR_READMSG = Flipped(ValidIO(new IDU_GPR_READMSG))
 
         val IFU_out = Flipped(ValidIO(new IFU_2_IDU))
         val IDU_in  = Flipped(ValidIO(new IFU_2_IDU))
@@ -57,9 +57,9 @@ class PipelineCtrl extends Module {
         (conflict_gpr(rs, io.ISU_in.bits.gpr_waddr) & io.ISU_in.valid)
 
     def is_gpr_RAW = 
-        io.IDU_2_REG.valid && 
-        (conflict_gpr_valid(io.IDU_2_REG.bits.rs1_addr) ||
-        conflict_gpr_valid(io.IDU_2_REG.bits.rs2_addr))
+        io.IDU_GPR_READMSG.valid && 
+        (conflict_gpr_valid(io.IDU_GPR_READMSG.bits.rs1_addr) ||
+        conflict_gpr_valid(io.IDU_GPR_READMSG.bits.rs2_addr))
 
     def conflict_pc(target: UInt) =
         io.WBU_out.valid && (target =/= io.WBU_out.bits.next_pc)
