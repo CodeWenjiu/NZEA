@@ -61,19 +61,22 @@ class ISU extends Module {
     val rs2_val = io.IDU_2_ISU.bits.rs2_val
     val imm = io.IDU_2_ISU.bits.imm
 
-    val logic = MuxLookup(io.IDU_2_ISU.bits.is_ctrl.isLogic, false.B)(Seq(
-        IsLogic.EQ -> (rs1_val === rs2_val),
-        IsLogic.NE -> (rs1_val =/= rs2_val),
+    val logic = Mux1H(
+        io.IDU_2_ISU.bits.is_ctrl.isLogic.asUInt,
+        Seq(
+            (rs1_val === rs2_val),
+            (rs1_val =/= rs2_val),
 
-        IsLogic.LT -> (rs1_val.asSInt < rs2_val.asSInt),
-        IsLogic.GE -> (rs1_val.asSInt >= rs2_val.asSInt),
+            (rs1_val.asSInt < rs2_val.asSInt),
+            (rs1_val.asSInt >= rs2_val.asSInt),
 
-        IsLogic.LTU -> (rs1_val.asUInt < rs2_val.asUInt),
-        IsLogic.GEU -> (rs1_val.asUInt >= rs2_val.asUInt),
+            (rs1_val.asUInt < rs2_val.asUInt),
+            (rs1_val.asUInt >= rs2_val.asUInt),
 
-        IsLogic.SLTI -> (rs1_val.asSInt < imm.asSInt),
-        IsLogic.SLTIU -> (rs1_val.asUInt < imm.asUInt),
-    ))
+            (rs1_val.asSInt < imm.asSInt),
+            (rs1_val.asUInt < imm.asUInt),
+        )
+    )
 
     io.ISU_2_ALU.bits.SRCA := MuxLookup(io.IDU_2_ISU.bits.is_ctrl.srca, 0.U)(Seq(
         SRCA.RS1 -> rs1_val,

@@ -106,20 +106,18 @@ object Imm_TypeEnum extends ChiselEnum{
 }
 
 object IsLogic extends ChiselEnum {
-  val 
-      EQ,
-      NE,
+  
+  val EQ = Value((1 << 0).U)
+  val NE = Value((1 << 1).U)
 
-      LT,
-      GE,
+  val LT = Value((1 << 2).U)
+  val GE = Value((1 << 3).U)
 
-      LTU,
-      GEU,
+  val LTU = Value((1 << 4).U)
+  val GEU = Value((1 << 5).U)
 
-      SLTI,
-      SLTIU
-
-      = Value
+  val SLTI = Value((1 << 6).U)
+  val SLTIU = Value((1 << 7).U)
 }
 
 object Inst_Type extends ChiselEnum {
