@@ -294,9 +294,7 @@ class IDU extends Module {
     io.IDU_2_ISU.bits.trap.traped := false.B
     io.IDU_2_ISU.bits.trap.trap_type := Trap_type.Ebreak
 
-    io.IDU_2_ISU.bits.rs1_addr := io.IDU_2_REG.rs1_addr
     io.IDU_2_ISU.bits.rs1_val := rs1_val
-    io.IDU_2_ISU.bits.rs2_addr := io.IDU_2_REG.rs2_addr
     io.IDU_2_ISU.bits.rs2_val := rs2_val
 
     io.IDU_2_ISU.bits.gpr_waddr := Mux(rvdecoderResult(GPR_WriteNot_Field), 0.U(5.W), inst(11, 7))

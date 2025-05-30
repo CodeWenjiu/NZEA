@@ -45,7 +45,7 @@ object CoreConnect {
     import core._
 
     PipelineCtrl.io.IDU_2_REG.valid := IDU.io.IDU_2_ISU.valid
-    PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_ISU.bits
+    PipelineCtrl.io.IDU_2_REG.bits := IDU.io.IDU_2_REG
 
     PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
     PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU

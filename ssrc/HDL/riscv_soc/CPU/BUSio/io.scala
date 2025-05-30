@@ -16,9 +16,7 @@ class IDU_2_ISU extends Bundle {
     val PC = UInt(32.W)
     val trap = new trap()
 
-    val rs1_addr = UInt(5.W)
     val rs1_val  = UInt(32.W)
-    val rs2_addr = UInt(5.W)
     val rs2_val  = UInt(32.W)
 
     val gpr_waddr = UInt(5.W)
