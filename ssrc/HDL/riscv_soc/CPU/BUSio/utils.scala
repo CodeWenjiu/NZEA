@@ -105,64 +105,6 @@ object Imm_TypeEnum extends ChiselEnum{
       = Value
 }
 
-object Bran_TypeEnum extends ChiselEnum{
-  val Bran_NJmp,   //非跳转
-      Bran_Jmp,    //无条件跳转
-      Bran_Jmpr,   //寄存器基址跳转
-      Bran_Jeq,    //相等跳转
-      Bran_Jne,    //不相等跳转
-      Bran_Jlt,    //小于跳转
-      Bran_Jge,    //大于等于跳转
-      Bran_Jcsr    //CSR跳转
-      = Value
-}
-
-object MemOp_TypeEnum extends ChiselEnum{
-  val MemOp_1BU,
-      MemOp_1BS,
-      MemOp_2BU,
-      MemOp_2BS,
-      MemOp_4BU
-      = Value
-}
-
-object RegWr_TypeEnum extends ChiselEnum{
-  val RegWr_No,
-      RegWr_Yes
-      = Value
-}
-
-object EXUAsrc_TypeEnum extends ChiselEnum{
-  val EXUAsrc_RS1, //寄存器资源1
-      EXUAsrc_PC   //PC寄存器
-      = Value
-}
-
-object EXUBsrc_TypeEnum extends ChiselEnum{
-  val EXUBsrc_RS2,  //寄存器资源2
-      EXUBsrc_IMM,  //立即数
-      EXUBsrc_CSR  //CSR寄存器
-      = Value
-}
-
-object EXUctr_TypeEnum extends ChiselEnum{
-  val EXUctr_ADD     ,    //加法
-      EXUctr_SUB     ,    //减法
-      EXUctr_Less_U  ,    //小于无符号
-      EXUctr_Less_S  ,    //小于
-      EXUctr_A       ,    //输出A
-      EXUctr_B       ,    //输出B
-      EXUctr_SLL     ,    //逻辑左移
-      EXUctr_SRL     ,    //逻辑右移
-      EXUctr_SRA     ,    //算术右移
-      EXUctr_XOR     ,    //异或
-      EXUctr_OR      ,    //或
-      EXUctr_AND     ,    //与
-      EXUctr_LD      ,    
-      EXUctr_ST
-      = Value
-}
-
 object IsLogic extends ChiselEnum {
   val 
       EQ,
@@ -215,19 +157,16 @@ class IsCtrl extends Bundle {
 }
 
 object AlCtrl extends ChiselEnum {
-  val 
-      ADD,
-      SUB,
+  val ADD = Value((1 << 0).U)
+  val SUB = Value((1 << 1).U)
 
-      AND,
-      OR,
-      XOR,
-
-      SLL,
-      SRL,
-      SRA
-
-      = Value
+  val AND = Value((1 << 2).U)
+  val OR  = Value((1 << 3).U)
+  val XOR = Value((1 << 4).U)
+  
+  val SLL = Value((1 << 5).U)
+  val SRL = Value((1 << 6).U)
+  val SRA = Value((1 << 7).U)
 }
 
 object LsCtrl extends ChiselEnum {

@@ -46,18 +46,34 @@ class ALU extends Module {
 
     val srca = io.ISU_2_ALU.bits.SRCA
     val srcb = io.ISU_2_ALU.bits.SRCB
-    io.ALU_2_WBU.bits.Result := MuxLookup(io.ISU_2_ALU.bits.al_ctrl, 0.U)(Seq(
-        AlCtrl.ADD -> (srca + srcb),
-        AlCtrl.SUB -> (srca - srcb),
+    // io.ALU_2_WBU.bits.Result := MuxLookup(io.ISU_2_ALU.bits.al_ctrl, 0.U)(Seq(
+    //     AlCtrl.ADD -> (srca + srcb),
+    //     AlCtrl.SUB -> (srca - srcb),
 
-        AlCtrl.AND -> (srca & srcb),
-        AlCtrl.OR -> (srca | srcb),
-        AlCtrl.XOR -> (srca ^ srcb),
+    //     AlCtrl.AND -> (srca & srcb),
+    //     AlCtrl.OR -> (srca | srcb),
+    //     AlCtrl.XOR -> (srca ^ srcb),
 
-        AlCtrl.SLL -> (srca << srcb(4, 0))(31, 0),
-        AlCtrl.SRL -> (srca >> srcb(4, 0))(31, 0),
-        AlCtrl.SRA -> (srca.asSInt >> srcb(4, 0))(31, 0),
-    ))
+    //     AlCtrl.SLL -> (srca << srcb(4, 0))(31, 0),
+    //     AlCtrl.SRL -> (srca >> srcb(4, 0))(31, 0),
+    //     AlCtrl.SRA -> (srca.asSInt >> srcb(4, 0))(31, 0),
+    // ))
+
+    io.ALU_2_WBU.bits.Result := Mux1H(
+      io.ISU_2_ALU.bits.al_ctrl.asUInt,
+      Seq(
+        (srca + srcb),
+        (srca - srcb),
+
+        (srca & srcb),
+        (srca | srcb),
+        (srca ^ srcb),
+
+        (srca << srcb(4, 0))(31, 0),
+        (srca >> srcb(4, 0))(31, 0),
+        (srca.asSInt >> srcb(4, 0))(31, 0),
+      )
+    )
 
     io.ALU_2_WBU.bits.CSR_rdata := 0.U
     
