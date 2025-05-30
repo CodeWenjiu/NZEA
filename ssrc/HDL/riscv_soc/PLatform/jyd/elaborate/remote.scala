@@ -22,26 +22,6 @@ import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
 
-class Pipeline_catch extends BlackBox with HasBlackBoxInline{
-  val io = IO(new Bundle {
-      val clock = Input(Clock())
-      val pipeline_flush = Input(Bool())
-  })
-  setInline("Pipeline_catch.v",
-  """module Pipeline_catch(
-  |  input clock,
-  |  input pipeline_flush
-  |);
-  |import "DPI-C" function void Pipeline_catch();
-  |always @(posedge clock) begin
-  |    if(pipeline_flush) begin
-  |        Pipeline_catch();
-  |    end
-  |end
-  |endmodule
-  """.stripMargin)
-}
-
 class jyd_remote_cpu extends Module {
   val io = IO(new Bundle{
     val IROM = new IROM_bus

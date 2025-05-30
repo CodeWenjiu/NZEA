@@ -113,7 +113,7 @@ syn: $(IMPL_DESIGN_FILE)
 	$(MAKE) -C $(YOSYS_HOME) sta \
 		DESIGN=top SDC_FILE=$(SDC_FILE) \
 		RTL_FILES=$(IMPL_DESIGN_FILE) \
-		CLK_FREQ_MHZ=500 \
+		CLK_FREQ_MHZ=1000 \
 		RESULT_DIR=$(abspath $(IMPL_DIR)/result)
 
 clean:

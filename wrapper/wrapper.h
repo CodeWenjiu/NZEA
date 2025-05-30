@@ -7,17 +7,17 @@ typedef svBitVecVal* output;
 typedef svBit bits;
 
 typedef struct {
-    void(*ALU_catch_p)(input);
-    void(*IDU_catch_p)(input);
     void(*IFU_catch_p)(input, input);
     void(*Icache_MAT_catch_p)(input);
     void(*Icache_catch_p)(bits, bits);
     void(*Icache_flush_p)();
     void(*Icache_state_catch_p)(input, input, input, input);
+    void(*IDU_catch_p)(input);
     void(*ISU_catch_p)(input, bits);
+    void(*ALU_catch_p)(input);
     void(*LSU_catch_p)(input, bits);
-    void(*Pipeline_catch_p)();
     void(*WBU_catch_p)(input, input, input, input, input, input, input, input, input);
+    void(*Pipeline_catch_p)();
 } Basic_Callbacks;
 
 typedef struct {
@@ -87,17 +87,17 @@ DEFINE_PANIC_FUNCTION(DRAM_read, input addr, input mask, output data)
 DEFINE_PANIC_FUNCTION(DRAM_write, input addr, input mask, input data)
 
 static Basic_Callbacks basic_callbacks = {
-    .ALU_catch_p = default_ALU_catch_p,
-    .IDU_catch_p = default_IDU_catch_p,
     .IFU_catch_p = default_IFU_catch_p,
     .Icache_MAT_catch_p = default_Icache_MAT_catch_p,
     .Icache_catch_p = default_Icache_catch_p,
     .Icache_flush_p = default_Icache_flush_p,
     .Icache_state_catch_p = default_Icache_state_catch_p,
+    .IDU_catch_p = default_IDU_catch_p,
     .ISU_catch_p = default_ISU_catch_p,
+    .ALU_catch_p = default_ALU_catch_p,
     .LSU_catch_p = default_LSU_catch_p,
-    .Pipeline_catch_p = default_Pipeline_catch_p,
     .WBU_catch_p = default_WBU_catch_p,
+    .Pipeline_catch_p = default_Pipeline_catch_p,
 };
 
 static NPC_Callbacks npc_callbacks = {

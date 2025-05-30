@@ -141,27 +141,6 @@ unsafe extern "C" fn alu_catch_handler(pc: Input) {
     }));
 }
 
-// unsafe extern "C" fn agu_catch_handler(pc: Input) {
-//     // log_debug!("alu_catch_p");
-
-//     let pc = unsafe { &*pc };
-
-//     NZEA_TIME.with(|time| {
-//         time.get().unwrap().borrow_mut().alu_catch += 1;
-//     });
-
-//     nzea_result_write(NZEA_STATES.with(|state| {
-//         let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
-//         pipe_state.trans(BasePipeCell::AGU, BasePipeCell::LSU)?;
-//         let (fetched_pc, _) = pipe_state.fetch(BasePipeCell::AGU)?;
-//         if fetched_pc != *pc {
-//             log_error!(format!("AGU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
-//             return Err(ProcessError::Recoverable);
-//         }
-//         Ok(())
-//     }));
-// }
-
 unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
     // log_debug!("lsu_catch_p");
 
@@ -614,17 +593,17 @@ impl Nzea {
         let top = Top::new(option);
 
         let basic_callbacks = BasicCallbacks {
-            alu_catch_p: alu_catch_handler,
-            idu_catch_p: idu_catch_handler,
             ifu_catch_p: ifu_catch_handler,
             icache_mat_catch_p: icache_mat_catch_handler,
             icache_catch_p: icache_catch_handler,
             icache_flush_p: icache_flush_handler,
             icache_state_catch_p: icache_state_catch_handler,
+            idu_catch_p: idu_catch_handler,
             isu_catch_p: isu_catch_handler,
+            alu_catch_p: alu_catch_handler,
             lsu_catch_p: lsu_catch_handler,
-            pipeline_catch_p: pipeline_catch_handler,
             wbu_catch: wbu_catch_handler,
+            pipeline_catch_p: pipeline_catch_handler,
         };
 
         let npc_callbacks = NpcCallbacks {
