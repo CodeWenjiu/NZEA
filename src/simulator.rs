@@ -652,6 +652,7 @@ impl Nzea {
 }
 
 impl SimulatorItem for Nzea {
+
     fn init(&self) -> Result<(), SimulatorError> {
         self.top.reset(100);
         Ok(())
