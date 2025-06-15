@@ -1,7 +1,9 @@
-use std::{ffi::c_char, os::raw::c_void};
+use std::{env, ffi::c_char, os::raw::c_void, process::Command};
 
 use dlopen2::wrapper::{Container, WrapperApi};
 use option_parser::OptionParser;
+use remu_macro::log_info;
+use logger::Logger;
 
 pub type Input = *const u32;
 pub type Output = *mut u32;
@@ -81,8 +83,29 @@ impl Top {
             _ => panic!("WTF")
         };
 
+        let exec_dir = env::current_dir().unwrap();
+        let project_root = exec_dir
+            .ancestors()
+            .find(|p| p.join("simulator").exists())
+            .unwrap();
+
         let target_lower = target.to_string().to_lowercase();
-        let so_path = format!("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/{}/obj_dir/libnzea.so", target_lower);
+
+        let nzea_root = project_root
+            .join("simulator/src/nzea");
+
+        log_info!("Building NZEA");
+
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("make -C {} PLATFORM={}", nzea_root.display(), target_lower))
+            .output()
+            .expect("Failed to build NZEA");
+
+        let so_path = nzea_root
+            .join("build")
+            .join(target_lower)
+            .join("obj_dir/libnzea.so");
 
         let container: Container<VTop> =
             unsafe { Container::load(so_path) }.expect("Could not open library or load symbols");
