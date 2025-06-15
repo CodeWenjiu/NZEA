@@ -141,7 +141,7 @@ unsafe extern "C" fn alu_catch_handler(pc: Input) {
     }));
 }
 
-unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
+unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8, skip_val: Input) {
     // log_debug!("lsu_catch_p");
 
     let pc = unsafe { &*pc };
@@ -165,7 +165,8 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8) {
     NZEA_CALLBACK.with(|callback| {
         let callback = callback.get().unwrap().borrow_mut();
         if diff_skip == 1 {
-            (callback.difftest_skip)();
+            let skip_val = unsafe { *skip_val };
+            (callback.difftest_skip)(skip_val);
         }
     });
 }
