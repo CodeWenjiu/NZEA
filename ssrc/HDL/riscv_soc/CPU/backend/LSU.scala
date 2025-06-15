@@ -20,18 +20,20 @@ class LSU_catch extends BlackBox with HasBlackBoxInline {
         val valid = Input(Bool())
         val pc    = Input(UInt(32.W))
         val diff_skip = Input(Bool())
+        val skip_val = Input(UInt(32.W))
     })
     val code = 
     s"""module LSU_catch(
     |   input clock,
     |   input valid,
-    |    input [31:0] pc,
-    |   input diff_skip
+    |   input [31:0] pc,
+    |   input diff_skip,
+    |   input [31:0] skip_val
     |);
-    |  import "DPI-C" function void LSU_catch(input bit [31:0] pc, input bit diff_skip);
+    |  import "DPI-C" function void LSU_catch(input bit [31:0] pc, input bit diff_skip, input bit [31:0] skip_val);
     |  always @(posedge clock) begin
     |     if(valid) begin
-    |         LSU_catch(pc, diff_skip);
+    |         LSU_catch(pc, diff_skip, skip_val);
     |     end
     |  end
     |endmodule
@@ -169,6 +171,7 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
             Catch.io.valid := io.LSU_2_WBU.fire && !reset.asBool
             Catch.io.pc    := io.ISU_2_LSU.bits.PC
             Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.ISU_2_LSU.bits.addr)).reduce(_ || _)
+            Catch.io.skip_val := rdata
         }
     }
 }

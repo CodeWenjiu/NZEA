@@ -165,8 +165,8 @@ extern "C" {
         basic_callbacks.ISU_catch_p(pc, inst_type);
     }
 
-    void LSU_catch(const svBitVecVal *pc, svBit diff_skip) {
-        basic_callbacks.LSU_catch_p(pc, diff_skip);
+    void LSU_catch(const svBitVecVal *pc, svBit diff_skip, const svBitVecVal *skip_val) {
+        basic_callbacks.LSU_catch_p(pc, diff_skip, skip_val);
     }
 
     void Pipeline_catch() {

@@ -81,7 +81,8 @@ impl Top {
             _ => panic!("WTF")
         };
 
-        let so_path = format!("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/{}/obj_dir/libnzea.so", target);
+        let target_lower = target.to_string().to_lowercase();
+        let so_path = format!("/home/wenjiu/ysyx-workbench/remu/simulator/src/nzea/build/{}/obj_dir/libnzea.so", target_lower);
 
         let container: Container<VTop> =
             unsafe { Container::load(so_path) }.expect("Could not open library or load symbols");

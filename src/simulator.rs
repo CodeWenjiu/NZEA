@@ -61,6 +61,11 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
             state.get().unwrap().borrow_mut().pipe_state.send((*pc, *inst), BaseStageCell::IfId)
         })
     );
+
+    NZEA_CALLBACK.with(|callback| {
+        let callback = callback.get().unwrap().borrow_mut();
+        (callback.instruction_fetch)();
+    });
 }
 
 unsafe extern "C" fn idu_catch_handler(pc: Input) {
@@ -167,6 +172,7 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8, skip_val: Input
         if diff_skip == 1 {
             let skip_val = unsafe { *skip_val };
             (callback.difftest_skip)(skip_val);
+            (callback.load_store)();
         }
     });
 }
