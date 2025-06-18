@@ -95,11 +95,17 @@ impl Top {
 
         log_info!("Building NZEA");
 
-        Command::new("sh")
+        let output = Command::new("sh")
             .arg("-c")
             .arg(format!("make -C {} PLATFORM={}", nzea_root.display(), target_lower))
             .output()
-            .expect("Failed to build NZEA");
+            .expect("Failed to execute build command");
+
+        if !output.status.success() {
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            panic!("Failed to build NZEA");
+        }
 
         let so_path = nzea_root
             .join("build")
