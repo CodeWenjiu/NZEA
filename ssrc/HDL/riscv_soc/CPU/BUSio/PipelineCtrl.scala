@@ -52,6 +52,7 @@ class PipelineCtrl extends Module {
     def conflict(rs: UInt, rd: UInt) = (rs === rd)
     def conflict_gpr(rs: UInt, rd:UInt) = (conflict(rs, rd) && (rs =/= 0.U))
     def conflict_gpr_valid(rs: UInt) = 
+        (conflict_gpr(rs, io.WBU_in.bits.gpr_waddr) & io.WBU_in.valid) || // not need if bypass
         (conflict_gpr(rs, io.ALU_in.bits.gpr_waddr) & io.ALU_in.valid) ||
         (conflict_gpr(rs, io.LSU_in.bits.gpr_waddr) & io.LSU_in.valid) ||
         (conflict_gpr(rs, io.ISU_in.bits.gpr_waddr) & io.ISU_in.valid)

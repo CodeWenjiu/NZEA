@@ -350,7 +350,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         if(Config.Simulate){
             val Catch = Module(new IFU_catch)
             Catch.io.clock := clock
-            Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
+            Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool && !io.Pipeline_ctrl.flush
             Catch.io.inst := io.IFU_2_IDU.bits.inst
             Catch.io.pc := io.IFU_2_IDU.bits.PC
 
