@@ -67,7 +67,7 @@ class PipelineCtrl extends Module {
     def is_bp_error = 
         MuxCase(conflict_pc(io.IFU_out.bits.PC), Seq(
         (io.ALU_in.valid -> conflict_pc(io.ALU_in.bits.PC)),
-        (io.WBU_in.valid -> conflict_pc(io.WBU_in.bits.PC)),
+        (io.LSU_in.valid -> conflict_pc(io.LSU_in.bits.PC)),
         (io.ISU_in.valid -> conflict_pc(io.ISU_in.bits.PC)),
         (io.IDU_in.valid -> conflict_pc(io.IDU_in.bits.PC)),
     ))

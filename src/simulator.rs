@@ -1,6 +1,5 @@
 use std::{cell::RefCell, char, io::Write, sync::OnceLock, time::Instant};
 
-use logger::Logger;
 use option_parser::OptionParser;
 use owo_colors::OwoColorize;
 use remu_macro::{log_err, log_error};
@@ -153,7 +152,7 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8, skip_val: Input
     nzea_result_write(
         NZEA_STATES.with(|state| {
             let pipe_state = &mut state.get().unwrap().borrow_mut().pipe_state;
-        pipe_state.trans(BaseStageCell::IsLs, BaseStageCell::ExWb)?;
+            pipe_state.trans(BaseStageCell::IsLs, BaseStageCell::ExWb)?;
             let (fetched_pc, _) = pipe_state.fetch(BaseStageCell::IsLs)?;
             if fetched_pc != *pc {
                 log_error!(format!("LSU catch PC mismatch: fetched {:#08x}, expected {:#08x}", fetched_pc, pc));
@@ -172,8 +171,8 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8, skip_val: Input
         if diff_skip == 1 {
             let skip_val = unsafe { *skip_val };
             (callback.difftest_skip)(skip_val);
-            (callback.load_store)();
         }
+        (callback.load_store)();
     });
 }
 
@@ -260,7 +259,7 @@ unsafe extern "C" fn wbu_catch_handler(
 
         let reg_pc = NZEA_STATES.with(|s| s.get().unwrap().borrow().regfile.read_pc());
         if pc != reg_pc {
-            log_error!(format!("PC mismatch: Ref: {:#08x} != Dut: {:#08x}", pc, reg_pc));
+            log_error!(format!("PC mismatch: Pipeline: {:#08x} != State: {:#08x}", pc, reg_pc));
             return Err(ProcessError::Recoverable);
         }
 

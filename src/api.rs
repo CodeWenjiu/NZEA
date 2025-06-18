@@ -3,7 +3,6 @@ use std::{env, ffi::c_char, os::raw::c_void, process::Command};
 use dlopen2::wrapper::{Container, WrapperApi};
 use option_parser::OptionParser;
 use remu_macro::log_info;
-use logger::Logger;
 
 pub type Input = *const u32;
 pub type Output = *mut u32;
