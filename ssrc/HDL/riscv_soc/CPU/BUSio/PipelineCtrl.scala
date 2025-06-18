@@ -29,7 +29,7 @@ class Pipeline_catch extends BlackBox with HasBlackBoxInline{
 
 class PipelineCtrl extends Module {
     val io = IO(new Bundle {
-        val GPR_READMSG = Flipped(ValidIO(new GPR_READMSG))
+        val GPR_READMSG = Flipped(ValidIO(new IDU_2_REG))
 
         val IFU_out = Flipped(ValidIO(new IFU_2_IDU))
         val IDU_in  = Flipped(ValidIO(new IFU_2_IDU))

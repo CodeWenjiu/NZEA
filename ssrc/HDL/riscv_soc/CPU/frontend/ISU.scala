@@ -38,6 +38,10 @@ class ISU_catch extends BlackBox with HasBlackBoxInline {
 class ISU extends Module {
     val io = IO(new Bundle {
         val IDU_2_ISU = Flipped(Decoupled(Input(new IDU_2_ISU)))
+
+        val ISU_2_REG = Output(new ISU_2_REG)
+        val REG_2_ISU = Input(new REG_2_ISU)
+
         val ISU_2_ALU = Decoupled(Output(new ISU_2_ALU))
         val ISU_2_LSU = Decoupled(Output(new ISU_2_LSU))
     })
@@ -80,11 +84,13 @@ class ISU extends Module {
 
     io.ISU_2_ALU.bits.SRCA := MuxLookup(io.IDU_2_ISU.bits.is_ctrl.srca, 0.U)(Seq(
         SRCA.RS1 -> rs1_val,
+        SRCA.PC -> io.IDU_2_ISU.bits.PC,
+        SRCA.CSR -> 0.U, // need to be implemented
         SRCA.ZERO -> 0.U,
-        SRCA.PC -> io.IDU_2_ISU.bits.PC
     ))
 
     io.ISU_2_ALU.bits.SRCB := MuxLookup(io.IDU_2_ISU.bits.is_ctrl.srcb, 0.U)(Seq(
+        SRCB.RS1 -> rs1_val,
         SRCB.RS2 -> rs2_val,
         SRCB.IMM -> imm,
         SRCB.LogicBranch -> Mux(logic, imm, 4.U),

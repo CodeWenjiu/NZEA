@@ -129,14 +129,16 @@ object Inst_Type extends ChiselEnum {
 object SRCA extends ChiselEnum {
   val 
       RS1,
+      PC,
       ZERO,
-      PC
+      CSR
 
       = Value
 }
 
 object SRCB extends ChiselEnum {
   val 
+      RS1,
       RS2,
       IMM,
       LogicBranch,

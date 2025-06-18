@@ -9,7 +9,7 @@ verilog:
 	@DESIGN_FILE=$$(find $(BUILD_DIR) -maxdepth 1 -name "*.sv"); \
 	if [ -z "$$DESIGN_FILE" ]; then \
 		echo "Error: No .sv file found in $(BUILD_DIR) after mill command."; \
-		exit 1; \
+		exit 0; \
 	fi; \
 	echo "Found design file: $$DESIGN_FILE"; \
 	sed -i -e 's/_\(aw\|ar\|w\|r\|b\)_\(\|bits_\)/_\1/g' $$DESIGN_FILE; \

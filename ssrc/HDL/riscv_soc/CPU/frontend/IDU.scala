@@ -101,9 +101,14 @@ object SRCA_Field extends DecodeField[rvInstructionPattern, SRCA.Type] with Deco
     override def chiselType = SRCA()
     override def genTable(i: rvInstructionPattern): BitPat = {
         i.inst.name match {
-            case "lui" | "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCA.ZERO)
             case "auipc" | "jal" |
                  "beq" | "bne"  | "blt"  | "bge"  | "bltu" | "bgeu" => Get_BitPat(SRCA.PC)
+
+            case "csrrw" | "csrrs" | "csrrc" | "csrrwi" | "csrrsi" | "csrrci" |
+                 "mret" | "wfi" => Get_BitPat(SRCA.CSR)
+                 
+            case "lui" | "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCA.ZERO)
+        
             case _ => Get_BitPat(SRCA.RS1)
         }
     }
@@ -121,6 +126,9 @@ object SRCB_Field extends DecodeField[rvInstructionPattern, SRCB.Type] with Deco
             case "beq"  | "bne"  | "blt"  | "bge"  | "bltu" | "bgeu" => Get_BitPat(SRCB.LogicBranch)
 
             case "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCB.LogicSet)
+
+            case "csrrw" | "csrrs" | "csrrc" | "csrrwi" | "csrrsi" | "csrrci" |
+                 "mret" | "wfi" => Get_BitPat(SRCB.RS1)
 
             case _ => Get_BitPat(SRCB.RS2)
         }
@@ -236,7 +244,7 @@ class IDU extends Module {
 
         val WB_Bypass = Flipped(ValidIO(Output(new WB_Bypass)))
 
-        val IDU_GPR_READMSG = Output(new GPR_READMSG)
+        val IDU_GPR_READMSG = Output(new IDU_2_REG)
     })
 
     io.IDU_2_ISU.valid := io.IFU_2_IDU.valid

@@ -46,6 +46,7 @@ object CoreConnect {
 
     PipelineCtrl.io.GPR_READMSG.valid := IDU.io.IDU_2_ISU.valid
     PipelineCtrl.io.GPR_READMSG.bits := IDU.io.IDU_2_REG
+    // PipelineCtrl.io.GPR_READMSG.bits := IDU.io.IDU_GPR_READMSG // optimize in future
 
     PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
     PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
@@ -97,6 +98,10 @@ object CoreConnect {
 
     REG.io.IDU_2_REG <> IDU.io.IDU_2_REG
     REG.io.REG_2_IDU <> IDU.io.REG_2_IDU
+
+    REG.io.ISU_2_REG <> ISU.io.ISU_2_REG
+    REG.io.REG_2_ISU <> ISU.io.REG_2_ISU
+
     REG.io.WBU_2_REG <> WBU.io.WBU_2_REG
     REG.io.REG_2_WBU <> WBU.io.REG_2_WBU
 

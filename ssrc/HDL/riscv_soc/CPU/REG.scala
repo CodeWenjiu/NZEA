@@ -97,6 +97,9 @@ class REG extends Module {
   val io = IO(new Bundle {
     val IDU_2_REG = Input(new IDU_2_REG)
     val REG_2_IDU = Output(new REG_2_IDU)
+    
+    val ISU_2_REG = Input(new ISU_2_REG)
+    val REG_2_ISU = Output(new REG_2_ISU)
 
     val WBU_2_REG = Flipped(ValidIO(Input(new WBU_2_REG)))
     val REG_2_WBU = Output(new REG_2_WBU)
