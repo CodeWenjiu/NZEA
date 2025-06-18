@@ -93,6 +93,6 @@ class PipelineCtrl extends Module {
     if(Config.Simulate) {
         val pipeline_catch = Module(new Pipeline_catch)
         pipeline_catch.io.clock := clock
-        pipeline_catch.io.pipeline_flush := RegNext(io.IFUCtrl.flush)
+        pipeline_catch.io.pipeline_flush := io.IFUCtrl.flush
     }
 }

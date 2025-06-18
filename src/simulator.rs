@@ -221,7 +221,6 @@ unsafe extern "C" fn icache_state_catch_handler(
 }
 
 unsafe extern "C" fn pipeline_catch_handler() {
-    // log_debug!("flush_p");
     NZEA_STATES.with(|state| {
         state.get().unwrap().borrow_mut().pipe_state.flush();
     });
