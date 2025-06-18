@@ -41,11 +41,11 @@ class IDU_2_ISU extends Bundle {
 }
 
 class ISU_2_REG extends Bundle {
-    // val csr_raddr = UInt(12.W)
+    val csr_raddr = UInt(12.W)
 }
 
 class REG_2_ISU extends Bundle {
-    // val csr_rdata = UInt(32.W)
+    val csr_rdata = UInt(32.W)
 }
 
 class ISU_2_ALU extends Bundle {

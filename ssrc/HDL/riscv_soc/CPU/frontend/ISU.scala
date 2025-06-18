@@ -65,6 +65,8 @@ class ISU extends Module {
     val rs2_val = io.IDU_2_ISU.bits.rs2_val
     val imm = io.IDU_2_ISU.bits.imm
 
+    io.ISU_2_REG.csr_raddr := imm(11, 0)
+
     val logic = Mux1H(
         io.IDU_2_ISU.bits.is_ctrl.isLogic.asUInt,
         Seq(
@@ -85,7 +87,7 @@ class ISU extends Module {
     io.ISU_2_ALU.bits.SRCA := MuxLookup(io.IDU_2_ISU.bits.is_ctrl.srca, 0.U)(Seq(
         SRCA.RS1 -> rs1_val,
         SRCA.PC -> io.IDU_2_ISU.bits.PC,
-        SRCA.CSR -> 0.U, // need to be implemented
+        SRCA.CSR -> io.REG_2_ISU.csr_rdata,
         SRCA.ZERO -> 0.U,
     ))
 

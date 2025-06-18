@@ -93,6 +93,16 @@ import config._
 //   }
 // }
 
+object csr_enum extends ChiselEnum {
+  val MSTATUS   = Value("h300".U)
+  val MTEVC     = Value("h305".U)
+  val MSCRATCH  = Value("h340".U)
+  val MEPC      = Value("h341".U)
+  val MCAUSE    = Value("h342".U)
+  val MVENDORID = Value("hF11".U) 
+  val MARCHID   = Value("hF12".U) 
+}
+
 class REG extends Module {
   val io = IO(new Bundle {
     val IDU_2_REG = Input(new IDU_2_REG)
@@ -116,11 +126,33 @@ class REG extends Module {
   io.REG_2_IDU.rs1_val := Mux(gpr_rs1addr === 0.U, 0.U, gpr((gpr_rs1addr - 1.U)(3, 0)))
   io.REG_2_IDU.rs2_val := Mux(gpr_rs2addr === 0.U, 0.U, gpr((gpr_rs2addr - 1.U)(3, 0)))
 
-  io.REG_2_WBU.MTVEC := 0.U
+  val mstatus, mtevc, mepc, mcause, mscratch = RegInit(0.U(32.W))
+
+  io.REG_2_ISU.csr_rdata := MuxLookup(io.ISU_2_REG.csr_raddr, 0.U(32.W))(Seq(
+    csr_enum.MSTATUS.asUInt   -> mstatus,
+    csr_enum.MTEVC.asUInt     -> mtevc,
+    csr_enum.MSCRATCH.asUInt  -> mscratch,
+    csr_enum.MEPC.asUInt      -> mepc,
+    csr_enum.MCAUSE.asUInt    -> mcause,
+    csr_enum.MVENDORID.asUInt -> "h79737978".U(32.W), // ysyx
+    csr_enum.MARCHID.asUInt   -> "d23060198".U(32.W)  // my id 
+  ))
+
+  io.REG_2_WBU.MTVEC := mtevc
 
   when(io.WBU_2_REG.valid) {
     when(gpr_wen) {
       gpr((gpr_waddr - 1.U)(4, 0)) := gpr_wdata
+    }
+
+    when(io.WBU_2_REG.bits.CSR_wen) {
+      switch(csr_enum(io.WBU_2_REG.bits.CSR_waddr)) {
+        is(csr_enum.MSTATUS) { mstatus := io.WBU_2_REG.bits.CSR_wdata }
+        is(csr_enum.MTEVC)   { mtevc := io.WBU_2_REG.bits.CSR_wdata }
+        is(csr_enum.MSCRATCH){ mscratch := io.WBU_2_REG.bits.CSR_wdata }
+        is(csr_enum.MEPC)    { mepc := io.WBU_2_REG.bits.CSR_wdata }
+        is(csr_enum.MCAUSE)  { mcause := io.WBU_2_REG.bits.CSR_wdata }
+      }
     }
   }
 }
