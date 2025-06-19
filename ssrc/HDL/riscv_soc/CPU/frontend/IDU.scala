@@ -106,7 +106,7 @@ object SRCA_Field extends DecodeField[rvInstructionPattern, SRCA.Type] with Deco
 
             case "csrrw" | "csrrs" | "csrrc" | "csrrwi" | "csrrsi" | "csrrci" |
                  "mret" | "wfi" => Get_BitPat(SRCA.CSR)
-                 
+
             case "lui" | "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCA.ZERO)
         
             case _ => Get_BitPat(SRCA.RS1)
@@ -155,6 +155,11 @@ object AlCtrl_Field extends DecodeField[rvInstructionPattern, AlCtrl.Type] with 
             case "sll" | "slli" => Get_BitPat(AlCtrl.SLL)
             case "srl" | "srli" => Get_BitPat(AlCtrl.SRL)
             case "sra" | "srai" => Get_BitPat(AlCtrl.SRA)
+
+            case "csrrw" => Get_BitPat(AlCtrl.B)
+            case "csrrs" => Get_BitPat(AlCtrl.OR)
+
+            case "mret" | "wfi" => Get_BitPat(AlCtrl.ADD)
 
             case _ => BitPat.dontCare(AlCtrl.getWidth)
         }

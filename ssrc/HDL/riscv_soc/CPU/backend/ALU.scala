@@ -50,6 +50,8 @@ class ALU extends Module {
     io.ALU_2_WBU.bits.Result := Mux1H(
       io.ISU_2_ALU.bits.al_ctrl.asUInt,
       Seq(
+        (srcb),
+        
         (srca + srcb),
         (srca - srcb),
 
@@ -66,7 +68,7 @@ class ALU extends Module {
     io.ALU_2_WBU.bits.CSR_rdata := 0.U
     
     io.ALU_2_WBU.bits.gpr_waddr := io.ISU_2_ALU.bits.gpr_waddr
-    io.ALU_2_WBU.bits.CSR_waddr := 0.U
+    io.ALU_2_WBU.bits.CSR_waddr := io.ISU_2_ALU.bits.csr_waddr
 
     io.ALU_2_WBU.bits.wbCtrl := io.ISU_2_ALU.bits.wb_ctrl
 

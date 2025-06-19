@@ -155,16 +155,18 @@ class IsCtrl extends Bundle {
 }
 
 object AlCtrl extends ChiselEnum {
-  val ADD = Value((1 << 0).U)
-  val SUB = Value((1 << 1).U)
+  val B   = Value((1 << 0).U) // Branch
 
-  val AND = Value((1 << 2).U)
-  val OR  = Value((1 << 3).U)
-  val XOR = Value((1 << 4).U)
+  val ADD = Value((1 << 1).U)
+  val SUB = Value((1 << 2).U)
+
+  val AND = Value((1 << 3).U)
+  val OR  = Value((1 << 4).U)
+  val XOR = Value((1 << 5).U)
   
-  val SLL = Value((1 << 5).U)
-  val SRL = Value((1 << 6).U)
-  val SRA = Value((1 << 7).U)
+  val SLL = Value((1 << 6).U)
+  val SRL = Value((1 << 7).U)
+  val SRA = Value((1 << 8).U)
 }
 
 object LsCtrl extends ChiselEnum {

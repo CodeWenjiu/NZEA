@@ -65,8 +65,6 @@ class ISU extends Module {
     val rs2_val = io.IDU_2_ISU.bits.rs2_val
     val imm = io.IDU_2_ISU.bits.imm
 
-    io.ISU_2_REG.csr_raddr := imm(11, 0)
-
     val logic = Mux1H(
         io.IDU_2_ISU.bits.is_ctrl.isLogic.asUInt,
         Seq(
@@ -99,9 +97,12 @@ class ISU extends Module {
         SRCB.LogicSet -> Mux(logic, 1.U, 0.U),
     ))
 
+    io.ISU_2_REG.csr_raddr := imm(11, 0)
+
     io.ISU_2_ALU.bits.al_ctrl := io.IDU_2_ISU.bits.al_ctrl
     io.ISU_2_ALU.bits.wb_ctrl := io.IDU_2_ISU.bits.wb_ctrl
     io.ISU_2_ALU.bits.gpr_waddr := io.IDU_2_ISU.bits.gpr_waddr
+    io.ISU_2_ALU.bits.csr_waddr := imm(11, 0)
 
     io.ISU_2_LSU.bits.Ctrl := io.IDU_2_ISU.bits.ls_ctrl
     io.ISU_2_LSU.bits.gpr_waddr := io.IDU_2_ISU.bits.gpr_waddr

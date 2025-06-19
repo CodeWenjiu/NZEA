@@ -1,7 +1,7 @@
-use std::{cell::RefCell, char, io::Write, sync::OnceLock, time::Instant};
+use std::{cell::RefCell, char, io::Write, sync::OnceLock, time::Instant, vec};
 
+use comfy_table::{Cell, Table};
 use option_parser::OptionParser;
-use owo_colors::OwoColorize;
 use remu_macro::{log_err, log_error};
 use remu_utils::{ProcessError, ProcessResult};
 use state::{model::BaseStageCell, reg::RegfileIo, States};
@@ -26,6 +26,23 @@ pub struct NzeaTimes {
     pub idu_catch_cs: u64,
 
     pub alu_catch: u64,
+}
+
+impl NzeaTimes {
+    pub fn print(&self) {
+        let mut table = Table::new();
+
+        table
+            .add_row(vec![
+                Cell::new("IPC").fg(comfy_table::Color::Blue),
+            ])
+            .add_row(vec![
+                Cell::new(format!("{:.6}", self.instructions as f64 / self.cycles as f64)).fg(comfy_table::Color::Green),
+            ]);
+
+            
+        println!("{table}");
+    }
 }
 
 thread_local! {
@@ -684,41 +701,7 @@ impl SimulatorItem for Nzea {
     }
 
     fn times(&self) -> ProcessResult<()> {
-        NZEA_TIME.with(|time| {
-            let time = time.get().unwrap().borrow();
-
-            println!("{}: {}", "Cycles\t".purple(), time.cycles.blue());
-            println!(
-                "{}: {}",
-                "Instructions\t".purple(),
-                time.instructions.blue()
-            );
-
-            println!("{}: {}", "ALU\t".purple(), time.alu_catch.blue());
-
-            println!("{}: {}", "IDU_AL\t".purple(), time.idu_catch_al.blue());
-            println!("{}: {}", "IDU_LS\t".purple(), time.idu_catch_ls.blue());
-            println!("{}: {}", "IDU_CS\t".purple(), time.idu_catch_cs.blue());
-
-            println!("{}: {}", "IFU\t".purple(), time.ifu_catch.blue());
-
-            println!(
-                "{}: {}",
-                "ICache Hit rate[In region]\t".purple(),
-                (time.icache_cache_hit as f64
-                    / (time.icache_cache_hit + time.icache_cache_miss) as f64)
-                    .blue()
-            );
-            println!(
-                "{}: {}",
-                "ICache Miss rate[Out region]\t".purple(),
-                (time.icache_cache_hit as f64
-                    / (time.icache_cache_hit + time.icache_cache_miss + time.icache_map_miss)
-                        as f64)
-                    .blue()
-            );
-        });
-
+        NZEA_TIME.with(|time| time.get().unwrap().borrow().print() );
         Ok(())
     }
 

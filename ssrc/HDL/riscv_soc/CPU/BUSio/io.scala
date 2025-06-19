@@ -59,6 +59,7 @@ class ISU_2_ALU extends Bundle {
     val wb_ctrl = WbCtrl()
 
     val gpr_waddr = UInt(5.W)
+    val csr_waddr = UInt(12.W)
 }
 
 class ISU_2_LSU extends Bundle {
