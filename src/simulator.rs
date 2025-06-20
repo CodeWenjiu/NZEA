@@ -113,6 +113,22 @@ impl NzeaTimes {
         // synthetic top
         let nzea_root = get_nzea_root();
 
+        let output = Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .current_dir(get_nzea_root().parent().unwrap())
+            .output()
+            .map_err(|_| {
+                log_error!("Failed to get git commit hash");
+                ProcessError::Recoverable
+            })?;
+        
+        if !output.status.success() {
+            log_error!("Failed to get git commit hash");
+            return Err(ProcessError::Recoverable);
+        }
+        
+        let commit_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
         let target_lower = target.to_string().to_lowercase();
 
         log_info!("Synthetic NZEA...");
@@ -159,12 +175,14 @@ impl NzeaTimes {
 
         table
             .add_row(vec![
+                Cell::new("Commit Hash").fg(comfy_table::Color::Blue),
                 Cell::new("Area(um^2)").fg(comfy_table::Color::Blue),
                 Cell::new("IPC").fg(comfy_table::Color::Blue),
                 Cell::new("Freq(MHz)").fg(comfy_table::Color::Blue),
                 Cell::new("Cycles").fg(comfy_table::Color::Blue),
             ])
             .add_row(vec![
+                Cell::new(commit_hash).fg(comfy_table::Color::Green),
                 Cell::new(format!("{}", area)).fg(comfy_table::Color::Green),
                 Cell::new(format!("{:.6}", self.instructions as f64 / self.cycles as f64)).fg(comfy_table::Color::Green),
                 Cell::new(format!("{}", freq)).fg(comfy_table::Color::Green),
