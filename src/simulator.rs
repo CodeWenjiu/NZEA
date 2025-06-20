@@ -1,12 +1,13 @@
-use std::{cell::RefCell, char, io::Write, sync::OnceLock, time::Instant, vec};
+use std::{cell::RefCell, char, fs::File, io::{BufRead, BufReader, Write}, process::Command, sync::OnceLock, time::Instant, vec};
 
 use comfy_table::{Cell, Table};
 use option_parser::OptionParser;
-use remu_macro::{log_err, log_error};
-use remu_utils::{ProcessError, ProcessResult};
+use pest::Parser;
+use remu_macro::{log_err, log_error, log_info};
+use remu_utils::{ProcessError, ProcessResult, Simulators};
 use state::{model::BaseStageCell, reg::RegfileIo, States};
 
-use crate::{SimulatorCallback, SimulatorError, SimulatorItem};
+use crate::{nzea::get_nzea_root, SimulatorCallback, SimulatorError, SimulatorItem};
 
 use super::{BasicCallbacks, Input, JydRemoteCallbacks, NpcCallbacks, Output, Top, YsyxsocCallbacks};
 
@@ -28,20 +29,151 @@ pub struct NzeaTimes {
     pub alu_catch: u64,
 }
 
+use pest_derive::Parser;
+#[derive(Parser)]
+#[grammar = "nzea/src/area_parser.pest"]
+struct AreaParser;
+
 impl NzeaTimes {
-    pub fn print(&self) {
+    fn get_freq(file: File) -> ProcessResult<String> {
+        let file = BufReader::new(file);
+        let lines: Vec<String> = file.lines()
+            .map(|line| 
+                line.map_err(|e| {
+                    log_error!(format!("Failed to read line: {}", e));
+                    ProcessError::Recoverable
+                })
+            )
+            .collect::<Result<_, _>>()?;
+        
+        let mut lines = lines.into_iter();
+
+        // Skip first two lines
+        for _ in 0..2 {
+            lines.next();
+        }
+
+        // Read header line
+        let header_line = lines.next().unwrap();
+        let freq_index = header_line.split('|')
+            .enumerate()
+            .find(|(_, field)| field.trim() == "Freq(MHz)")
+            .ok_or_else(|| {
+                log_error!("Freq(MHz) column not found in header");
+                ProcessError::Recoverable
+            })?.0;
+
+        // Read data lines
+        let mut data_line = String::new();
+        for _ in 0..2 {
+            data_line = lines.next().unwrap();
+        }
+
+        let freq_value = data_line.split('|')
+            .nth(freq_index)
+            .unwrap()
+            .trim()
+            .to_string();
+
+        Ok(freq_value)
+    }    
+
+    fn get_area(file: File) -> ProcessResult<String> {
+        let string = BufReader::new(file)
+            .lines()
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| {
+                log_error!(format!("Failed to read line: {}", e));
+                ProcessError::Recoverable
+            })?
+            .join("\n");
+        let pairs = 
+            log_err!(AreaParser::parse(Rule::file, &string), ProcessError::Recoverable)?;
+            
+        for pair in pairs {
+            match pair.as_rule() {
+                Rule::EOI => {
+                    continue;
+                }
+
+                Rule::float => {
+                    let area = pair.as_str().to_string();
+                    return Ok(area);
+                }
+
+                _ => unreachable!("WTF")
+            }
+        }
+
+        log_error!("Chip area not found in synth_stat.txt");
+        Err(ProcessError::Recoverable)
+    }
+
+    pub fn print(&self, target: &str) -> ProcessResult<()> {
+        // synthetic top
+        let nzea_root = get_nzea_root();
+
+        let target_lower = target.to_string().to_lowercase();
+
+        log_info!("Synthetic NZEA...");
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(format!("make -C {} syn PLATFORM={}", nzea_root.display(), target_lower))
+            .output()
+            .expect("Failed to execute synthetic command");
+
+        if !output.status.success() {
+            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            log_error!("Failed to synthesize NZEA");
+            return Err(ProcessError::Recoverable);
+        }
+
+        let result_path = nzea_root
+            .join("build")
+            .join(format!("{target_lower}_core"))
+            .join("result");
+
+        let stat_file = result_path.join("synth_stat.txt");
+        let report_file = result_path.join("top.rpt");
+
+        let stat = File::open(stat_file)
+            .map_err(|_| {
+                log_error!("Failed to open synth_stat.txt");
+                ProcessError::Recoverable
+            })?;
+        
+        let report = File::open(report_file)
+            .map_err(|_| {
+                log_error!("Failed to read top.rpt");
+                ProcessError::Recoverable
+            })?;
+        
+        let freq = Self::get_freq(report)?;
+        let area = Self::get_area(stat)?;
+
+        log_info!("NZEA synthesized successfully");
+
         let mut table = Table::new();
 
         table
             .add_row(vec![
+                Cell::new("Area(um^2)").fg(comfy_table::Color::Blue),
                 Cell::new("IPC").fg(comfy_table::Color::Blue),
+                Cell::new("Freq(MHz)").fg(comfy_table::Color::Blue),
+                Cell::new("Cycles").fg(comfy_table::Color::Blue),
             ])
             .add_row(vec![
+                Cell::new(format!("{}", area)).fg(comfy_table::Color::Green),
                 Cell::new(format!("{:.6}", self.instructions as f64 / self.cycles as f64)).fg(comfy_table::Color::Green),
+                Cell::new(format!("{}", freq)).fg(comfy_table::Color::Green),
+                Cell::new(format!("{}", self.cycles)).fg(comfy_table::Color::Green),
             ]);
 
-            
         println!("{table}");
+
+        Ok(())
     }
 }
 
@@ -607,6 +739,8 @@ unsafe extern "C" fn dram_write_handler(addr: Input, mask: Input, data: Input) {
 }
 
 pub struct Nzea {
+    target: Simulators,
+
     pub top: Top,
 }
 
@@ -669,7 +803,10 @@ impl Nzea {
             result_ref.get_or_init(|| std::cell::RefCell::new(Ok(())));
         });
 
-        Self { top }
+        Self { 
+            target: option.cli.platform.simulator,
+            top 
+        }
     }
 }
 
@@ -701,7 +838,12 @@ impl SimulatorItem for Nzea {
     }
 
     fn times(&self) -> ProcessResult<()> {
-        NZEA_TIME.with(|time| time.get().unwrap().borrow().print() );
+        let target = match self.target {
+            Simulators::NZEA(sim) => Into::<&str>::into(sim),
+            _ => unreachable!("WTF")
+        };
+
+        NZEA_TIME.with(|time| time.get().unwrap().borrow().print(target))?;
         Ok(())
     }
 

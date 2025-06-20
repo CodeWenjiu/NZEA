@@ -1,8 +1,10 @@
-use std::{env, ffi::c_char, os::raw::c_void, process::Command};
+use std::{ffi::c_char, os::raw::c_void, process::Command};
 
 use dlopen2::wrapper::{Container, WrapperApi};
 use option_parser::OptionParser;
 use remu_macro::log_info;
+
+use crate::nzea::get_nzea_root;
 
 pub type Input = *const u32;
 pub type Output = *mut u32;
@@ -79,21 +81,14 @@ impl Top {
         use remu_utils::Simulators::NZEA;
         let target = match target {
             NZEA(sim) => Into::<&str>::into(sim),
-            _ => panic!("WTF")
+            _ => unreachable!("WTF")
         };
 
-        let exec_dir = env::current_dir().unwrap();
-        let project_root = exec_dir
-            .ancestors()
-            .find(|p| p.join("simulator").exists())
-            .unwrap();
+        let nzea_root = get_nzea_root();
 
         let target_lower = target.to_string().to_lowercase();
 
-        let nzea_root = project_root
-            .join("simulator/src/nzea");
-
-        log_info!("Building NZEA");
+        log_info!("Building NZEA...");
 
         let output = Command::new("sh")
             .arg("-c")
@@ -106,6 +101,8 @@ impl Top {
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
             panic!("Failed to build NZEA");
         }
+
+        log_info!("NZEA built successfully");
 
         let so_path = nzea_root
             .join("build")
