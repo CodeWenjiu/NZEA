@@ -110,7 +110,6 @@ impl NzeaTimes {
     }
 
     pub fn print(&self, target: &str) -> ProcessResult<()> {
-        // synthetic top
         let nzea_root = get_nzea_root();
 
         let output = Command::new("git")
@@ -129,45 +128,50 @@ impl NzeaTimes {
         
         let commit_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-        let target_lower = target.to_string().to_lowercase();
+        // synthetic top
+        let (freq, area) = if target == "Npc" {
+            ("N/A".to_string(), "N/A".to_string())
+        } else {
 
-        log_info!("Synthetic NZEA...");
+            let target_lower = target.to_string().to_lowercase();
 
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(format!("make -C {} syn PLATFORM={}", nzea_root.display(), target_lower))
-            .output()
-            .expect("Failed to execute synthetic command");
+            log_info!("Synthetic NZEA...");
 
-        if !output.status.success() {
-            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-            log_error!("Failed to synthesize NZEA");
-            return Err(ProcessError::Recoverable);
-        }
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg(format!("make -C {} syn PLATFORM={}", nzea_root.display(), target_lower))
+                .output()
+                .expect("Failed to execute synthetic command");
 
-        let result_path = nzea_root
-            .join("build")
-            .join(format!("{target_lower}_core"))
-            .join("result");
+            if !output.status.success() {
+                eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+                eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+                log_error!("Failed to synthesize NZEA");
+                return Err(ProcessError::Recoverable);
+            }
 
-        let stat_file = result_path.join("synth_stat.txt");
-        let report_file = result_path.join("top.rpt");
+            let result_path = nzea_root
+                .join("build")
+                .join(format!("{target_lower}_core"))
+                .join("result");
 
-        let stat = File::open(stat_file)
-            .map_err(|_| {
-                log_error!("Failed to open synth_stat.txt");
-                ProcessError::Recoverable
-            })?;
-        
-        let report = File::open(report_file)
-            .map_err(|_| {
-                log_error!("Failed to read top.rpt");
-                ProcessError::Recoverable
-            })?;
-        
-        let freq = Self::get_freq(report)?;
-        let area = Self::get_area(stat)?;
+            let stat_file = result_path.join("synth_stat.txt");
+            let report_file = result_path.join("top.rpt");
+
+            let stat = File::open(stat_file)
+                .map_err(|_| {
+                    log_error!("Failed to open synth_stat.txt");
+                    ProcessError::Recoverable
+                })?;
+            
+            let report = File::open(report_file)
+                .map_err(|_| {
+                    log_error!("Failed to read top.rpt");
+                    ProcessError::Recoverable
+                })?;
+            
+            (Self::get_freq(report)?, Self::get_area(stat)?)
+        };
 
         log_info!("NZEA synthesized successfully");
 
