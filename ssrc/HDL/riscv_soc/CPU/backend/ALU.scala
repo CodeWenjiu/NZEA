@@ -65,7 +65,7 @@ class ALU extends Module {
       )
     )
 
-    io.ALU_2_WBU.bits.CSR_rdata := 0.U
+    io.ALU_2_WBU.bits.CSR_rdata := io.ISU_2_ALU.bits.SRCA
     
     io.ALU_2_WBU.bits.gpr_waddr := io.ISU_2_ALU.bits.gpr_waddr
     io.ALU_2_WBU.bits.CSR_waddr := io.ISU_2_ALU.bits.csr_waddr

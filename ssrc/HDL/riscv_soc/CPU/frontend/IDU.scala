@@ -195,6 +195,8 @@ object WbCtrl_Field extends DecodeField[rvInstructionPattern, WbCtrl.Type] with 
             case "jal" | "jalr"|
                  "beq" | "bne" | "blt" | "bge" | "bltu" | "bgeu" => Get_BitPat(WbCtrl.Jump)
 
+            case "csrrw" | "csrrs" | "csrrc" | "csrrwi" | "csrrsi" | "csrrci" => Get_BitPat(WbCtrl.Csr)
+            
             case "fence" | "ecall" | "ebreak" => BitPat.dontCare(WbCtrl.getWidth)
             
             case _ => Get_BitPat(WbCtrl.Write_GPR)
@@ -236,6 +238,13 @@ object RS2_Used_Field extends DecodeField[rvInstructionPattern, Bool] with Decod
             Get_BitPat(false.B)
         }
     }
+}
+
+object Decode_Failed extends DecodeField[rvInstructionPattern, Bool] with DecodeAPI {
+    override def name: String = "decode_failed"
+    override def chiselType = Bool()
+    override def genTable(i: rvInstructionPattern): BitPat = BitPat.N(1)
+    override def default: BitPat = BitPat.Y(1)
 }
 
 class IDU extends Module {
@@ -303,7 +312,7 @@ class IDU extends Module {
 
     val instList = rviInstList ++ rv32iInstList ++ rvsysInstList ++ rvzicsrInstList ++ rvzifenceiInstList
 
-    val allField = Seq(Inst_Type_Field, Imm_Field, GPR_Write_Field, RS1_Used_Field, RS2_Used_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field)
+    val allField = Seq(Inst_Type_Field, Imm_Field, GPR_Write_Field, RS1_Used_Field, RS2_Used_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field, Decode_Failed)
 
     require(instList.map(_.bitPat.getWidth).distinct.size == 1, "All instructions must have the same width")
     def Decode_bundle: DecodeBundle = new DecodeBundle(allField)
@@ -341,8 +350,8 @@ class IDU extends Module {
     val rs2_val = Mux(rs2_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs2_val)
 
     io.IDU_2_ISU.bits.PC := io.IFU_2_IDU.bits.PC
-    io.IDU_2_ISU.bits.trap.traped := false.B
-    io.IDU_2_ISU.bits.trap.trap_type := Trap_type.Ebreak
+    io.IDU_2_ISU.bits.trap.traped := rvdecoderResult(Decode_Failed)
+    io.IDU_2_ISU.bits.trap.trap_type := Trap_type.Instruction_Illegal
 
     io.IDU_2_ISU.bits.rs1_val := rs1_val
     io.IDU_2_ISU.bits.rs2_val := rs2_val

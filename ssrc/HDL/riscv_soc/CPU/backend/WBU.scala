@@ -17,13 +17,14 @@ class WBU_catch extends BlackBox with HasBlackBoxInline {
         val gpr_waddr = Input(UInt(32.W))
         val gpr_wdata = Input(UInt(32.W))
 
-        val csr_wena = Input(UInt(32.W))
-        val csr_waddra = Input(UInt(32.W))
-        val csr_wdataa = Input(UInt(32.W))
-        val csr_wenb = Input(UInt(32.W))
-        val csr_waddrb = Input(UInt(32.W))
-        val csr_wdatab = Input(UInt(32.W))
+        val csr_wen = Input(UInt(1.W))
+        val csr_waddr = Input(UInt(32.W))
+        val csr_wdata = Input(UInt(32.W))
+
+        val is_trap = Input(UInt(1.W))
+        val trap_type = Input(UInt(32.W))
     })
+
     val code = 
     s"""module WBU_catch(
     |    input clock,
@@ -34,18 +35,18 @@ class WBU_catch extends BlackBox with HasBlackBoxInline {
     |    input [31:0] gpr_waddr,
     |    input [31:0] gpr_wdata,
     |
-    |    input [31:0] csr_wena,
-    |    input [31:0] csr_waddra,
-    |    input [31:0] csr_wdataa,
-    |    input [31:0] csr_wenb,
-    |    input [31:0] csr_waddrb,
-    |    input [31:0] csr_wdatab
+    |    input bit csr_wen,
+    |    input [31:0] csr_waddr,
+    |    input [31:0] csr_wdata,
+    |
+    |    input bit is_trap,
+    |    input [31:0] trap_type
     |);
     |
-    |   import "DPI-C" function void WBU_catch(input bit [31:0] next_pc, input bit [31:0] gpr_waddr, input bit [31:0] gpr_wdata, input bit [31:0] csr_wena, input bit [31:0] csr_waddra, input bit [31:0] csr_wdataa, input bit [31:0] csr_wenb, input bit [31:0] csr_waddrb, input bit [31:0] csr_wdatab);
+    |   import "DPI-C" function void WBU_catch(input bit [31:0] next_pc, input bit [31:0] gpr_waddr, input bit [31:0] gpr_wdata, input bit csr_wen, input bit [31:0] csr_waddr, input bit [31:0] csr_wdata, input bit is_trap, input bit [31:0] trap_type);
     |   always @(posedge clock) begin
     |       if(valid) begin
-    |           WBU_catch(next_pc, gpr_waddr, gpr_wdata, csr_wena, csr_waddra, csr_wdataa, csr_wenb, csr_waddrb, csr_wdatab);
+    |           WBU_catch(next_pc, gpr_waddr, gpr_wdata, csr_wen, csr_waddr, csr_wdata, is_trap, trap_type);
     |       end
     |   end
     |
@@ -71,7 +72,8 @@ class WBU extends Module {
     io.WBU_2_IFU.valid := io.EXU_2_WBU.valid
 
     io.WBU_2_REG.bits.trap := io.EXU_2_WBU.bits.trap
-    
+    io.WBU_2_REG.bits.PC := io.EXU_2_WBU.bits.PC
+
     io.WBU_2_REG.valid := io.EXU_2_WBU.fire
 
     val Default_Next_Pc = io.EXU_2_WBU.bits.PC + 4.U
@@ -108,12 +110,11 @@ class WBU extends Module {
         Catch.io.gpr_waddr := io.EXU_2_WBU.bits.gpr_waddr
         Catch.io.gpr_wdata := gpr_wdata
 
-        Catch.io.csr_wena := false.B
-        Catch.io.csr_waddra := 0.U
-        Catch.io.csr_wdataa := 0.U
-        
-        Catch.io.csr_wenb := false.B
-        Catch.io.csr_waddrb := "h342".U
-        Catch.io.csr_wdatab := 11.U
+        Catch.io.csr_wen := io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Csr
+        Catch.io.csr_waddr := io.EXU_2_WBU.bits.CSR_waddr
+        Catch.io.csr_wdata := io.EXU_2_WBU.bits.Result
+
+        Catch.io.is_trap := io.EXU_2_WBU.bits.trap.traped
+        Catch.io.trap_type := io.EXU_2_WBU.bits.trap.trap_type.asUInt
     }
 }

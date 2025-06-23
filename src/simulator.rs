@@ -169,11 +169,11 @@ impl NzeaTimes {
                     log_error!("Failed to read top.rpt");
                     ProcessError::Recoverable
                 })?;
+
+            log_info!("NZEA synthesized successfully");
             
             (Self::get_freq(report)?, Self::get_area(stat)?)
         };
-
-        log_info!("NZEA synthesized successfully");
 
         let mut table = Table::new();
 
@@ -401,18 +401,17 @@ unsafe extern "C" fn wbu_catch_handler(
     next_pc: Input,
     gpr_waddr: Input,
     gpr_wdata: Input,
-    csr_wena: Input,
-    csr_waddra: Input,
-    csr_wdataa: Input,
-    csr_wenb: Input,
-    csr_waddrb: Input,
-    csr_wdatab: Input,
+    csr_wen: u8,
+    csr_waddr: Input,
+    csr_wdata: Input,
+    is_trap: u8,
+    trap_type: Input,
 ) {
     // log_debug!("wbu_catch_p");
 
     let (next_pc, gpr_waddr, gpr_wdata) = unsafe { (&*next_pc, &*gpr_waddr, &*gpr_wdata) };
-    let (csr_wena, csr_waddra, csr_wdataa) = unsafe { (&*csr_wena, &*csr_waddra, &*csr_wdataa) };
-    let (csr_wenb, csr_waddrb, csr_wdatab) = unsafe { (&*csr_wenb, &*csr_waddrb, &*csr_wdatab) };
+    let (csr_wen, csr_waddr, csr_wdata) = unsafe { (&csr_wen, &*csr_waddr, &*csr_wdata) };
+    let (is_trap, trap_type) = unsafe { (&is_trap, &*trap_type) };
 
     nzea_result_write(NZEA_CALLBACK.with(|callback| {
         let mut callback = callback.get().unwrap().borrow_mut();
@@ -423,7 +422,7 @@ unsafe extern "C" fn wbu_catch_handler(
         })?;
 
         if inst == 0b00000000000100000000000001110011 {
-            (callback.trap)();
+            (callback.yield_)();
             return Err(ProcessError::Recoverable);
         }
 
@@ -435,21 +434,24 @@ unsafe extern "C" fn wbu_catch_handler(
 
         NZEA_STATES.with(|states| {
             let mut states = states.get().unwrap().borrow_mut();
+
             states.regfile.write_pc(*next_pc);
+
+            if *is_trap == 1 {
+                let trap_type = *trap_type;
+                states.regfile.trap(pc, trap_type)?;
+                return Ok(())
+            }
+
             states
                 .regfile
                 .write_gpr(*gpr_waddr, *gpr_wdata)
                 .map_err(|_| ProcessError::Recoverable)?;
-            if *csr_wena == 1 {
+
+            if *csr_wen == 1 {
                 states
                     .regfile
-                    .write_csr(*csr_waddra, *csr_wdataa)
-                    .map_err(|_| ProcessError::Recoverable)?
-            };
-            if *csr_wenb == 1 {
-                states
-                    .regfile
-                    .write_csr(*csr_waddrb, *csr_wdatab)
+                    .write_csr(*csr_waddr, *csr_wdata)
                     .map_err(|_| ProcessError::Recoverable)?
             };
 

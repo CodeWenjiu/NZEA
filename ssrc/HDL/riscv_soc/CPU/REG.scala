@@ -126,7 +126,8 @@ class REG extends Module {
   io.REG_2_IDU.rs1_val := Mux(gpr_rs1addr === 0.U, 0.U, gpr((gpr_rs1addr - 1.U)(3, 0)))
   io.REG_2_IDU.rs2_val := Mux(gpr_rs2addr === 0.U, 0.U, gpr((gpr_rs2addr - 1.U)(3, 0)))
 
-  val mstatus, mtevc, mepc, mcause, mscratch = RegInit(0.U(32.W))
+  val mtevc, mepc, mcause, mscratch = RegInit(0.U(32.W))
+  val mstatus = RegInit("h00001800".U(32.W)) // MSTATUS default value
 
   io.REG_2_ISU.csr_rdata := MuxLookup(io.ISU_2_REG.csr_raddr, 0.U(32.W))(Seq(
     csr_enum.MSTATUS.asUInt   -> mstatus,
@@ -141,17 +142,22 @@ class REG extends Module {
   io.REG_2_WBU.MTVEC := mtevc
 
   when(io.WBU_2_REG.valid) {
-    when(gpr_wen) {
-      gpr((gpr_waddr - 1.U)(4, 0)) := gpr_wdata
-    }
+    when(io.WBU_2_REG.bits.trap.traped) {
+      mepc := io.WBU_2_REG.bits.PC
+      mcause := io.WBU_2_REG.bits.trap.trap_type.asUInt
+    }.otherwise {
+      when(gpr_wen) {
+        gpr((gpr_waddr - 1.U)(4, 0)) := gpr_wdata
+      }
 
-    when(io.WBU_2_REG.bits.CSR_wen) {
-      switch(io.WBU_2_REG.bits.CSR_waddr) {
-        is(csr_enum.MSTATUS.asUInt) { mstatus := io.WBU_2_REG.bits.CSR_wdata }
-        is(csr_enum.MTEVC.asUInt)   { mtevc := io.WBU_2_REG.bits.CSR_wdata }
-        is(csr_enum.MSCRATCH.asUInt){ mscratch := io.WBU_2_REG.bits.CSR_wdata }
-        is(csr_enum.MEPC.asUInt)    { mepc := io.WBU_2_REG.bits.CSR_wdata }
-        is(csr_enum.MCAUSE.asUInt)  { mcause := io.WBU_2_REG.bits.CSR_wdata }
+      when(io.WBU_2_REG.bits.CSR_wen) {
+        switch(io.WBU_2_REG.bits.CSR_waddr) {
+          is(csr_enum.MSTATUS.asUInt) { mstatus := io.WBU_2_REG.bits.CSR_wdata }
+          is(csr_enum.MTEVC.asUInt)   { mtevc := io.WBU_2_REG.bits.CSR_wdata }
+          is(csr_enum.MSCRATCH.asUInt){ mscratch := io.WBU_2_REG.bits.CSR_wdata }
+          is(csr_enum.MEPC.asUInt)    { mepc := io.WBU_2_REG.bits.CSR_wdata }
+          is(csr_enum.MCAUSE.asUInt)  { mcause := io.WBU_2_REG.bits.CSR_wdata }
+        }
       }
     }
   }

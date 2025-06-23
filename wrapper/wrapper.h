@@ -16,7 +16,7 @@ typedef struct {
     void(*ISU_catch_p)(input, bits);
     void(*ALU_catch_p)(input);
     void(*LSU_catch_p)(input, bits, input);
-    void(*WBU_catch_p)(input, input, input, input, input, input, input, input, input);
+    void(*WBU_catch_p)(input, input, input, bits, input, input);
     void(*Pipeline_catch_p)();
 } Basic_Callbacks;
 
@@ -64,7 +64,7 @@ DEFINE_PANIC_FUNCTION(Icache_state_catch_p, input a, input b, input c, input d)
 DEFINE_PANIC_FUNCTION(ISU_catch_p, input a, bits b)
 DEFINE_PANIC_FUNCTION(LSU_catch_p, input a, bits b, input c)
 DEFINE_PANIC_FUNCTION(Pipeline_catch_p, void)
-DEFINE_PANIC_FUNCTION(WBU_catch_p, input a, input b, input c, input d, input e, input f, input g, input h, input i)
+DEFINE_PANIC_FUNCTION(WBU_catch_p, input a, input b, input c, bits d, input e, input f)
 
 // Define panic functions for NPC_Callbacks
 DEFINE_PANIC_FUNCTION(Uart_putc_p, input a)

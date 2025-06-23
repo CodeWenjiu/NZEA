@@ -173,8 +173,8 @@ extern "C" {
         basic_callbacks.Pipeline_catch_p();
     }
 
-    void WBU_catch(const svBitVecVal *next_pc, const svBitVecVal *gpr_waddr, const svBitVecVal *gpr_wdata, const svBitVecVal *csr_wena, const svBitVecVal *csr_waddra, const svBitVecVal *csr_wdataa, const svBitVecVal *csr_wenb, const svBitVecVal *csr_waddrb, const svBitVecVal *csr_wdatab) {
-        basic_callbacks.WBU_catch_p(next_pc, gpr_waddr, gpr_wdata, csr_wena, csr_waddra, csr_wdataa, csr_wenb, csr_waddrb, csr_wdatab);
+    void WBU_catch(const svBitVecVal *next_pc, const svBitVecVal *gpr_waddr, const svBitVecVal *gpr_wdata, svBit csr_wen, const svBitVecVal *csr_waddr, const svBitVecVal *csr_wdata) {
+        basic_callbacks.WBU_catch_p(next_pc, gpr_waddr, gpr_wdata, csr_wen, csr_waddr, csr_wdata);
     }
 
     // npc callbacks

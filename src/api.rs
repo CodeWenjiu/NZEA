@@ -20,7 +20,7 @@ pub struct BasicCallbacks {
     pub isu_catch_p: unsafe extern "C" fn(Input, u8),
     pub alu_catch_p: unsafe extern "C" fn(Input),
     pub lsu_catch_p: unsafe extern "C" fn(Input, u8, Input),
-    pub wbu_catch: unsafe extern "C" fn(Input, Input, Input, Input, Input, Input, Input, Input, Input),
+    pub wbu_catch: unsafe extern "C" fn(Input, Input, Input, u8, Input, Input, u8, Input),
     pub pipeline_catch_p: unsafe extern "C" fn(),
 }
 

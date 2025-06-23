@@ -213,6 +213,7 @@ object WbCtrl extends ChiselEnum {
 
 object Trap_type extends ChiselEnum {
   val Instruction_address_misaligned = Value(0.U)
+  val Instruction_Illegal = Value(2.U)
   val Ebreak = Value(3.U)
   val EcallM = Value(11.U)
 }
