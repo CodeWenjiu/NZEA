@@ -3,13 +3,21 @@ package riscv_soc.bus
 import chisel3._
 import chisel3.util._
 
+class BasicPipeBundle extends Bundle {
+    val pc = UInt(32.W)
+    val npc = UInt(32.W)
+
+    val trap = new trap()
+}
+
 class WBU_output extends Bundle{
     val addr = Output(UInt(32.W))
 }
 
 class IFU_2_IDU extends Bundle {
     val inst = UInt(32.W)
-    val PC   = UInt(32.W)
+    val pc   = UInt(32.W)
+    val npc  = UInt(32.W)
 }
 
 class IDU_2_REG extends Bundle {
@@ -23,8 +31,7 @@ class REG_2_IDU extends Bundle {
 }
 
 class IDU_2_ISU extends Bundle {
-    val PC = UInt(32.W)
-    val trap = new trap()
+    val basic = new BasicPipeBundle()
 
     val rs1_val  = UInt(32.W)
     val rs2_val  = UInt(32.W)
@@ -49,8 +56,7 @@ class REG_2_ISU extends Bundle {
 }
 
 class ISU_2_ALU extends Bundle {
-    val PC = UInt(32.W)
-    val trap = new trap()
+    val basic = new BasicPipeBundle()
 
     val SRCA = UInt(32.W)
     val SRCB = UInt(32.W)
@@ -63,7 +69,7 @@ class ISU_2_ALU extends Bundle {
 }
 
 class ISU_2_LSU extends Bundle {
-    val PC = UInt(32.W)
+    val basic = new BasicPipeBundle()
 
     val Ctrl = LsCtrl()
     val gpr_waddr = UInt(5.W)
@@ -73,8 +79,7 @@ class ISU_2_LSU extends Bundle {
 }
 
 class EXU_2_WBU extends Bundle {
-    val PC = UInt(32.W)
-    val trap = new trap()
+    val basic = new BasicPipeBundle()
 
     val Result   = UInt(32.W)
     val CSR_rdata = UInt(32.W)
@@ -97,7 +102,7 @@ class BUS_WBU_2_REG extends Bundle{
 }
 
 class WBU_2_REG extends Bundle {
-    val PC = UInt(32.W)
+    val basic = new BasicPipeBundle()
 
     val gpr_waddr = UInt(5.W)
     val gpr_wdata = UInt(32.W)
@@ -105,8 +110,6 @@ class WBU_2_REG extends Bundle {
     val CSR_wen   = Bool()
     val CSR_waddr = UInt(12.W)
     val CSR_wdata = UInt(32.W)
-
-    val trap = new trap()
 }
 
 class WB_Bypass extends Bundle {
@@ -118,8 +121,16 @@ class REG_2_WBU extends Bundle {
     val MTVEC = UInt(32.W)
 }
 
+object WbControlFlow extends ChiselEnum {
+    val BPError,
+        BPRight,
+        Trap
+        = Value
+}
+
 class WBU_2_IFU extends Bundle{
     val next_pc = UInt(32.W)
+    val wb_ctrlflow = WbControlFlow()
 }
 
 class araddr extends Bundle{

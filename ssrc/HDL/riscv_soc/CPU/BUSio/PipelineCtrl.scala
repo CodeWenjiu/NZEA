@@ -62,32 +62,23 @@ class PipelineCtrl extends Module {
         (conflict_gpr_valid(io.GPR_READMSG.bits.rs1_addr) ||
         conflict_gpr_valid(io.GPR_READMSG.bits.rs2_addr))
 
-    def conflict_pc(target: UInt) =
-        io.WBU_out.valid && (target =/= io.WBU_out.bits.next_pc)
-
-    def is_bp_error = 
-        MuxCase(conflict_pc(io.IFU_out.bits.PC), Seq(
-        (io.ALU_in.valid -> conflict_pc(io.ALU_in.bits.PC)),
-        (io.LSU_in.valid -> conflict_pc(io.LSU_in.bits.PC)),
-        (io.ISU_in.valid -> conflict_pc(io.ISU_in.bits.PC)),
-        (io.IDU_in.valid -> conflict_pc(io.IDU_in.bits.PC)),
-    ))
+    def control_hazard = io.WBU_out.valid && io.WBU_out.bits.wb_ctrlflow =/= WbControlFlow.BPRight
 
     def is_ls_hazard = io.LSU_in.valid
 
-    io.IFUCtrl.flush := is_bp_error
+    io.IFUCtrl.flush := control_hazard
     io.IFUCtrl.stall := false.B
 
-    io.IDUCtrl.flush := is_bp_error
+    io.IDUCtrl.flush := control_hazard
     io.IDUCtrl.stall := is_gpr_RAW
 
-    io.ISU_2_ALUCtrl.flush := is_bp_error
+    io.ISU_2_ALUCtrl.flush := control_hazard
     io.ISU_2_ALUCtrl.stall := is_ls_hazard
 
-    io.ISU_2_LSUCtrl.flush := is_bp_error
+    io.ISU_2_LSUCtrl.flush := control_hazard
     io.ISU_2_LSUCtrl.stall := is_ls_hazard
 
-    io.EXUCtrl.flush := is_bp_error
+    io.EXUCtrl.flush := control_hazard
     io.EXUCtrl.stall := false.B
 
     if(Config.Simulate) {

@@ -141,10 +141,12 @@ class REG extends Module {
 
   io.REG_2_WBU.MTVEC := mtevc
 
+  val wb_basic = io.WBU_2_REG.bits.basic
+
   when(io.WBU_2_REG.valid) {
-    when(io.WBU_2_REG.bits.trap.traped) {
-      mepc := io.WBU_2_REG.bits.PC
-      mcause := io.WBU_2_REG.bits.trap.trap_type.asUInt
+    when(wb_basic.trap.traped) {
+      mepc := wb_basic.pc
+      mcause := wb_basic.trap.trap_type.asUInt
     }.otherwise {
       when(gpr_wen) {
         gpr((gpr_waddr - 1.U)(4, 0)) := gpr_wdata

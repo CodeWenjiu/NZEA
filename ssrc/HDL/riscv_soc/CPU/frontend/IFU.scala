@@ -254,10 +254,12 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         val snpc = pc + 4.U
         val dnpc = RegEnable(io.WBU_2_IFU.next_pc, 0.U, io.Pipeline_ctrl.flush)
 
-        pc := MuxCase(pc, Seq(
+        val npc = MuxCase(pc, Seq(
             (flush && (state === IFU_state.s_try_fetch))    -> dnpc,
             io.IFU_2_IDU.fire                               -> snpc,
         ))
+
+        pc := npc
 
         val (master, _) = masterNode.out(0)
 
@@ -302,7 +304,8 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             IFU_state.s_try_fetch -> (Icache.io.cache_hit && !(flush)),
             IFU_state.s_fetch -> !(flush),
         ))
-        io.IFU_2_IDU.bits.PC := pc
+        io.IFU_2_IDU.bits.pc := pc
+        io.IFU_2_IDU.bits.npc := npc
 
         master.ar.valid := (state === IFU_state.s_replace_send_addr) || (state === IFU_state.s_send_addr)
         master.ar.bits.len := Mux(state === IFU_state.s_replace_send_addr, (block_num - 1).U, 0.U)
@@ -352,7 +355,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             Catch.io.clock := clock
             Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool && !io.Pipeline_ctrl.flush
             Catch.io.inst := io.IFU_2_IDU.bits.inst
-            Catch.io.pc := io.IFU_2_IDU.bits.PC
+            Catch.io.pc := io.IFU_2_IDU.bits.pc
 
             val cache_Catch = Module(new Icache_catch)
             cache_Catch.io.Icache := RegNext((state === IFU_state.s_try_fetch) && !reset.asBool)

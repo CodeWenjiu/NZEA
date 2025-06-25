@@ -16,6 +16,7 @@ import freechips.rocketchip.util._
 import riscv_soc.bus._
 import signal_value._
 import os.copy.over
+import chisel3.util.circt.dpi.RawClockedVoidFunctionCall
 
 class IDU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle {
@@ -349,9 +350,12 @@ class IDU extends Module {
     val rs1_val = Mux(rs1_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs1_val)
     val rs2_val = Mux(rs2_conflict, io.WB_Bypass.bits.gpr_wdata, io.REG_2_IDU.rs2_val)
 
-    io.IDU_2_ISU.bits.PC := io.IFU_2_IDU.bits.PC
-    io.IDU_2_ISU.bits.trap.traped := rvdecoderResult(Decode_Failed)
-    io.IDU_2_ISU.bits.trap.trap_type := Trap_type.Instruction_Illegal
+    val basic = io.IDU_2_ISU.bits.basic
+
+    basic.pc := io.IFU_2_IDU.bits.pc
+    basic.npc := io.IFU_2_IDU.bits.npc
+    basic.trap.traped := rvdecoderResult(Decode_Failed)
+    basic.trap.trap_type := Trap_type.Instruction_Illegal
 
     io.IDU_2_ISU.bits.rs1_val := rs1_val
     io.IDU_2_ISU.bits.rs2_val := rs2_val
@@ -373,6 +377,7 @@ class IDU extends Module {
         val Catch = Module(new IDU_catch)
         Catch.io.clock := clock
         Catch.io.valid := io.IDU_2_ISU.fire && !reset.asBool
-        Catch.io.pc := io.IFU_2_IDU.bits.PC
+        Catch.io.pc := io.IFU_2_IDU.bits.pc
+        // RawClockedVoidFunctionCall("IDU_catch")(clock, io.IDU_2_ISU.fire && !reset.asBool, io.IFU_2_IDU.bits.pc)
     }
 }

@@ -41,8 +41,7 @@ class ALU extends Module {
     io.ALU_2_WBU.valid := io.ISU_2_ALU.valid
     io.ISU_2_ALU.ready  := io.ALU_2_WBU.ready
 
-    io.ALU_2_WBU.bits.PC := io.ISU_2_ALU.bits.PC
-    io.ALU_2_WBU.bits.trap := io.ISU_2_ALU.bits.trap
+    io.ALU_2_WBU.bits.basic := io.ISU_2_ALU.bits.basic
 
     val srca = io.ISU_2_ALU.bits.SRCA
     val srcb = io.ISU_2_ALU.bits.SRCB
@@ -76,6 +75,6 @@ class ALU extends Module {
         val Catch = Module(new ALU_catch)
         Catch.io.clock := clock
         Catch.io.valid := io.ALU_2_WBU.fire && !reset.asBool
-        Catch.io.pc    := io.ISU_2_ALU.bits.PC
+        Catch.io.pc    := io.ISU_2_ALU.bits.basic.pc
     }
 }

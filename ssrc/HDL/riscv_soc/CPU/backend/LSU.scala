@@ -154,9 +154,10 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
             LsCtrl.SW -> 0.U
         ))
 
-        io.LSU_2_WBU.bits.PC := io.ISU_2_LSU.bits.PC
-        io.LSU_2_WBU.bits.trap.traped := false.B
-        io.LSU_2_WBU.bits.trap.trap_type := Trap_type.Ebreak
+        io.LSU_2_WBU.bits.basic.pc := io.ISU_2_LSU.bits.basic.pc
+        io.LSU_2_WBU.bits.basic.npc := io.ISU_2_LSU.bits.basic.npc
+        io.LSU_2_WBU.bits.basic.trap.traped := false.B
+        io.LSU_2_WBU.bits.basic.trap.trap_type := Trap_type.Ebreak
 
         io.LSU_2_WBU.bits.Result := rdata
         io.LSU_2_WBU.bits.CSR_rdata := 0.U
@@ -169,7 +170,7 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
             val Catch = Module(new LSU_catch)
             Catch.io.clock := clock
             Catch.io.valid := io.LSU_2_WBU.fire && !reset.asBool
-            Catch.io.pc    := io.ISU_2_LSU.bits.PC
+            Catch.io.pc    := io.LSU_2_WBU.bits.basic.pc
             Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.ISU_2_LSU.bits.addr)).reduce(_ || _)
             Catch.io.skip_val := rdata
         }

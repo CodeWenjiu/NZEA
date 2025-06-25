@@ -43,7 +43,7 @@ class jydIFU extends Module {
 
     io.IFU_2_IDU.valid := true.B
 
-    io.IFU_2_IDU.bits.PC := pc
+    io.IFU_2_IDU.bits.pc := pc
     io.IFU_2_IDU.bits.inst := io.IROM.data
 
     if(Config.Simulate){
@@ -51,7 +51,7 @@ class jydIFU extends Module {
         Catch.io.clock := clock
         Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
         Catch.io.inst := io.IFU_2_IDU.bits.inst
-        Catch.io.pc := io.IFU_2_IDU.bits.PC
+        Catch.io.pc := io.IFU_2_IDU.bits.pc
     }
 }
 
@@ -94,9 +94,9 @@ class jydLSU extends Module {
     bus.LsCtrl.LH -> Cat(Fill(16, io.DRAM.rdata(15)), io.DRAM.rdata(15,0)),
   ))
 
-  io.LSU_2_WBU.bits.PC := io.ISU_2_LSU.bits.PC
-  io.LSU_2_WBU.bits.trap.traped := false.B
-  io.LSU_2_WBU.bits.trap.trap_type := bus.Trap_type.Ebreak
+  io.LSU_2_WBU.bits.basic.pc := io.ISU_2_LSU.bits.basic.pc
+  io.LSU_2_WBU.bits.basic.trap.traped := false.B
+  io.LSU_2_WBU.bits.basic.trap.trap_type := bus.Trap_type.Ebreak
 
   io.LSU_2_WBU.bits.Result := rdata
   io.LSU_2_WBU.bits.CSR_rdata := 0.U
@@ -109,7 +109,7 @@ class jydLSU extends Module {
       val Catch = Module(new LSU_catch)
       Catch.io.clock := clock
       Catch.io.valid := io.LSU_2_WBU.fire && !reset.asBool
-      Catch.io.pc    := io.ISU_2_LSU.bits.PC
+      Catch.io.pc    := io.ISU_2_LSU.bits.basic.pc
       Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.ISU_2_LSU.bits.addr)).reduce(_ || _)
   }
 }

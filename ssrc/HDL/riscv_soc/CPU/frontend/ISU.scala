@@ -56,10 +56,8 @@ class ISU extends Module {
     io.ISU_2_ALU.valid := io.IDU_2_ISU.valid && inst_type === Inst_Type.AL
     io.ISU_2_LSU.valid := io.IDU_2_ISU.valid && inst_type === Inst_Type.LS
 
-    io.ISU_2_ALU.bits.PC := io.IDU_2_ISU.bits.PC
-    io.ISU_2_ALU.bits.trap := io.IDU_2_ISU.bits.trap
-
-    io.ISU_2_LSU.bits.PC := io.IDU_2_ISU.bits.PC
+    io.ISU_2_ALU.bits.basic := io.IDU_2_ISU.bits.basic
+    io.ISU_2_LSU.bits.basic := io.IDU_2_ISU.bits.basic
 
     val rs1_val = io.IDU_2_ISU.bits.rs1_val
     val rs2_val = io.IDU_2_ISU.bits.rs2_val
@@ -84,7 +82,7 @@ class ISU extends Module {
 
     io.ISU_2_ALU.bits.SRCA := MuxLookup(io.IDU_2_ISU.bits.is_ctrl.srca, 0.U)(Seq(
         SRCA.RS1 -> rs1_val,
-        SRCA.PC -> io.IDU_2_ISU.bits.PC,
+        SRCA.PC -> io.IDU_2_ISU.bits.basic.pc,
         SRCA.CSR -> io.REG_2_ISU.csr_rdata,
         SRCA.ZERO -> 0.U,
     ))
@@ -114,7 +112,7 @@ class ISU extends Module {
         val inst_type_kn = inst_type === Inst_Type.AL 
         Catch.io.clock := clock
         Catch.io.valid := (io.ISU_2_ALU.fire || io.ISU_2_LSU.fire) && !reset.asBool
-        Catch.io.pc := io.IDU_2_ISU.bits.PC
+        Catch.io.pc := io.IDU_2_ISU.bits.basic.pc
         Catch.io.inst_type := inst_type_kn
     }
 }

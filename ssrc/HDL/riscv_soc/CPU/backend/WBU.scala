@@ -71,18 +71,24 @@ class WBU extends Module {
     io.EXU_2_WBU.ready := io.WBU_2_IFU.ready
     io.WBU_2_IFU.valid := io.EXU_2_WBU.valid
 
-    io.WBU_2_REG.bits.trap := io.EXU_2_WBU.bits.trap
-    io.WBU_2_REG.bits.PC := io.EXU_2_WBU.bits.PC
+    val ex_basic = io.EXU_2_WBU.bits.basic
+
+    io.WBU_2_REG.bits.basic := io.EXU_2_WBU.bits.basic
 
     io.WBU_2_REG.valid := io.EXU_2_WBU.fire
 
-    val Default_Next_Pc = io.EXU_2_WBU.bits.PC + 4.U
+    val Default_Next_Pc = ex_basic.pc + 4.U
 
     val next_pc = MuxCase(Default_Next_Pc, Seq(
-        (io.EXU_2_WBU.bits.trap.traped) -> io.REG_2_WBU.MTVEC,
+        (ex_basic.trap.traped) -> io.REG_2_WBU.MTVEC,
         (io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Jump) -> io.EXU_2_WBU.bits.Result,
     ))
     io.WBU_2_IFU.bits.next_pc := next_pc
+
+    io.WBU_2_IFU.bits.wb_ctrlflow := MuxCase(WbControlFlow.BPRight, Seq(
+        (ex_basic.trap.traped) -> WbControlFlow.Trap,
+        (next_pc =/= ex_basic.npc) -> WbControlFlow.BPError,
+    ))
 
     io.WBU_2_REG.bits.gpr_waddr := io.EXU_2_WBU.bits.gpr_waddr
     val gpr_wdata = MuxLookup(io.EXU_2_WBU.bits.wbCtrl, io.EXU_2_WBU.bits.Result)(Seq(
@@ -114,7 +120,7 @@ class WBU extends Module {
         Catch.io.csr_waddr := io.EXU_2_WBU.bits.CSR_waddr
         Catch.io.csr_wdata := io.EXU_2_WBU.bits.Result
 
-        Catch.io.is_trap := io.EXU_2_WBU.bits.trap.traped
-        Catch.io.trap_type := io.EXU_2_WBU.bits.trap.trap_type.asUInt
+        Catch.io.is_trap := ex_basic.trap.traped
+        Catch.io.trap_type := ex_basic.trap.trap_type.asUInt
     }
 }
