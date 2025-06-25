@@ -57,26 +57,26 @@ class PipelineCtrl extends Module {
         (conflict_gpr(rs, io.LSU_in.bits.gpr_waddr) & io.LSU_in.valid) ||
         (conflict_gpr(rs, io.ISU_in.bits.gpr_waddr) & io.ISU_in.valid)
 
-    def is_gpr_RAW = 
+    def data_hazard = 
         io.GPR_READMSG.valid && 
         (conflict_gpr_valid(io.GPR_READMSG.bits.rs1_addr) ||
         conflict_gpr_valid(io.GPR_READMSG.bits.rs2_addr))
 
     def control_hazard = io.WBU_out.valid && io.WBU_out.bits.wb_ctrlflow =/= WbControlFlow.BPRight
 
-    def is_ls_hazard = io.LSU_in.valid
+    def loadstore_hazard = io.LSU_in.valid
 
     io.IFUCtrl.flush := control_hazard
     io.IFUCtrl.stall := false.B
 
     io.IDUCtrl.flush := control_hazard
-    io.IDUCtrl.stall := is_gpr_RAW
+    io.IDUCtrl.stall := data_hazard
 
     io.ISU_2_ALUCtrl.flush := control_hazard
-    io.ISU_2_ALUCtrl.stall := is_ls_hazard
+    io.ISU_2_ALUCtrl.stall := loadstore_hazard
 
     io.ISU_2_LSUCtrl.flush := control_hazard
-    io.ISU_2_LSUCtrl.stall := is_ls_hazard
+    io.ISU_2_LSUCtrl.stall := loadstore_hazard
 
     io.EXUCtrl.flush := control_hazard
     io.EXUCtrl.stall := false.B
