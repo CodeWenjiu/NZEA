@@ -145,6 +145,10 @@ extern "C" {
         basic_callbacks.IFU_catch_p(pc, inst);
     }
 
+    void BPU_catch(const svBitVecVal *pc) {
+        basic_callbacks.BPU_catch_p(pc);
+    }
+
     void Icache_MAT_catch(const svBitVecVal *count) {
         basic_callbacks.Icache_MAT_catch_p(count);
     }

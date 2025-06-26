@@ -216,10 +216,20 @@ fn nzea_result_write(result: ProcessResult<()>) {
     });
 }
 
+unsafe extern "C" fn bpu_catch_handler(pc: Input) {
+    let pc = unsafe { &*pc };
+
+    nzea_result_write(
+        NZEA_STATES.with(|state| {
+            state.get().unwrap().borrow_mut().pipe_state.cell_input((*pc, 0), BaseStageCell::BpIf)
+        })
+    );
+}
+
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
     // log_debug!("ifu_catch_p");
 
-    let pc = unsafe { &*pc };
+    let _pc = unsafe { &*pc };
     let inst = unsafe { &*inst };
 
     NZEA_TIME.with(|time| {
@@ -228,7 +238,8 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
 
     nzea_result_write(
         NZEA_STATES.with(|state| {
-            state.get().unwrap().borrow_mut().pipe_state.send((*pc, *inst), BaseStageCell::IfId)
+            // state.get().unwrap().borrow_mut().pipe_state.cell_input((*pc, *inst), BaseStageCell::IfId)
+            state.get().unwrap().borrow_mut().pipe_state.instruction_fetch(*inst)
         })
     );
 
@@ -773,6 +784,7 @@ impl Nzea {
         let top = Top::new(option);
 
         let basic_callbacks = BasicCallbacks {
+            bpu_catch_p: bpu_catch_handler,
             ifu_catch_p: ifu_catch_handler,
             icache_mat_catch_p: icache_mat_catch_handler,
             icache_catch_p: icache_catch_handler,

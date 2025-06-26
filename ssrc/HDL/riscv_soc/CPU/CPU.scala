@@ -28,6 +28,7 @@ object CPUAXI4BundleParameters {
 }
 
 trait HasCoreModules extends Module {
+  val BPU: frontend.BPU
   val IFU: frontend.IFU#Impl
   val IDU: frontend.IDU
   val ISU: frontend.ISU
@@ -54,7 +55,14 @@ object CoreConnect {
     PipelineCtrl.io.LSU_in := LSU.io.ISU_2_LSU
     PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
 
-    PipelineCtrl.io.WBU_out := WBU.io.WBU_2_IFU
+    PipelineCtrl.io.WBU_out := WBU.io.WBU_2_BPU
+
+    riscv_soc.bus.pipelineConnect(
+      BPU.io.BPU_2_IFU,
+      IFU.io.BPU_2_IFU,
+      IFU.io.IFU_2_IDU,
+      PipelineCtrl.io.BPUCtrl,
+    )
 
     IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
     riscv_soc.bus.pipelineConnect(
@@ -91,7 +99,7 @@ object CoreConnect {
         (ALU.io.ALU_2_WBU)
       ),
       WBU.io.EXU_2_WBU,
-      WBU.io.WBU_2_IFU,
+      WBU.io.WBU_2_BPU,
       PipelineCtrl.io.EXUCtrl
     )
 
@@ -106,8 +114,7 @@ object CoreConnect {
 
     LSU.io.is_flush := PipelineCtrl.io.EXUCtrl.flush
 
-    WBU.io.WBU_2_IFU.ready := true.B
-    IFU.io.WBU_2_IFU <> WBU.io.WBU_2_IFU.bits
+    BPU.io.WBU_2_BPU <> WBU.io.WBU_2_BPU
 
     IDU.io.WB_Bypass <> WBU.io.WB_Bypass
   }
@@ -136,6 +143,7 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
   
   override lazy val module = new Impl
   class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {
+    val BPU = Module(new frontend.BPU)
     val IFU = LazyIFU.module
     val IDU = Module(new frontend.IDU)
     val ISU = Module(new frontend.ISU)

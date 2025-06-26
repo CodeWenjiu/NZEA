@@ -60,7 +60,7 @@ class WBU extends Module {
     val io = IO(new Bundle{
         val EXU_2_WBU = Flipped(Decoupled(Input(new EXU_2_WBU)))
 
-        val WBU_2_IFU = Decoupled(Output(new WBU_2_IFU))
+        val WBU_2_BPU = Decoupled(Output(new WBU_2_BPU))
 
         val WBU_2_REG = ValidIO(new WBU_2_REG)
         val REG_2_WBU = Input(new REG_2_WBU)
@@ -68,8 +68,8 @@ class WBU extends Module {
         val WB_Bypass = ValidIO(Output(new WB_Bypass))
     })
 
-    io.EXU_2_WBU.ready := io.WBU_2_IFU.ready
-    io.WBU_2_IFU.valid := io.EXU_2_WBU.valid
+    io.EXU_2_WBU.ready := io.WBU_2_BPU.ready
+    io.WBU_2_BPU.valid := io.EXU_2_WBU.valid
 
     val ex_basic = io.EXU_2_WBU.bits.basic
 
@@ -83,9 +83,9 @@ class WBU extends Module {
         (ex_basic.trap.traped) -> io.REG_2_WBU.MTVEC,
         (io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Jump) -> io.EXU_2_WBU.bits.Result,
     ))
-    io.WBU_2_IFU.bits.next_pc := next_pc
+    io.WBU_2_BPU.bits.next_pc := next_pc
 
-    io.WBU_2_IFU.bits.wb_ctrlflow := MuxCase(WbControlFlow.BPRight, Seq(
+    io.WBU_2_BPU.bits.wb_ctrlflow := MuxCase(WbControlFlow.BPRight, Seq(
         (ex_basic.trap.traped) -> WbControlFlow.Trap,
         (next_pc =/= ex_basic.npc) -> WbControlFlow.BPError,
     ))
@@ -109,7 +109,7 @@ class WBU extends Module {
     if(Config.Simulate){
         val Catch = Module(new WBU_catch)
         Catch.io.clock := clock
-        Catch.io.valid := io.WBU_2_IFU.fire && !reset.asBool
+        Catch.io.valid := io.WBU_2_BPU.fire && !reset.asBool
 
         Catch.io.next_pc := next_pc
         

@@ -24,7 +24,7 @@ import riscv_soc.cpu.backend.LSU_catch
 
 class jydIFU extends Module {
     val io = IO(new Bundle {
-        val WBU_2_IFU = Flipped(new riscv_soc.bus.WBU_2_IFU)
+        val WBU_2_IFU = Flipped(new riscv_soc.bus.WBU_2_BPU)
         val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.IFU_2_IDU))
 
         val Pipeline_ctrl = Flipped(new riscv_soc.bus.Pipeline_ctrl)

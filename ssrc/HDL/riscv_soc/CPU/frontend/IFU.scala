@@ -213,8 +213,7 @@ class Icache(address: Seq[AddressSet], way: Int, set: Int, block_size: Int) exte
 }
 
 object IFU_state extends ChiselEnum{
-  val s_wait_valid,
-      s_try_fetch,
+  val s_try_fetch,
       s_send_addr,
       s_get_data,
       s_fetch,
@@ -233,42 +232,32 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
     lazy val module = new Impl
     class Impl extends LazyModuleImp(this) {
         val io = IO(new Bundle{
-            val WBU_2_IFU = Flipped(new WBU_2_IFU)
+            val BPU_2_IFU = Flipped(Decoupled(Input(new BPU_2_IFU)))
             val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
 
             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
         })
 
         val state = RegInit(IFU_state.s_try_fetch)
+        val Icache = Module(new Icache(Config.Icache_Param.address, Config.Icache_Param.way, Config.Icache_Param.set, Config.Icache_Param.block_size))
 
-        val flush = Wire(Bool())
-        flush := RegNext(MuxCase(
-            flush,
-            Seq(
-                (io.Pipeline_ctrl.flush) -> true.B,
-                (state === IFU_state.s_try_fetch) -> false.B
-            )
-        ), false.B)
-        
-        val pc = RegInit(Config.Reset_Vector)
-        val snpc = pc + 4.U
-        val dnpc = RegEnable(io.WBU_2_IFU.next_pc, 0.U, io.Pipeline_ctrl.flush)
+        val flush = io.Pipeline_ctrl.flush
 
-        val npc = MuxCase(pc, Seq(
-            (flush && (state === IFU_state.s_try_fetch))    -> dnpc,
-            io.IFU_2_IDU.fire                               -> snpc,
-        ))
-
-        pc := npc
-
-        val (master, _) = masterNode.out(0)
+        val pc = io.BPU_2_IFU.bits.pc
+        val npc = io.BPU_2_IFU.bits.npc
 
         val map_hit = Config.Icache_Param.address.map(_.contains(pc)).reduce(_ || _)
+        val cache_hit = Icache.io.cache_hit
+        
+        io.BPU_2_IFU.ready := (state === IFU_state.s_try_fetch) && io.IFU_2_IDU.ready
 
-        val Icache = Module(new Icache(Config.Icache_Param.address, Config.Icache_Param.way, Config.Icache_Param.set, Config.Icache_Param.block_size))
+        io.IFU_2_IDU.valid := map_hit && cache_hit && io.BPU_2_IFU.valid
+        
+        val (master, _) = masterNode.out(0)
+
         Icache.io.addr.bits := pc
         Icache.io.addr.valid := io.IFU_2_IDU.fire
-        Icache.io.flush := io.Pipeline_ctrl.flush
+        Icache.io.flush := flush
         
         Icache.io.replace_addr := pc
 
@@ -299,11 +288,6 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
             transfer := master.r.bits.data
         }
-
-        io.IFU_2_IDU.valid := MuxLookup(state, false.B)(Seq(
-            IFU_state.s_try_fetch -> (Icache.io.cache_hit && !(flush)),
-            IFU_state.s_fetch -> !(flush),
-        ))
         io.IFU_2_IDU.bits.pc := pc
         io.IFU_2_IDU.bits.npc := npc
 
@@ -321,13 +305,13 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             
         io.IFU_2_IDU.bits.inst := inst
 
-        state := MuxLookup(state, IFU_state.s_wait_valid)(
+        state := MuxLookup(state, IFU_state.s_try_fetch)(
             Seq(
                 IFU_state.s_try_fetch -> MuxCase(IFU_state.s_try_fetch, 
                     Seq(
                         (flush) -> IFU_state.s_try_fetch,
-                        (!Icache.io.cache_hit & map_hit) -> IFU_state.s_replace_send_addr,
-                        (!map_hit) -> IFU_state.s_send_addr
+                        (!map_hit) -> IFU_state.s_send_addr,
+                        (!cache_hit) -> IFU_state.s_replace_send_addr,
                     )
                 ),
 
@@ -353,14 +337,14 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         if(Config.Simulate){
             val Catch = Module(new IFU_catch)
             Catch.io.clock := clock
-            Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool && !io.Pipeline_ctrl.flush
+            Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool && !flush
             Catch.io.inst := io.IFU_2_IDU.bits.inst
             Catch.io.pc := io.IFU_2_IDU.bits.pc
 
             val cache_Catch = Module(new Icache_catch)
             cache_Catch.io.Icache := RegNext((state === IFU_state.s_try_fetch) && !reset.asBool)
             cache_Catch.io.map_hit := map_hit
-            cache_Catch.io.cache_hit := Icache.io.cache_hit & map_hit
+            cache_Catch.io.cache_hit := cache_hit
 
             val MAT_Counter = RegInit(0.U(32.W))
             when(state === IFU_state.s_try_fetch){

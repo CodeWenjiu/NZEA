@@ -76,7 +76,7 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
       val slave = Flipped(AXI4Bundle(CPUAXI4BundleParameters()))
       val interrupt = Input(Bool())
     })
-
+    val BPU = Module(new frontend.BPU)
     val IFU = LazyIFU.module
     val IDU = Module(new frontend.IDU)
     val ISU = Module(new frontend.ISU)
