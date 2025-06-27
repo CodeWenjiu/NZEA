@@ -224,6 +224,11 @@ unsafe extern "C" fn bpu_catch_handler(pc: Input) {
             state.get().unwrap().borrow_mut().pipe_state.cell_input((*pc, 0), BaseStageCell::BpIf)
         })
     );
+
+    NZEA_CALLBACK.with(|callback| {
+        let callback = callback.get().unwrap().borrow_mut();
+        (callback.branch_predict)();
+    });
 }
 
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {

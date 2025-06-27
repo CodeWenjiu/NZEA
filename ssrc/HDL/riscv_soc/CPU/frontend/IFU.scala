@@ -238,10 +238,14 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
         })
 
-        val state = RegInit(IFU_state.s_try_fetch)
+        val next_state = WireDefault(IFU_state.s_try_fetch)
+        val state = RegNext(next_state)
         val Icache = Module(new Icache(Config.Icache_Param.address, Config.Icache_Param.way, Config.Icache_Param.set, Config.Icache_Param.block_size))
 
-        val flush = io.Pipeline_ctrl.flush
+        val flush = RegEnable(true.B, io.Pipeline_ctrl.flush)
+        when(state === IFU_state.s_try_fetch) {
+            flush := false.B
+        }
 
         val pc = io.BPU_2_IFU.bits.pc
         val npc = io.BPU_2_IFU.bits.npc
@@ -249,9 +253,13 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         val map_hit = Config.Icache_Param.address.map(_.contains(pc)).reduce(_ || _)
         val cache_hit = Icache.io.cache_hit
         
-        io.BPU_2_IFU.ready := (state === IFU_state.s_try_fetch) && io.IFU_2_IDU.ready
+        io.BPU_2_IFU.ready := (next_state === IFU_state.s_try_fetch) && (state === IFU_state.s_try_fetch) && io.IFU_2_IDU.ready
 
-        io.IFU_2_IDU.valid := map_hit && cache_hit && io.BPU_2_IFU.valid
+        when(state === IFU_state.s_fetch) {
+            io.IFU_2_IDU.valid := !flush
+        }.otherwise{
+            io.IFU_2_IDU.valid := map_hit && cache_hit && io.BPU_2_IFU.valid
+        }
         
         val (master, _) = masterNode.out(0)
 
@@ -305,10 +313,11 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             
         io.IFU_2_IDU.bits.inst := inst
 
-        state := MuxLookup(state, IFU_state.s_try_fetch)(
+        next_state := MuxLookup(state, IFU_state.s_try_fetch)(
             Seq(
                 IFU_state.s_try_fetch -> MuxCase(IFU_state.s_try_fetch, 
                     Seq(
+                        (!io.BPU_2_IFU.valid) -> IFU_state.s_try_fetch,
                         (flush) -> IFU_state.s_try_fetch,
                         (!map_hit) -> IFU_state.s_send_addr,
                         (!cache_hit) -> IFU_state.s_replace_send_addr,
