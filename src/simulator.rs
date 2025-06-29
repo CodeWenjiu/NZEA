@@ -231,6 +231,10 @@ unsafe extern "C" fn bpu_catch_handler(pc: Input) {
     });
 }
 
+unsafe extern "C" fn btb_cache_access_p(is_replace: bool, set: u8, way: bool, tag: u32, data: u32) {
+    let _ = (is_replace, set, way, tag, data);
+}
+
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
     // log_debug!("ifu_catch_p");
 
@@ -790,6 +794,7 @@ impl Nzea {
 
         let basic_callbacks = BasicCallbacks {
             bpu_catch_p: bpu_catch_handler,
+            btb_cache_access_p: btb_cache_access_p,
             ifu_catch_p: ifu_catch_handler,
             icache_mat_catch_p: icache_mat_catch_handler,
             icache_catch_p: icache_catch_handler,

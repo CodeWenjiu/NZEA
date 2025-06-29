@@ -33,7 +33,7 @@ class jydIFU extends Module {
 
     val pc = RegInit(Config.Reset_Vector)
     val snpc = pc + 4.U
-    val dnpc = io.WBU_2_IFU.next_pc
+    val dnpc = io.WBU_2_IFU.npc
     
     io.IROM.addr := pc
     pc := MuxCase(pc, Seq(

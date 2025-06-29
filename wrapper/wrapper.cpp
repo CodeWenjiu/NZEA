@@ -149,6 +149,10 @@ extern "C" {
         basic_callbacks.BPU_catch_p(pc);
     }
 
+    void btb_cache_access(svBit is_replace, char set, svBit way, int tag, int data) {
+        basic_callbacks.btb_cache_access_p(is_replace, set, way, tag, data);
+    }
+
     void Icache_MAT_catch(const svBitVecVal *count) {
         basic_callbacks.Icache_MAT_catch_p(count);
     }

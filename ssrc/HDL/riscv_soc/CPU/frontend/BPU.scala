@@ -4,6 +4,8 @@ import chisel3._
 import chisel3.util._
 import riscv_soc.bus._
 import config._
+import utility.CacheTableAddr
+import utility.CacheTemplate
 
 class BPU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle {
@@ -42,21 +44,37 @@ class BPU extends Module {
     })
     
     val pc = RegInit(Config.Reset_Vector)
-    val pnpc = pc + 4.U // TODO: need to implement
-    val dnpc = io.WBU_2_BPU.bits.next_pc
+    val snpc = pc + 4.U
+    
+    val btb_depth = 16
+    
+    val btb = Module(new CacheTemplate(btb_depth, name = "btb"))
+    btb.io.addr := pc
+
+    val prediction = btb.io.data
+    
+    val dnpc = io.WBU_2_BPU.bits.npc
     io.WBU_2_BPU.ready := true.B
 
     val pc_flush = io.WBU_2_BPU.fire && (io.WBU_2_BPU.bits.wb_ctrlflow =/= WbControlFlow.BPRight)
 
-    val pc_update = io.BPU_2_IFU.fire
+    btb.io.rreq.valid := pc_flush
+    btb.io.rreq.bits.addr := io.WBU_2_BPU.bits.pc
+    btb.io.rreq.bits.data := dnpc
 
-    pc := MuxCase(pc, Seq(
-        pc_flush -> dnpc,
-        pc_update -> pnpc
+    val pc_update = io.BPU_2_IFU.fire | pc_flush
+
+    val npc = MuxCase(snpc, Seq(
+        (pc_flush) -> dnpc,
+        (prediction.valid) -> prediction.bits,
     ))
 
+    when(pc_update) {
+        pc := npc
+    }
+
     io.BPU_2_IFU.bits.pc := pc
-    io.BPU_2_IFU.bits.npc := pnpc
+    io.BPU_2_IFU.bits.npc := npc
 
     io.BPU_2_IFU.valid := true.B
     

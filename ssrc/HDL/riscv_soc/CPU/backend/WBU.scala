@@ -83,7 +83,8 @@ class WBU extends Module {
         (ex_basic.trap.traped) -> io.REG_2_WBU.MTVEC,
         (io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Jump) -> io.EXU_2_WBU.bits.Result,
     ))
-    io.WBU_2_BPU.bits.next_pc := next_pc
+    io.WBU_2_BPU.bits.pc := ex_basic.pc
+    io.WBU_2_BPU.bits.npc := next_pc
 
     io.WBU_2_BPU.bits.wb_ctrlflow := MuxCase(WbControlFlow.BPRight, Seq(
         (ex_basic.trap.traped) -> WbControlFlow.Trap,
