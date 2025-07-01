@@ -16,6 +16,8 @@ import org.chipsalliance.diplomacy.lazymodule._
 import riscv_soc.bus._
 import signal_value._
 import scala.collection.Parallel
+import utility.CacheTemplate
+import config.Config.Icache_Param.way
 
 class IFU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
@@ -392,5 +394,77 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         master.ar.bits.cache := 0.U // Cacheable
         master.ar.bits.prot  := 0.U // Normal memory
         master.ar.bits.qos   := 0.U // Quality of Service
+    }
+}
+
+object IFU_later_state extends ChiselEnum{
+  val s_idle,
+      s_send_addr,
+      s_get_data
+      = Value
+}
+
+class IFU_later(idBits: Int)(implicit p: Parameters) extends LazyModule {
+    val masterNode = AXI4MasterNode(p(ExtIn).map(params =>
+        AXI4MasterPortParameters(
+        masters = Seq(AXI4MasterParameters(
+            name = "ifu",
+            id   = IdRange(0, 1 << idBits))))).toSeq)
+    lazy val module = new Impl
+    class Impl extends LazyModuleImp(this) {
+        val io = IO(new Bundle{
+            val BPU_2_IFU = Flipped(Decoupled(Input(new BPU_2_IFU)))
+            val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
+
+            val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
+        })
+        val (master, _) = masterNode.out(0)
+
+        val state = RegInit(IFU_later_state.s_idle)
+
+        val Icache = Module(new CacheTemplate(
+            set = Config.Icache_Param.set,
+            way = Config.Icache_Param.way,
+            name = "Icache",
+            with_valid = true,
+            with_fence = true
+        ))
+
+        Icache.io.areq.addr := io.BPU_2_IFU.bits.pc
+        Icache.io.rreq.valid := master.r.fire
+
+        val cache_hit = Icache.io.areq.hit
+
+        state := MuxLookup(state, IFU_later_state.s_idle)(
+            Seq(
+                IFU_later_state.s_idle -> Mux(
+                    io.BPU_2_IFU.fire && !cache_hit,
+                    IFU_later_state.s_send_addr,
+                    state
+                ),
+
+                IFU_later_state.s_send_addr -> Mux(
+                    master.ar.fire,
+                    IFU_later_state.s_get_data,
+                    state
+                ),
+
+                IFU_later_state.s_get_data -> Mux(
+                    master.r.fire && master.r.bits.last,
+                    IFU_later_state.s_idle,
+                    state
+                )
+            )
+        )
+
+        io.BPU_2_IFU.ready := (state === IFU_later_state.s_idle) && cache_hit && io.IFU_2_IDU.ready
+        io.IFU_2_IDU.valid := (state === IFU_later_state.s_idle) && cache_hit && io.BPU_2_IFU.valid
+
+        io.IFU_2_IDU.bits.inst := Icache.io.areq.data
+        io.IFU_2_IDU.bits.pc := io.BPU_2_IFU.bits.pc
+        io.IFU_2_IDU.bits.npc := io.BPU_2_IFU.bits.npc
+
+        // master.ar.valid := (state === IFU_later_state.s_send_addr)
+        // master.ar.bits.len :=
     }
 }

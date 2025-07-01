@@ -2,15 +2,16 @@ package utility
 
 import chisel3._
 import chisel3.util.circt.dpi.DPIClockedVoidFunctionImport
+import config.Config
 
 trait DPI extends DPIClockedVoidFunctionImport {
     def wrap_callWithEnable(enable: Bool, args: Data*): Unit = {
         val wrappedArgs = args.map(DataConverter(_))
-        super.callWithEnable(enable, wrappedArgs: _*)
+        if(Config.Simulate) super.callWithEnable(enable, wrappedArgs: _*)
     }
     def wrap_call(args: Data*): Unit = {
         val wrappedArgs = args.map(DataConverter(_))
-        super.call(wrappedArgs: _*)
+        if(Config.Simulate) super.call(wrappedArgs: _*)
     }
 
     def DataConverter(data: Data): Data = {

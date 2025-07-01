@@ -4,7 +4,6 @@ import chisel3._
 import chisel3.util._
 import riscv_soc.bus._
 import config._
-import utility.CacheTableAddr
 import utility.CacheTemplate
 
 class BPU_catch extends BlackBox with HasBlackBoxInline {
@@ -48,10 +47,10 @@ class BPU extends Module {
     
     val btb_depth = 16
     
-    val btb = Module(new CacheTemplate(btb_depth, name = "btb"))
-    btb.io.addr := pc
+    val btb = Module(new CacheTemplate(set = btb_depth, name = "btb"))
 
-    val prediction = btb.io.data
+    val prediction = btb.io.areq
+    prediction.addr := pc
     
     val dnpc = io.WBU_2_BPU.bits.npc
     io.WBU_2_BPU.ready := true.B
@@ -66,7 +65,7 @@ class BPU extends Module {
 
     val npc = MuxCase(snpc, Seq(
         (pc_flush) -> dnpc,
-        (prediction.valid) -> prediction.bits,
+        (prediction.hit) -> prediction.data,
     ))
 
     when(pc_update) {
