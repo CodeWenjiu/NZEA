@@ -3,46 +3,52 @@ package utility
 import chisel3._
 import chisel3.util._
 import config.Config
+import freechips.rocketchip.tilelink.TLMessages.b
 
-class CacheTable(setBits: Int) extends Bundle {
-    def idxBits = 2
-    def tagBits = 32 - setBits - idxBits
+class CacheTable(
+    width: Int, 
+    setBits: Int, block_num: Int
+) extends Bundle {
+    def idxBits = log2Up(width / 8 * block_num)
+    def tagBits = width - setBits - idxBits
 
     val tag = UInt(tagBits.W)
     val set = UInt(setBits.W)
     val idx = UInt(idxBits.W)
 
     def apply(x: UInt) = x.asTypeOf(this)
-    def GetTag(x: UInt): UInt = x >> (setBits + idxBits)
-    def GetSet(x: UInt): UInt = x(setBits + idxBits - 1, idxBits)
 }
 
-class ReplacementRequest extends Bundle {
-    val addr = UInt(32.W)
-    val data = UInt(32.W)
+class ReplacementRequest(width: Int) extends Bundle {
+    val addr = UInt(width.W)
+    val data = UInt(width.W)
 }
 
-class AccessRequestIO extends Bundle {
-    val addr = Input(UInt(32.W))
+class AccessRequestIO(width: Int) extends Bundle {
+    val addr = Input(UInt(width.W))
     
     val hit = Output(Bool())
-    val data = Output(UInt(32.W))
+    val data = Output(UInt(width.W))
 }
 
 class CacheTemplate(
-    set: Int, way: Int = 1, 
+    base_width: Int = 32,
+    set: Int, way: Int = 1, block_num: Int = 1, 
     name: String, 
     with_valid: Boolean = false,
     with_fence: Boolean = false, // TODO
 ) extends Module {
     val io = IO(new Bundle{
-        val rreq = Flipped(ValidIO(new ReplacementRequest))
-        val areq = new AccessRequestIO
+        val rreq = Flipped(ValidIO(new ReplacementRequest(base_width)))
+        val areq = new AccessRequestIO(base_width)
     })
 
     val set_bits = log2Up(set)
-    print(s"new cache $name created with set_bits = $set_bits\n")
-    val table = new CacheTable(set_bits)
+    print(s"new cache $name created with $set_bits Sets, $way Ways, and $block_num Blocks\n")
+    val table = new CacheTable(
+        base_width, 
+        set_bits, block_num
+    )
 
     val meta_Bundle = new Bundle {
         val valid = if (with_valid) Bool() else null
