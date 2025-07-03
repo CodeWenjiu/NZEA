@@ -5,7 +5,7 @@ use option_parser::OptionParser;
 use pest::Parser;
 use remu_macro::{log_err, log_error, log_info};
 use remu_utils::{ProcessError, ProcessResult, Simulators};
-use state::{model::BaseStageCell, reg::RegfileIo, States};
+use state::{cache::{BtbData, CacheTrait}, model::BaseStageCell, reg::RegfileIo, States};
 
 use crate::{nzea::get_nzea_root, SimulatorCallback, SimulatorError, SimulatorItem};
 
@@ -232,7 +232,22 @@ unsafe extern "C" fn bpu_catch_handler(pc: Input) {
 }
 
 unsafe extern "C" fn btb_cache_access_p(is_replace: bool, set: u8, way: bool, tag: u32, data: u32) {
-    let _ = (is_replace, set, way, tag, data);
+    if !is_replace {
+        return;
+    }
+
+    NZEA_STATES.with(|state| {
+        state
+            .get()
+            .unwrap()
+            .borrow_mut()
+            .cache
+            .btb
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .base_write(set as u32, way as u32, 0, tag, BtbData{target: data});
+    })
 }
 
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
