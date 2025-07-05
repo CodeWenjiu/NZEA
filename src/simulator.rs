@@ -243,9 +243,8 @@ unsafe extern "C" fn btb_cache_access_p(is_replace: bool, set: u8, way: bool, ta
             .borrow_mut()
             .cache
             .btb
-            .as_ref()
+            .as_mut()
             .unwrap()
-            .borrow_mut()
             .base_write(set as u32, way as u32, 0, tag, BtbData{target: data});
     })
 }
