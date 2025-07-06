@@ -225,7 +225,7 @@ object IFU_state extends ChiselEnum{
       = Value
 }
 
-class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
+class IFU_(idBits: Int)(implicit p: Parameters) extends LazyModule {
     val masterNode = AXI4MasterNode(p(ExtIn).map(params =>
         AXI4MasterPortParameters(
         masters = Seq(AXI4MasterParameters(
@@ -404,7 +404,7 @@ object IFU_later_state extends ChiselEnum{
       = Value
 }
 
-class IFU_later(idBits: Int)(implicit p: Parameters) extends LazyModule {
+class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
     val masterNode = AXI4MasterNode(p(ExtIn).map(params =>
         AXI4MasterPortParameters(
         masters = Seq(AXI4MasterParameters(
@@ -422,10 +422,13 @@ class IFU_later(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
         val state = RegInit(IFU_later_state.s_idle)
 
+        val burst_transfer_time = 4
+
         val Icache = Module(new CacheTemplate(
             set = Config.Icache_Param.set,
             way = Config.Icache_Param.way,
-            name = "Icache",
+            block_num = burst_transfer_time,
+            name = "icache",
             with_valid = true,
             with_fence = true
         ))
@@ -435,10 +438,10 @@ class IFU_later(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
         val cache_hit = Icache.io.areq.hit
 
-        state := MuxLookup(state, IFU_later_state.s_idle)(
+        val next_state = MuxLookup(state, IFU_later_state.s_idle)(
             Seq(
                 IFU_later_state.s_idle -> Mux(
-                    io.BPU_2_IFU.fire && !cache_hit,
+                    io.BPU_2_IFU.valid && !cache_hit,
                     IFU_later_state.s_send_addr,
                     state
                 ),
@@ -456,15 +459,57 @@ class IFU_later(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 )
             )
         )
+        state := next_state
 
-        io.BPU_2_IFU.ready := (state === IFU_later_state.s_idle) && cache_hit && io.IFU_2_IDU.ready
+        val flat_addr = io.BPU_2_IFU.bits.pc & ~(burst_transfer_time - 1).U(32.W)
+
+        Icache.io.rreq.bits.addr := flat_addr
+        Icache.io.rreq.bits.data := master.r.bits.data
+        Icache.io.rreq.valid := master.r.fire
+
+        io.BPU_2_IFU.ready := (next_state === IFU_later_state.s_idle) && (state === IFU_later_state.s_idle) && io.IFU_2_IDU.ready
         io.IFU_2_IDU.valid := (state === IFU_later_state.s_idle) && cache_hit && io.BPU_2_IFU.valid
 
         io.IFU_2_IDU.bits.inst := Icache.io.areq.data
         io.IFU_2_IDU.bits.pc := io.BPU_2_IFU.bits.pc
         io.IFU_2_IDU.bits.npc := io.BPU_2_IFU.bits.npc
 
-        // master.ar.valid := (state === IFU_later_state.s_send_addr)
-        // master.ar.bits.len :=
+        master.ar.valid := (state === IFU_later_state.s_send_addr)
+        master.ar.bits.len := (burst_transfer_time - 1).U
+        master.ar.bits.addr := flat_addr
+
+        master.r.ready := state === IFU_later_state.s_get_data
+
+        if(Config.Simulate){
+            val Catch = Module(new IFU_catch)
+            Catch.io.clock := clock
+            Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
+            Catch.io.inst := io.IFU_2_IDU.bits.inst
+            Catch.io.pc := io.IFU_2_IDU.bits.pc
+        }
+
+        master.aw.valid := false.B
+        master.aw.bits.addr := 0.U
+        master.aw.bits.size := 0.U
+        master.aw.bits.id    := 0.U
+        master.aw.bits.len   := 0.U
+        master.aw.bits.burst := 0.U
+        master.aw.bits.lock  := 0.U
+        master.aw.bits.cache := 0.U
+        master.aw.bits.prot  := 0.U
+        master.aw.bits.qos   := 0.U
+        master.w.valid := false.B
+        master.w.bits.data := 0.U
+        master.w.bits.strb := 0.U
+        master.w.bits.last  := 1.U
+        master.b.ready := false.B
+
+        master.ar.bits.size  := 2.U
+        master.ar.bits.id    := 0.U
+        master.ar.bits.burst := 1.U // INCR
+        master.ar.bits.lock  := 0.U // Normal access
+        master.ar.bits.cache := 0.U // Cacheable
+        master.ar.bits.prot  := 0.U // Normal memory
+        master.ar.bits.qos   := 0.U // Quality of Service
     }
 }

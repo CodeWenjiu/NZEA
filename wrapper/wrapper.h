@@ -8,7 +8,12 @@ typedef svBit bits;
 
 typedef struct {
     void(*BPU_catch_p)(input);
-    void(*btb_cache_access_p)(bits is_replace, char set, bits way, int tag, int data);
+
+    void(*btb_cache_meta_write_p)(char set, bits way, int tag);
+    void(*btb_cache_data_write_p)(char set, bits way, bits block, int data);
+    void(*icache_cache_meta_write_p)(char set, bits way, int tag);
+    void(*icache_cache_data_write_p)(char set, bits way, bits block, int data);
+    
     void(*IFU_catch_p)(input, input);
     void(*Icache_MAT_catch_p)(input);
     void(*Icache_catch_p)(bits, bits);
@@ -57,7 +62,12 @@ typedef struct {
 
 // Define panic functions for Basic_Callbacks
 DEFINE_PANIC_FUNCTION(BPU_catch_p, input a)
-DEFINE_PANIC_FUNCTION(btb_cache_access_p, bits is_replace, char set, bits way, int tag, int data)
+
+DEFINE_PANIC_FUNCTION(btb_cache_meta_write_p, char set, bits way, int tag)
+DEFINE_PANIC_FUNCTION(btb_cache_data_write_p, char set, bits way, bits block, int data)
+DEFINE_PANIC_FUNCTION(icache_cache_meta_write_p, char set, bits way, int tag)
+DEFINE_PANIC_FUNCTION(icache_cache_data_write_p, char set, bits way, bits block, int data)
+
 DEFINE_PANIC_FUNCTION(ALU_catch_p, input a)
 DEFINE_PANIC_FUNCTION(IDU_catch_p, input a)
 DEFINE_PANIC_FUNCTION(IFU_catch_p, input a, input b)
@@ -92,7 +102,8 @@ DEFINE_PANIC_FUNCTION(DRAM_write, input addr, input mask, input data)
 
 static Basic_Callbacks basic_callbacks = {
     .BPU_catch_p = default_BPU_catch_p,
-    .btb_cache_access_p = default_btb_cache_access_p,
+    .btb_cache_meta_write_p = default_btb_cache_meta_write_p,
+    .btb_cache_data_write_p = default_btb_cache_data_write_p,
     .IFU_catch_p = default_IFU_catch_p,
     .Icache_MAT_catch_p = default_Icache_MAT_catch_p,
     .Icache_catch_p = default_Icache_catch_p,

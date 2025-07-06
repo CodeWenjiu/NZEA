@@ -7,13 +7,14 @@ import freechips.rocketchip.tilelink.TLMessages.b
 
 class CacheTable(
     width: Int, 
-    setBits: Int, block_num: Int
+    setBits: Int, blockBits: Int
 ) extends Bundle {
-    def idxBits = log2Up(width / 8 * block_num)
+    def idxBits = log2Up(width / 8)
     def tagBits = width - setBits - idxBits
 
     val tag = UInt(tagBits.W)
     val set = UInt(setBits.W)
+    val block = UInt(blockBits.W)
     val idx = UInt(idxBits.W)
 
     def apply(x: UInt) = x.asTypeOf(this)
@@ -44,10 +45,11 @@ class CacheTemplate(
     })
 
     val set_bits = log2Up(set)
-    print(s"new cache $name created with $set_bits Sets, $way Ways, and $block_num Blocks\n")
+    val block_bits = if (block_num > 1) log2Up(block_num) else 0
+    print(s"new cache $name created with $set Sets, $way Ways, and $block_num Blocks\n")
     val table = new CacheTable(
         base_width, 
-        set_bits, block_num
+        set_bits, block_bits
     )
 
     val meta_Bundle = new Bundle {
@@ -55,20 +57,33 @@ class CacheTemplate(
         val tag = UInt(table.tagBits.W)
     }
 
+    val data_Bundle = new Bundle {
+        val data = UInt(32.W)
+    }
+
     val meta = Mem(set, Vec(way, meta_Bundle))
-    val data = Mem(set, Vec(way, UInt(32.W)))
+    val data = Mem((set * way), Vec(block_num, data_Bundle))
 
     // read
     val read_table = table(io.areq.addr)
     val read_tag = read_table.tag
     val read_set = read_table.set
+    val read_block = read_table.block
+
+    val meta_read_data = meta.read(read_set)
 
     val read_tag_euqal_vec = 
-        VecInit(meta.read(read_set).map(_.tag === read_tag))
+        VecInit(meta_read_data.map(_.tag === read_tag))
     val read_valid_vec = 
-        if (with_valid) VecInit(meta.read(read_set).map(_.valid)) else VecInit(Seq.fill(way)(true.B))
+        if (with_valid) VecInit(meta_read_data.map(_.valid)) else VecInit(Seq.fill(way)(true.B))
     val read_way = PriorityEncoder(read_tag_euqal_vec)
-    io.areq.data := data.read(read_set)(read_way)
+
+    val read_index = if (way > 1) {
+        Cat(read_set, read_way)
+    } else {
+        read_set
+    }
+    io.areq.data := data.read(read_index)(read_block).data
     io.areq.hit := VecInit((read_tag_euqal_vec zip read_valid_vec).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR
 
     // write
@@ -80,29 +95,49 @@ class CacheTemplate(
     val replace_way = replacement.way(replace_set)
     val replace_mask = UIntToOH(replace_way, way)
     val replace_tag_v = VecInit((0 until way).map(_ => Cat(true.B, replace_tag).asTypeOf(meta_Bundle)))
-    val replace_data_v = VecInit((0 until way).map(_ => io.rreq.bits.data))
+    val replace_data_v = VecInit((0 until block_num).map(_ => io.rreq.bits.data.asTypeOf(data_Bundle)))
 
-    object cache_access extends DPI {
-        def functionName: String = name + "_cache_access"
+    object cache_meta_write extends DPI {
+        def functionName: String = name + "_cache_meta_write"
         override def inputNames: Option[Seq[String]] = Some(Seq(
-            "is_replace",
             "set",
             "way",
             "tag",
+        ))
+    }
+
+    object cache_data_write extends DPI {
+        def functionName: String = name + "_cache_data_write"
+        override def inputNames: Option[Seq[String]] = Some(Seq(
+            "set",
+            "way",
+            "block",
             "data",
         ))
     }
 
+    val shifter = RotateShifter(block_num)
+    shifter.setData(1.U)
+
     when(io.rreq.valid) {
-        meta.write(replace_set, replace_tag_v, replace_mask.asBools)
-        data.write(replace_set, replace_data_v, replace_mask.asBools)
+        val write_index = if (way > 1) {
+            Cat(replace_set, replace_way)
+        } else {
+            replace_set
+        }
 
-        if (way > 1) replacement.access(replace_set, replace_way)
+        shifter.shift(1.U)
+        data.write(write_index, replace_data_v, shifter.getData().asBools)
 
-        cache_access.wrap_call(true.B, replace_set, replace_way, replace_tag, io.rreq.bits.data)
+        cache_data_write.wrap_call(replace_set, replace_way, OHToUInt(shifter.getData()), io.rreq.bits.data)
+
+        when(shifter.last()) {
+            meta.write(replace_set, replace_tag_v, replace_mask.asBools)
+            if (way > 1) replacement.access(replace_set, replace_way)
+
+            cache_meta_write.wrap_call(replace_set, replace_way, replace_tag)
+        }
     }.elsewhen(io.areq.hit) {
         if (way > 1) replacement.access(read_set, read_way)
-
-        cache_access.wrap_call(false.B, read_set, read_way, 0.U.asTypeOf(replace_tag), 0.U.asTypeOf(io.rreq.bits.data))
     }
 }

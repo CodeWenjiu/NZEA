@@ -149,8 +149,20 @@ extern "C" {
         basic_callbacks.BPU_catch_p(pc);
     }
 
-    void btb_cache_access(svBit is_replace, char set, svBit way, int tag, int data) {
-        basic_callbacks.btb_cache_access_p(is_replace, set, way, tag, data);
+    void btb_cache_meta_write(char set, svBit way, int tag) {
+        basic_callbacks.btb_cache_meta_write_p(set, way, tag);
+    }
+
+    void btb_cache_data_write(char set, svBit way, svBit block, int data) {
+        basic_callbacks.btb_cache_data_write_p(set, way, block, data);
+    }
+
+    void icache_cache_meta_write(char set, svBit way, int tag) {
+        basic_callbacks.icache_cache_meta_write_p(set, way, tag);
+    }
+
+    void icache_cache_data_write(char set, svBit way, svBit block, int data) {
+        basic_callbacks.icache_cache_data_write_p(set, way, block, data);
     }
 
     void Icache_MAT_catch(const svBitVecVal *count) {

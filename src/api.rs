@@ -12,7 +12,12 @@ pub type Output = *mut u32;
 #[repr(C)]
 pub struct BasicCallbacks {
     pub bpu_catch_p: unsafe extern "C" fn(Input),
-    pub btb_cache_access_p: unsafe extern "C" fn(bool, u8, bool, u32, u32),
+
+    pub btb_cache_meta_write_p: unsafe extern "C" fn(u8, bool, u32),
+    pub btb_cache_data_write_p: unsafe extern "C" fn(u8, bool, bool, u32),
+    pub icache_cache_meta_write_p: unsafe extern "C" fn(u8, bool, u32),
+    pub icache_cache_data_write_p: unsafe extern "C" fn(u8, bool, bool, u32),
+    
     pub ifu_catch_p: unsafe extern "C" fn(Input, Input),
     pub icache_mat_catch_p: unsafe extern "C" fn(Input),
     pub icache_catch_p: unsafe extern "C" fn(u8, u8),

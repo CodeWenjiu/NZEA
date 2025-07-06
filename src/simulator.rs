@@ -5,7 +5,7 @@ use option_parser::OptionParser;
 use pest::Parser;
 use remu_macro::{log_err, log_error, log_info};
 use remu_utils::{ProcessError, ProcessResult, Simulators};
-use state::{cache::{BtbData, CacheTrait}, model::BaseStageCell, reg::RegfileIo, States};
+use state::{cache::{BtbData, CacheTrait, ICacheData}, model::BaseStageCell, reg::RegfileIo, States};
 
 use crate::{nzea::get_nzea_root, SimulatorCallback, SimulatorError, SimulatorItem};
 
@@ -231,18 +231,40 @@ unsafe extern "C" fn bpu_catch_handler(pc: Input) {
     });
 }
 
-unsafe extern "C" fn btb_cache_access_p(is_replace: bool, set: u8, way: bool, tag: u32, data: u32) {
-    if !is_replace {
-        return;
-    }
-
+unsafe extern "C" fn btb_cache_meta_write_p(set: u8, way: bool, tag: u32) {
     NZEA_STATES.with(|state| {
         let mut state = state.get().unwrap().borrow_mut();
         if let Some(btb) = state.cache.btb.as_mut() {
             btb.base_meta_write(set as u32, way as u32, tag);
-            btb.base_data_write(set as u32, way as u32, 0, BtbData{target: data});
         }
     })
+}
+
+unsafe extern "C" fn btb_cache_data_write_p(set: u8, way: bool, block: bool, data: u32) {
+    NZEA_STATES.with(|state| {
+        let mut state = state.get().unwrap().borrow_mut();
+        if let Some(btb) = state.cache.btb.as_mut() {
+            btb.base_data_write(set as u32, way as u32, block as u32, BtbData { target: data });
+        }
+    });
+}
+
+unsafe extern "C" fn icache_cache_meta_write_p(set: u8, way: bool, tag: u32) {
+    NZEA_STATES.with(|state| {
+        let mut state = state.get().unwrap().borrow_mut();
+        if let Some(icache) = state.cache.icache.as_mut() {
+            icache.base_meta_write(set as u32, way as u32, tag);
+        }
+    })
+}
+
+unsafe extern "C" fn icache_cache_data_write_p(set: u8, way: bool, block: bool, data: u32) {
+    NZEA_STATES.with(|state| {
+        let mut state = state.get().unwrap().borrow_mut();
+        if let Some(icache) = state.cache.icache.as_mut() {
+            icache.base_data_write(set as u32, way as u32, block as u32, ICacheData { inst: data });
+        }
+    });
 }
 
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
@@ -804,7 +826,12 @@ impl Nzea {
 
         let basic_callbacks = BasicCallbacks {
             bpu_catch_p: bpu_catch_handler,
-            btb_cache_access_p: btb_cache_access_p,
+
+            btb_cache_meta_write_p: btb_cache_meta_write_p,
+            btb_cache_data_write_p: btb_cache_data_write_p,
+            icache_cache_meta_write_p: icache_cache_meta_write_p,
+            icache_cache_data_write_p: icache_cache_data_write_p,
+
             ifu_catch_p: ifu_catch_handler,
             icache_mat_catch_p: icache_mat_catch_handler,
             icache_catch_p: icache_catch_handler,
