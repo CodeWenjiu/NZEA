@@ -57,6 +57,7 @@ class BPU extends Module {
 
     val pc_flush = io.WBU_2_BPU.fire && (io.WBU_2_BPU.bits.wb_ctrlflow =/= WbControlFlow.BPRight)
 
+    prediction.valid := !pc_flush
     btb.io.rreq.valid := pc_flush
     btb.io.rreq.bits.addr := io.WBU_2_BPU.bits.pc
     btb.io.rreq.bits.data := dnpc

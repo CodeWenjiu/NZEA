@@ -26,6 +26,7 @@ class ReplacementRequest(width: Int) extends Bundle {
 }
 
 class AccessRequestIO(width: Int) extends Bundle {
+    val valid = Input(Bool())
     val addr = Input(UInt(width.W))
     
     val hit = Output(Bool())
@@ -116,16 +117,15 @@ class CacheTemplate(
         ))
     }
 
-    val shifter = RotateShifter(block_num)
-    shifter.setData(1.U)
+    val shifter = RotateShifter(block_num, 1)
+    
+    val write_index = if (way > 1) {
+        Cat(replace_set, replace_way)
+    } else {
+        replace_set
+    }
 
     when(io.rreq.valid) {
-        val write_index = if (way > 1) {
-            Cat(replace_set, replace_way)
-        } else {
-            replace_set
-        }
-
         shifter.shift(1.U)
         data.write(write_index, replace_data_v, shifter.getData().asBools)
 
@@ -137,7 +137,7 @@ class CacheTemplate(
 
             cache_meta_write.wrap_call(replace_set, replace_way, replace_tag)
         }
-    }.elsewhen(io.areq.hit) {
+    }.elsewhen(io.areq.hit && io.areq.valid) {
         if (way > 1) replacement.access(read_set, read_way)
     }
 }

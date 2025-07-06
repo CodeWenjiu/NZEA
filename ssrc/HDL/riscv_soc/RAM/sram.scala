@@ -10,6 +10,7 @@ import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 import org.chipsalliance.diplomacy.lazymodule._
+import utility.DPI
 
 class sram_bridge extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
@@ -27,7 +28,7 @@ class sram_bridge extends BlackBox with HasBlackBoxInline {
       |    input  clock,
       |    input  read,
       |    input  [31:0] r_addr,
-      |    output [31:0] r_data,
+      |    output reg [31:0] r_data,
       |    input  write,
       |    input  [31:0] w_addr,
       |    input  [31:0] w_data,
@@ -112,22 +113,45 @@ class SRAM(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule 
         AXI.w.ready  := state_w === s_burst
         AXI.b.valid  := state_w === s_wait_resp
 
+        // object sram_bridge extends DPI {
+        //     def functionName: String = "SRAM_BRIDGE"
+        //     override def inputNames: Option[Seq[String]] = Some(Seq(
+        //         "read",
+        //         "r_addr",
+
+        //         "write",
+        //         "w_addr",
+        //         "w_data",
+        //     ))
+
+        //     override def outputNames: Option[Seq[String]] = Some(Seq(
+        //         "r_data",
+        //         "w_strb",
+        //     ))
+        // }
+
+        // sram_bridge.wrap_call(
+        //     (state_r === s_burst) || (AXI.ar.fire),
+        //     Mux(AXI.ar.fire, AXI.ar.bits.addr, read_addr),
+        //     AXI.r.bits.data,
+
+        //     state_w === s_burst,
+        //     RegEnable(AXI.aw.bits.addr, AXI.aw.fire),
+        //     AXI.w.bits.data,
+        //     AXI.w.bits.strb
+        // )
+
+        AXI.r.bits.resp := "b0".U
+        AXI.b.bits.resp := "b0".U
         val bridge = Module(new sram_bridge)
         bridge.io.clock := clock
         bridge.io.read := (state_r === s_burst) || (AXI.ar.fire)
         bridge.io.r_addr  := Mux(AXI.ar.fire, AXI.ar.bits.addr, read_addr)
-        AXI.r.bits.data := bridge.io.r_data
-        AXI.r.bits.resp := "b0".U
+        AXI.r.bits.data := RegEnable(bridge.io.r_data, AXI.ar.fire || AXI.r.fire)
 
         bridge.io.write := state_w === s_burst
         bridge.io.w_addr  := RegEnable(AXI.aw.bits.addr, AXI.aw.fire)
         bridge.io.w_data  := AXI.w.bits.data
         bridge.io.w_strb  := AXI.w.bits.strb
-        AXI.b.bits.resp := "b0".U
-
-        val state_rcache = RegInit(s_wait_addr)
-        state_rcache := state_r
-        val state_wcache = RegInit(s_wait_addr)
-        state_wcache := state_w
     }
 }

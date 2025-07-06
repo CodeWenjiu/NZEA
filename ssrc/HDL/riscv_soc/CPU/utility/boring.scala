@@ -3,7 +3,7 @@ package utility
 import chisel3._
 import chisel3.util._
 
-class RotateShifter(width: Int) extends Module {
+class RotateShifter(width: Int, init: Int) extends Module {
     val io = IO(new Bundle {
         val shamt = Input(UInt(log2Ceil(width).W))
         val left = Input(Bool())
@@ -13,7 +13,7 @@ class RotateShifter(width: Int) extends Module {
         val data = Output(UInt(width.W))
     })
     
-    val dataReg = RegInit(0.U(width.W))
+    val dataReg = RegInit(init.U(width.W))
     
     when(io.setEnable) {
         dataReg := io.setData
@@ -49,7 +49,16 @@ class RotateShifter(width: Int) extends Module {
 }
 
 object RotateShifter {
-    def apply(width: Int): RotateShifter = {
-        Module(new RotateShifter(width))
+    def apply(width: Int, init: Int): RotateShifter = {
+        val module = Module(new RotateShifter(width, init))
+
+        module.io.setEnable := false.B
+        module.io.setData := DontCare
+        module.io.shift := false.B
+        module.io.shamt := DontCare
+        module.io.left := DontCare
+        module.io.data := DontCare // Ensure the output is initialized
+
+        module
     }
 }
