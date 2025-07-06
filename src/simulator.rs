@@ -237,15 +237,11 @@ unsafe extern "C" fn btb_cache_access_p(is_replace: bool, set: u8, way: bool, ta
     }
 
     NZEA_STATES.with(|state| {
-        state
-            .get()
-            .unwrap()
-            .borrow_mut()
-            .cache
-            .btb
-            .as_mut()
-            .unwrap()
-            .base_write(set as u32, way as u32, 0, tag, BtbData{target: data});
+        let mut state = state.get().unwrap().borrow_mut();
+        if let Some(btb) = state.cache.btb.as_mut() {
+            btb.base_meta_write(set as u32, way as u32, tag);
+            btb.base_data_write(set as u32, way as u32, 0, BtbData{target: data});
+        }
     })
 }
 
