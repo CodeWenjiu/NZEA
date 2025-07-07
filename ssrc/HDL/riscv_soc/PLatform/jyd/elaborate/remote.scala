@@ -3,24 +3,66 @@ import riscv_soc.platform.jyd._
 
 import chisel3._
 import chisel3.util._
+import chisel3.util._
 
-import config.Config
-import org.chipsalliance.cde.config.Parameters
+import config._
+import org.chipsalliance.cde.config.{Parameters, Config}
 import freechips.rocketchip.util._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.amba.axi4._
-import freechips.rocketchip.amba.apb._
-import riscv_soc.bus.AXI4ToAPB
+import freechips.rocketchip.system._
 
 import riscv_soc.peripheral._
 import scopt.platform
 import riscv_soc.HasCoreModules
 import riscv_soc.CoreConnect
-import freechips.rocketchip.amba.axi4.AXI4Bundle
-import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
-import riscv_soc.bus
-import _root_.peripheral.UART
+import riscv_soc.cpu._
+import peripheral._
+import riscv_soc.bus._
+
+class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
+    ElaborationArtefacts.add("graphml", graphML)
+    val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits))
+    val LazyLSU = LazyModule(new backend.LSU(idBits = idBits))
+
+    val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
+    xbar := LazyIFU.masterNode
+    xbar := LazyLSU.masterNode
+    val lirom = LazyModule(
+        new IROM_Wrap(AddressSet.misaligned(0x80000000L, 0x4000))
+    )
+
+    val ldram = LazyModule(
+        new DRAM_Wrap(AddressSet.misaligned(0x80100000L, 0x40000) ++ 
+                      AddressSet.misaligned(0x80200000L, 0x10000))
+    )
+
+    lirom.node := xbar
+    ldram.node := xbar
+    
+    override lazy val module = new Impl
+    class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {
+        val irom = IO(chiselTypeOf(lirom.module.io))
+        val dram = IO(chiselTypeOf(ldram.module.io))
+        irom <> lirom.module.io
+        dram <> ldram.module.io
+
+        val BPU = Module(new frontend.BPU)
+        val IFU = LazyIFU.module
+        val IDU = Module(new frontend.IDU)
+        val ISU = Module(new frontend.ISU)
+
+        val ALU = Module(new backend.ALU)
+        val LSU = LazyLSU.module
+        val WBU = Module(new backend.WBU)
+        
+        val REG = Module(new REG)
+        val PipelineCtrl = Module(new PipelineCtrl)
+
+        CoreConnect(this)
+    }
+}
 
 // class jyd_remote_cpu extends Module {
 //   val io = IO(new Bundle{
@@ -183,22 +225,27 @@ import _root_.peripheral.UART
 //     setInline("DRAM.v", code.stripMargin)
 // }
 
-// class top extends Module {
-//   implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
+class top extends Module {
+    implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
 
-//   val mdut = Module(new jyd_remote_cpu)
-//   val irom = Module(new IROM)
-//   val dram = Module(new DRAM)
+    val dut = LazyModule(new core(idBits = ChipLinkParam.idBits))
+    val mdut = Module(dut.module)
 
-//   irom.io.clock := clock
-//   irom.io.addr := mdut.io.IROM.addr
-//   mdut.io.IROM.data := irom.io.data
+    if (Config.Simulate) {
+        val irom = Module(new IROM())
+        val dram = Module(new DRAM())
 
-//   dram.io.clock := clock  
-//   dram.io.valid := true.B
-//   dram.io.addr := mdut.io.DRAM.addr
-//   dram.io.wen := mdut.io.DRAM.wen
-//   dram.io.mask := mdut.io.DRAM.mask
-//   dram.io.wdata := mdut.io.DRAM.wdata
-//   mdut.io.DRAM.rdata := dram.io.rdata
-// }
+        irom.io <> mdut.irom
+        dram.io <> mdut.dram
+    } else {
+        val irom = IO(chiselTypeOf(dut.lirom.module.io))
+        val dram = IO(chiselTypeOf(dut.ldram.module.io))
+        irom <> mdut.irom
+        dram <> mdut.dram
+    }
+
+//   io.irom <> mdut.
+//   io.dram <> mdut.ldram.module.io
+
+    mdut.dontTouchPorts()
+}

@@ -52,13 +52,18 @@ object RotateShifter {
     def apply(width: Int, init: Int): RotateShifter = {
         val module = Module(new RotateShifter(width, init))
 
+        // 只设置输入端口的默认值
         module.io.setEnable := false.B
         module.io.setData := DontCare
         module.io.shift := false.B
         module.io.shamt := DontCare
         module.io.left := DontCare
-        module.io.data := DontCare // Ensure the output is initialized
+        // 移除对输出端口的赋值
 
         module
     }
+}
+
+object HoldUnless {
+  def apply[T <: Data](x: T, en: Bool): T = Mux(en, x, RegEnable(x, 0.U.asTypeOf(x), en))
 }

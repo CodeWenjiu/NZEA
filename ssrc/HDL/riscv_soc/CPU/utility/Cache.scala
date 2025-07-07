@@ -126,18 +126,33 @@ class CacheTemplate(
     }
 
     when(io.rreq.valid) {
-        shifter.shift(1.U)
-        data.write(write_index, replace_data_v, shifter.getData().asBools)
+        // 通过 IO 接口控制 shifter
+        shifter.io.shift := true.B
+        shifter.io.shamt := 1.U
+        shifter.io.left := true.B
+        shifter.io.setEnable := false.B
+        shifter.io.setData := DontCare
+        
+        data.write(write_index, replace_data_v, shifter.io.data.asBools)
 
-        cache_data_write.wrap_call(replace_set, replace_way, OHToUInt(shifter.getData()), io.rreq.bits.data)
+        cache_data_write.wrap_call(replace_set, replace_way, OHToUInt(shifter.io.data), io.rreq.bits.data)
 
-        when(shifter.last()) {
+        when(shifter.io.data(shifter.io.data.getWidth - 1)) {  // last bit
             meta.write(replace_set, replace_tag_v, replace_mask.asBools)
             if (way > 1) replacement.access(replace_set, replace_way)
 
             cache_meta_write.wrap_call(replace_set, replace_way, replace_tag)
         }
-    }.elsewhen(io.areq.hit && io.areq.valid) {
-        if (way > 1) replacement.access(read_set, read_way)
+    }.otherwise {
+        // 默认状态：不进行任何操作
+        shifter.io.shift := false.B
+        shifter.io.shamt := DontCare
+        shifter.io.left := DontCare
+        shifter.io.setEnable := false.B
+        shifter.io.setData := DontCare
+        
+        when(io.areq.hit && io.areq.valid) {
+            if (way > 1) replacement.access(read_set, read_way)
+        }
     }
 }

@@ -129,10 +129,9 @@ impl NzeaTimes {
         let commit_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         // synthetic top
-        let (freq, area) = if target == "Npc" {
+        let (freq, area) = if target == "Npc" || target == "JydRemote" {
             ("N/A".to_string(), "N/A".to_string())
         } else {
-
             let target_lower = target.to_string().to_lowercase();
 
             log_info!("Synthetic NZEA...");
@@ -183,6 +182,7 @@ impl NzeaTimes {
                 Cell::new("Area(um^2)").fg(comfy_table::Color::Blue),
                 Cell::new("IPC").fg(comfy_table::Color::Blue),
                 Cell::new("Freq(MHz)").fg(comfy_table::Color::Blue),
+                Cell::new("Instructions").fg(comfy_table::Color::Blue),
                 Cell::new("Cycles").fg(comfy_table::Color::Blue),
             ])
             .add_row(vec![
@@ -190,6 +190,7 @@ impl NzeaTimes {
                 Cell::new(format!("{}", area)).fg(comfy_table::Color::Green),
                 Cell::new(format!("{:.6}", self.instructions as f64 / self.cycles as f64)).fg(comfy_table::Color::Green),
                 Cell::new(format!("{}", freq)).fg(comfy_table::Color::Green),
+                Cell::new(format!("{}", self.instructions)).fg(comfy_table::Color::Green),
                 Cell::new(format!("{}", self.cycles)).fg(comfy_table::Color::Green),
             ]);
 
@@ -574,7 +575,7 @@ unsafe extern "C" fn uart_catch_handler(c: Input) {
 }
 
 unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
-    let addr = unsafe { *addr & !0x3 };
+    let addr = unsafe { *addr };
     // log_debug!(format!("sram_read addr: {:#08x}", addr));
     let data = unsafe { &mut *data };
 

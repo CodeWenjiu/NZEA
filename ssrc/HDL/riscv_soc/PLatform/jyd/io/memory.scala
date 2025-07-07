@@ -20,6 +20,7 @@ import riscv_soc.CPUAXI4BundleParameters
 import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.bus
 import _root_.peripheral.UART
+import utility.HoldUnless
 
 class System_RAM extends BlackBox {
   val io = IO(new Bundle {
@@ -123,14 +124,216 @@ class SystemRAMWrapper(address: Seq[AddressSet])(implicit p: Parameters) extends
 }
 
 class IROM_bus extends Bundle {
-  val addr = Output(UInt(32.W))
-  val data = Input(UInt(32.W))
+  val addr = Input(UInt(32.W))
+  val data = Output(UInt(32.W))
+}
+
+class IROM extends BlackBox with HasBlackBoxInline {
+  val io = IO(new IROM_bus)
+
+  val code = 
+  s"""
+  |module IROM(
+  |    input [31:0] addr,
+  |    output [31:0] data
+  |);
+  |
+  |   import "DPI-C" function void IROM_read(input bit [31:0] addr, output bit [31:0] data);
+  |   always @(*) begin
+  |       IROM_read(addr, data);
+  |   end
+  |
+  |endmodule
+  """
+
+  setInline("IROM.v", code.stripMargin)
+}
+
+class IROM_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {
+  val beatBytes = 4
+  val node = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
+    Seq(AXI4SlaveParameters(
+      address       = address,
+      executable    = true,
+      // supportsWrite = TransferSizes(1, beatBytes),
+      supportsRead  = TransferSizes(1, beatBytes),
+      interleavedId = Some(0))
+    ),
+    beatBytes  = beatBytes))
+  )
+
+  lazy val module = new Impl
+  class Impl extends LazyModuleImp(this) {
+    val io = IO(Flipped(new IROM_bus))
+
+    val AXI = node.in(0)._1
+
+    AXI.r.bits.id := RegEnable(AXI.ar.bits.id, AXI.ar.fire)
+        
+    val s_wait_addr :: s_burst :: Nil = Enum(2)
+        
+    val state_r = RegInit(s_wait_addr)
+        
+    val read_burst_counter  = RegEnable(AXI.ar.bits.len, AXI.ar.fire)
+
+    val read_addr = RegEnable(AXI.ar.bits.addr, AXI.ar.fire)
+
+    when(AXI.r.fire) {
+      read_burst_counter := read_burst_counter - 1.U
+      read_addr := read_addr + 4.U
+    }
+        
+    AXI.r.bits.last := read_burst_counter === 0.U
+
+    state_r := MuxLookup(state_r, s_wait_addr)(
+      Seq(
+        s_wait_addr -> Mux(AXI.ar.fire, s_burst, s_wait_addr),
+        s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+      )
+    )
+
+    AXI.ar.ready := state_r === s_wait_addr
+    AXI.r.valid  := state_r === s_burst
+
+    AXI.r.bits.resp := "b0".U
+
+    io.addr := read_addr
+    AXI.r.bits.data := io.data
+  }
 }
 
 class DRAM_bus extends Bundle {
-  val addr = Output(UInt(32.W))
-  val wen = Output(Bool())
-  val mask = Output(UInt(2.W))
-  val wdata = Output(UInt(32.W))
-  val rdata = Input(UInt(32.W))
+  val addr  = Input(UInt(32.W))
+  val wen   = Input(Bool())
+  val mask  = Input(UInt(2.W))
+  val wdata = Input(UInt(32.W))
+  val rdata = Output(UInt(32.W))
+}
+
+class DRAM extends BlackBox with HasBlackBoxInline {
+  val io = IO(new DRAM_bus)
+  val code = 
+  s"""
+  |module DRAM(
+  |    input [31:0] addr,
+  |    input wen,
+  |    input [1:0] mask,
+  |    input [31:0] wdata,
+  |    output reg [31:0] rdata
+  |);
+  |
+  |   import "DPI-C" function void DRAM_read(input bit [31:0] addr, input bit [1:0] mask, output bit [31:0] data);
+  |   import "DPI-C" function void DRAM_write(input bit [31:0] addr, input bit [1:0] mask, input bit [31:0] data);
+  |   always @(*) begin
+  |       if(wen) begin
+  |           DRAM_write(addr, mask, wdata);
+  |           rdata = 0; 
+  |       end
+  |       else begin
+  |           DRAM_read(addr, mask, rdata);
+  |       end
+  |   end
+  |
+  |endmodule
+  """
+
+  setInline("DRAM.v", code.stripMargin)
+}
+
+class DRAM_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {
+  val beatBytes = 4
+  val node = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
+    Seq(AXI4SlaveParameters(
+      address       = address,
+      executable    = true,
+      supportsWrite = TransferSizes(1, beatBytes),
+      supportsRead  = TransferSizes(1, beatBytes),
+      interleavedId = Some(0))
+    ),
+    beatBytes  = beatBytes))
+  )
+
+  lazy val module = new Impl
+  class Impl extends LazyModuleImp(this) {
+    val io = IO(Flipped(new DRAM_bus))
+
+    val AXI = node.in(0)._1
+
+    AXI.r.bits.id := RegEnable(AXI.ar.bits.id, AXI.ar.fire)
+    AXI.b.bits.id := RegEnable(AXI.aw.bits.id, AXI.aw.fire)
+        
+    val s_wait_addr :: s_burst :: s_wait_resp :: Nil = Enum(3)
+        
+    val state_r = RegInit(s_wait_addr)
+    val state_w = RegInit(s_wait_addr)
+        
+    val read_burst_counter  = RegEnable(AXI.ar.bits.len, AXI.ar.fire)
+    val write_burst_counter = RegEnable(AXI.aw.bits.len, AXI.aw.fire)
+
+    val read_addr = RegInit(0.U(32.W))
+
+    read_addr := MuxCase(read_addr, Seq(
+      AXI.ar.fire -> (Cat(AXI.ar.bits.addr(31, 2), 0.U(2.W))),
+      AXI.aw.fire -> AXI.aw.bits.addr,
+
+      AXI.r.fire -> (read_addr + 4.U),
+      AXI.w.fire -> (read_addr + 4.U)
+    ))
+
+    when(AXI.r.fire) {
+      read_burst_counter := read_burst_counter - 1.U
+    }
+    when(AXI.w.fire) {
+      write_burst_counter := write_burst_counter - 1.U
+    }
+        
+    AXI.r.bits.last := read_burst_counter === 0.U
+
+    state_r := MuxLookup(state_r, s_wait_addr)(
+      Seq(
+        s_wait_addr -> Mux(AXI.ar.fire, s_burst, s_wait_addr),
+        s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+      )
+    )
+
+    state_w := MuxLookup(state_w, s_wait_addr)(
+      Seq(
+        s_wait_addr -> Mux(AXI.aw.fire, s_burst, s_wait_addr),
+        s_burst     -> Mux(write_burst_counter === 0.U,  s_wait_resp, s_burst),
+        s_wait_resp -> Mux(AXI.b.fire, s_wait_addr, s_wait_resp)
+      )
+    )
+
+    AXI.ar.ready := state_r === s_wait_addr
+    AXI.r.valid  := state_r === s_burst
+
+    AXI.aw.ready := state_w === s_wait_addr
+    AXI.w.ready  := state_w === s_burst
+    AXI.b.valid  := state_w === s_wait_resp
+
+    AXI.r.bits.resp := "b0".U
+    AXI.b.bits.resp := "b0".U
+
+    val strb = MuxCase("b1111".U, Seq(
+      AXI.w.valid -> AXI.w.bits.strb,
+    ))
+
+    val mask = MuxLookup(strb, 0.U)(Seq(
+      "b0001".U -> "b00".U,
+      "b0010".U -> "b00".U,
+      "b0100".U -> "b00".U,
+      "b1000".U -> "b00".U,
+      "b0011".U -> "b01".U, 
+      "b1100".U -> "b01".U, 
+      "b1111".U -> "b10".U
+    ))
+
+    io.addr := read_addr
+    AXI.r.bits.data := (io.rdata << (AXI.ar.bits.addr(1, 0) << 3.U))(31, 0)
+
+    io.mask := mask
+
+    io.wen := (state_w === s_burst) && AXI.w.valid
+    io.wdata := (AXI.w.bits.data >> (read_addr(1, 0) << 3.U))(31, 0)
+  }
 }

@@ -115,7 +115,7 @@ class REG extends Module {
     val REG_2_WBU = Output(new REG_2_WBU)
   })
 
-  val gpr = RegInit(VecInit(Seq.fill(15)(0.U(32.W))))
+  val gpr = RegInit(VecInit(Seq.fill(31)(0.U(32.W))))
   val gpr_waddr = io.WBU_2_REG.bits.gpr_waddr
   val gpr_wdata = io.WBU_2_REG.bits.gpr_wdata
   val gpr_wen = gpr_waddr =/= 0.U
@@ -123,8 +123,8 @@ class REG extends Module {
   val gpr_rs1addr = io.IDU_2_REG.rs1_addr
   val gpr_rs2addr = io.IDU_2_REG.rs2_addr
 
-  io.REG_2_IDU.rs1_val := Mux(gpr_rs1addr === 0.U, 0.U, gpr((gpr_rs1addr - 1.U)(3, 0)))
-  io.REG_2_IDU.rs2_val := Mux(gpr_rs2addr === 0.U, 0.U, gpr((gpr_rs2addr - 1.U)(3, 0)))
+  io.REG_2_IDU.rs1_val := Mux(gpr_rs1addr === 0.U, 0.U, gpr((gpr_rs1addr - 1.U)(4, 0)))
+  io.REG_2_IDU.rs2_val := Mux(gpr_rs2addr === 0.U, 0.U, gpr((gpr_rs2addr - 1.U)(4, 0)))
 
   val mtevc, mepc, mcause, mscratch = RegInit(0.U(32.W))
   val mstatus = RegInit("h00001800".U(32.W)) // MSTATUS default value
