@@ -4,12 +4,21 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.diplomacy.AddressSet
 
+object Cache_Param {
+  var address: Seq[AddressSet] = Seq.empty
+  var way: Int = 0
+  var set: Int = 0
+  var block_size: Int = 0
+}
+
 object Config {
   var Reset_Vector = "h80000000".U(32.W)
 
   var Simulate: Boolean = false
 
   var diff_mis_map: Seq[AddressSet] = AddressSet.misaligned(0, 0)
+
+  var axi_fix: Boolean = false // for jyd remote
 
   def setResetVector(addr: UInt): Unit = {
     Reset_Vector := addr
@@ -23,17 +32,22 @@ object Config {
     diff_mis_map = addr
   }
 
-  object Icache_Param {
-    var address = AddressSet.misaligned(0x80000000L, 0x8000000)
-    var way = 1
-    var set = 32
-    var block_size = 4
+  def setAxiFix(on: Boolean): Unit = {
+    axi_fix = on
   }
 
+  var Icache_Param: Option[(Seq[AddressSet], Int, Int, Int)] = None
+
   def setIcacheParam(address: Seq[AddressSet], set: Int, way: Int, block_size: Int): Unit = {
-    Icache_Param.address = address
-    Icache_Param.way = way
-    Icache_Param.set = set
-    Icache_Param.block_size = block_size
+    Icache_Param match {
+      case Some(_) =>
+        throw new Exception("Icache_Param has already been set.")
+      case None =>
+        Cache_Param.address = address
+        Cache_Param.set = set
+        Cache_Param.way = way
+        Cache_Param.block_size = block_size
+        Icache_Param = Some((address, set, way, block_size))
+    }
   }
 }

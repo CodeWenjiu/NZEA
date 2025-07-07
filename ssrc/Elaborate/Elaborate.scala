@@ -20,6 +20,7 @@ object Elaboratenpc extends App {
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
   Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
                         AddressSet.misaligned(0xa0000048L, 0x10))
+  Config.setAxiFix(true)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.npc.top(), args, firtoolOptions)
 }
@@ -76,6 +77,8 @@ object Elaboratejydremote extends App {
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
 
+  Config.setAxiFix(true)
+
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
 }
 
@@ -93,6 +96,8 @@ object Elaboratejydremote_core extends App {
   Config.setSimulate(false)
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
+
+  Config.setAxiFix(true)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
 }

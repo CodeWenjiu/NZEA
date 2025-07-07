@@ -139,7 +139,8 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         )) << addr(1, 0))
         master.w.bits.data := data
 
-        val AXI_rdata = (master.r.bits.data >> (master.ar.bits.addr(1,0) << 3.U))(31, 0)
+        val AXI_rdata = if (Config.axi_fix) master.r.bits.data else (master.r.bits.data >> (master.ar.bits.addr(1,0) << 3.U))(31, 0)
+        
         val rdata = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
             LsCtrl.LBU -> Cat(Fill(24, 0.U), AXI_rdata(7,0)),
             LsCtrl.LB  -> Cat(Fill(24, AXI_rdata(7)), AXI_rdata(7,0)),
