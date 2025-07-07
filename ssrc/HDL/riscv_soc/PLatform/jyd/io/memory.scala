@@ -273,7 +273,7 @@ class DRAM_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends LazyMo
     val read_addr = RegInit(0.U(32.W))
 
     read_addr := MuxCase(read_addr, Seq(
-      AXI.ar.fire -> (Cat(AXI.ar.bits.addr(31, 2), 0.U(2.W))),
+      AXI.ar.fire -> AXI.ar.bits.addr,
       AXI.aw.fire -> AXI.aw.bits.addr,
 
       AXI.r.fire -> (read_addr + 4.U),
@@ -329,7 +329,7 @@ class DRAM_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends LazyMo
     ))
 
     io.addr := read_addr
-    AXI.r.bits.data := (io.rdata << (AXI.ar.bits.addr(1, 0) << 3.U))(31, 0)
+    AXI.r.bits.data := io.rdata
 
     io.mask := mask
 
