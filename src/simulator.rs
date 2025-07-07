@@ -231,7 +231,7 @@ unsafe extern "C" fn bpu_catch_handler(pc: Input) {
     });
 }
 
-unsafe extern "C" fn btb_cache_meta_write_p(set: u8, way: bool, tag: u32) {
+unsafe extern "C" fn btb_cache_meta_write_p(set: u8, way: u8, tag: u32) {
     NZEA_STATES.with(|state| {
         let mut state = state.get().unwrap().borrow_mut();
         if let Some(btb) = state.cache.btb.as_mut() {
@@ -240,7 +240,7 @@ unsafe extern "C" fn btb_cache_meta_write_p(set: u8, way: bool, tag: u32) {
     })
 }
 
-unsafe extern "C" fn btb_cache_data_write_p(set: u8, way: bool, block: bool, data: u32) {
+unsafe extern "C" fn btb_cache_data_write_p(set: u8, way: u8, block: u8, data: u32) {
     NZEA_STATES.with(|state| {
         let mut state = state.get().unwrap().borrow_mut();
         if let Some(btb) = state.cache.btb.as_mut() {
@@ -249,7 +249,7 @@ unsafe extern "C" fn btb_cache_data_write_p(set: u8, way: bool, block: bool, dat
     });
 }
 
-unsafe extern "C" fn icache_cache_meta_write_p(set: u8, way: bool, tag: u32) {
+unsafe extern "C" fn icache_cache_meta_write_p(set: u8, way: u8, tag: u32) {
     NZEA_STATES.with(|state| {
         let mut state = state.get().unwrap().borrow_mut();
         if let Some(icache) = state.cache.icache.as_mut() {
@@ -258,7 +258,7 @@ unsafe extern "C" fn icache_cache_meta_write_p(set: u8, way: bool, tag: u32) {
     })
 }
 
-unsafe extern "C" fn icache_cache_data_write_p(set: u8, way: bool, block: bool, data: u32) {
+unsafe extern "C" fn icache_cache_data_write_p(set: u8, way: u8, block: u8, data: u32) {
     NZEA_STATES.with(|state| {
         let mut state = state.get().unwrap().borrow_mut();
         if let Some(icache) = state.cache.icache.as_mut() {
@@ -397,50 +397,6 @@ unsafe extern "C" fn lsu_catch_handler(pc: Input, diff_skip: u8, skip_val: Input
         }
         (callback.load_store)();
     });
-}
-
-unsafe extern "C" fn icache_mat_catch_handler(count: Input) {
-    // log_debug!("icache_mat_catch_p");
-    let count = unsafe { &*count };
-
-    NZEA_TIME.with(|time| {
-        time.get()
-            .unwrap()
-            .borrow_mut()
-            .icache_average_memory_acess_cycle += *count as u64;
-    });
-}
-
-unsafe extern "C" fn icache_catch_handler(map_hit: u8, cache_hit: u8) {
-    // log_debug!("icache_catch_p");
-    NZEA_TIME.with(|time| {
-        let mut time = time.get().unwrap().borrow_mut();
-
-        if map_hit == 0 {
-            time.icache_map_miss += 1;
-            return;
-        }
-
-        if cache_hit == 0 {
-            time.icache_cache_miss += 1;
-            return;
-        }
-
-        time.icache_cache_hit += 1;
-    });
-}
-
-unsafe extern "C" fn icache_flush_handler() {
-    // log_debug!("icache_flush_p");
-}
-
-unsafe extern "C" fn icache_state_catch_handler(
-    _write_index: Input,
-    _write_way: Input,
-    _write_tag: Input,
-    _write_data: Input,
-) {
-    // log_debug!("icache_state_catch_p");
 }
 
 unsafe extern "C" fn pipeline_catch_handler() {
@@ -833,10 +789,6 @@ impl Nzea {
             icache_cache_data_write_p: icache_cache_data_write_p,
 
             ifu_catch_p: ifu_catch_handler,
-            icache_mat_catch_p: icache_mat_catch_handler,
-            icache_catch_p: icache_catch_handler,
-            icache_flush_p: icache_flush_handler,
-            icache_state_catch_p: icache_state_catch_handler,
             idu_catch_p: idu_catch_handler,
             isu_catch_p: isu_catch_handler,
             alu_catch_p: alu_catch_handler,

@@ -13,16 +13,12 @@ pub type Output = *mut u32;
 pub struct BasicCallbacks {
     pub bpu_catch_p: unsafe extern "C" fn(Input),
 
-    pub btb_cache_meta_write_p: unsafe extern "C" fn(u8, bool, u32),
-    pub btb_cache_data_write_p: unsafe extern "C" fn(u8, bool, bool, u32),
-    pub icache_cache_meta_write_p: unsafe extern "C" fn(u8, bool, u32),
-    pub icache_cache_data_write_p: unsafe extern "C" fn(u8, bool, bool, u32),
+    pub btb_cache_meta_write_p: unsafe extern "C" fn(u8, u8, u32),
+    pub btb_cache_data_write_p: unsafe extern "C" fn(u8, u8, u8, u32),
+    pub icache_cache_meta_write_p: unsafe extern "C" fn(u8, u8, u32),
+    pub icache_cache_data_write_p: unsafe extern "C" fn(u8, u8, u8, u32),
     
     pub ifu_catch_p: unsafe extern "C" fn(Input, Input),
-    pub icache_mat_catch_p: unsafe extern "C" fn(Input),
-    pub icache_catch_p: unsafe extern "C" fn(u8, u8),
-    pub icache_flush_p: unsafe extern "C" fn(),
-    pub icache_state_catch_p: unsafe extern "C" fn(Input, Input, Input, Input),
     pub idu_catch_p: unsafe extern "C" fn(Input),
     pub isu_catch_p: unsafe extern "C" fn(Input, u8),
     pub alu_catch_p: unsafe extern "C" fn(Input),

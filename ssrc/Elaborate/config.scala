@@ -30,7 +30,7 @@ object Config {
     var block_size = 4
   }
 
-  def setIcacheParam(address: Seq[AddressSet], way: Int, set: Int, block_size: Int): Unit = {
+  def setIcacheParam(address: Seq[AddressSet], set: Int, way: Int, block_size: Int): Unit = {
     Icache_Param.address = address
     Icache_Param.way = way
     Icache_Param.set = set

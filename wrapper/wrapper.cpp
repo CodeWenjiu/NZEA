@@ -149,36 +149,20 @@ extern "C" {
         basic_callbacks.BPU_catch_p(pc);
     }
 
-    void btb_cache_meta_write(char set, svBit way, int tag) {
+    void btb_cache_meta_write(char set, char way, int tag) {
         basic_callbacks.btb_cache_meta_write_p(set, way, tag);
     }
 
-    void btb_cache_data_write(char set, svBit way, svBit block, int data) {
+    void btb_cache_data_write(char set, char way, char block, int data) {
         basic_callbacks.btb_cache_data_write_p(set, way, block, data);
     }
 
-    void icache_cache_meta_write(char set, svBit way, int tag) {
+    void icache_cache_meta_write(char set, char way, int tag) {
         basic_callbacks.icache_cache_meta_write_p(set, way, tag);
     }
 
-    void icache_cache_data_write(char set, svBit way, svBit block, int data) {
+    void icache_cache_data_write(char set, char way, char block, int data) {
         basic_callbacks.icache_cache_data_write_p(set, way, block, data);
-    }
-
-    void Icache_MAT_catch(const svBitVecVal *count) {
-        basic_callbacks.Icache_MAT_catch_p(count);
-    }
-
-    void Icache_catch(svBit map_hit, svBit cache_hit) {
-        basic_callbacks.Icache_catch_p(map_hit, cache_hit);
-    }
-
-    void Icache_flush() {
-        basic_callbacks.Icache_flush_p();
-    }
-
-    void Icache_state_catch(const svBitVecVal *write_index, const svBitVecVal *write_way, const svBitVecVal *write_tag, const svBitVecVal *write_data) {
-        basic_callbacks.Icache_state_catch_p(write_index, write_way, write_tag, write_data);
     }
 
     void ISU_catch(const svBitVecVal *pc, svBit inst_type) {

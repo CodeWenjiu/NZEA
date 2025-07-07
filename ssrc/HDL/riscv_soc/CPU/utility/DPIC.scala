@@ -18,7 +18,6 @@ trait DPI extends DPIClockedVoidFunctionImport {
         val width = data.getWidth
         
         val targetWidth = width match {
-            case 1                    => 1
             case w if w <= 8          => 8
             case w if w <= 16         => 16
             case w if w <= 32         => 32
