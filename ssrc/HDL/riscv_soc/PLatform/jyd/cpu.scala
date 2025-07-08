@@ -24,26 +24,22 @@ import riscv_soc.cpu.backend.LSU_catch
 
 class jydIFU extends Module {
     val io = IO(new Bundle {
-        val WBU_2_IFU = Flipped(new riscv_soc.bus.WBU_2_BPU)
+        val BPU_2_IFU = Flipped(Decoupled(Input(new riscv_soc.bus.BPU_2_IFU)))
         val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.IFU_2_IDU))
 
         val Pipeline_ctrl = Flipped(new riscv_soc.bus.Pipeline_ctrl)
-        val IROM = new IROM_bus
+        val IROM = Flipped(new IROM_bus)
     })
 
-    val pc = RegInit(Config.Reset_Vector)
-    val snpc = pc + 4.U
-    val dnpc = io.WBU_2_IFU.npc
+    val pc = io.BPU_2_IFU.bits.pc
     
     io.IROM.addr := pc
-    pc := MuxCase(pc, Seq(
-        (io.Pipeline_ctrl.flush) -> dnpc,
-        (io.IFU_2_IDU.fire) -> snpc
-    ))
 
-    io.IFU_2_IDU.valid := true.B
+    io.BPU_2_IFU.ready := io.IFU_2_IDU.ready
+    io.IFU_2_IDU.valid := io.BPU_2_IFU.valid
 
     io.IFU_2_IDU.bits.pc := pc
+    io.IFU_2_IDU.bits.npc := io.BPU_2_IFU.bits.npc
     io.IFU_2_IDU.bits.inst := io.IROM.data
 
     if(Config.Simulate){
@@ -63,7 +59,7 @@ class jydLSU extends Module {
 
     val is_flush = Input(Bool())
     
-    val DRAM = new DRAM_bus
+    val DRAM = Flipped(new DRAM_bus)
   })
 
   io.ISU_2_LSU.ready := io.LSU_2_WBU.ready
@@ -76,7 +72,7 @@ class jydLSU extends Module {
       bus.LsCtrl.SH -> true.B,
       bus.LsCtrl.SW -> true.B
   ))
-  io.DRAM.wen := is_st && io.ISU_2_LSU.fire
+  io.DRAM.wen := is_st && io.ISU_2_LSU.fire && !io.is_flush
   val mask = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
       bus.LsCtrl.SB -> "b00".U,
       bus.LsCtrl.SH -> "b01".U, 
@@ -95,6 +91,7 @@ class jydLSU extends Module {
   ))
 
   io.LSU_2_WBU.bits.basic.pc := io.ISU_2_LSU.bits.basic.pc
+  io.LSU_2_WBU.bits.basic.npc := io.ISU_2_LSU.bits.basic.npc
   io.LSU_2_WBU.bits.basic.trap.traped := false.B
   io.LSU_2_WBU.bits.basic.trap.trap_type := bus.Trap_type.Ebreak
 
@@ -111,5 +108,6 @@ class jydLSU extends Module {
       Catch.io.valid := io.LSU_2_WBU.fire && !reset.asBool
       Catch.io.pc    := io.ISU_2_LSU.bits.basic.pc
       Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.ISU_2_LSU.bits.addr)).reduce(_ || _)
+        Catch.io.skip_val := rdata
   }
 }

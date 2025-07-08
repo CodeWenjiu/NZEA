@@ -62,7 +62,7 @@ object Elaborateysyxsoc_core extends App {
   circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.top(), args = args, firtoolOpts  = firtoolOptions)
 }
 
-object Elaboratejydremote extends App {
+object Elaboratejyd extends App {
   val firtoolOptions = Array(
     "-disable-all-randomization",
     "-strip-debug-info",
@@ -79,10 +79,10 @@ object Elaboratejydremote extends App {
 
   Config.setAxiFix(true)
 
-  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.onboard.top(), args, firtoolOptions)
 }
 
-object Elaboratejydremote_core extends App {
+object Elaboratejyd_core extends App {
   val firtoolOptions = Array(
     "-disable-all-randomization",
     "-strip-debug-info",
@@ -99,7 +99,7 @@ object Elaboratejydremote_core extends App {
 
   Config.setAxiFix(true)
 
-  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.onboard.top(), args, firtoolOptions)
 }
 
 // object Elaboratejyd_core extends App {
@@ -119,19 +119,36 @@ object Elaboratejydremote_core extends App {
 //   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.on_board.top(), args, firtoolOptions)
 // }
 
-// object Elaboratejyd_remote extends App {
-//   val firtoolOptions = Array(
-//     "-disable-all-randomization",
-//     "-strip-debug-info",
-//     "--lowering-options=" + List(
-//       // make vivado happy
-//       "mitigateVivadoArrayIndexConstPropBug",
-//     ).reduce(_ + "," + _)
-//   )
+object Elaboratejydremote extends App {
+  val firtoolOptions = Array(
+    "-disable-all-randomization",
+    "-strip-debug-info",
+    "--lowering-options=" + List(
+      // make vivado happy
+      "mitigateVivadoArrayIndexConstPropBug",
+    ).reduce(_ + "," + _)
+  )
   
-//   Config.Reset_Vector = "h80000000".U(32.W)
-//   Config.setSimulate(true)
-//   Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
+  Config.Reset_Vector = "h80000000".U(32.W)
+  Config.setSimulate(true)
+  Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
 
-//   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
-// }
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
+}
+
+object Elaboratejydremote_core extends App {
+  val firtoolOptions = Array(
+    "-disable-all-randomization",
+    "-strip-debug-info",
+    "--lowering-options=" + List(
+      // make vivado happy
+      "mitigateVivadoArrayIndexConstPropBug",
+    ).reduce(_ + "," + _)
+  )
+  
+  Config.Reset_Vector = "h80000000".U(32.W)
+  Config.setSimulate(false)
+  Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
+
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
+}
