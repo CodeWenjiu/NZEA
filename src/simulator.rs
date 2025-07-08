@@ -217,21 +217,6 @@ fn nzea_result_write(result: ProcessResult<()>) {
     });
 }
 
-unsafe extern "C" fn bpu_catch_handler(pc: Input) {
-    let pc = unsafe { &*pc };
-
-    nzea_result_write(
-        NZEA_STATES.with(|state| {
-            state.get().unwrap().borrow_mut().pipe_state.as_mut().unwrap().cell_input((*pc, 0), BaseStageCell::BpIf)
-        })
-    );
-
-    NZEA_CALLBACK.with(|callback| {
-        let callback = callback.get().unwrap().borrow_mut();
-        (callback.branch_predict)();
-    });
-}
-
 unsafe extern "C" fn btb_cache_meta_write_p(set: u8, way: u8, tag: u32) {
     NZEA_STATES.with(|state| {
         let mut state = state.get().unwrap().borrow_mut();
@@ -271,7 +256,7 @@ unsafe extern "C" fn icache_cache_data_write_p(set: u8, way: u8, block: u8, data
 unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
     // log_debug!("ifu_catch_p");
 
-    let _pc = unsafe { &*pc };
+    let pc = unsafe { &*pc };
     let inst = unsafe { &*inst };
 
     NZEA_TIME.with(|time| {
@@ -280,8 +265,7 @@ unsafe extern "C" fn ifu_catch_handler(pc: Input, inst: Input) {
 
     nzea_result_write(
         NZEA_STATES.with(|state| {
-            // state.get().unwrap().borrow_mut().pipe_state.cell_input((*pc, *inst), BaseStageCell::IfId)
-            state.get().unwrap().borrow_mut().pipe_state.as_mut().unwrap().instruction_fetch(*inst)
+            state.get().unwrap().borrow_mut().pipe_state.as_mut().unwrap().cell_input((*pc, *inst), BaseStageCell::IfId)
         })
     );
 
@@ -782,8 +766,6 @@ impl Nzea {
         let top = Top::new(option);
 
         let basic_callbacks = BasicCallbacks {
-            bpu_catch_p: bpu_catch_handler,
-
             btb_cache_meta_write_p: btb_cache_meta_write_p,
             btb_cache_data_write_p: btb_cache_data_write_p,
             icache_cache_meta_write_p: icache_cache_meta_write_p,

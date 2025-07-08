@@ -17,6 +17,8 @@ import riscv_soc.bus._
 import signal_value._
 import scala.collection.Parallel
 import utility.CacheTemplate
+import utility.HoldUnless
+import utility.UpEdge
 
 class IFU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
@@ -63,12 +65,35 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
     lazy val module = new Impl
     class Impl extends LazyModuleImp(this) {
         val io = IO(new Bundle{
-            val BPU_2_IFU = Flipped(Decoupled(Input(new BPU_2_IFU)))
+            val WBU_2_IFU = Flipped(Decoupled(Input(new WBU_2_BPU)))
             val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
 
             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
         })
         val (master, _) = masterNode.out(0)
+
+        val pc = RegInit(Config.Reset_Vector)
+        val snpc = pc + 4.U
+        val dnpc = io.WBU_2_IFU.bits.npc
+        
+        val pc_flush = io.WBU_2_IFU.valid && (io.WBU_2_IFU.bits.wb_ctrlflow =/= WbControlFlow.BPRight)
+
+        val pc_update = io.IFU_2_IDU.fire | pc_flush
+
+        val BPU = Module(new BPU)
+        BPU.io.pc := pc
+        BPU.io.flush_pc.valid := pc_flush
+        BPU.io.flush_pc.bits.pc := io.WBU_2_IFU.bits.pc
+        BPU.io.flush_pc.bits.target := io.WBU_2_IFU.bits.npc
+
+        val npc = MuxCase(snpc, Seq(
+            (pc_flush) -> dnpc,
+            (BPU.io.hit) -> BPU.io.npc,
+        ))
+
+        when(pc_update) {
+            pc := npc
+        }
 
         Config.Icache_Param match {
             case Some((address, set, way, block_size)) => {
@@ -85,16 +110,15 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                     with_fence = true
                 ))
 
-                Icache.io.areq.valid := io.BPU_2_IFU.fire
-                Icache.io.areq.addr := io.BPU_2_IFU.bits.pc
-                Icache.io.rreq.valid := master.r.fire
+                Icache.io.areq.valid := true.B
+                Icache.io.areq.addr := pc
 
                 val cache_hit = Icache.io.areq.hit
 
                 val next_state = MuxLookup(state, IFU_state.s_idle)(
                     Seq(
                         IFU_state.s_idle -> Mux(
-                            io.BPU_2_IFU.valid && !cache_hit,
+                            !cache_hit,
                             IFU_state.s_send_addr,
                             state
                         ),
@@ -114,18 +138,17 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 )
                 state := next_state
 
-                val flat_addr = io.BPU_2_IFU.bits.pc & ~((burst_transfer_time << 2) - 1).U(32.W)
-
-                Icache.io.rreq.bits.addr := flat_addr
+                val flat_addr = pc & ~((burst_transfer_time << 2) - 1).U(32.W)
+                Icache.io.rreq.bits.addr := HoldUnless(flat_addr, UpEdge(master.ar.valid))
                 Icache.io.rreq.bits.data := master.r.bits.data
                 Icache.io.rreq.valid := master.r.fire
 
-                io.BPU_2_IFU.ready := (next_state === IFU_state.s_idle) && (state === IFU_state.s_idle) && io.IFU_2_IDU.ready
-                io.IFU_2_IDU.valid := (state === IFU_state.s_idle) && cache_hit && io.BPU_2_IFU.valid
+                io.WBU_2_IFU.ready := (next_state === IFU_state.s_idle) && (state === IFU_state.s_idle) && io.IFU_2_IDU.ready
+                io.IFU_2_IDU.valid := (state === IFU_state.s_idle) && cache_hit
 
                 io.IFU_2_IDU.bits.inst := Icache.io.areq.data
-                io.IFU_2_IDU.bits.pc := io.BPU_2_IFU.bits.pc
-                io.IFU_2_IDU.bits.npc := io.BPU_2_IFU.bits.npc
+                io.IFU_2_IDU.bits.pc := pc
+                io.IFU_2_IDU.bits.npc := npc
 
                 master.ar.valid := (state === IFU_state.s_send_addr)
                 master.ar.bits.len := (burst_transfer_time - 1).U
@@ -136,17 +159,17 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             case None => {
                 // TODO: Need to fix for master.ar.ready always false
 
-                io.BPU_2_IFU.ready := master.ar.ready && io.IFU_2_IDU.ready
+                io.WBU_2_IFU.ready := master.ar.ready && io.IFU_2_IDU.ready
 
                 io.IFU_2_IDU.valid := master.r.valid
-                io.IFU_2_IDU.bits.pc := io.BPU_2_IFU.bits.pc
-                io.IFU_2_IDU.bits.npc := io.BPU_2_IFU.bits.npc
+                io.IFU_2_IDU.bits.pc := pc
+                io.IFU_2_IDU.bits.npc := io.WBU_2_IFU.bits.npc
 
-                master.ar.valid := io.BPU_2_IFU.valid
+                master.ar.valid := io.WBU_2_IFU.valid
                 master.r.ready := io.IFU_2_IDU.ready
 
                 master.ar.bits.len := 0.U
-                master.ar.bits.addr := io.BPU_2_IFU.bits.pc
+                master.ar.bits.addr := pc
 
                 io.IFU_2_IDU.bits.inst := master.r.bits.data
             }

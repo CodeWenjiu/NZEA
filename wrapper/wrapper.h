@@ -7,8 +7,6 @@ typedef svBitVecVal* output;
 typedef svBit bits;
 
 typedef struct {
-    void(*BPU_catch_p)(input);
-
     void(*btb_cache_meta_write_p)(char set, char way, int tag);
     void(*btb_cache_data_write_p)(char set, char way, char block, int data);
     void(*icache_cache_meta_write_p)(char set, char way, int tag);
@@ -57,8 +55,6 @@ typedef struct {
     }
 
 // Define panic functions for Basic_Callbacks
-DEFINE_PANIC_FUNCTION(BPU_catch_p, input a)
-
 DEFINE_PANIC_FUNCTION(btb_cache_meta_write_p, char set, char way, int tag)
 DEFINE_PANIC_FUNCTION(btb_cache_data_write_p, char set, char way, char block, int data)
 DEFINE_PANIC_FUNCTION(icache_cache_meta_write_p, char set, char way, int tag)
@@ -93,8 +89,6 @@ DEFINE_PANIC_FUNCTION(DRAM_read, input addr, input mask, output data)
 DEFINE_PANIC_FUNCTION(DRAM_write, input addr, input mask, input data)
 
 static Basic_Callbacks basic_callbacks = {
-    .BPU_catch_p = default_BPU_catch_p,
-
     .btb_cache_meta_write_p = default_btb_cache_meta_write_p,
     .btb_cache_data_write_p = default_btb_cache_data_write_p,
     .icache_cache_meta_write_p = default_icache_cache_meta_write_p,

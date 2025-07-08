@@ -22,90 +22,84 @@ import peripheral._
 import riscv_soc.bus._
 
 class top extends Module {
+    val IFU = Module(new jydIFU)
+    val IDU = Module(new riscv_soc.cpu.frontend.IDU)
+    val ISU = Module(new riscv_soc.cpu.frontend.ISU)
 
-  val BPU = Module(new riscv_soc.cpu.frontend.BPU)
-  val IFU = Module(new jydIFU)
-  val IDU = Module(new riscv_soc.cpu.frontend.IDU)
-  val ISU = Module(new riscv_soc.cpu.frontend.ISU)
+    val ALU = Module(new riscv_soc.cpu.backend.ALU)
+    val LSU = Module(new jydLSU)
+    val WBU = Module(new riscv_soc.cpu.backend.WBU)
+    
+    val REG = Module(new riscv_soc.cpu.REG)
+    val PipelineCtrl = Module(new riscv_soc.bus.PipelineCtrl)
 
-  val ALU = Module(new riscv_soc.cpu.backend.ALU)
-  val LSU = Module(new jydLSU)
-  val WBU = Module(new riscv_soc.cpu.backend.WBU)
-  
-  val REG = Module(new riscv_soc.cpu.REG)
-  val PipelineCtrl = Module(new riscv_soc.bus.PipelineCtrl)
+    PipelineCtrl.io.GPR_READMSG.valid := IDU.io.IDU_2_ISU.valid
+    PipelineCtrl.io.GPR_READMSG.bits := IDU.io.IDU_GPR_READMSG
 
-  PipelineCtrl.io.GPR_READMSG.valid := IDU.io.IDU_2_ISU.valid
-  PipelineCtrl.io.GPR_READMSG.bits := IDU.io.IDU_GPR_READMSG
+    PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
+    PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
+    PipelineCtrl.io.ISU_in := ISU.io.IDU_2_ISU
+    PipelineCtrl.io.ALU_in := ALU.io.ISU_2_ALU
+    PipelineCtrl.io.LSU_in := LSU.io.ISU_2_LSU
+    PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
 
-  PipelineCtrl.io.IFU_out := IFU.io.IFU_2_IDU
-  PipelineCtrl.io.IDU_in := IDU.io.IFU_2_IDU
-  PipelineCtrl.io.ISU_in := ISU.io.IDU_2_ISU
-  PipelineCtrl.io.ALU_in := ALU.io.ISU_2_ALU
-  PipelineCtrl.io.LSU_in := LSU.io.ISU_2_LSU
-  PipelineCtrl.io.WBU_in := WBU.io.EXU_2_WBU
+    PipelineCtrl.io.WBU_out := WBU.io.WBU_2_IFU
 
-  PipelineCtrl.io.WBU_out := WBU.io.WBU_2_BPU
+    IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
 
-  IFU.io.Pipeline_ctrl := PipelineCtrl.io.IFUCtrl
+    riscv_soc.bus.pipelineConnect(
+        IFU.io.IFU_2_IDU,
+        IDU.io.IFU_2_IDU,
+        IDU.io.IDU_2_ISU,
+        PipelineCtrl.io.IFUCtrl
+    )
 
-  riscv_soc.bus.pipelineConnect(
-    BPU.io.BPU_2_IFU,
-    IFU.io.BPU_2_IFU,
-    IFU.io.IFU_2_IDU,
-    PipelineCtrl.io.IFUCtrl
-  )
+    riscv_soc.bus.pipelineConnect(
+        IDU.io.IDU_2_ISU,
+        ISU.io.IDU_2_ISU,
+        Seq(ISU.io.ISU_2_ALU, ISU.io.ISU_2_LSU),
+        PipelineCtrl.io.IDUCtrl
+    )
 
-  riscv_soc.bus.pipelineConnect(
-    IFU.io.IFU_2_IDU,
-    IDU.io.IFU_2_IDU,
-    IDU.io.IDU_2_ISU,
-    PipelineCtrl.io.IFUCtrl
-  )
+    riscv_soc.bus.pipelineConnect(
+        ISU.io.ISU_2_ALU,
+        ALU.io.ISU_2_ALU,
+        ALU.io.ALU_2_WBU,
+        PipelineCtrl.io.ISU_2_ALUCtrl
+    )
 
-  riscv_soc.bus.pipelineConnect(
-    IDU.io.IDU_2_ISU,
-    ISU.io.IDU_2_ISU,
-    Seq(ISU.io.ISU_2_ALU, ISU.io.ISU_2_LSU),
-    PipelineCtrl.io.IDUCtrl
-  )
+    riscv_soc.bus.pipelineConnect(
+        ISU.io.ISU_2_LSU,
+        LSU.io.ISU_2_LSU,
+        LSU.io.LSU_2_WBU,
+        PipelineCtrl.io.ISU_2_LSUCtrl
+    )
 
-  riscv_soc.bus.pipelineConnect(
-    ISU.io.ISU_2_ALU,
-    ALU.io.ISU_2_ALU,
-    ALU.io.ALU_2_WBU,
-    PipelineCtrl.io.ISU_2_ALUCtrl
-  )
+    riscv_soc.bus.pipelineConnect(
+        Seq(
+        (LSU.io.LSU_2_WBU),
+        (ALU.io.ALU_2_WBU)
+        ),
+        WBU.io.EXU_2_WBU,
+        WBU.io.WBU_2_IFU,
+        PipelineCtrl.io.EXUCtrl
+    )
 
-  riscv_soc.bus.pipelineConnect(
-    ISU.io.ISU_2_LSU,
-    LSU.io.ISU_2_LSU,
-    LSU.io.LSU_2_WBU,
-    PipelineCtrl.io.ISU_2_LSUCtrl
-  )
-
-  riscv_soc.bus.pipelineConnect(
-    Seq(
-      (LSU.io.LSU_2_WBU),
-      (ALU.io.ALU_2_WBU)
-    ),
-    WBU.io.EXU_2_WBU,
-    WBU.io.WBU_2_BPU,
-    PipelineCtrl.io.EXUCtrl
-  )
-
-  REG.io.IDU_2_REG <> IDU.io.IDU_2_REG
-  REG.io.REG_2_IDU <> IDU.io.REG_2_IDU
+    REG.io.IDU_2_REG <> IDU.io.IDU_2_REG
+    REG.io.REG_2_IDU <> IDU.io.REG_2_IDU
 
     REG.io.ISU_2_REG <> ISU.io.ISU_2_REG
     REG.io.REG_2_ISU <> ISU.io.REG_2_ISU
-    
-  REG.io.WBU_2_REG <> WBU.io.WBU_2_REG
-  REG.io.REG_2_WBU <> WBU.io.REG_2_WBU
+        
+    REG.io.WBU_2_REG <> WBU.io.WBU_2_REG
+    REG.io.REG_2_WBU <> WBU.io.REG_2_WBU
 
-  LSU.io.is_flush := PipelineCtrl.io.EXUCtrl.flush
+    LSU.io.is_flush := PipelineCtrl.io.EXUCtrl.flush
 
-    BPU.io.WBU_2_BPU <> WBU.io.WBU_2_BPU
+    IFU.io.WBU_2_IFU.bits <> WBU.io.WBU_2_IFU.bits
+    IFU.io.WBU_2_IFU.valid := WBU.io.WBU_2_IFU.valid
+
+    WBU.io.WBU_2_IFU.ready := true.B
 
     IDU.io.WB_Bypass <> WBU.io.WB_Bypass
 
@@ -166,6 +160,7 @@ class IROM extends BlackBox with HasBlackBoxInline {
     |);
     |
     |   import "DPI-C" function void IROM_read(input bit [31:0] addr, output bit [31:0] data);
+    |   
     |   always @(*) begin
     |       IROM_read(addr, data);
     |   end

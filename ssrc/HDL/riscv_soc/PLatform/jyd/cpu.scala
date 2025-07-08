@@ -24,22 +24,43 @@ import riscv_soc.cpu.backend.LSU_catch
 
 class jydIFU extends Module {
     val io = IO(new Bundle {
-        val BPU_2_IFU = Flipped(Decoupled(Input(new riscv_soc.bus.BPU_2_IFU)))
+        val WBU_2_IFU = Flipped(Decoupled(Input(new riscv_soc.bus.WBU_2_BPU)))
         val IFU_2_IDU = Decoupled(Output(new riscv_soc.bus.IFU_2_IDU))
 
         val Pipeline_ctrl = Flipped(new riscv_soc.bus.Pipeline_ctrl)
         val IROM = Flipped(new IROM_bus)
     })
 
-    val pc = io.BPU_2_IFU.bits.pc
-    
+    val pc = RegInit(Config.Reset_Vector)
+    val snpc = pc + 4.U
+    val dnpc = io.WBU_2_IFU.bits.npc
+        
+    val pc_flush = io.WBU_2_IFU.valid && (io.WBU_2_IFU.bits.wb_ctrlflow =/= riscv_soc.bus.WbControlFlow.BPRight)
+
+    val pc_update = io.IFU_2_IDU.fire | pc_flush
+
+    val BPU = Module(new riscv_soc.cpu.frontend.BPU)
+    BPU.io.pc := pc
+    BPU.io.flush_pc.valid := pc_flush
+    BPU.io.flush_pc.bits.pc := io.WBU_2_IFU.bits.pc
+    BPU.io.flush_pc.bits.target := io.WBU_2_IFU.bits.npc
+
+    val npc = MuxCase(snpc, Seq(
+        (pc_flush) -> dnpc,
+        (BPU.io.hit) -> BPU.io.npc,
+    ))
+
+    when(pc_update) {
+        pc := npc
+    }
+
     io.IROM.addr := pc
 
-    io.BPU_2_IFU.ready := io.IFU_2_IDU.ready
-    io.IFU_2_IDU.valid := io.BPU_2_IFU.valid
+    io.WBU_2_IFU.ready := io.IFU_2_IDU.ready
+    io.IFU_2_IDU.valid := RegNext(true.B, false.B)
 
     io.IFU_2_IDU.bits.pc := pc
-    io.IFU_2_IDU.bits.npc := io.BPU_2_IFU.bits.npc
+    io.IFU_2_IDU.bits.npc := npc
     io.IFU_2_IDU.bits.inst := io.IROM.data
 
     if(Config.Simulate){

@@ -42,7 +42,6 @@ class PipelineCtrl extends Module {
         val WBU_in  = Flipped(ValidIO(new EXU_2_WBU))
         val WBU_out = Flipped(ValidIO(new WBU_2_BPU))
 
-        val BPUCtrl = new Pipeline_ctrl
         val IFUCtrl = new Pipeline_ctrl
         val IDUCtrl = new Pipeline_ctrl
         val ISU_2_LSUCtrl = new Pipeline_ctrl
@@ -66,9 +65,6 @@ class PipelineCtrl extends Module {
     def control_hazard = io.WBU_out.valid && io.WBU_out.bits.wb_ctrlflow =/= WbControlFlow.BPRight
 
     def loadstore_hazard = io.LSU_in.valid
-
-    io.BPUCtrl.flush := control_hazard
-    io.BPUCtrl.stall := false.B
 
     io.IFUCtrl.flush := control_hazard
     io.IFUCtrl.stall := false.B

@@ -14,11 +14,6 @@ class WBU_output extends Bundle{
     val addr = Output(UInt(32.W))
 }
 
-class BPU_2_IFU extends Bundle {
-    val pc = UInt(32.W)
-    val npc = UInt(32.W)
-}
-
 class IFU_2_IDU extends Bundle {
     val inst = UInt(32.W)
     val pc   = UInt(32.W)

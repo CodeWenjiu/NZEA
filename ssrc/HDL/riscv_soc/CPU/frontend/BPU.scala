@@ -6,82 +6,33 @@ import riscv_soc.bus._
 import config._
 import utility.CacheTemplate
 
-class BPU_catch extends BlackBox with HasBlackBoxInline {
-    val io = IO(new Bundle {
-        val clock = Input(Clock())
-        val valid = Input(Bool())
-        val pc = Input(UInt(32.W))
-    })
-
-    val code =
-    s"""
-    |module BPU_catch(
-    |   input clock,
-    |   input valid,
-    |   input [31:0] pc
-    |);
-    |
-    |import "DPI-C" function void BPU_catch(input bit [31:0] pc);
-    |always @(posedge clock) begin
-    |
-    |   if(valid) begin
-    |       BPU_catch(pc);
-    |   end
-    |
-    |end
-    |
-    |endmodule
-    """
-
-    setInline("BPU_catch.v", code.stripMargin)
+class FLush_PC extends Bundle {
+    val pc = UInt(32.W)
+    val target = UInt(32.W)
 }
 
 class BPU extends Module {
     val io = IO(new Bundle {
-        val WBU_2_BPU = Flipped(Decoupled(Input(new WBU_2_BPU)))
-        val BPU_2_IFU = Decoupled(Output(new BPU_2_IFU))
+        val pc = Input(UInt(32.W))
+
+        val hit = Output(Bool())
+        val npc = Output(UInt(32.W))
+
+        val flush_pc = Flipped(ValidIO(new FLush_PC))
     })
-    
-    val pc = RegInit(Config.Reset_Vector)
-    val snpc = pc + 4.U
     
     val btb_depth = 16
     
     val btb = Module(new CacheTemplate(set = btb_depth, name = "btb"))
 
     val prediction = btb.io.areq
-    prediction.addr := pc
-    
-    val dnpc = io.WBU_2_BPU.bits.npc
-    io.WBU_2_BPU.ready := true.B
+    prediction.addr := io.pc
 
-    val pc_flush = io.WBU_2_BPU.fire && (io.WBU_2_BPU.bits.wb_ctrlflow =/= WbControlFlow.BPRight)
+    prediction.valid := !io.flush_pc.valid
+    btb.io.rreq.valid := io.flush_pc.valid
+    btb.io.rreq.bits.addr := io.flush_pc.bits.pc
+    btb.io.rreq.bits.data := io.flush_pc.bits.target
 
-    prediction.valid := !pc_flush
-    btb.io.rreq.valid := pc_flush
-    btb.io.rreq.bits.addr := io.WBU_2_BPU.bits.pc
-    btb.io.rreq.bits.data := dnpc
-
-    val pc_update = io.BPU_2_IFU.fire | pc_flush
-
-    val npc = MuxCase(snpc, Seq(
-        (pc_flush) -> dnpc,
-        (prediction.hit) -> prediction.data,
-    ))
-
-    when(pc_update) {
-        pc := npc
-    }
-
-    io.BPU_2_IFU.bits.pc := pc
-    io.BPU_2_IFU.bits.npc := npc
-
-    io.BPU_2_IFU.valid := true.B
-    
-    if(Config.Simulate) {
-        val Catch = Module(new BPU_catch)
-        Catch.io.clock := clock
-        Catch.io.valid := io.BPU_2_IFU.fire && !reset.asBool
-        Catch.io.pc := pc
-    }
+    io.hit := prediction.hit
+    io.npc := prediction.data
 }

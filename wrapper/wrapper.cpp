@@ -145,10 +145,6 @@ extern "C" {
         basic_callbacks.IFU_catch_p(pc, inst);
     }
 
-    void BPU_catch(const svBitVecVal *pc) {
-        basic_callbacks.BPU_catch_p(pc);
-    }
-
     void btb_cache_meta_write(char set, char way, int tag) {
         basic_callbacks.btb_cache_meta_write_p(set, way, tag);
     }

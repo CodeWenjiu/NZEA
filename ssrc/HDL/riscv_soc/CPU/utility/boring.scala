@@ -67,3 +67,9 @@ object RotateShifter {
 object HoldUnless {
   def apply[T <: Data](x: T, en: Bool): T = Mux(en, x, RegEnable(x, 0.U.asTypeOf(x), en))
 }
+
+object UpEdge {
+    def apply(x: Bool): Bool = {
+        x && !RegNext(x) 
+    }
+}
