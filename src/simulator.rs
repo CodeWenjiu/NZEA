@@ -3,7 +3,7 @@ use std::{cell::RefCell, char, fs::File, io::{BufRead, BufReader, Write}, proces
 use comfy_table::{Cell, Table};
 use option_parser::OptionParser;
 use pest::Parser;
-use remu_macro::{log_err, log_error, log_info};
+use remu_macro::{log_debug, log_err, log_error, log_info};
 use remu_utils::{ProcessError, ProcessResult, Simulators};
 use state::{cache::{BtbData, CacheTrait, ICacheData}, model::BaseStageCell, reg::RegfileIo, States};
 
@@ -671,9 +671,10 @@ unsafe extern "C" fn dram_read_handler(addr: Input, mask: Input, data: Output) {
     }
 
     if addr == 0x8020_0050 {
-        let timer = TIMER.get().unwrap();
-        let elapsed = timer.elapsed();
-        *data = elapsed.as_micros() as u32;
+        return;
+        // let timer = TIMER.get().unwrap();
+        // let elapsed = timer.elapsed();
+        // *data = elapsed.as_micros() as u32;
     }
 
     if !(0x8010_0000..=0x801f_ffff).contains(&addr) && !(0x8000_0000..=0x8000_3fff).contains(&addr) {

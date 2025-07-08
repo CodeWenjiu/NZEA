@@ -108,6 +108,7 @@ class top extends Module {
         val dram = Module(new DRAM())
 
         irom.io.clock := clock
+        dram.io.clock := clock
 
         irom.io.addr := IFU.io.IROM.addr
         IFU.io.IROM.data := irom.io.data
@@ -173,6 +174,7 @@ class IROM extends BlackBox with HasBlackBoxInline {
 
 class DRAM extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
+        val clock = Input(Clock())
         val addr  = Input(UInt(32.W))
         val wen   = Input(Bool())
         val mask  = Input(UInt(2.W))
@@ -182,6 +184,7 @@ class DRAM extends BlackBox with HasBlackBoxInline {
     val code = 
     s"""
     |module DRAM(
+    |    input clock,
     |    input [31:0] addr,
     |    input wen,
     |    input [1:0] mask,
@@ -191,14 +194,14 @@ class DRAM extends BlackBox with HasBlackBoxInline {
     |
     |   import "DPI-C" function void DRAM_read(input bit [31:0] addr, input bit [1:0] mask, output bit [31:0] data);
     |   import "DPI-C" function void DRAM_write(input bit [31:0] addr, input bit [1:0] mask, input bit [31:0] data);
-    |   always @(*) begin
+    |   always @(posedge clock) begin
     |       if(wen) begin
     |           DRAM_write(addr, mask, wdata);
     |           rdata = 0; 
     |       end
-    |       else begin
-    |           DRAM_read(addr, mask, rdata);
-    |       end
+    |   end
+    |   always @(*) begin
+    |       DRAM_read(addr, mask, rdata);
     |   end
     |
     |endmodule
