@@ -89,7 +89,8 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
 
         val addr = io.ISU_2_LSU.bits.addr
         val fire = io.ISU_2_LSU.fire
-        val data = WireDefault((io.ISU_2_LSU.bits.data << (addr(1, 0) << 3.U))(31, 0))
+        val data = WireDefault(io.ISU_2_LSU.bits.data)
+                   
         val is_st = MuxLookup(io.ISU_2_LSU.bits.Ctrl, false.B)(Seq(
             LsCtrl.SB -> true.B,
             LsCtrl.SH -> true.B,
@@ -121,7 +122,7 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
 
         io.ISU_2_LSU.ready := io.LSU_2_WBU.ready /*is it needed?*/ && state === (LS_state.s_idle)
 
-        master.ar.bits.addr := addr
+        master.ar.bits.addr := Cat(addr(31, 2), 0.U(2.W)) // address aligned to 8 bytes
         master.ar.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_ar_busy)) && !is_st
 
         io.LSU_2_WBU.valid := master.r.valid || master.b.valid
@@ -132,14 +133,21 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         master.aw.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy)) && is_st
         
         master.w.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy) || (state === LS_state.s_w_busy)) && is_st
-        master.w.bits.strb := (MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
+        
+        val write_strb = (MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
             LsCtrl.SB -> "b0001".U,
             LsCtrl.SH -> "b0011".U,
             LsCtrl.SW -> "b1111".U
-        )) << addr(1, 0))
+        )))
+
+        if (Config.axi_fix) 
+            master.w.bits.strb := write_strb 
+        else 
+            master.w.bits.strb := write_strb << addr(1, 0)
+        
         master.w.bits.data := data
 
-        val AXI_rdata = if (Config.axi_fix) master.r.bits.data else (master.r.bits.data >> (master.ar.bits.addr(1,0) << 3.U))(31, 0)
+        val AXI_rdata = (master.r.bits.data >> (addr(1, 0) << 3.U))(31, 0)
         
         val rdata = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
             LsCtrl.LBU -> Cat(Fill(24, 0.U), AXI_rdata(7,0)),

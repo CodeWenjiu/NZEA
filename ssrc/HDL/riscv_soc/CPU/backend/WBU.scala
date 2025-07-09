@@ -60,7 +60,7 @@ class WBU extends Module {
     val io = IO(new Bundle{
         val EXU_2_WBU = Flipped(Decoupled(Input(new EXU_2_WBU)))
 
-        val WBU_2_IFU = Decoupled(Output(new WBU_2_BPU))
+        val WBU_2_IFU = Decoupled(Output(new WBU_2_IFU))
 
         val WBU_2_REG = ValidIO(new WBU_2_REG)
         val REG_2_WBU = Input(new REG_2_WBU)

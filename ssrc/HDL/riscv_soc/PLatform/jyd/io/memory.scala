@@ -270,14 +270,14 @@ class DRAM_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends LazyMo
     val read_burst_counter  = RegEnable(AXI.ar.bits.len, AXI.ar.fire)
     val write_burst_counter = RegEnable(AXI.aw.bits.len, AXI.aw.fire)
 
-    val read_addr = RegInit(0.U(32.W))
+    val access_addr = RegInit(0.U(32.W))
 
-    read_addr := MuxCase(read_addr, Seq(
+    access_addr := MuxCase(access_addr, Seq(
       AXI.ar.fire -> AXI.ar.bits.addr,
       AXI.aw.fire -> AXI.aw.bits.addr,
 
-      AXI.r.fire -> (read_addr + 4.U),
-      AXI.w.fire -> (read_addr + 4.U)
+      AXI.r.fire -> (access_addr + 4.U),
+      AXI.w.fire -> (access_addr + 4.U)
     ))
 
     when(AXI.r.fire) {
@@ -320,20 +320,16 @@ class DRAM_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends LazyMo
 
     val mask = MuxLookup(strb, 0.U)(Seq(
       "b0001".U -> "b00".U,
-      "b0010".U -> "b00".U,
-      "b0100".U -> "b00".U,
-      "b1000".U -> "b00".U,
       "b0011".U -> "b01".U, 
-      "b1100".U -> "b01".U, 
       "b1111".U -> "b10".U
     ))
 
-    io.addr := read_addr
+    io.addr := access_addr
     AXI.r.bits.data := io.rdata
 
     io.mask := mask
 
     io.wen := (state_w === s_burst) && AXI.w.valid
-    io.wdata := (AXI.w.bits.data >> (read_addr(1, 0) << 3.U))(31, 0)
+    io.wdata := AXI.w.bits.data
   }
 }

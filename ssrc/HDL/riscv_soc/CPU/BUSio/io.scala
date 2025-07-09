@@ -128,7 +128,7 @@ object WbControlFlow extends ChiselEnum {
         = Value
 }
 
-class WBU_2_BPU extends Bundle{
+class WBU_2_IFU extends Bundle{
     val pc = UInt(32.W)
     val npc = UInt(32.W)
     val wb_ctrlflow = WbControlFlow()

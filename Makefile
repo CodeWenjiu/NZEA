@@ -96,11 +96,15 @@ $(LIB): $(CSRC) $(VSRC) $(NVBOARD_ARCHIVE)
 
 IMPL_DIR = $(BUILD_DIR)_core
 
+RUN_DESIGN_FILE ?= $(abspath $(IMPL_DIR)/top_.sv)
 IMPL_DESIGN_FILE ?= $(abspath $(IMPL_DIR)/top.sv)
 RPT_FILE = $(IMPL_DIR)/result/top.rpt
 STAT_FILE = $(IMPL_DIR)/result/synth_stat.txt
 
 SDC_FILE = $(abspath $(WRAPPER_DIR)/sdc/$(PLATFORM).sdc)
+
+$(RUN_DESIGN_FILE): $(SSRC)
+	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)_core
 
 $(IMPL_DESIGN_FILE): $(SSRC)
 	$(MAKE) -C $(SSRC_DIR) verilog PLATFORM=$(PLATFORM)_core
@@ -108,6 +112,8 @@ $(IMPL_DESIGN_FILE): $(SSRC)
 
 $(RPT_FILE) $(STAT_FILE): $(IMPL_DESIGN_FILE)
 	$(MAKE) syn
+
+com: $(RUN_DESIGN_FILE)
 
 syn: $(IMPL_DESIGN_FILE)
 	$(MAKE) -C $(YOSYS_HOME) sta \

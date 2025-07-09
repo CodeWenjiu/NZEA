@@ -47,8 +47,6 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
         val dram = IO(chiselTypeOf(ldram.module.io))
         irom <> lirom.module.io
         dram <> ldram.module.io
-
-        val BPU = Module(new frontend.BPU)
         val IFU = LazyIFU.module
         val IDU = Module(new frontend.IDU)
         val ISU = Module(new frontend.ISU)

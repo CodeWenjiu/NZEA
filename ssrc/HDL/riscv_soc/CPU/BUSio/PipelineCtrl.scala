@@ -40,7 +40,7 @@ class PipelineCtrl extends Module {
         val LSU_in  = Flipped(ValidIO(new ISU_2_LSU))
 
         val WBU_in  = Flipped(ValidIO(new EXU_2_WBU))
-        val WBU_out = Flipped(ValidIO(new WBU_2_BPU))
+        val WBU_out = Flipped(ValidIO(new WBU_2_IFU))
 
         val IFUCtrl = new Pipeline_ctrl
         val IDUCtrl = new Pipeline_ctrl

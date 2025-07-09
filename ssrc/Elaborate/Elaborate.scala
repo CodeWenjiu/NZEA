@@ -133,6 +133,8 @@ object Elaboratejydremote extends App {
   Config.setSimulate(true)
   Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
 
+  Config.setAxiFix(true)
+
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
 }
 
@@ -149,6 +151,8 @@ object Elaboratejydremote_core extends App {
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(false)
   Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
+
+  Config.setAxiFix(true)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
 }

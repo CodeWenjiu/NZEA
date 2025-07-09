@@ -65,7 +65,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
     lazy val module = new Impl
     class Impl extends LazyModuleImp(this) {
         val io = IO(new Bundle{
-            val WBU_2_IFU = Flipped(Decoupled(Input(new WBU_2_BPU)))
+            val WBU_2_IFU = Flipped(Decoupled(Input(new WBU_2_IFU)))
             val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
 
             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)

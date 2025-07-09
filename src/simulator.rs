@@ -3,7 +3,7 @@ use std::{cell::RefCell, char, fs::File, io::{BufRead, BufReader, Write}, proces
 use comfy_table::{Cell, Table};
 use option_parser::OptionParser;
 use pest::Parser;
-use remu_macro::{log_debug, log_err, log_error, log_info};
+use remu_macro::{log_err, log_error, log_info};
 use remu_utils::{ProcessError, ProcessResult, Simulators};
 use state::{cache::{BtbData, CacheTrait, ICacheData}, model::BaseStageCell, reg::RegfileIo, States};
 
@@ -129,9 +129,7 @@ impl NzeaTimes {
         let commit_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
         // synthetic top
-        let (freq, area) = if target == "Npc" || target == "JydRemote" {
-            ("N/A".to_string(), "N/A".to_string())
-        } else {
+        let (freq, area) = if target == "Ysyxsoc" {
             let target_lower = target.to_string().to_lowercase();
 
             log_info!("Synthetic NZEA...");
@@ -172,6 +170,8 @@ impl NzeaTimes {
             log_info!("NZEA synthesized successfully");
             
             (Self::get_freq(report)?, Self::get_area(stat)?)
+        } else {
+            ("N/A".to_string(), "N/A".to_string())
         };
 
         let mut table = Table::new();
@@ -642,7 +642,7 @@ unsafe extern "C" fn vga_read(xaddr: u32, yaddr: u32, data: *mut u32) {
 // jyd remote callback
 
 unsafe extern "C" fn irom_read_handler(addr: Input, data: Output) {
-    let addr = unsafe { *addr };
+    let addr = unsafe { *addr & !0x3 };
     let data = unsafe { &mut *data };
 
     if !(0x8000_0000..0x8000_3fff).contains(&addr) {
