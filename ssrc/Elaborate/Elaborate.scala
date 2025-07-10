@@ -99,7 +99,7 @@ object Elaboratejyd_core extends App {
 
   Config.setAxiFix(true)
 
-  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.onboard.top(), args, firtoolOptions)
+  circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.onboard.core(), args, firtoolOptions)
 }
 
 // object Elaboratejyd_core extends App {
