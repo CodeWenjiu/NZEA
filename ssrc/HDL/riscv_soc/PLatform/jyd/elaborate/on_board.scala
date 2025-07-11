@@ -36,8 +36,8 @@ class core_basic(idBits: Int)(implicit p: Parameters) extends LazyModule {
     val LazyLSU = LazyModule(new backend.LSU(idBits = idBits - 1))
 
     val xbar = AXI4Xbar(
-        // maxFlightPerId = 1, 
-        // awQueueDepth = 1
+        maxFlightPerId = 1, 
+        awQueueDepth = 1
     )
     xbar := LazyIFU.masterNode
     xbar := LazyLSU.masterNode

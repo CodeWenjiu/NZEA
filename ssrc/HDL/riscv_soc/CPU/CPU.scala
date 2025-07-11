@@ -121,8 +121,8 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
   val LazyLSU = LazyModule(new backend.LSU(idBits = idBits))
 
   val xbar = AXI4Xbar(
-    // maxFlightPerId = 1, 
-    // awQueueDepth = 1
+    maxFlightPerId = 1, 
+    awQueueDepth = 1
   )
   xbar := LazyIFU.masterNode
   xbar := LazyLSU.masterNode
