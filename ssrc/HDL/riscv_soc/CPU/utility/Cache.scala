@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util._
 import config.Config
 import freechips.rocketchip.tilelink.TLMessages.b
+import chisel3.util.experimental.loadMemoryFromFileInline
 
 class CacheTable(
     width: Int, 
@@ -54,7 +55,7 @@ class CacheTemplate(
     )
 
     val meta_Bundle = new Bundle {
-        val valid = if (with_valid) Bool() else null
+        // val valid = if (with_valid) Bool() else null
         val tag = UInt(table.tagBits.W)
     }
 
@@ -62,6 +63,11 @@ class CacheTemplate(
         val data = UInt(32.W)
     }
 
+    val valid_vec = if (with_valid) {
+        RegInit(VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(false.B)))))
+    } else {
+        VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(true.B))))
+    }
     val meta = Mem(set, Vec(way, meta_Bundle))
     val data = Mem((set * way), Vec(block_num, data_Bundle))
 
@@ -75,8 +81,6 @@ class CacheTemplate(
 
     val read_tag_euqal_vec = 
         VecInit(meta_read_data.map(_.tag === read_tag))
-    val read_valid_vec = 
-        if (with_valid) VecInit(meta_read_data.map(_.valid)) else VecInit(Seq.fill(way)(true.B))
     val read_way = PriorityEncoder(read_tag_euqal_vec)
 
     val read_index = if (way > 1) {
@@ -85,7 +89,7 @@ class CacheTemplate(
         read_set
     }
     io.areq.data := data.read(read_index)(read_block).data
-    io.areq.hit := VecInit((read_tag_euqal_vec zip read_valid_vec).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR
+    io.areq.hit := VecInit((read_tag_euqal_vec zip valid_vec(read_set)).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR
 
     // write
     val replacement = ReplacementPolicy.fromString("setlru", way, set)
@@ -138,6 +142,7 @@ class CacheTemplate(
         cache_data_write.wrap_call(replace_set, replace_way, OHToUInt(shifter.io.data), io.rreq.bits.data)
 
         when(shifter.io.data(shifter.io.data.getWidth - 1)) {  // last bit
+            valid_vec(replace_set)(replace_way) := true.B
             meta.write(replace_set, replace_tag_v, replace_mask.asBools)
             if (way > 1) replacement.access(replace_set, replace_way)
 

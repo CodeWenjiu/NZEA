@@ -23,7 +23,13 @@ class BPU extends Module {
     
     val btb_depth = 16
     
-    val btb = Module(new CacheTemplate(set = btb_depth, name = "btb"))
+    val btb = Module(
+        new CacheTemplate(
+            set = btb_depth, 
+            name = "btb", 
+            with_valid = Config.Four_state_sim,
+        )
+    )
 
     val prediction = btb.io.areq
     prediction.addr := io.pc

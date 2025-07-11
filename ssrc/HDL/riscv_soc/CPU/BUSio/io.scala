@@ -171,7 +171,7 @@ object pipelineConnect {
         ctrl: Pipeline_ctrl) = {
 
         prevOut.ready := thisIn.ready & ~ctrl.stall
-        thisIn.bits := RegEnable(prevOut.bits, prevOut.fire)
+        thisIn.bits := RegEnable(prevOut.bits, 0.U.asTypeOf(thisIn.bits), prevOut.fire)
         thisIn.valid := RegNext(
             MuxCase(
                 thisIn.valid,

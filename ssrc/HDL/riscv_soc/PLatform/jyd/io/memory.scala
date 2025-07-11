@@ -274,7 +274,8 @@ class DRAM_WrapFromAXI extends Module {
 
   state_r := MuxLookup(state_r, s_wait_addr)(
     Seq(
-      s_wait_addr -> Mux(io.axi.ar.fire, s_burst, s_wait_addr),
+      s_wait_addr -> Mux(io.axi.ar.fire, s_wait_resp, s_wait_addr),
+      s_wait_resp -> s_burst,
       s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
     )
   )
@@ -308,7 +309,7 @@ class DRAM_WrapFromAXI extends Module {
   ))
 
   io.dram.addr := access_addr
-  io.axi.r.bits.data := io.dram.rdata
+  io.axi.r.bits.data := RegEnable(io.dram.rdata, (state_r === s_wait_resp) || io.axi.r.fire)
 
   io.dram.mask := mask
 

@@ -155,6 +155,8 @@ class IsCtrl extends Bundle {
 }
 
 object AlCtrl extends ChiselEnum {
+  val WTF = Value(0.U) // WTF, should not be used
+
   val B   = Value((1 << 0).U) // Branch
 
   val ADD = Value((1 << 1).U)

@@ -63,8 +63,8 @@ VSRC += $(SIM_DESIGN_FILE)
 
 VERILATOR = verilator
 VERILATOR_CFLAGS += -j `nproc` -MMD --build -cc  \
-				-O3 --x-assign fast --x-initial fast --noassert  \
-				--trace --trace-fst 
+				-O3 --x-assign fast --x-initial fast \
+				--trace --trace-fst # --noassert  
 
 VERILATOR_SIMFLAGS += --timescale "1ns/1ns" --no-timing --top-module $(TOP_NAME)
 

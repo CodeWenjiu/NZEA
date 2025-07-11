@@ -20,6 +20,8 @@ object Config {
 
   var axi_fix: Boolean = false // for jyd remote
 
+  var Four_state_sim: Boolean = false 
+
   def setResetVector(addr: UInt): Unit = {
     Reset_Vector := addr
   }
@@ -34,6 +36,10 @@ object Config {
 
   def setAxiFix(on: Boolean): Unit = {
     axi_fix = on
+  }
+
+  def setFourStateSim(on: Boolean): Unit = {
+    Four_state_sim = on
   }
 
   var Icache_Param: Option[(Seq[AddressSet], Int, Int, Int)] = None

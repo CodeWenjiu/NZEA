@@ -35,7 +35,10 @@ class core_basic(idBits: Int)(implicit p: Parameters) extends LazyModule {
     val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits - 1))
     val LazyLSU = LazyModule(new backend.LSU(idBits = idBits - 1))
 
-    val xbar = AXI4Xbar(maxFlightPerId = 1, awQueueDepth = 1)
+    val xbar = AXI4Xbar(
+        // maxFlightPerId = 1, 
+        // awQueueDepth = 1
+    )
     xbar := LazyIFU.masterNode
     xbar := LazyLSU.masterNode
 
@@ -149,7 +152,7 @@ class core extends Module {
 
     val dram_wrapper = Module(new DRAM_WrapFromAXI())
     dram_wrapper.clock := mem_clk
-    dram_wrapper.io.axi <> mdut.ls_axi
+    dram_wrapper.io.axi <> DontCare
     dram_cdc.io.m.connect(dram_wrapper.io.axi)
     dram_cdc.io.m_axi_aclk := mem_clk
     dram_cdc.io.m_axi_aresetn := true.B

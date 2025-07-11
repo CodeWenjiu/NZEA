@@ -139,7 +139,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 state := next_state
 
                 val flat_addr = pc & ~((burst_transfer_time << 2) - 1).U(32.W)
-                Icache.io.rreq.bits.addr := HoldUnless(flat_addr, UpEdge(master.ar.valid))
+                Icache.io.rreq.bits.addr := RegEnable(flat_addr, master.ar.fire)
                 Icache.io.rreq.bits.data := master.r.bits.data
                 Icache.io.rreq.valid := master.r.fire
 
@@ -150,7 +150,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 io.IFU_2_IDU.bits.pc := pc
                 io.IFU_2_IDU.bits.npc := npc
 
-                master.ar.valid := (state === IFU_state.s_send_addr)
+                master.ar.valid := (state === IFU_state.s_send_addr) && !pc_flush
                 master.ar.bits.len := (burst_transfer_time - 1).U
                 master.ar.bits.addr := flat_addr
 
