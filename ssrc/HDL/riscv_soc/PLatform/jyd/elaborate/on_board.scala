@@ -123,13 +123,13 @@ class top extends Module {
     mdut.dontTouchPorts()
 }
 
-class core extends Module {
+class core(
+    is_directly_axi: Boolean = true
+) extends Module {
     implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
 
     val dut = LazyModule(new core_basic(idBits = ChipLinkParam.idBits))
     val mem_clk = IO(Input(Clock()))
-    val irom = IO(Flipped(new IROM_bus()))
-    val dram = IO(Flipped(new DRAM_bus()))
     
     val mdut = Module(dut.module)
 
@@ -137,13 +137,8 @@ class core extends Module {
     irom_cdc.io.s.connect(mdut.if_axi)
     irom_cdc.io.s_axi_aclk := clock
     irom_cdc.io.s_axi_aresetn := !reset.asBool
-
-    val irom_wrapper = Module(new IROM_WrapFromAXI())
-    irom_wrapper.io.axi <> DontCare
-    irom_wrapper.clock := mem_clk
-    irom_cdc.io.m.connect(irom_wrapper.io.axi)
     irom_cdc.io.m_axi_aclk := mem_clk
-    irom_cdc.io.m_axi_aresetn := true.B
+    irom_cdc.io.m_axi_aresetn := !reset.asBool
 
     val dram_cdc = Module(new axi_clock_converter())
     dram_cdc.io.s.connect(mdut.ls_axi)
@@ -155,10 +150,24 @@ class core extends Module {
     dram_wrapper.io.axi <> DontCare
     dram_cdc.io.m.connect(dram_wrapper.io.axi)
     dram_cdc.io.m_axi_aclk := mem_clk
-    dram_cdc.io.m_axi_aresetn := true.B
+    dram_cdc.io.m_axi_aresetn := !reset.asBool
 
-    irom <> irom_wrapper.io.irom
+    val irom = if(is_directly_axi) {
+        val irom = IO(chiselTypeOf(dram_cdc.io.m))
+        irom <> irom_cdc.io.m
+        irom
+    } else {
+        val irom = IO(Flipped(new IROM_bus()))
 
+        val irom_wrapper = Module(new IROM_WrapFromAXI())
+        irom_wrapper.io.axi <> DontCare
+        irom_wrapper.clock := mem_clk
+        irom_cdc.io.m.connect(irom_wrapper.io.axi)
+
+        irom <> irom_wrapper.io.irom
+        irom
+    }
+    val dram = IO(Flipped(new DRAM_bus()))
     dram <> dram_wrapper.io.dram
 
     mdut.dontTouchPorts()

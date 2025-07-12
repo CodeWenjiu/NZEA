@@ -35,7 +35,7 @@ class jydIFU extends Module {
     val snpc = pc + 4.U
     val dnpc = io.WBU_2_IFU.bits.npc
         
-    val pc_flush = io.WBU_2_IFU.valid && (io.WBU_2_IFU.bits.wb_ctrlflow =/= riscv_soc.bus.WbControlFlow.BPRight)
+    val pc_flush = io.Pipeline_ctrl.flush
 
     val pc_update = io.IFU_2_IDU.fire | pc_flush
 

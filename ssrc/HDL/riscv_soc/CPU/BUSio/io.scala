@@ -163,7 +163,34 @@ class Pipeline_ctrl extends Bundle {
   val flush = Output(Bool())
 }
 
+object FlushableQueue {
+  def apply[T <: Data](enq: ReadyValidIO[T], flush: Bool, entries: Int = 1,
+      pipe: Boolean = false, flow: Boolean = false): DecoupledIO[T] = {
+    if (entries == 0) {
+      val deq = Wire(new DecoupledIO(enq.bits))
+      deq.valid := enq.valid
+      deq.bits := enq.bits
+      enq.ready := deq.ready
+      deq
+    } else {
+      require(entries > 0)
+      val q = Module(new Queue(chiselTypeOf(enq.bits), entries, pipe, flow, hasFlush = true))
+      q.io.enq <> enq
+      q.io.flush.foreach(_ := flush)
+      q.io.deq
+    }
+  }
+}
+
 object pipelineConnect {
+    def apply[T <: Data, T2 <: Data](
+        prevOut: DecoupledIO[T],
+        thisIn: DecoupledIO[T], 
+        ctrl: Pipeline_ctrl
+    ) = {
+        thisIn <> FlushableQueue(prevOut, ctrl.flush, pipe = true)
+    }
+
     def apply[T <: Data, T2 <: Data](
         prevOut: DecoupledIO[T],
         thisIn: DecoupledIO[T], 
@@ -182,6 +209,23 @@ object pipelineConnect {
                 )
             ),
             false.B
+        )
+    }
+
+    def apply[T <: Data, T2 <: Data](
+        prevOut: DecoupledIO[T],
+        thisIn: DecoupledIO[T], 
+        thisOut: DecoupledIO[T2]
+    ): Unit = {
+        val ctrl = Wire(new Pipeline_ctrl)
+        ctrl.stall := false.B
+        ctrl.flush := false.B
+
+        apply(
+            prevOut, 
+            thisIn, 
+            thisOut, 
+            ctrl
         )
     }
 

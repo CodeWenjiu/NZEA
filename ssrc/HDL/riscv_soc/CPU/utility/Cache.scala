@@ -40,6 +40,7 @@ class CacheTemplate(
     name: String, 
     with_valid: Boolean = false,
     with_fence: Boolean = false, // TODO
+    is_async: Boolean = true,  // TODO
 ) extends Module {
     val io = IO(new Bundle{
         val rreq = Flipped(ValidIO(new ReplacementRequest(base_width)))
@@ -68,8 +69,8 @@ class CacheTemplate(
     } else {
         VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(true.B))))
     }
-    val meta = Mem(set, Vec(way, meta_Bundle))
-    val data = Mem((set * way), Vec(block_num, data_Bundle))
+    val meta = if (is_async) Mem(set, Vec(way, meta_Bundle)) else SyncReadMem(set, Vec(way, meta_Bundle))
+    val data = if (is_async) Mem((set * way), Vec(block_num, data_Bundle)) else SyncReadMem((set * way), Vec(block_num, data_Bundle))
 
     // read
     val read_table = table(io.areq.addr)

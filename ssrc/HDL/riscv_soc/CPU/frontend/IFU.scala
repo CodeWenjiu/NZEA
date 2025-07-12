@@ -68,16 +68,19 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             val WBU_2_IFU = Flipped(Decoupled(Input(new WBU_2_IFU)))
             val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
 
+            // val IFU_2_IDU_async = Output(UInt(32.W))
+
             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
         })
         val (master, _) = masterNode.out(0)
 
+        io.WBU_2_IFU.ready := true.B
         val pc = RegInit(Config.Reset_Vector)
         val snpc = pc + 4.U
         val dnpc = io.WBU_2_IFU.bits.npc
         
-        val pc_flush = io.WBU_2_IFU.valid && (io.WBU_2_IFU.bits.wb_ctrlflow =/= WbControlFlow.BPRight)
-
+        val pc_flush = io.Pipeline_ctrl.flush
+        
         val pc_update = io.IFU_2_IDU.fire | pc_flush
 
         val BPU = Module(new BPU)
@@ -107,7 +110,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                     block_num = burst_transfer_time,
                     name = "icache",
                     with_valid = true,
-                    with_fence = true
+                    with_fence = true,
                 ))
 
                 Icache.io.areq.valid := true.B
@@ -143,7 +146,6 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 Icache.io.rreq.bits.data := master.r.bits.data
                 Icache.io.rreq.valid := master.r.fire
 
-                io.WBU_2_IFU.ready := (next_state === IFU_state.s_idle) && (state === IFU_state.s_idle) && io.IFU_2_IDU.ready
                 io.IFU_2_IDU.valid := (state === IFU_state.s_idle) && cache_hit
 
                 io.IFU_2_IDU.bits.inst := Icache.io.areq.data

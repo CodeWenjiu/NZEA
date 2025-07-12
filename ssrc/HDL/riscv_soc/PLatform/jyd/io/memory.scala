@@ -191,7 +191,9 @@ class IROM extends BlackBox with HasBlackBoxInline {
   setInline("IROM.v", code.stripMargin)
 }
 
-class IROM_WrapFromAXI extends Module {
+class IROM_WrapFromAXI(
+  with_sync_read: Boolean = true
+) extends Module {
   val io = IO(new Bundle {
     val axi = Flipped(new AXI4Bundle(CPUAXI4BundleParameters()))
     val irom = Flipped(new IROM_bus)
@@ -199,7 +201,7 @@ class IROM_WrapFromAXI extends Module {
 
   io.axi.r.bits.id := RegEnable(io.axi.ar.bits.id, io.axi.ar.fire)
       
-  val s_wait_addr :: s_burst :: Nil = Enum(2)
+  val s_wait_addr :: s_burst :: s_wait_sync :: Nil = Enum(3)
       
   val state_r = RegInit(s_wait_addr)
       
@@ -214,19 +216,32 @@ class IROM_WrapFromAXI extends Module {
       
   io.axi.r.bits.last := read_burst_counter === 0.U
 
-  state_r := MuxLookup(state_r, s_wait_addr)(
-    Seq(
-      s_wait_addr -> Mux(io.axi.ar.fire, s_burst, s_wait_addr),
-      s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+  if (with_sync_read) {
+    state_r := MuxLookup(state_r, s_wait_addr)(
+      Seq(
+        s_wait_addr -> Mux(io.axi.ar.fire, s_wait_sync, s_wait_addr),
+        s_wait_sync -> s_burst,
+        s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, Mux(io.axi.r.fire, s_wait_sync, s_burst))
+      )
     )
-  )
+  } else {
+    state_r := MuxLookup(state_r, s_wait_addr)(
+      Seq(
+        s_wait_addr -> Mux(io.axi.ar.fire, s_burst, s_wait_addr),
+        s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+      )
+    )
+  }
 
   io.axi.ar.ready := state_r === s_wait_addr
-  io.axi.r.valid  := state_r === s_burst
+  
 
   io.axi.r.bits.resp := "b0".U
 
+  io.axi.r.valid := state_r === s_burst
+
   io.irom.addr := read_addr
+  
   io.axi.r.bits.data := io.irom.data
 
   io.axi.aw.ready := false.B
@@ -317,59 +332,6 @@ class DRAM_WrapFromAXI extends Module {
   io.dram.wdata := io.axi.w.bits.data
 }
 
-// class IROM_Wrap2AXI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {
-//   val beatBytes = 4
-//   val node = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
-//     Seq(AXI4SlaveParameters(
-//       address       = address,
-//       executable    = true,
-//       // supportsWrite = TransferSizes(1, beatBytes),
-//       supportsRead  = TransferSizes(1, beatBytes),
-//       interleavedId = Some(0))
-//     ),
-//     beatBytes  = beatBytes))
-//   )
-
-//   lazy val module = new Impl
-//   class Impl extends LazyModuleImp(this) {
-//     val io = IO(Flipped(new IROM_bus))
-
-//     val AXI = node.in(0)._1
-
-//     AXI.r.bits.id := RegEnable(AXI.ar.bits.id, AXI.ar.fire)
-        
-//     val s_wait_addr :: s_burst :: Nil = Enum(2)
-        
-//     val state_r = RegInit(s_wait_addr)
-        
-//     val read_burst_counter  = RegEnable(AXI.ar.bits.len, AXI.ar.fire)
-
-//     val read_addr = RegEnable(AXI.ar.bits.addr, AXI.ar.fire)
-
-//     when(AXI.r.fire) {
-//       read_burst_counter := read_burst_counter - 1.U
-//       read_addr := read_addr + 4.U
-//     }
-        
-//     AXI.r.bits.last := read_burst_counter === 0.U
-
-//     state_r := MuxLookup(state_r, s_wait_addr)(
-//       Seq(
-//         s_wait_addr -> Mux(AXI.ar.fire, s_burst, s_wait_addr),
-//         s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
-//       )
-//     )
-
-//     AXI.ar.ready := state_r === s_wait_addr
-//     AXI.r.valid  := state_r === s_burst
-
-//     AXI.r.bits.resp := "b0".U
-
-//     io.addr := read_addr
-//     AXI.r.bits.data := io.data
-//   }
-// }
-
 class DRAM_bus extends Bundle {
   val addr  = Input(UInt(32.W))
   val wen   = Input(Bool())
@@ -407,97 +369,3 @@ class DRAM extends BlackBox with HasBlackBoxInline {
 
   setInline("DRAM.v", code.stripMargin)
 }
-
-// class DRAM_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {
-//   val beatBytes = 4
-//   val node = AXI4SlaveNode(Seq(AXI4SlavePortParameters(
-//     Seq(AXI4SlaveParameters(
-//       address       = address,
-//       executable    = true,
-//       supportsWrite = TransferSizes(1, beatBytes),
-//       supportsRead  = TransferSizes(1, beatBytes),
-//       interleavedId = Some(0))
-//     ),
-//     beatBytes  = beatBytes))
-//   )
-
-//   lazy val module = new Impl
-//   class Impl extends LazyModuleImp(this) {
-//     val io = IO(Flipped(new DRAM_bus))
-
-//     val AXI = node.in(0)._1
-
-//     AXI.r.bits.id := RegEnable(AXI.ar.bits.id, AXI.ar.fire)
-//     AXI.b.bits.id := RegEnable(AXI.aw.bits.id, AXI.aw.fire)
-        
-//     val s_wait_addr :: s_burst :: s_wait_resp :: Nil = Enum(3)
-        
-//     val state_r = RegInit(s_wait_addr)
-//     val state_w = RegInit(s_wait_addr)
-        
-//     val read_burst_counter  = RegEnable(AXI.ar.bits.len, AXI.ar.fire)
-//     val write_burst_counter = RegEnable(AXI.aw.bits.len, AXI.aw.fire)
-
-//     val access_addr = RegInit(0.U(32.W))
-
-//     access_addr := MuxCase(access_addr, Seq(
-//       AXI.ar.fire -> AXI.ar.bits.addr,
-//       AXI.aw.fire -> AXI.aw.bits.addr,
-
-//       AXI.r.fire -> (access_addr + 4.U),
-//       AXI.w.fire -> (access_addr + 4.U)
-//     ))
-
-//     when(AXI.r.fire) {
-//       read_burst_counter := read_burst_counter - 1.U
-//     }
-//     when(AXI.w.fire) {
-//       write_burst_counter := write_burst_counter - 1.U
-//     }
-        
-//     AXI.r.bits.last := read_burst_counter === 0.U
-
-//     state_r := MuxLookup(state_r, s_wait_addr)(
-//       Seq(
-//         s_wait_addr -> Mux(AXI.ar.fire, s_burst, s_wait_addr),
-//         s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
-//       )
-//     )
-
-//     state_w := MuxLookup(state_w, s_wait_addr)(
-//       Seq(
-//         s_wait_addr -> Mux(AXI.aw.fire, s_burst, s_wait_addr),
-//         s_burst     -> Mux(write_burst_counter === 0.U,  s_wait_resp, s_burst),
-//         s_wait_resp -> Mux(AXI.b.fire, s_wait_addr, s_wait_resp)
-//       )
-//     )
-
-//     AXI.ar.ready := state_r === s_wait_addr
-//     AXI.r.valid  := state_r === s_burst
-
-//     AXI.aw.ready := state_w === s_wait_addr
-//     AXI.w.ready  := state_w === s_burst
-//     AXI.b.valid  := state_w === s_wait_resp
-
-//     AXI.r.bits.resp := "b0".U
-//     AXI.b.bits.resp := "b0".U
-
-//     val strb = MuxCase("b1111".U, Seq(
-//       AXI.w.valid -> AXI.w.bits.strb,
-//     ))
-
-//     val mask = MuxLookup(strb, 0.U)(Seq(
-//       "b0001".U -> "b00".U,
-//       "b0011".U -> "b01".U, 
-//       "b1111".U -> "b10".U
-//     ))
-
-//     io.addr := access_addr
-//     AXI.r.bits.data := io.rdata
-
-//     io.mask := mask
-
-//     io.wen := (state_w === s_burst) && AXI.w.valid
-//     io.wdata := AXI.w.bits.data
-//   }
-// }

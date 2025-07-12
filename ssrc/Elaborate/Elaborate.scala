@@ -17,7 +17,7 @@ object Elaboratenpc extends App {
   
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(true)
-  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
+  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 8, 1, 16)
   Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
                         AddressSet.misaligned(0xa0000048L, 0x10))
   Config.setAxiFix(true)
@@ -35,7 +35,7 @@ object Elaborateysyxsoc extends App {
   
   Config.Reset_Vector = "h30000000".U(32.W)
   Config.setSimulate(true)
-  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 4, 1, 16)
+  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 8, 1, 16)
   Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
                         AddressSet.misaligned(0x10002000, 0x10) ++
                         AddressSet.misaligned(0x10011000, 0x8) ++
@@ -57,7 +57,7 @@ object Elaborateysyxsoc_core extends App {
   
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(false)
-  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 4, 1, 16)
+  Config.setIcacheParam(AddressSet.misaligned(0xa0000000L, 0x2000000), 8, 1, 16)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.top(), args = args, firtoolOpts  = firtoolOptions)
 }
@@ -74,7 +74,7 @@ object Elaboratejyd extends App {
   
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(true)
-  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
+  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 8, 1, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
 
   Config.setAxiFix(true)
@@ -94,7 +94,7 @@ object Elaboratejyd_core extends App {
   
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(false)
-  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
+  Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 8, 1, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
 
   Config.setAxiFix(true)
