@@ -129,7 +129,10 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         master.r.ready := io.LSU_2_WBU.ready
         master.b.ready := io.LSU_2_WBU.ready
         
-        master.aw.bits.addr := addr
+        if (Config.axi_fix) 
+            master.aw.bits.addr := addr
+        else
+            master.aw.bits.addr := Cat(addr(31, 2), 0.U(2.W)) 
         master.aw.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy)) && is_st
         
         master.w.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy) || (state === LS_state.s_w_busy)) && is_st
