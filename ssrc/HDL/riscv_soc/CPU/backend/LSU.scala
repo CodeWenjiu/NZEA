@@ -89,7 +89,9 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
 
         val addr = io.ISU_2_LSU.bits.addr
         val fire = io.ISU_2_LSU.fire
-        val data = WireDefault(io.ISU_2_LSU.bits.data)
+        val data = WireDefault(
+            if (Config.axi_fix) io.ISU_2_LSU.bits.data
+            else (io.ISU_2_LSU.bits.data << (addr(1, 0) << 3.U))(31, 0))
                    
         val is_st = MuxLookup(io.ISU_2_LSU.bits.Ctrl, false.B)(Seq(
             LsCtrl.SB -> true.B,
