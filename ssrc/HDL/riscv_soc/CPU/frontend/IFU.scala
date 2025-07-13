@@ -121,16 +121,15 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 val next_state = MuxLookup(state, IFU_state.s_idle)(
                     Seq(
                         IFU_state.s_idle -> Mux(
-                            !cache_hit,
+                            !cache_hit && !pc_flush,
                             IFU_state.s_send_addr,
                             state
                         ),
 
-                        IFU_state.s_send_addr -> Mux(
-                            master.ar.fire,
-                            IFU_state.s_get_data,
-                            state
-                        ),
+                        IFU_state.s_send_addr -> MuxCase(state, Seq( 
+                            master.ar.fire -> IFU_state.s_get_data,
+                            pc_flush -> IFU_state.s_idle
+                        )),
 
                         IFU_state.s_get_data -> Mux(
                             master.r.fire && master.r.bits.last,
@@ -152,7 +151,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 io.IFU_2_IDU.bits.pc := pc
                 io.IFU_2_IDU.bits.npc := npc
 
-                master.ar.valid := (state === IFU_state.s_send_addr) && !pc_flush
+                master.ar.valid := (state === IFU_state.s_send_addr)
                 master.ar.bits.len := (burst_transfer_time - 1).U
                 master.ar.bits.addr := flat_addr
 
@@ -177,7 +176,6 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             }
         }
 
-
         if(Config.Simulate){
             val Catch = Module(new IFU_catch)
             Catch.io.clock := clock
@@ -185,10 +183,11 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
             Catch.io.inst := io.IFU_2_IDU.bits.inst
             Catch.io.pc := io.IFU_2_IDU.bits.pc
         }
+        master.aw.bits.size  := 0.U
+        master.ar.bits.size  := 2.U
 
         master.aw.valid := false.B
         master.aw.bits.addr := 0.U
-        master.aw.bits.size := 0.U
         master.aw.bits.id    := 0.U
         master.aw.bits.len   := 0.U
         master.aw.bits.burst := 0.U
@@ -202,7 +201,6 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
         master.w.bits.last  := 1.U
         master.b.ready := false.B
 
-        master.ar.bits.size  := 2.U
         master.ar.bits.id    := 0.U
         master.ar.bits.burst := 1.U // INCR
         master.ar.bits.lock  := 0.U // Normal access

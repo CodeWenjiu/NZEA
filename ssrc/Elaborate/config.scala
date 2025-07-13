@@ -18,8 +18,6 @@ object Config {
 
   var diff_mis_map: Seq[AddressSet] = AddressSet.misaligned(0, 0)
 
-  var axi_fix: Boolean = false // for jyd remote
-
   var Four_state_sim: Boolean = false 
 
   def setResetVector(addr: UInt): Unit = {
@@ -32,10 +30,6 @@ object Config {
 
   def setDiffMisMap(addr: Seq[AddressSet]): Any = {
     diff_mis_map = addr
-  }
-
-  def setAxiFix(on: Boolean): Unit = {
-    axi_fix = on
   }
 
   def setFourStateSim(on: Boolean): Unit = {

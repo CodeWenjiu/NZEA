@@ -19,7 +19,7 @@ import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 class top extends Module {
   implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
 
-  val dut = LazyModule(new riscv_soc.npc(idBits = ChipLinkParam.idBits))
+  val dut = LazyModule(new riscv_soc.npc(idBits = ChipLinkParam.idBits, false))
   val mdut = Module(dut.module)
   mdut.dontTouchPorts()
 }

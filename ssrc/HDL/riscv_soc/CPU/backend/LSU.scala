@@ -87,11 +87,9 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         master.aw.bits.qos   := 0.U
         master.w.bits.last   := 1.U
 
-        val addr = io.ISU_2_LSU.bits.addr
+        val addr = WireDefault(io.ISU_2_LSU.bits.addr)
         val fire = io.ISU_2_LSU.fire
-        val data = WireDefault(
-            if (Config.axi_fix) io.ISU_2_LSU.bits.data
-            else (io.ISU_2_LSU.bits.data << (addr(1, 0) << 3.U))(31, 0))
+        val data = WireDefault(io.ISU_2_LSU.bits.data)
                    
         val is_st = MuxLookup(io.ISU_2_LSU.bits.Ctrl, false.B)(Seq(
             LsCtrl.SB -> true.B,
@@ -124,35 +122,43 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
 
         io.ISU_2_LSU.ready := io.LSU_2_WBU.ready /*is it needed?*/ && state === (LS_state.s_idle)
 
-        master.ar.bits.addr := Cat(addr(31, 2), 0.U(2.W)) // address aligned to 8 bytes
+        master.ar.bits.addr := addr // address aligned to 8 bytes
         master.ar.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_ar_busy)) && !is_st
 
         io.LSU_2_WBU.valid := master.r.valid || master.b.valid
         master.r.ready := io.LSU_2_WBU.ready
         master.b.ready := io.LSU_2_WBU.ready
         
-        if (Config.axi_fix) 
-            master.aw.bits.addr := addr
-        else
-            master.aw.bits.addr := Cat(addr(31, 2), 0.U(2.W)) 
+        master.aw.bits.addr := addr
         master.aw.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy)) && is_st
         
         master.w.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy) || (state === LS_state.s_w_busy)) && is_st
         
-        val write_strb = (MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
+        val write_strb = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
             LsCtrl.SB -> "b0001".U,
             LsCtrl.SH -> "b0011".U,
             LsCtrl.SW -> "b1111".U
-        )))
+        ))
 
-        if (Config.axi_fix) 
-            master.w.bits.strb := write_strb 
-        else 
-            master.w.bits.strb := write_strb << addr(1, 0)
+        // master.aw.bits.size := MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
+        //     LsCtrl.SB -> 0.U,
+        //     LsCtrl.SH -> 1.U,
+        //     LsCtrl.SW -> 2.U
+        // ))
+
+        // master.ar.bits.size := MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
+        //     LsCtrl.LBU -> 0.U,
+        //     LsCtrl.LB  -> 0.U,
+        //     LsCtrl.LHU -> 1.U,
+        //     LsCtrl.LH  -> 1.U,
+        //     LsCtrl.LW  -> 2.U
+        // ))
+
+        master.w.bits.strb := write_strb 
         
         master.w.bits.data := data
 
-        val AXI_rdata = (master.r.bits.data >> (addr(1, 0) << 3.U))(31, 0)
+        val AXI_rdata = master.r.bits.data
         
         val rdata = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
             LsCtrl.LBU -> Cat(Fill(24, 0.U), AXI_rdata(7,0)),

@@ -30,7 +30,7 @@ object CPUAXI4BundleParameters {
   )
 }
 
-class core_basic(idBits: Int)(implicit p: Parameters) extends LazyModule {
+class core_basic(idBits: Int, io_split: Boolean)(implicit p: Parameters) extends LazyModule {
     ElaborationArtefacts.add("graphml", graphML)
     val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits - 1))
     val LazyLSU = LazyModule(new backend.LSU(idBits = idBits - 1))
@@ -42,12 +42,21 @@ class core_basic(idBits: Int)(implicit p: Parameters) extends LazyModule {
     xbar := LazyIFU.masterNode
     xbar := LazyLSU.masterNode
 
+    val irom_addrSet = AddressSet.misaligned(0x80000000L, 0x4000)
+    val dram_addrSet = AddressSet.misaligned(0x80100000L, 0x40000)
+    val peripheral_addrSet = AddressSet.misaligned(0x80200000L, 0x10000)
+
+    val ls_addrSet = if (io_split) 
+        dram_addrSet
+    else
+        dram_addrSet ++ peripheral_addrSet
+
     val if_node = AXI4SlaveNode(
         Seq(
             AXI4SlavePortParameters(
                 Seq(
                 AXI4SlaveParameters(
-                    address       = AddressSet.misaligned(0x80000000L, 0x4000),
+                    address       = irom_addrSet,
                     executable    = true,
                     supportsRead  = TransferSizes(1, 4),
                     interleavedId = Some(0)
@@ -65,8 +74,7 @@ class core_basic(idBits: Int)(implicit p: Parameters) extends LazyModule {
             AXI4SlavePortParameters(
                 Seq(
                 AXI4SlaveParameters(
-                    address       = AddressSet.misaligned(0x80100000L, 0x40000) ++ 
-                                    AddressSet.misaligned(0x80200000L, 0x10000),
+                    address       = ls_addrSet,
                     executable    = true,
                     supportsRead  = TransferSizes(1, 4),
                     interleavedId = Some(0)
@@ -78,6 +86,29 @@ class core_basic(idBits: Int)(implicit p: Parameters) extends LazyModule {
         )
     )
     ls_node := xbar
+
+    val peripheral_node = if (io_split) {
+        val node = AXI4SlaveNode(
+            Seq(
+                AXI4SlavePortParameters(
+                    Seq(
+                    AXI4SlaveParameters(
+                        address       = peripheral_addrSet,
+                        executable    = true,
+                        supportsRead  = TransferSizes(1, 4),
+                        interleavedId = Some(0)
+                    )
+                    ),
+                    
+                    beatBytes  = 4
+                )
+            )
+        )
+        node := xbar
+        node
+    } else {
+        null
+    }
     
     override lazy val module = new Impl
     class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {
@@ -99,13 +130,21 @@ class core_basic(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
         val ls_axi = IO(new AXI4Bundle(CPUAXI4BundleParameters()))
         ls_axi <> ls_node.in(0)._1
+        
+        val peripheral_axi = if (peripheral_node != null) {
+            val axi = IO(new AXI4Bundle(CPUAXI4BundleParameters()))
+            axi <> peripheral_node.in(0)._1
+            axi
+        } else {
+            null
+        }
     }
 }
 
 class top extends Module {
     implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
 
-    val dut = LazyModule(new core_basic(idBits = ChipLinkParam.idBits))
+    val dut = LazyModule(new core_basic(idBits = ChipLinkParam.idBits, false))
     val irom = Module(new IROM())
     val dram = Module(new DRAM())
     
@@ -128,7 +167,7 @@ class core(
 ) extends Module {
     implicit val config: Parameters = new Config(new Edge32BitConfig ++ new DefaultRV32Config)
 
-    val dut = LazyModule(new core_basic(idBits = ChipLinkParam.idBits))
+    val dut = LazyModule(new core_basic(idBits = ChipLinkParam.idBits, is_directly_axi))
     val mem_clk = IO(Input(Clock()))
     
     val mdut = Module(dut.module)
@@ -144,20 +183,32 @@ class core(
     dram_cdc.io.s.connect(mdut.ls_axi)
     dram_cdc.io.s_axi_aclk := clock
     dram_cdc.io.s_axi_aresetn := !reset.asBool
-
-    val dram_wrapper = Module(new DRAM_WrapFromAXI())
-    dram_wrapper.clock := mem_clk
-    dram_wrapper.io.axi <> DontCare
-    dram_cdc.io.m.connect(dram_wrapper.io.axi)
     dram_cdc.io.m_axi_aclk := mem_clk
     dram_cdc.io.m_axi_aresetn := !reset.asBool
 
-    val irom = if(is_directly_axi) {
-        val irom = IO(chiselTypeOf(dram_cdc.io.m))
+    if(is_directly_axi) {
+        val irom = IO(chiselTypeOf(irom_cdc.io.m))
+        val dram = IO(chiselTypeOf(dram_cdc.io.m))
         irom <> irom_cdc.io.m
-        irom
+        dram <> dram_cdc.io.m
+
+        val peripheral_cdc = Module(new axi_clock_converter())
+        peripheral_cdc.io.s.connect(mdut.peripheral_axi)
+        peripheral_cdc.io.s_axi_aclk := clock
+        peripheral_cdc.io.s_axi_aresetn := !reset.asBool
+        peripheral_cdc.io.m_axi_aclk := mem_clk
+        peripheral_cdc.io.m_axi_aresetn := !reset.asBool
+
+        val perh_wrapper = Module(new DRAM_WrapFromAXI())
+        perh_wrapper.clock := mem_clk
+        perh_wrapper.io.axi <> DontCare
+        peripheral_cdc.io.m.connect(perh_wrapper.io.axi)
+        
+        val peripheral = IO(Flipped(new DRAM_bus()))
+        peripheral <> perh_wrapper.io.dram
     } else {
         val irom = IO(Flipped(new IROM_bus()))
+        val dram = IO(Flipped(new DRAM_bus()))
 
         val irom_wrapper = Module(new IROM_WrapFromAXI())
         irom_wrapper.io.axi <> DontCare
@@ -165,10 +216,14 @@ class core(
         irom_cdc.io.m.connect(irom_wrapper.io.axi)
 
         irom <> irom_wrapper.io.irom
-        irom
+
+        val dram_wrapper = Module(new DRAM_WrapFromAXI())
+        dram_wrapper.clock := mem_clk
+        dram_wrapper.io.axi <> DontCare
+        dram_cdc.io.m.connect(dram_wrapper.io.axi)
+        
+        dram <> dram_wrapper.io.dram
     }
-    val dram = IO(Flipped(new DRAM_bus()))
-    dram <> dram_wrapper.io.dram
 
     mdut.dontTouchPorts()
 }

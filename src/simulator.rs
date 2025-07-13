@@ -534,16 +534,19 @@ fn write_by_name(name: &str, addr: u32, data: u32, len: u32) {
 }
 
 fn write_by_addr(addr: Input, data: Input, mask: Input) {
-    let (addr, data, mask) = unsafe { (&*addr, &*data, &*mask) };
+    let (addr, data, mask) = unsafe { (*addr, &*data, &*mask) };
 
     let data = *data;
     let mask = *mask;
+
+    let addr = addr + mask.trailing_zeros();
+    
     let (data, mask) = read_mask_trans(data, mask);
 
     nzea_result_write(NZEA_STATES.with(|states| {
         let mut states = states.get().unwrap().borrow_mut();
         log_err!(
-            states.mmu.write(*addr, data, mask),
+            states.mmu.write(addr, data, mask),
             ProcessError::Recoverable
         )?;
         Ok(())

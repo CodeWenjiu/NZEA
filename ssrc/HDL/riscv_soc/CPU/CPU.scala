@@ -18,6 +18,8 @@ import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import org.chipsalliance.cde.config.{Parameters, Config}
 
 import _root_.peripheral.UART
+import riscv_soc.bus.ChipLinkParam.mem
+import chisel3.util.experimental.loadMemoryFromFile
 
 object CPUAXI4BundleParameters {
   def apply() = AXI4BundleParameters(
@@ -115,7 +117,7 @@ object CoreConnect {
   }
 }
 
-class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
+class npc(idBits: Int, try_true: Boolean)(implicit p: Parameters) extends LazyModule {
   ElaborationArtefacts.add("graphml", graphML)
   val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits))
   val LazyLSU = LazyModule(new backend.LSU(idBits = idBits))
@@ -131,13 +133,16 @@ class npc(idBits: Int)(implicit p: Parameters) extends LazyModule {
   val lclint = LazyModule(
     new peripheral.CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U)
   )
-  val lsram = LazyModule(
-    new ram.SRAM(AddressSet.misaligned(0x80000000L, 0x8000000))
-  )
-
   luart.node := xbar
   lclint.node := xbar
-  lsram.node := xbar
+  
+  val sram = LazyModule(new ram.SRAM(AddressSet.misaligned(0x80000000L, 0x8000000)))
+  sram.node := xbar
+
+  if (try_true) {
+    val lsram = LazyModule(new AXI4RAM(AddressSet.misaligned(0xb0000000L, 0x20000).head, false, true, 4, None, Nil, false))
+    lsram.node := xbar
+  }
   
   override lazy val module = new Impl
   class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {

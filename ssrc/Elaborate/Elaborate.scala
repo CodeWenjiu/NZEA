@@ -20,7 +20,6 @@ object Elaboratenpc extends App {
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
   Config.setDiffMisMap( AddressSet.misaligned(0x10000000, 0x1000) ++
                         AddressSet.misaligned(0xa0000048L, 0x10))
-  Config.setAxiFix(true)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.npc.top(), args, firtoolOptions)
 }
@@ -40,7 +39,6 @@ object Elaborateysyxsoc extends App {
                         AddressSet.misaligned(0x10002000, 0x10) ++
                         AddressSet.misaligned(0x10011000, 0x8) ++
                         AddressSet.misaligned(0x02000000L, 0x10000))
-  Config.setAxiFix(false)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.ysyx_23060198(), args = args, firtoolOpts  = firtoolOptions)
 }
@@ -78,8 +76,6 @@ object Elaboratejyd extends App {
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 8, 1, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
 
-  Config.setAxiFix(true)
-
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.onboard.top(), args, firtoolOptions)
 }
 
@@ -98,7 +94,6 @@ object Elaboratejyd_core extends App {
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 8, 1, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
 
-  Config.setAxiFix(true)
   Config.setFourStateSim(true)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.onboard.core(), args, firtoolOptions)
@@ -135,8 +130,6 @@ object Elaboratejydremote extends App {
   Config.setSimulate(true)
   Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
 
-  Config.setAxiFix(true)
-
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
 }
 
@@ -153,8 +146,6 @@ object Elaboratejydremote_core extends App {
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(false)
   Config.setDiffMisMap(AddressSet.misaligned(0x80140000L, 0x100000))
-
-  Config.setAxiFix(true)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.remote.top(), args, firtoolOptions)
 }
