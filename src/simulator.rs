@@ -600,10 +600,10 @@ unsafe extern "C" fn psram_write_handler(addr: u32, data: u32, len: u32) {
         }
         _ => {}
     }
-    write_by_name("PSRAM", addr, data, len);
+    write_by_name("PSRAM", addr, data, len / 2);
 }
 
-unsafe extern "C" fn psram_read(addr: u32, data: *mut u32) {
+unsafe extern "C" fn psram_read_handler(addr: u32, data: *mut u32) {
     read_by_name("PSRAM", addr, data);
 }
 
@@ -791,11 +791,13 @@ impl Nzea {
             flash_read: flash_read_handler,
             mrom_read: mrom_read_handler,
             psram_write: psram_write_handler,
-            psram_read: psram_read,
+            psram_read: psram_read_handler,
             sdram_write: sdram_write_handler,
             sdram_read: sdram_read,
             vga_write: vga_write_handler,
             vga_read: vga_read,
+            sram_read: sram_read_handler,
+            sram_write: sram_write_handler,
         };
 
         let jyd_remote_callbacks = JydRemoteCallbacks {

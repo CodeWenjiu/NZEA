@@ -36,6 +36,8 @@ typedef struct {
     void(*sdram_read)(int32_t, int32_t*);
     void(*vga_write)(int32_t, int32_t);
     void(*vga_read)(int32_t, int32_t, int32_t*);
+    void(*YSYXSOC_sram_read_p)(input, output);
+    void(*YSYXSOC_sram_write_p)(input, input, input);
 } YSYXSOC_Callbacks;
 
 typedef struct {
@@ -87,6 +89,8 @@ DEFINE_PANIC_FUNCTION(vga_read, int32_t a, int32_t b, int32_t* c)
 DEFINE_PANIC_FUNCTION(IROM_read, input addr, output data)
 DEFINE_PANIC_FUNCTION(DRAM_read, input addr, input mask, output data)
 DEFINE_PANIC_FUNCTION(DRAM_write, input addr, input mask, input data)
+DEFINE_PANIC_FUNCTION(YSYXSOC_sram_read_p, input a, output b)
+DEFINE_PANIC_FUNCTION(YSYXSOC_sram_write_p, input a, input b, input c)
 
 static Basic_Callbacks basic_callbacks = {
     .btb_cache_meta_write_p = default_btb_cache_meta_write_p,
@@ -118,6 +122,8 @@ static YSYXSOC_Callbacks ysyxsoc_callbacks = {
     .sdram_read = default_sdram_read,
     .vga_write = default_vga_write,
     .vga_read = default_vga_read,
+    .YSYXSOC_sram_read_p = default_YSYXSOC_sram_read_p,
+    .YSYXSOC_sram_write_p = default_YSYXSOC_sram_write_p,
 };
 
 static JYD_REMOTE_Callbacks jyd_remote_callbacks = {

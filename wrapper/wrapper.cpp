@@ -233,6 +233,14 @@ extern "C" {
         ysyxsoc_callbacks.vga_read(x_addr, y_addr, rdata);
     }
 
+    void YSYXSOC_sram_read(const svBitVecVal *addr, svBitVecVal *data) {
+        ysyxsoc_callbacks.YSYXSOC_sram_read_p(addr, data);
+    }
+
+    void YSYXSOC_sram_write(const svBitVecVal *addr, const svBitVecVal *data, const svBitVecVal *mask) {
+        ysyxsoc_callbacks.YSYXSOC_sram_write_p(addr, data, mask);
+    }
+
     // jyd remote callback
 
     void set_jyd_remote_callbacks(JYD_REMOTE_Callbacks cb) {

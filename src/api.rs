@@ -42,6 +42,8 @@ pub struct YsyxsocCallbacks {
     pub sdram_read: unsafe extern "C" fn(u32, *mut u32),
     pub vga_write: unsafe extern "C" fn(u32, u32),
     pub vga_read: unsafe extern "C" fn(u32, u32, *mut u32),
+    pub sram_read: unsafe extern "C" fn(Input, Output),
+    pub sram_write: unsafe extern "C" fn(Input, Input, Input),
 }
 
 #[repr(C)]
