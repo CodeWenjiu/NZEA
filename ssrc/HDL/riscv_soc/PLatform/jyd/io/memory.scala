@@ -150,7 +150,7 @@ class IROM_AXI_Wrap(address: Seq[AddressSet])(implicit p: Parameters) extends La
     state_r := MuxLookup(state_r, s_wait_addr)(
       Seq(
         s_wait_addr -> Mux(AXI.ar.fire, s_burst, s_wait_addr),
-        s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+        s_burst     -> Mux(read_burst_counter === 0.U && AXI.r.fire, s_wait_addr, s_burst),
       )
     )
 
@@ -207,7 +207,7 @@ class IROM_WrapFromAXI(
       
   val read_burst_counter  = RegEnable(io.axi.ar.bits.len, io.axi.ar.fire)
 
-  val read_addr = RegEnable(io.axi.ar.bits.addr, io.axi.ar.fire)
+  val read_addr = RegEnable(Cat(io.axi.ar.bits.addr(31, 2), 0.U(2.W)), io.axi.ar.fire)
 
   when(io.axi.r.fire) {
     read_burst_counter := read_burst_counter - 1.U
@@ -221,14 +221,14 @@ class IROM_WrapFromAXI(
       Seq(
         s_wait_addr -> Mux(io.axi.ar.fire, s_wait_sync, s_wait_addr),
         s_wait_sync -> s_burst,
-        s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, Mux(io.axi.r.fire, s_wait_sync, s_burst))
+        s_burst     -> Mux(read_burst_counter === 0.U && io.axi.r.fire, s_wait_addr, s_burst)
       )
     )
   } else {
     state_r := MuxLookup(state_r, s_wait_addr)(
       Seq(
         s_wait_addr -> Mux(io.axi.ar.fire, s_burst, s_wait_addr),
-        s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+        s_burst     -> Mux(read_burst_counter === 0.U && io.axi.r.fire, s_wait_addr, s_burst),
       )
     )
   }
@@ -271,7 +271,7 @@ class DRAM_WrapFromAXI extends Module {
   val access_addr = RegInit(0.U(32.W))
 
   access_addr := MuxCase(access_addr, Seq(
-    io.axi.ar.fire -> io.axi.ar.bits.addr,
+    io.axi.ar.fire -> Cat(io.axi.ar.bits.addr(31, 2), 0.U(2.W)),
     io.axi.aw.fire -> io.axi.aw.bits.addr,
 
     io.axi.r.fire -> (access_addr + 4.U),
@@ -291,14 +291,14 @@ class DRAM_WrapFromAXI extends Module {
     Seq(
       s_wait_addr -> Mux(io.axi.ar.fire, s_wait_resp, s_wait_addr),
       s_wait_resp -> s_burst,
-      s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+      s_burst     -> Mux(read_burst_counter === 0.U && io.axi.r.fire, s_wait_addr, s_burst),
     )
   )
 
   state_w := MuxLookup(state_w, s_wait_addr)(
     Seq(
       s_wait_addr -> Mux(io.axi.aw.fire, s_burst, s_wait_addr),
-      s_burst     -> Mux(write_burst_counter === 0.U,  s_wait_resp, s_burst),
+      s_burst     -> Mux(write_burst_counter === 0.U && io.axi.w.fire,  s_wait_resp, s_burst),
       s_wait_resp -> Mux(io.axi.b.fire, s_wait_addr, s_wait_resp)
     )
   )
@@ -319,7 +319,11 @@ class DRAM_WrapFromAXI extends Module {
 
   val mask = MuxLookup(strb, 0.U)(Seq(
     "b0001".U -> "b00".U,
+    "b0010".U -> "b00".U,
+    "b0100".U -> "b00".U,
+    "b1000".U -> "b00".U,
     "b0011".U -> "b01".U, 
+    "b1100".U -> "b01".U, 
     "b1111".U -> "b10".U
   ))
 
@@ -329,7 +333,7 @@ class DRAM_WrapFromAXI extends Module {
   io.dram.mask := mask
 
   io.dram.wen := (state_w === s_burst) && io.axi.w.valid
-  io.dram.wdata := io.axi.w.bits.data
+  io.dram.wdata := io.axi.w.bits.data >> (access_addr(1, 0) << 3.U)
 }
 
 class DRAM_bus extends Bundle {

@@ -539,7 +539,7 @@ fn write_by_addr(addr: Input, data: Input, mask: Input) {
     let data = *data;
     let mask = *mask;
 
-    let addr = addr + mask.trailing_zeros();
+    let addr = (addr & !0x3) + mask.trailing_zeros();
     
     let (data, mask) = read_mask_trans(data, mask);
 
@@ -562,7 +562,7 @@ unsafe extern "C" fn uart_catch_handler(c: Input) {
 }
 
 unsafe extern "C" fn sram_read_handler(addr: Input, data: Output) {
-    let addr = unsafe { *addr };
+    let addr = unsafe { *addr & !0x3 };
     // log_debug!(format!("sram_read addr: {:#08x}", addr));
     let data = unsafe { &mut *data };
 

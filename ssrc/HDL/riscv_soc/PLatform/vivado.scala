@@ -81,16 +81,15 @@ class BasicAXI extends Bundle {
     }
 }
 
-class AXI_CDC_io extends Bundle {
-    val s_axi_aclk      = Input(Clock())
-    val s_axi_aresetn   = Input(Bool())
-    val s = new BasicAXI
+class AXI_CDC extends BlackBox {
+    val io = IO(new Bundle {
+        val s_axi_aclk      = Input(Clock())
+        val s_axi_aresetn   = Input(Bool())
+        val s = new BasicAXI
 
-    val m_axi_aclk      = Input(Clock())
-    val m_axi_aresetn   = Input(Bool())
-    val m = Flipped(new BasicAXI)
+        val m_axi_aclk      = Input(Clock())
+        val m_axi_aresetn   = Input(Bool())
+        val m = Flipped(new BasicAXI)
+    })
 }
 
-class axi_clock_converter extends BlackBox {
-    val io = IO(new AXI_CDC_io)
-}

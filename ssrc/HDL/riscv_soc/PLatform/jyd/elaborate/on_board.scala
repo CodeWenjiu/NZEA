@@ -20,7 +20,10 @@ import org.chipsalliance.diplomacy.lazymodule.{LazyModule, LazyModuleImp}
 import riscv_soc.cpu._
 import peripheral._
 import riscv_soc.bus._
-import riscv_soc.platform.vivado.axi_clock_converter
+import riscv_soc.platform.vivado.AXI_CDC
+
+class axi_clock_converter extends AXI_CDC
+class axi_clock_converter_1 extends AXI_CDC
 
 object CPUAXI4BundleParameters {
   def apply() = AXI4BundleParameters(
@@ -67,7 +70,11 @@ class core_basic(idBits: Int, io_split: Boolean)(implicit p: Parameters) extends
             )
         )
     )
-    if_node := xbar
+    if (Config.Simulate) {
+        if_node := AXI4Delayer(0.1) := xbar
+    } else {
+        if_node := xbar
+    }
 
     val ls_node = AXI4SlaveNode(
         Seq(
@@ -85,7 +92,11 @@ class core_basic(idBits: Int, io_split: Boolean)(implicit p: Parameters) extends
             )
         )
     )
-    ls_node := xbar
+    if (Config.Simulate) {
+        ls_node := AXI4Delayer(0.1) := xbar
+    } else {
+        ls_node := xbar
+    }
 
     val peripheral_node = if (io_split) {
         val node = AXI4SlaveNode(
@@ -169,6 +180,7 @@ class core(
 
     val dut = LazyModule(new core_basic(idBits = ChipLinkParam.idBits, is_directly_axi))
     val mem_clk = IO(Input(Clock()))
+    val periph_clk = IO(Input(Clock()))
     
     val mdut = Module(dut.module)
 
@@ -192,15 +204,15 @@ class core(
         irom <> irom_cdc.io.m
         dram <> dram_cdc.io.m
 
-        val peripheral_cdc = Module(new axi_clock_converter())
+        val peripheral_cdc = Module(new axi_clock_converter_1())
         peripheral_cdc.io.s.connect(mdut.peripheral_axi)
         peripheral_cdc.io.s_axi_aclk := clock
         peripheral_cdc.io.s_axi_aresetn := !reset.asBool
-        peripheral_cdc.io.m_axi_aclk := mem_clk
+        peripheral_cdc.io.m_axi_aclk := periph_clk
         peripheral_cdc.io.m_axi_aresetn := !reset.asBool
 
         val perh_wrapper = Module(new DRAM_WrapFromAXI())
-        perh_wrapper.clock := mem_clk
+        perh_wrapper.clock := periph_clk
         perh_wrapper.io.axi <> DontCare
         peripheral_cdc.io.m.connect(perh_wrapper.io.axi)
         
