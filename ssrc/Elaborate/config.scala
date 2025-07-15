@@ -20,6 +20,8 @@ object Config {
 
   var Four_state_sim: Boolean = false 
 
+  var reg_fix: Boolean = true
+
   def setResetVector(addr: UInt): Unit = {
     Reset_Vector := addr
   }
@@ -34,6 +36,10 @@ object Config {
 
   def setFourStateSim(on: Boolean): Unit = {
     Four_state_sim = on
+  }
+
+  def setRegFix(on: Boolean): Unit = {
+    reg_fix = on
   }
 
   var Icache_Param: Option[(Seq[AddressSet], Int, Int, Int)] = None

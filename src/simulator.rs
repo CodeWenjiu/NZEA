@@ -5,7 +5,7 @@ use option_parser::OptionParser;
 use pest::Parser;
 use remu_macro::{log_err, log_error, log_info};
 use remu_utils::{ProcessError, ProcessResult, Simulators};
-use state::{cache::{BtbData, CacheTrait, ICacheData}, model::BaseStageCell, reg::RegfileIo, States};
+use state::{cache::{BtbData, CacheBase, ICacheData}, model::BaseStageCell, reg::RegfileIo, States};
 
 use crate::{nzea::get_nzea_root, SimulatorCallback, SimulatorError, SimulatorItem};
 

@@ -58,13 +58,19 @@ object Imm_Field extends DecodeField[rvInstructionPattern, Imm_TypeEnum.Type] wi
     override def name: String = "imm"
     override def chiselType = Imm_TypeEnum()
     override def genTable(i: rvInstructionPattern): BitPat = {
-        i.inst.args.map(_.toString).collectFirst {
-            case "imm12" | "shamtw" | "csr"     => Get_BitPat(Imm_TypeEnum.Imm_I)
-            case "imm12hi" | "imm12lo"          => Get_BitPat(Imm_TypeEnum.Imm_S)
-            case "bimm12hi" | "bimm12lo"        => Get_BitPat(Imm_TypeEnum.Imm_B)
-            case "imm20"                        => Get_BitPat(Imm_TypeEnum.Imm_U)
-            case "jimm20"                       => Get_BitPat(Imm_TypeEnum.Imm_J)
-        }.getOrElse(BitPat.dontCare(Imm_TypeEnum.getWidth))
+        if (rvdecoderdb.Utils.isI(i.inst) || i.inst.args.map(_.toString).collectFirst { case arg if (arg == "csr") || (arg == "shamtw") => arg }.isDefined) {
+            Get_BitPat(Imm_TypeEnum.Imm_I)
+        } else if (rvdecoderdb.Utils.isS(i.inst)) {
+            Get_BitPat(Imm_TypeEnum.Imm_S)
+        } else if (rvdecoderdb.Utils.isB(i.inst)) {
+            Get_BitPat(Imm_TypeEnum.Imm_B)
+        } else if (rvdecoderdb.Utils.isU(i.inst)) {
+            Get_BitPat(Imm_TypeEnum.Imm_U)
+        } else if (rvdecoderdb.Utils.isJ(i.inst)) {
+            Get_BitPat(Imm_TypeEnum.Imm_J)
+        } else {
+            BitPat.dontCare(Imm_TypeEnum.getWidth)
+        }
     }
 }
 
@@ -209,11 +215,7 @@ object GPR_Write_Field extends DecodeField[rvInstructionPattern, Bool] with Deco
     override def name: String = "gpr_write_not"
     override def chiselType = Bool()
     override def genTable(i: rvInstructionPattern): BitPat = {
-        if (i.inst.args.map(_.toString).contains("rd")) {
-            Get_BitPat(true.B)
-        } else {
-            Get_BitPat(false.B)
-        }
+        rvdecoderdb.Utils.writeRd(i.inst).B
     }
 }
 
@@ -221,11 +223,7 @@ object RS1_Used_Field extends DecodeField[rvInstructionPattern, Bool] with Decod
     override def name: String = "rs1_used"
     override def chiselType = Bool()
     override def genTable(i: rvInstructionPattern): BitPat = {
-        if (i.inst.args.map(_.toString).contains("rs1")) {
-            Get_BitPat(true.B)
-        } else {
-            Get_BitPat(false.B)
-        }
+        rvdecoderdb.Utils.readRs1(i.inst).B
     }
 }
 
@@ -233,11 +231,7 @@ object RS2_Used_Field extends DecodeField[rvInstructionPattern, Bool] with Decod
     override def name: String = "rs2_used"
     override def chiselType = Bool()
     override def genTable(i: rvInstructionPattern): BitPat = {
-        if (i.inst.args.map(_.toString).contains("rs2")) {
-            Get_BitPat(true.B)
-        } else {
-            Get_BitPat(false.B)
-        }
+        rvdecoderdb.Utils.readRs2(i.inst).B
     }
 }
 
@@ -338,8 +332,11 @@ class IDU extends Module {
         )
     )
 
-    val rs1_addr_fix = Mux(rvdecoderResult(RS1_Used_Field), io.IFU_2_IDU.bits.inst(19, 15), 0.U(5.W))
-    val rs2_addr_fix = Mux(rvdecoderResult(RS2_Used_Field), io.IFU_2_IDU.bits.inst(24, 20), 0.U(5.W))
+    val rs1_addr = io.IFU_2_IDU.bits.inst(19, 15)
+    val rs2_addr = io.IFU_2_IDU.bits.inst(24, 20)
+
+    val rs1_addr_fix = Mux(if (Config.reg_fix) rvdecoderResult(RS1_Used_Field) else true.B, rs1_addr, 0.U(5.W))
+    val rs2_addr_fix = Mux(if (Config.reg_fix) rvdecoderResult(RS2_Used_Field) else true.B, rs2_addr, 0.U(5.W))
 
     io.IDU_GPR_READMSG.rs1_addr := rs1_addr_fix
     io.IDU_GPR_READMSG.rs2_addr := rs2_addr_fix

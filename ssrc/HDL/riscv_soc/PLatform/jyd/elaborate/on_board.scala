@@ -42,7 +42,6 @@ class core_basic(idBits: Int, io_split: Boolean)(implicit p: Parameters) extends
         maxFlightPerId = 1, 
         awQueueDepth = 1
     )
-    xbar := LazyIFU.masterNode
     xbar := LazyLSU.masterNode
 
     val irom_addrSet = AddressSet.misaligned(0x80000000L, 0x4000)
@@ -71,9 +70,9 @@ class core_basic(idBits: Int, io_split: Boolean)(implicit p: Parameters) extends
         )
     )
     if (Config.Simulate) {
-        if_node := AXI4Delayer(0.1) := xbar
+        if_node := AXI4Delayer(0.1) := LazyIFU.masterNode
     } else {
-        if_node := xbar
+        if_node := LazyIFU.masterNode
     }
 
     val ls_node = AXI4SlaveNode(
