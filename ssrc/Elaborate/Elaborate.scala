@@ -93,6 +93,7 @@ object Elaboratejyd_core extends App {
   Config.setSimulate(false)
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 8, 2, 16)
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
+  Config.setRegFix(false)
 
   Config.setFourStateSim(true)
 

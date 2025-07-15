@@ -230,7 +230,7 @@ unsafe extern "C" fn btb_cache_data_write_p(set: u8, way: u8, block: u8, data: u
     NZEA_STATES.with(|state| {
         let mut state = state.get().unwrap().borrow_mut();
         if let Some(btb) = state.cache.btb.as_mut() {
-            btb.base_data_write(set as u32, way as u32, block as u32, BtbData { target: data });
+            btb.base_data_write(set as u32, way as u32, block as u32, BtbData { typ: false, target: data });
         }
     });
 }

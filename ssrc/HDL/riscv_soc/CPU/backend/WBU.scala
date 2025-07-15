@@ -80,14 +80,14 @@ class WBU extends Module {
     val Default_Next_Pc = ex_basic.pc + 4.U
 
     val next_pc = MuxCase(Default_Next_Pc, Seq(
-        (ex_basic.trap.traped) -> io.REG_2_WBU.MTVEC,
+        // (ex_basic.trap.traped) -> io.REG_2_WBU.MTVEC,
         (io.EXU_2_WBU.bits.wbCtrl === WbCtrl.Jump) -> io.EXU_2_WBU.bits.Result,
     ))
     io.WBU_2_IFU.bits.pc := ex_basic.pc
     io.WBU_2_IFU.bits.npc := next_pc
 
     io.WBU_2_IFU.bits.wb_ctrlflow := MuxCase(WbControlFlow.BPRight, Seq(
-        (ex_basic.trap.traped) -> WbControlFlow.Trap,
+        // (ex_basic.trap.traped) -> WbControlFlow.Trap,
         (next_pc =/= ex_basic.npc) -> WbControlFlow.BPError,
     ))
 
