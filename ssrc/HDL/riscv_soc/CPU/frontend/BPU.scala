@@ -34,11 +34,11 @@ class BPU extends Module {
     val prediction = btb.io.areq
     prediction.addr := io.pc
 
-    prediction.valid := !io.flush_pc.valid
+    prediction.ren := !io.flush_pc.valid
     btb.io.rreq.valid := io.flush_pc.valid
     btb.io.rreq.bits.addr := io.flush_pc.bits.pc
     btb.io.rreq.bits.data := io.flush_pc.bits.target
 
     io.hit := prediction.hit
-    io.npc := prediction.data
+    io.npc := prediction.rdata
 }

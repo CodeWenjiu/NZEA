@@ -113,7 +113,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                     with_fence = true,
                 ))
 
-                Icache.io.areq.valid := true.B
+                Icache.io.areq.ren := true.B
                 Icache.io.areq.addr := pc
 
                 val cache_hit = Icache.io.areq.hit
@@ -147,7 +147,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
 
                 io.IFU_2_IDU.valid := (state === IFU_state.s_idle) && cache_hit
 
-                io.IFU_2_IDU.bits.inst := Icache.io.areq.data
+                io.IFU_2_IDU.bits.inst := Icache.io.areq.rdata
                 io.IFU_2_IDU.bits.pc := pc
                 io.IFU_2_IDU.bits.npc := npc
 

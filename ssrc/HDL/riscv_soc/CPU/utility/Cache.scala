@@ -5,6 +5,7 @@ import chisel3.util._
 import config.Config
 import freechips.rocketchip.tilelink.TLMessages.b
 import chisel3.util.experimental.loadMemoryFromFileInline
+import freechips.rocketchip.diplomacy.AddressSet
 
 class CacheTable(
     width: Int, 
@@ -26,17 +27,22 @@ class ReplacementRequest(width: Int) extends Bundle {
     val data = UInt(width.W)
 }
 
-class AccessRequestIO(width: Int) extends Bundle {
-    val valid = Input(Bool())
+class AccessRequestIO(width: Int, ro: Boolean) extends Bundle {
+    val ren = Input(Bool())
     val addr = Input(UInt(width.W))
     
+    val wen = if (ro) None else Some(Input(Bool()))
+    val wdata = if (ro) None else Some(Input(UInt(width.W)))
+    val wlen = if (ro) None else Some(Input(UInt(2.W)))
+    
     val hit = Output(Bool())
-    val data = Output(UInt(width.W))
+    val rdata = Output(UInt(width.W))
 }
 
 class CacheTemplate(
     base_width: Int = 32,
     set: Int, way: Int = 1, block_num: Int = 1, 
+    mmio_range: Option[Seq[AddressSet]] = None,
     name: String, 
     with_valid: Boolean = false,
     with_fence: Boolean = false, // TODO
@@ -44,7 +50,7 @@ class CacheTemplate(
 ) extends Module {
     val io = IO(new Bundle{
         val rreq = Flipped(ValidIO(new ReplacementRequest(base_width)))
-        val areq = new AccessRequestIO(base_width)
+        val areq = new AccessRequestIO(base_width, mmio_range.isEmpty)
     })
 
     val set_bits = log2Up(set)
@@ -56,7 +62,7 @@ class CacheTemplate(
     )
 
     val meta_Bundle = new Bundle {
-        // val valid = if (with_valid) Bool() else null
+        val dirty = if (mmio_range.isDefined) Bool() else null
         val tag = UInt(table.tagBits.W)
     }
 
@@ -89,10 +95,13 @@ class CacheTemplate(
     } else {
         read_set
     }
-    io.areq.data := data.read(read_index)(read_block).data
+
+    val read_data = data.read(read_index)(read_block).data
+
+    io.areq.rdata := read_data
     io.areq.hit := VecInit((read_tag_euqal_vec zip valid_vec(read_set)).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR
 
-    // write
+    // replace
     val replacement = ReplacementPolicy.fromString("setlru", way, set)
 
     val replace_table = table(io.rreq.bits.addr)
@@ -157,7 +166,7 @@ class CacheTemplate(
         shifter.io.setEnable := false.B
         shifter.io.setData := DontCare
         
-        when(io.areq.hit && io.areq.valid) {
+        when(io.areq.hit && io.areq.ren) {
             if (way > 1) replacement.access(read_set, read_way)
         }
     }
