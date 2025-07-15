@@ -102,10 +102,18 @@ class ISU extends Module {
     io.ISU_2_ALU.bits.gpr_waddr := io.IDU_2_ISU.bits.gpr_waddr
     io.ISU_2_ALU.bits.csr_waddr := imm(11, 0)
 
+    val addr = rs1_val + imm
+
     io.ISU_2_LSU.bits.Ctrl := io.IDU_2_ISU.bits.ls_ctrl
     io.ISU_2_LSU.bits.gpr_waddr := io.IDU_2_ISU.bits.gpr_waddr
-    io.ISU_2_LSU.bits.addr := rs1_val + imm
-    io.ISU_2_LSU.bits.data := rs2_val
+    io.ISU_2_LSU.bits.addr := addr
+    io.ISU_2_LSU.bits.data := (rs2_val << (addr(1, 0) << 3.U))(31, 0)
+    val write_mask = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
+        LsCtrl.SB -> "b0001".U,
+        LsCtrl.SH -> "b0011".U,
+        LsCtrl.SW -> "b1111".U
+    )) << addr(1, 0)
+    io.ISU_2_LSU.bits.mask := write_mask
 
     if (Config.Simulate) {
         val Catch = Module(new ISU_catch)

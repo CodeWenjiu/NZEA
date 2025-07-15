@@ -15,6 +15,9 @@ pub struct BasicCallbacks {
     pub btb_cache_data_write_p: unsafe extern "C" fn(u8, u8, u8, u32),
     pub icache_cache_meta_write_p: unsafe extern "C" fn(u8, u8, u32),
     pub icache_cache_data_write_p: unsafe extern "C" fn(u8, u8, u8, u32),
+    pub dcache_cache_meta_write_p: unsafe extern "C" fn(u8, u8, u32),
+    pub dcache_cache_meta_dirt_p: unsafe extern "C" fn(u8, u8),
+    pub dcache_cache_data_write_p: unsafe extern "C" fn(u8, u8, u8, u32),
     
     pub ifu_catch_p: unsafe extern "C" fn(Input, Input),
     pub idu_catch_p: unsafe extern "C" fn(Input),

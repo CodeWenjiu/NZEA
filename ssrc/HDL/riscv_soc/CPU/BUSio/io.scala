@@ -76,6 +76,7 @@ class ISU_2_LSU extends Bundle {
 
     val addr = UInt(32.W)
     val data = UInt(32.W)
+    val mask = UInt(4.W)
 }
 
 class EXU_2_WBU extends Bundle {

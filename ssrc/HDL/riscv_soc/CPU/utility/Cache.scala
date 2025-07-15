@@ -37,7 +37,8 @@ class AccessRequestIO(width: Int, block_num: Int, ro: Boolean) extends Bundle {
         val wmask = Input(UInt(log2Ceil(width).W))
         val mmio = Output(Bool())
         val is_dirty = Output(Bool())
-        val write_back = Output(UInt((width*block_num).W))
+        val write_back_addr = Output(UInt(width.W))
+        val write_back = Output(Vec(block_num, UInt(width.W)))
     }
 
     val wb = if (ro) None else Some(new WriteBack) 
@@ -69,7 +70,6 @@ class CacheTemplate(
     )
 
     val meta_Bundle = new Bundle {
-        val dirty = if (mmio_range.isDefined) Bool() else null
         val tag = UInt(table.tagBits.W)
     }
 
@@ -82,42 +82,45 @@ class CacheTemplate(
     } else {
         VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(true.B))))
     }
+
+    val dirty_vec = if (mmio_range.isDefined) {
+        RegInit(VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(false.B)))))
+    } else {
+        VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(true.B))))
+    }
+
     val meta = if (is_async) Mem(set, Vec(way, meta_Bundle)) else SyncReadMem(set, Vec(way, meta_Bundle))
     val data = if (is_async) Mem((set * way), Vec(block_num, data_Bundle)) else SyncReadMem((set * way), Vec(block_num, data_Bundle))
 
-    // read
-    val read_table = table(io.areq.addr)
-    val read_tag = read_table.tag
-    val read_set = read_table.set
-    val read_block = read_table.block
+    // access
+    val access_table = table(io.areq.addr)
+    val access_tag = access_table.tag
+    val access_set = access_table.set
+    val access_block = access_table.block
 
-    val meta_read_data = meta.read(read_set)
+    val meta_access_data = meta.read(access_set)
     
     val read_tag_euqal_vec = 
-        VecInit(meta_read_data.map(_.tag === read_tag))
-    val read_way = PriorityEncoder(read_tag_euqal_vec)
-    val read_index = if (way > 1) {
-        Cat(read_set, read_way)
+        VecInit(meta_access_data.map(_.tag === access_tag))
+    val access_way = PriorityEncoder(read_tag_euqal_vec)
+    val access_index = if (way > 1) {
+        Cat(access_set, access_way)
     } else {
-        read_set
+        access_set
     }
-    val read_data = data.read(read_index)
-    val read_block_data = read_data(read_block)
+
+    // read
+    val read_data = data.read(access_index)
+    val read_block_data = read_data(access_block)
 
     io.areq.rdata := read_block_data.data
     val mmio_hit = mmio_range match {
-        case Some(ranges) => !ranges.map(_.contains(io.areq.addr)).reduce(_ || _)
-        case None => true.B
+        case Some(ranges) => ranges.map(_.contains(io.areq.addr)).reduce(_ || _)
+        case None => false.B
     }
-    io.areq.hit := VecInit((read_tag_euqal_vec zip valid_vec(read_set)).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR && mmio_hit
 
-    // write
-    if (mmio_range.isDefined) {
-        io.areq.wb.get.mmio := mmio_hit
-        io.areq.wb.get.write_back := read_data
-
-        io.areq.wb.get.is_dirty := meta_read_data(read_way).dirty
-    }
+    val hit = VecInit((read_tag_euqal_vec zip valid_vec(access_set)).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR && !mmio_hit
+    io.areq.hit := hit
 
     // replace
     val replacement = ReplacementPolicy.fromString("setplru", way, set)
@@ -157,6 +160,48 @@ class CacheTemplate(
         replace_set
     }
 
+    // write
+    if (mmio_range.isDefined) {
+        io.areq.wb.get.mmio := mmio_hit
+        io.areq.wb.get.write_back := read_data.asTypeOf(Vec(block_num, UInt(base_width.W)))
+
+        io.areq.wb.get.is_dirty := dirty_vec(access_set)(access_way)
+        io.areq.wb.get.write_back_addr := Cat(meta_access_data(replace_way).tag, replace_set, 0.U(block_bits.W), "b00"U(2.W))
+
+        object cache_meta_dirt extends DPI {
+            def functionName: String = name + "_cache_meta_dirt"
+            override def inputNames: Option[Seq[String]] = Some(Seq(
+                "set",
+                "way",
+            ))
+        }
+
+        when(io.areq.wb.get.wen && hit) {
+            val wmask = io.areq.wb.get.wmask
+            val wdata = io.areq.wb.get.wdata
+            val merged_data = Wire(Vec(4, UInt(8.W)))
+            val old = read_data(access_block).data.asTypeOf(new Bundle {
+                val data = Vec(4, UInt(8.W))
+            })
+            val stu = wdata.asTypeOf(new Bundle {
+                val data = Vec(4, UInt(8.W))
+            })
+            for (i <- 0 until wmask.getWidth - 1) {
+                val new_data = Mux(wmask(i), stu.data(i), old.data(i))
+                merged_data(i) := new_data
+            }
+
+            val din = VecInit(Seq.fill(block_num)(merged_data.asTypeOf(data_Bundle)))
+            val write_mask4Cache = VecInit(Seq.fill(block_num)(false.B))
+            write_mask4Cache(access_block) := true.B
+            data.write(access_index, din, write_mask4Cache)
+
+            cache_meta_dirt.wrap_call(access_set, access_way)
+            dirty_vec(access_set)(access_way) := true.B
+            cache_data_write.wrap_call(access_set, access_way, OHToUInt(write_mask4Cache), merged_data.asTypeOf(UInt(32.W)))
+        }
+    }
+
     when(io.rreq.valid) {
         // 通过 IO 接口控制 shifter
         shifter.io.shift := true.B
@@ -185,7 +230,7 @@ class CacheTemplate(
         shifter.io.setData := DontCare
         
         when(io.areq.hit && io.areq.ren) {
-            if (way > 1) replacement.access(read_set, read_way)
+            if (way > 1) replacement.access(access_set, access_way)
         }
     }
 }

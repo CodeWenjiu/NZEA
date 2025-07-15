@@ -11,6 +11,9 @@ typedef struct {
     void(*btb_cache_data_write_p)(char set, char way, char block, int data);
     void(*icache_cache_meta_write_p)(char set, char way, int tag);
     void(*icache_cache_data_write_p)(char set, char way, char block, int data);
+    void(*dcache_cache_meta_write_p)(char set, char way, int tag);
+    void(*dcache_cache_meta_dirt_p)(char set, char way);
+    void(*dcache_cache_data_write_p)(char set, char way, char block, int data);
     
     void(*IFU_catch_p)(input, input);
     void(*IDU_catch_p)(input);
@@ -61,6 +64,9 @@ DEFINE_PANIC_FUNCTION(btb_cache_meta_write_p, char set, char way, int tag)
 DEFINE_PANIC_FUNCTION(btb_cache_data_write_p, char set, char way, char block, int data)
 DEFINE_PANIC_FUNCTION(icache_cache_meta_write_p, char set, char way, int tag)
 DEFINE_PANIC_FUNCTION(icache_cache_data_write_p, char set, char way, char block, int data)
+DEFINE_PANIC_FUNCTION(dcache_cache_meta_write_p, char set, char way, int tag)
+DEFINE_PANIC_FUNCTION(dcache_cache_meta_dirt_p, char set, char way)
+DEFINE_PANIC_FUNCTION(dcache_cache_data_write_p, char set, char way, char block, int data)
 
 DEFINE_PANIC_FUNCTION(ALU_catch_p, input a)
 DEFINE_PANIC_FUNCTION(IDU_catch_p, input a)
@@ -97,6 +103,9 @@ static Basic_Callbacks basic_callbacks = {
     .btb_cache_data_write_p = default_btb_cache_data_write_p,
     .icache_cache_meta_write_p = default_icache_cache_meta_write_p,
     .icache_cache_data_write_p = default_icache_cache_data_write_p,
+    .dcache_cache_meta_write_p = default_dcache_cache_meta_write_p,
+    .dcache_cache_meta_dirt_p = default_dcache_cache_meta_dirt_p,
+    .dcache_cache_data_write_p = default_dcache_cache_data_write_p,
 
     .IFU_catch_p = default_IFU_catch_p,
     .IDU_catch_p = default_IDU_catch_p,

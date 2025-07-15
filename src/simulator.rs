@@ -5,7 +5,7 @@ use option_parser::OptionParser;
 use pest::Parser;
 use remu_macro::{log_err, log_error, log_info};
 use remu_utils::{ProcessError, ProcessResult, Simulators};
-use state::{cache::{BtbData, CacheBase, ICacheData}, model::BaseStageCell, reg::RegfileIo, States};
+use state::{cache::{BtbData, CacheBase, DCacheData, ICacheData}, model::BaseStageCell, reg::RegfileIo, States};
 
 use crate::{nzea::get_nzea_root, SimulatorCallback, SimulatorError, SimulatorItem};
 
@@ -249,6 +249,33 @@ unsafe extern "C" fn icache_cache_data_write_p(set: u8, way: u8, block: u8, data
         let mut state = state.get().unwrap().borrow_mut();
         if let Some(icache) = state.cache.icache.as_mut() {
             icache.base_data_write(set as u32, way as u32, block as u32, ICacheData { inst: data });
+        }
+    });
+}
+
+unsafe extern "C" fn dcache_cache_meta_write_p(set: u8, way: u8, tag: u32) {
+    NZEA_STATES.with(|state| {
+        let mut state = state.get().unwrap().borrow_mut();
+        if let Some(dcache) = state.cache.dcache.as_mut() {
+            dcache.base_meta_write(set as u32, way as u32, tag);
+        }
+    })
+}
+
+unsafe extern "C" fn dcache_cache_meta_dirt_p(set: u8, way: u8) {
+    NZEA_STATES.with(|state| {
+        let mut state = state.get().unwrap().borrow_mut();
+        if let Some(dcache) = state.cache.dcache.as_mut() {
+            dcache.base_meta_dirt(set as u32, way as u32);
+        }
+    })
+}
+
+unsafe extern "C" fn dcache_cache_data_write_p(set: u8, way: u8, block: u8, data: u32) {
+    NZEA_STATES.with(|state| {
+        let mut state = state.get().unwrap().borrow_mut();
+        if let Some(dcache) = state.cache.dcache.as_mut() {
+            dcache.base_data_write(set as u32, way as u32, block as u32, DCacheData { data });
         }
     });
 }
@@ -774,6 +801,9 @@ impl Nzea {
             btb_cache_data_write_p: btb_cache_data_write_p,
             icache_cache_meta_write_p: icache_cache_meta_write_p,
             icache_cache_data_write_p: icache_cache_data_write_p,
+            dcache_cache_meta_write_p: dcache_cache_meta_write_p,
+            dcache_cache_meta_dirt_p: dcache_cache_meta_dirt_p,
+            dcache_cache_data_write_p: dcache_cache_data_write_p,
 
             ifu_catch_p: ifu_catch_handler,
             idu_catch_p: idu_catch_handler,

@@ -161,6 +161,19 @@ extern "C" {
         basic_callbacks.icache_cache_data_write_p(set, way, block, data);
     }
 
+    void dcache_cache_meta_write(char set, char way, int tag) {
+        basic_callbacks.dcache_cache_meta_write_p(set, way, tag);
+    }
+
+    void dcache_cache_meta_dirt(char set, char way) {
+        basic_callbacks.dcache_cache_meta_dirt_p(set, way);
+    }
+
+    void dcache_cache_data_write(char set, char way, char block, int data) {
+        basic_callbacks.dcache_cache_data_write_p(set, way, block, data);
+    }
+
+
     void ISU_catch(const svBitVecVal *pc, svBit inst_type) {
         basic_callbacks.ISU_catch_p(pc, inst_type);
     }
