@@ -52,6 +52,8 @@ class LSU_catch extends BlackBox with HasBlackBoxInline {
 object LS_state extends ChiselEnum{
   val s_idle,
 
+      s_write,
+
       s_memWriteBack_1,
       s_memWriteBack_2,
       s_memWriteBack_3,
@@ -129,11 +131,9 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         ))
         val is_ld = !is_st
 
-        val en = fire && !io.is_flush
-
-        Dcache.io.areq.ren := en && is_ld
+        Dcache.io.areq.ren := fire && is_ld
         val wb = Dcache.io.areq.wb.get
-        wb.wen := en && is_st
+        wb.wen := state === LS_state.s_write
         wb.wdata := data
         wb.wmask := io.ISU_2_LSU.bits.mask
 
@@ -147,12 +147,15 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         state := MuxLookup(state, LS_state.s_idle)(Seq(
             LS_state.s_idle -> MuxCase(state, Seq(
                 io.is_flush -> state,
-                cache_hit -> state,
                 !fire -> state,
+                (cache_hit && is_st) -> LS_state.s_write,
+                (cache_hit) -> state,
                 wb.mmio -> Mux(is_ld, LS_state.s_mmio_read1, LS_state.s_mmio_write1),
                 wb.is_dirty -> LS_state.s_memWriteBack_1,
                 !wb.is_dirty -> LS_state.s_cache_update_1
             )),
+
+            LS_state.s_write -> LS_state.s_idle,
 
             LS_state.s_memWriteBack_1 -> Mux(master.aw.fire, LS_state.s_memWriteBack_2, Mux(io.is_flush, LS_state.s_idle, state)),
             LS_state.s_memWriteBack_2 -> Mux(master.w.fire && master.w.bits.last, LS_state.s_memWriteBack_3, state),
@@ -180,7 +183,8 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         master.ar.bits.len   := Mux(state === LS_state.s_mmio_read1, 0.U, (burst_transfer_time - 1).U)
 
         io.LSU_2_WBU.valid := MuxLookup(state, false.B)(Seq(
-            LS_state.s_idle -> (fire && cache_hit),
+            LS_state.s_idle -> (fire && cache_hit && is_ld),
+            LS_state.s_write -> true.B,
             LS_state.s_mmio_read2 -> master.r.fire,
             LS_state.s_mmio_write3 -> master.b.fire,
         ))

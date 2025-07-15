@@ -21,7 +21,7 @@ object Elaboratenpc extends App {
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(true)
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
-  Config.setDcacheParam(mmio_address, 4, 1, 4)
+  Config.setDcacheParam(mmio_address, 4, 1, 16)
   Config.setDiffMisMap(mmio_address)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.npc.top(), args, firtoolOptions)
