@@ -335,8 +335,8 @@ class IDU extends Module {
     val rs1_addr = io.IFU_2_IDU.bits.inst(19, 15)
     val rs2_addr = io.IFU_2_IDU.bits.inst(24, 20)
 
-    val rs1_addr_fix = if (Config.reg_fix) rs1_addr else Mux(rvdecoderResult(RS1_Used_Field) , rs1_addr, 0.U(5.W))
-    val rs2_addr_fix = if (Config.reg_fix) rs2_addr else Mux(rvdecoderResult(RS2_Used_Field) , rs2_addr, 0.U(5.W))
+    val rs1_addr_fix = if (!Config.reg_fix) rs1_addr else Mux(rvdecoderResult(RS1_Used_Field) , rs1_addr, 0.U(5.W))
+    val rs2_addr_fix = if (!Config.reg_fix) rs2_addr else Mux(rvdecoderResult(RS2_Used_Field) , rs2_addr, 0.U(5.W))
 
     io.IDU_GPR_READMSG.rs1_addr := rs1_addr_fix
     io.IDU_GPR_READMSG.rs2_addr := rs2_addr_fix

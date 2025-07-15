@@ -13,6 +13,7 @@ import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 import org.chipsalliance.diplomacy.lazymodule._
+import utility.CacheTemplate
 
 class LSU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle{
@@ -90,13 +91,42 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         val addr = WireDefault(io.ISU_2_LSU.bits.addr)
         val fire = io.ISU_2_LSU.fire
         val data = WireDefault((io.ISU_2_LSU.bits.data << (addr(1, 0) << 3.U))(31, 0))
+        
+        val write_strb = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
+            LsCtrl.SB -> "b0001".U,
+            LsCtrl.SH -> "b0011".U,
+            LsCtrl.SW -> "b1111".U
+        )) << addr(1, 0)
+
+        val (mmio_address, set, way, block_size) = Config.Dcache_Param.get
+
+        val burst_transfer_time = block_size / 4
                    
+        // val Dcache = Module(new CacheTemplate(
+        //     set = set,
+        //     way = way,
+        //     block_num = burst_transfer_time,
+        //     name = "dcache",
+        //     with_valid = true,
+        //     with_fence = true,
+        // ))
+
         val is_st = MuxLookup(io.ISU_2_LSU.bits.Ctrl, false.B)(Seq(
             LsCtrl.SB -> true.B,
             LsCtrl.SH -> true.B,
             LsCtrl.SW -> true.B
         ))
         val is_ld = !is_st
+
+        // Dcache.io.areq.ren := fire && is_ld
+        // val wb = Dcache.io.areq.wb.get
+        // wb.wen := fire && is_st
+        // wb.wdata := data
+        // wb.wmask := write_strb
+
+        // Dcache.io.areq.addr := addr
+
+        // val cache_hit = Dcache.io.areq.hit
 
         val state = RegInit(LS_state.s_idle)
         state := MuxLookup(state, LS_state.s_idle)(Seq(
@@ -137,12 +167,6 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         master.aw.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy)) && is_st
         
         master.w.valid := ((state === LS_state.s_cache_miss) || (state === LS_state.s_aw_busy) || (state === LS_state.s_w_busy)) && is_st
-        
-        val write_strb = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
-            LsCtrl.SB -> "b0001".U,
-            LsCtrl.SH -> "b0011".U,
-            LsCtrl.SW -> "b1111".U
-        )) << addr(1, 0)
 
         master.w.bits.strb := write_strb 
         

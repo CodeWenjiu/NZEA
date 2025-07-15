@@ -44,6 +44,8 @@ object Config {
 
   var Icache_Param: Option[(Seq[AddressSet], Int, Int, Int)] = None
 
+  var Dcache_Param: Option[(Seq[AddressSet], Int, Int, Int)] = None
+
   def setIcacheParam(address: Seq[AddressSet], set: Int, way: Int, block_size: Int): Unit = {
     Icache_Param match {
       case Some(_) =>
@@ -54,6 +56,19 @@ object Config {
         Cache_Param.way = way
         Cache_Param.block_size = block_size
         Icache_Param = Some((address, set, way, block_size))
+    }
+  }
+
+  def setDcacheParam(address: Seq[AddressSet], set: Int, way: Int, block_size: Int): Unit = {
+    Dcache_Param match {
+      case Some(_) =>
+        throw new Exception("Dcache_Param has already been set.")
+      case None =>
+        Cache_Param.address = address
+        Cache_Param.set = set
+        Cache_Param.way = way
+        Cache_Param.block_size = block_size
+        Dcache_Param = Some((address, set, way, block_size))
     }
   }
 }

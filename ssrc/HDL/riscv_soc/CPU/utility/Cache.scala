@@ -27,13 +27,20 @@ class ReplacementRequest(width: Int) extends Bundle {
     val data = UInt(width.W)
 }
 
-class AccessRequestIO(width: Int, ro: Boolean) extends Bundle {
+class AccessRequestIO(width: Int, block_num: Int, ro: Boolean) extends Bundle {
     val ren = Input(Bool())
     val addr = Input(UInt(width.W))
     
-    val wen = if (ro) None else Some(Input(Bool()))
-    val wdata = if (ro) None else Some(Input(UInt(width.W)))
-    val wlen = if (ro) None else Some(Input(UInt(2.W)))
+    class WriteBack extends Bundle {
+        val wen = Input(Bool())
+        val wdata = Input(UInt(width.W))
+        val wmask = Input(UInt(log2Ceil(width).W))
+        val mmio = Output(Bool())
+        val is_dirty = Output(Bool())
+        val write_back = Output(UInt((width*block_num).W))
+    }
+
+    val wb = if (ro) None else Some(new WriteBack) 
     
     val hit = Output(Bool())
     val rdata = Output(UInt(width.W))
@@ -50,7 +57,7 @@ class CacheTemplate(
 ) extends Module {
     val io = IO(new Bundle{
         val rreq = Flipped(ValidIO(new ReplacementRequest(base_width)))
-        val areq = new AccessRequestIO(base_width, mmio_range.isEmpty)
+        val areq = new AccessRequestIO(base_width, block_num, mmio_range.isEmpty)
     })
 
     val set_bits = log2Up(set)
@@ -85,24 +92,35 @@ class CacheTemplate(
     val read_block = read_table.block
 
     val meta_read_data = meta.read(read_set)
-
+    
     val read_tag_euqal_vec = 
         VecInit(meta_read_data.map(_.tag === read_tag))
     val read_way = PriorityEncoder(read_tag_euqal_vec)
-
     val read_index = if (way > 1) {
         Cat(read_set, read_way)
     } else {
         read_set
     }
+    val read_data = data.read(read_index)
+    val read_block_data = read_data(read_block)
 
-    val read_data = data.read(read_index)(read_block).data
+    io.areq.rdata := read_block_data.data
+    val mmio_hit = mmio_range match {
+        case Some(ranges) => !ranges.map(_.contains(io.areq.addr)).reduce(_ || _)
+        case None => true.B
+    }
+    io.areq.hit := VecInit((read_tag_euqal_vec zip valid_vec(read_set)).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR && mmio_hit
 
-    io.areq.rdata := read_data
-    io.areq.hit := VecInit((read_tag_euqal_vec zip valid_vec(read_set)).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR
+    // write
+    if (mmio_range.isDefined) {
+        io.areq.wb.get.mmio := mmio_hit
+        io.areq.wb.get.write_back := read_data
+
+        io.areq.wb.get.is_dirty := meta_read_data(read_way).dirty
+    }
 
     // replace
-    val replacement = ReplacementPolicy.fromString("setlru", way, set)
+    val replacement = ReplacementPolicy.fromString("setplru", way, set)
 
     val replace_table = table(io.rreq.bits.addr)
     val replace_tag = replace_table.tag
