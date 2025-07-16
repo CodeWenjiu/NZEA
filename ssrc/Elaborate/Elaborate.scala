@@ -39,6 +39,7 @@ object Elaborateysyxsoc extends App {
                         AddressSet.misaligned(0x10002000, 0x10) ++
                         AddressSet.misaligned(0x10011000, 0x8) ++
                         AddressSet.misaligned(0x02000000L, 0x10000))
+  Config.setRegFix(false)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.ysyx_23060198(), args = args, firtoolOpts  = firtoolOptions)
 }

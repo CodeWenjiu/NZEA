@@ -5,6 +5,7 @@ import chisel3.util._
 import config.Config
 import freechips.rocketchip.tilelink.TLMessages.b
 import chisel3.util.experimental.loadMemoryFromFileInline
+import os.read
 
 class CacheTable(
     width: Int, 
@@ -57,6 +58,7 @@ class CacheTemplate(
     )
 
     val meta_Bundle = new Bundle {
+        // val valid = if (with_valid) Bool() else null
         val tag = UInt(table.tagBits.W)
     }
 
@@ -64,11 +66,6 @@ class CacheTemplate(
         val data = UInt(32.W)
     }
 
-    val valid_vec = if (with_valid) {
-        RegInit(VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(false.B)))))
-    } else {
-        VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(true.B))))
-    }
     val meta = if (is_async) Mem(set, Vec(way, meta_Bundle)) else SyncReadMem(set, Vec(way, meta_Bundle))
     val data = if (is_async) Mem((set * way), Vec(block_num, data_Bundle)) else SyncReadMem((set * way), Vec(block_num, data_Bundle))
 
@@ -91,20 +88,35 @@ class CacheTemplate(
 
     val read_tag_euqal_vec = 
         VecInit(meta_read_data.map(_.tag === read_tag))
+
+    val valid_vec = if (with_valid) {
+        RegInit(VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(false.B)))))
+    } else {
+        VecInit(Seq.fill(set)(VecInit(Seq.fill(way)(true.B))))
+    }
+    val read_valid_vec = valid_vec(read_set)
+    // val read_valid_vec = VecInit(meta_read_data.map(_.valid))
+
     val read_way = PriorityEncoder(read_tag_euqal_vec)
+
+    val access_way = Mux(io.rreq.bits.ena, replace_way, read_way)
 
     val read_index = if (way > 1) {
         Cat(read_set, read_way)
     } else {
-        read_set
+        read_way
     }
-    io.areq.data := data.read(read_index)(read_block).data
-    io.areq.hit := VecInit((read_tag_euqal_vec zip valid_vec(read_set)).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR
+
+    val data_read_data = data.read(read_index)
+
+    io.areq.data := data_read_data(read_block).data
+    io.areq.hit := VecInit((read_tag_euqal_vec zip read_valid_vec).map { case (tag_eq, valid) => tag_eq && valid }).asUInt.orR
 
     // write
     val replace_tag_v = WireDefault(meta_read_data)
     replace_tag_v(replace_way).tag := replace_tag
-    val replace_data_v = VecInit((0 until block_num).map(_ => io.rreq.bits.data.asTypeOf(data_Bundle)))
+    // replace_tag_v(replace_way).valid := true.B
+    // val replace_data_v = VecInit((0 until block_num).map(_ => io.rreq.bits.data.asTypeOf(data_Bundle)))
 
     object cache_meta_write extends DPI {
         def functionName: String = name + "_cache_meta_write"
@@ -125,44 +137,42 @@ class CacheTemplate(
         ))
     }
 
-    val shifter = RotateShifter(block_num, 1)
-    
+    val (burst_cnt_val, burst_cnt_overflow) = Counter(
+        0 until block_num,
+        io.rreq.valid
+    )
+
     val write_index = if (way > 1) {
         Cat(replace_set, replace_way)
     } else {
         replace_set
     }
 
+    val replace_data_cache_v = RegInit(VecInit(Seq.fill(block_num - 1)(0.U.asTypeOf(data_Bundle))))
+
     when(io.rreq.valid) {
-        // 通过 IO 接口控制 shifter
-        shifter.io.shift := true.B
-        shifter.io.shamt := 1.U
-        shifter.io.left := true.B
-        shifter.io.setEnable := false.B
-        shifter.io.setData := DontCare
-        
-        data.write(write_index, replace_data_v, shifter.io.data.asBools)
+        val get_data = WireDefault(io.rreq.bits.data.asTypeOf(data_Bundle))
+        replace_data_cache_v(burst_cnt_val) := get_data
 
-        cache_data_write.wrap_call(replace_set, replace_way, OHToUInt(shifter.io.data), io.rreq.bits.data)
+        val replace_data_cache_v_ext = Wire(Vec(block_num, data_Bundle))
+        replace_data_cache_v_ext(block_num) := get_data
+        for (i <- 0 until block_num - 1) {
+            replace_data_cache_v_ext(i) := replace_data_cache_v(i)
+        }
 
-        when(shifter.io.data(shifter.io.data.getWidth - 1)) {  // last bit
+        cache_data_write.wrap_call(replace_set, replace_way, burst_cnt_val.asTypeOf(UInt(log2Up(block_num).W)), io.rreq.bits.data)
+
+        when(burst_cnt_overflow) {  // last bit
+            data.write(write_index, replace_data_cache_v_ext)
+            
             valid_vec(replace_set)(replace_way) := true.B
             meta.write(replace_set, replace_tag_v)
             if (way > 1) replacement.access(replace_set, replace_way)
 
             cache_meta_write.wrap_call(replace_set, replace_way, replace_tag)
         }
-    }.otherwise {
-        // 默认状态：不进行任何操作
-        shifter.io.shift := false.B
-        shifter.io.shamt := DontCare
-        shifter.io.left := DontCare
-        shifter.io.setEnable := false.B
-        shifter.io.setData := DontCare
-        
-        when(io.areq.hit && io.areq.valid) {
-            if (way > 1) replacement.access(read_set, read_way)
-        }
+    }.elsewhen(io.areq.hit && io.areq.valid) {
+        if (way > 1) replacement.access(read_set, read_way)
     }
 }
 
