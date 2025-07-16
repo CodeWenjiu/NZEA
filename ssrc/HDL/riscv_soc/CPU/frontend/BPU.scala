@@ -21,7 +21,7 @@ class BPU extends Module {
         val flush_pc = Flipped(ValidIO(new FLush_PC))
     })
     
-    val btb_depth = 32
+    val btb_depth = 64
     
     val btb = Module(
         new CacheTemplate_backup(
