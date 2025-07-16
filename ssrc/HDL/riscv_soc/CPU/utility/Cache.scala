@@ -104,7 +104,7 @@ class CacheTemplate(
     val read_index = if (way > 1) {
         Cat(read_set, read_way)
     } else {
-        read_way
+        read_set
     }
 
     val data_read_data = data.read(read_index)
@@ -148,17 +148,17 @@ class CacheTemplate(
         replace_set
     }
 
+    val get_data = WireDefault(io.rreq.bits.data.asTypeOf(data_Bundle))
     val replace_data_cache_v = RegInit(VecInit(Seq.fill(block_num - 1)(0.U.asTypeOf(data_Bundle))))
 
-    when(io.rreq.valid) {
-        val get_data = WireDefault(io.rreq.bits.data.asTypeOf(data_Bundle))
-        replace_data_cache_v(burst_cnt_val) := get_data
+    val replace_data_cache_v_ext = Wire(Vec(block_num, data_Bundle))
+    replace_data_cache_v_ext(block_num - 1) := get_data
+    for (i <- 0 until block_num - 1) {
+        replace_data_cache_v_ext(i) := replace_data_cache_v(i)
+    }
 
-        val replace_data_cache_v_ext = Wire(Vec(block_num, data_Bundle))
-        replace_data_cache_v_ext(block_num) := get_data
-        for (i <- 0 until block_num - 1) {
-            replace_data_cache_v_ext(i) := replace_data_cache_v(i)
-        }
+    when(io.rreq.valid) {
+        replace_data_cache_v(burst_cnt_val) := get_data
 
         cache_data_write.wrap_call(replace_set, replace_way, burst_cnt_val.asTypeOf(UInt(log2Up(block_num).W)), io.rreq.bits.data)
 
