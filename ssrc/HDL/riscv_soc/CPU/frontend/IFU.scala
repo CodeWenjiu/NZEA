@@ -144,6 +144,7 @@ class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
                 Icache.io.rreq.bits.addr := RegEnable(flat_addr, master.ar.fire)
                 Icache.io.rreq.bits.data := master.r.bits.data
                 Icache.io.rreq.valid := master.r.fire
+                Icache.io.rreq.bits.ena := state =/= IFU_state.s_idle
 
                 io.IFU_2_IDU.valid := (state === IFU_state.s_idle) && cache_hit
 

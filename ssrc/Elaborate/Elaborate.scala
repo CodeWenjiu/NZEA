@@ -95,7 +95,7 @@ object Elaboratejyd_core extends App {
   Config.setDiffMisMap(AddressSet.misaligned(0x80200000L, 0x10000))
   Config.setRegFix(false)
 
-  Config.setFourStateSim(true)
+  // Config.setFourStateSim(true)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.jyd.onboard.core(), args, firtoolOptions)
 }

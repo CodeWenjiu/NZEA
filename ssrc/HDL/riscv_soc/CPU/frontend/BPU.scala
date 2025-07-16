@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 import riscv_soc.bus._
 import config._
-import utility.CacheTemplate
+import utility.CacheTemplate_backup
 
 class FLush_PC extends Bundle {
     val pc = UInt(32.W)
@@ -24,7 +24,7 @@ class BPU extends Module {
     val btb_depth = 16
     
     val btb = Module(
-        new CacheTemplate(
+        new CacheTemplate_backup(
             set = btb_depth, 
             name = "btb", 
             with_valid = Config.Four_state_sim,
@@ -38,6 +38,7 @@ class BPU extends Module {
     btb.io.rreq.valid := io.flush_pc.valid
     btb.io.rreq.bits.addr := io.flush_pc.bits.pc
     btb.io.rreq.bits.data := io.flush_pc.bits.target
+    btb.io.rreq.bits.ena := true.B
 
     io.hit := prediction.hit
     io.npc := prediction.data
