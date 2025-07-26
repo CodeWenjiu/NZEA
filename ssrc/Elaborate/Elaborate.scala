@@ -21,7 +21,7 @@ object Elaboratenpc extends App {
   Config.Reset_Vector = "h80000000".U(32.W)
   Config.setSimulate(true)
   Config.setIcacheParam(AddressSet.misaligned(0x80000000L, 0x8000000), 4, 1, 16)
-  Config.setDcacheParam(mmio_address, 4, 1, 16)
+  Config.setDcacheParam(mmio_address, 4, 1, 4)
   Config.setDiffMisMap(mmio_address)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(new riscv_soc.platform.npc.top(), args, firtoolOptions)
@@ -68,7 +68,7 @@ object Elaborateysyxsoc_core extends App {
                         AddressSet.misaligned(0x10002000, 0x10) ++
                         AddressSet.misaligned(0x10011000, 0x8) ++
                         AddressSet.misaligned(0x02000000L, 0x10000)
-  Config.setDcacheParam(mmio_address, 4, 1, 16)
+  Config.setDcacheParam(mmio_address, 4, 1, 4)
 
   circt.stage.ChiselStage.emitSystemVerilogFile(gen = new riscv_soc.platform.ysyxsoc.top(), args = args, firtoolOpts  = firtoolOptions)
 }
