@@ -216,6 +216,7 @@ class CacheTemplate(
 
         when(shifter.io.data(shifter.io.data.getWidth - 1)) {  // last bit
             valid_vec(replace_set)(replace_way) := true.B
+            dirty_vec(replace_set)(replace_way) := false.B
             meta.write(replace_set, replace_tag_v, replace_mask.asBools)
             if (way > 1) replacement.access(replace_set, replace_way)
 
