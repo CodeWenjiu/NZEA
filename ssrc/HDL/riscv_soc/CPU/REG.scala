@@ -140,14 +140,12 @@ class REG extends Module {
   ))
 
   io.REG_2_WBU.MTVEC := mtevc
+  io.REG_2_WBU.MEPC := mepc
 
   val wb_basic = io.WBU_2_REG.bits.basic
 
   when(io.WBU_2_REG.valid) {
-    when(wb_basic.trap.traped) {
-      mepc := wb_basic.pc
-      mcause := wb_basic.trap.trap_type.asUInt
-    }.otherwise {
+    when(wb_basic.trap === Trap_type.None) {
       when(gpr_wen) {
         gpr((gpr_waddr - 1.U)(4, 0)) := gpr_wdata
       }
@@ -161,6 +159,9 @@ class REG extends Module {
           is(csr_enum.MCAUSE.asUInt)  { mcause := io.WBU_2_REG.bits.CSR_wdata }
         }
       }
+    }.elsewhen(wb_basic.trap =/= Trap_type.Mret) {
+      mepc := wb_basic.pc
+      mcause := wb_basic.trap.asUInt
     }
   }
 }

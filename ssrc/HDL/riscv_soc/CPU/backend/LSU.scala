@@ -222,8 +222,6 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
 
         io.LSU_2_WBU.bits.basic.pc := io.ISU_2_LSU.bits.basic.pc
         io.LSU_2_WBU.bits.basic.npc := io.ISU_2_LSU.bits.basic.npc
-        io.LSU_2_WBU.bits.basic.trap.traped := false.B
-        io.LSU_2_WBU.bits.basic.trap.trap_type := Trap_type.Ebreak
 
         io.LSU_2_WBU.bits.Result := rdata
         io.LSU_2_WBU.bits.CSR_rdata := 0.U
@@ -231,6 +229,8 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         io.LSU_2_WBU.bits.gpr_waddr := gpr_waddr
         io.LSU_2_WBU.bits.CSR_waddr := 0.U
         io.LSU_2_WBU.bits.wbCtrl := WbCtrl.Write_GPR
+
+        io.LSU_2_WBU.bits.basic.trap := Trap_type.None
 
         if(Config.Simulate) {
             val Catch = Module(new LSU_catch)

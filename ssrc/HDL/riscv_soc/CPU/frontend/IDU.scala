@@ -17,6 +17,7 @@ import riscv_soc.bus._
 import signal_value._
 import os.copy.over
 import chisel3.util.circt.dpi.RawClockedVoidFunctionCall
+import riscv_soc.bus.WbControlFlow.Trap
 
 class IDU_catch extends BlackBox with HasBlackBoxInline {
     val io = IO(new Bundle {
@@ -52,6 +53,14 @@ trait DecodeAPI {
 
 case class rvInstructionPattern(val inst: rvdecoderdb.Instruction) extends DecodePattern {
     override def bitPat: BitPat = BitPat("b" + inst.encoding.toString())
+}
+
+object Imm_TypeEnum extends ChiselEnum{
+  val Imm_I = Value((1 << 0).U)
+  val Imm_U = Value((1 << 1).U)
+  val Imm_S = Value((1 << 2).U)
+  val Imm_B = Value((1 << 3).U)
+  val Imm_J = Value((1 << 4).U)
 }
 
 object Imm_Field extends DecodeField[rvInstructionPattern, Imm_TypeEnum.Type] with DecodeAPI{
@@ -101,6 +110,8 @@ object Inst_Type_Field extends DecodeField[rvInstructionPattern, Inst_Type.Type]
             case _ => Get_BitPat(Inst_Type.AL)
         }
     }
+
+    override def default: BitPat = Get_BitPat(Inst_Type.AL)
 }
 
 object SRCA_Field extends DecodeField[rvInstructionPattern, SRCA.Type] with DecodeAPI {
@@ -112,7 +123,7 @@ object SRCA_Field extends DecodeField[rvInstructionPattern, SRCA.Type] with Deco
                  "beq" | "bne"  | "blt"  | "bge"  | "bltu" | "bgeu" => Get_BitPat(SRCA.PC)
 
             case "csrrw" | "csrrs" | "csrrc" | "csrrwi" | "csrrsi" | "csrrci" |
-                 "mret" | "wfi" => Get_BitPat(SRCA.CSR)
+                 "wfi" => Get_BitPat(SRCA.CSR)
 
             case "lui" | "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCA.ZERO)
         
@@ -135,7 +146,7 @@ object SRCB_Field extends DecodeField[rvInstructionPattern, SRCB.Type] with Deco
             case "slti" | "sltiu" | "slt" | "sltu" => Get_BitPat(SRCB.LogicSet)
 
             case "csrrw" | "csrrs" | "csrrc" | "csrrwi" | "csrrsi" | "csrrci" |
-                 "mret" | "wfi" => Get_BitPat(SRCB.RS1)
+                 "wfi" => Get_BitPat(SRCB.RS1)
 
             case _ => Get_BitPat(SRCB.RS2)
         }
@@ -166,7 +177,7 @@ object AlCtrl_Field extends DecodeField[rvInstructionPattern, AlCtrl.Type] with 
             case "csrrw" => Get_BitPat(AlCtrl.B)
             case "csrrs" => Get_BitPat(AlCtrl.OR)
 
-            case "mret" | "wfi" => Get_BitPat(AlCtrl.ADD)
+            case "wfi" => Get_BitPat(AlCtrl.ADD)
 
             case _ => BitPat.dontCare(AlCtrl.getWidth)
         }
@@ -235,11 +246,18 @@ object RS2_Used_Field extends DecodeField[rvInstructionPattern, Bool] with Decod
     }
 }
 
-object Decode_Failed extends DecodeField[rvInstructionPattern, Bool] with DecodeAPI {
-    override def name: String = "decode_failed"
-    override def chiselType = Bool()
-    override def genTable(i: rvInstructionPattern): BitPat = BitPat.N(1)
-    override def default: BitPat = BitPat.Y(1)
+object Trap_Failed extends DecodeField[rvInstructionPattern, Trap_type.Type] with DecodeAPI {
+    override def name: String = "trap"
+    override def chiselType = Trap_type()
+    override def genTable(i: rvInstructionPattern): BitPat = {
+        i.inst.name match {
+            case "ecall" => Get_BitPat(Trap_type.EcallM)
+            case "mret"  => Get_BitPat(Trap_type.Mret)
+
+            case _ => Get_BitPat(Trap_type.None)
+        }
+    }
+    override def default: BitPat = Get_BitPat(Trap_type.Instruction_Illegal)
 }
 
 class IDU extends Module {
@@ -307,7 +325,7 @@ class IDU extends Module {
 
     val instList = rviInstList ++ rv32iInstList ++ rvsysInstList ++ rvzicsrInstList ++ rvzifenceiInstList
 
-    val allField = Seq(Inst_Type_Field, Imm_Field, GPR_Write_Field, RS1_Used_Field, RS2_Used_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field, Decode_Failed)
+    val allField = Seq(Inst_Type_Field, Imm_Field, GPR_Write_Field, RS1_Used_Field, RS2_Used_Field, IsLogic_Field, SRCA_Field, SRCB_Field, AlCtrl_Field, LsCtrl_Field, WbCtrl_Field, Trap_Failed)
 
     require(instList.map(_.bitPat.getWidth).distinct.size == 1, "All instructions must have the same width")
     def Decode_bundle: DecodeBundle = new DecodeBundle(allField)
@@ -351,8 +369,7 @@ class IDU extends Module {
 
     basic.pc := io.IFU_2_IDU.bits.pc
     basic.npc := io.IFU_2_IDU.bits.npc
-    basic.trap.traped := rvdecoderResult(Decode_Failed)
-    basic.trap.trap_type := Trap_type.Instruction_Illegal
+    basic.trap := rvdecoderResult(Trap_Failed)
 
     io.IDU_2_ISU.bits.rs1_val := rs1_val
     io.IDU_2_ISU.bits.rs2_val := rs2_val

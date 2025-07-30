@@ -38,7 +38,7 @@ class sram_bridge extends BlackBox with HasBlackBoxInline {
       |import "DPI-C" function void sram_read (input bit [31:0] addr, output bit [31:0] data);
       |import "DPI-C" function void sram_write (input bit [31:0] addr, input bit [31:0] data, input bit [3:0] mask);
       |
-      |    always @(posedge clock) begin
+      |    always_latch @(*) begin
       |        if (read) begin
       |            sram_read(r_addr, r_data);
       |        end
@@ -79,7 +79,7 @@ class SRAM(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule 
         val read_burst_counter = RegEnable(AXI.ar.bits.len, AXI.ar.fire)
         val write_burst_counter = RegEnable(AXI.aw.bits.len, AXI.aw.fire)
 
-        val read_addr = RegEnable(AXI.ar.bits.addr + 4.U, AXI.ar.fire)
+        val read_addr = RegEnable(AXI.ar.bits.addr, AXI.ar.fire)
         val write_addr = RegEnable(AXI.aw.bits.addr, AXI.aw.fire)
 
         when(AXI.r.fire) {
@@ -95,21 +95,21 @@ class SRAM(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule 
 
         state_r := MuxLookup(state_r, s_wait_addr)(
             Seq(
-                s_wait_addr -> Mux(AXI.ar.valid, s_burst, s_wait_addr),
-                s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, s_burst),
+                s_wait_addr -> Mux(AXI.ar.valid, s_burst, state_r),
+                s_burst     -> Mux(read_burst_counter === 0.U, s_wait_addr, state_r),
             )
         )
 
         state_w := MuxLookup(state_w, s_wait_addr)(
             Seq(
-                s_wait_addr -> Mux(AXI.aw.fire, s_burst, s_wait_addr),
-                s_burst     -> Mux(write_burst_counter === 0.U,  s_wait_resp, s_burst),
-                s_wait_resp -> Mux(AXI.b.fire, s_wait_addr, s_wait_resp)
+                s_wait_addr -> Mux(AXI.aw.fire, s_burst, state_w),
+                s_burst     -> Mux(write_burst_counter === 0.U,  s_wait_resp, state_w),
+                s_wait_resp -> Mux(AXI.b.fire, s_wait_addr, state_w)
             )
         )
 
-        AXI.r.valid  := state_r === s_burst
         AXI.ar.ready := state_r === s_wait_addr
+        AXI.r.valid  := state_r === s_burst
 
         AXI.aw.ready := state_w === s_wait_addr
         AXI.w.ready  := state_w === s_burst
@@ -147,12 +147,12 @@ class SRAM(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule 
         AXI.b.bits.resp := "b0".U
         val bridge = Module(new sram_bridge)
         bridge.io.clock := clock
-        bridge.io.read := (state_r === s_burst) || (AXI.ar.fire)
-        bridge.io.r_addr  := Mux(AXI.ar.fire, AXI.ar.bits.addr, read_addr)
-        AXI.r.bits.data := RegEnable(bridge.io.r_data, AXI.ar.fire || AXI.r.fire)
+        bridge.io.read := state_r === s_burst
+        bridge.io.r_addr  := read_addr
+        AXI.r.bits.data := bridge.io.r_data
 
         bridge.io.write := state_w === s_burst
-        bridge.io.w_addr  := Mux(AXI.aw.fire, AXI.aw.bits.addr, write_addr)
+        bridge.io.w_addr  := write_addr
         bridge.io.w_data  := AXI.w.bits.data
         bridge.io.w_strb  := AXI.w.bits.strb
     }

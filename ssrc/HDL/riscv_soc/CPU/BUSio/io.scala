@@ -7,7 +7,7 @@ class BasicPipeBundle extends Bundle {
     val pc = UInt(32.W)
     val npc = UInt(32.W)
 
-    val trap = new trap()
+    val trap = Trap_type()
 }
 
 class WBU_output extends Bundle{
@@ -120,6 +120,7 @@ class WB_Bypass extends Bundle {
 
 class REG_2_WBU extends Bundle {
     val MTVEC = UInt(32.W)
+    val MEPC = UInt(32.W)
 }
 
 object WbControlFlow extends ChiselEnum {

@@ -113,8 +113,7 @@ class jydLSU extends Module {
 
     io.LSU_2_WBU.bits.basic.pc := io.ISU_2_LSU.bits.basic.pc
     io.LSU_2_WBU.bits.basic.npc := io.ISU_2_LSU.bits.basic.npc
-    io.LSU_2_WBU.bits.basic.trap.traped := false.B
-    io.LSU_2_WBU.bits.basic.trap.trap_type := bus.Trap_type.Ebreak
+    io.LSU_2_WBU.bits.basic.trap := bus.Trap_type.Ebreak
 
     io.LSU_2_WBU.bits.Result := rdata
     io.LSU_2_WBU.bits.CSR_rdata := 0.U
