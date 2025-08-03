@@ -7,6 +7,7 @@ import config.Config
 import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.util._
 import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.subsystem._
 import freechips.rocketchip.amba.axi4._
 import freechips.rocketchip.amba.apb._
 import riscv_soc.bus.AXI4ToAPB
@@ -36,15 +37,28 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     AddressSet.misaligned(0xc0000000L, 0x40000000L) // ChipLink
 
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits - 1))
-  val LazyLSU = LazyModule(new backend.LSU(idBits = idBits - 1))
+  // val LazyLSU = LazyModule(new backend.LSU(idBits = idBits - 1))
+
+  val if_axi = AXI4MasterNode(p(ExtIn).map(params => AXI4MasterPortParameters(
+    masters = Seq(AXI4MasterParameters(
+      name = "if",
+      id   = IdRange(0, 1 << idBits)
+    )
+  ))).toSeq)
+
+  val ls_axi = AXI4MasterNode(p(ExtIn).map(params => AXI4MasterPortParameters(
+    masters = Seq(AXI4MasterParameters(
+      name = "ls",
+      id   = IdRange(0, 1 << idBits)
+    )
+  ))).toSeq)
 
   val xbar = AXI4Xbar(
     maxFlightPerId = 1, 
     awQueueDepth = 1
   )
-  xbar := LazyIFU.masterNode
-  xbar := LazyLSU.masterNode
+  xbar := if_axi
+  xbar := ls_axi
 
   val lclint = LazyModule(
     new CLINT(AddressSet.misaligned(0x02000048L, 0x10), 985.U)
@@ -79,12 +93,14 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
       val slave = Flipped(AXI4Bundle(CPUAXI4BundleParameters()))
       val interrupt = Input(Bool())
     })
-    val IFU = LazyIFU.module
+    val IFU = Module(new frontend.IFU)
+    if_axi.out(0)._1 <> IFU.io.bus.toAXI(0)
     val IDU = Module(new frontend.IDU)
     val ISU = Module(new frontend.ISU)
 
     val ALU = Module(new backend.ALU)
-    val LSU = LazyLSU.module
+    val LSU = Module(new backend.LSU_2)
+    ls_axi.out(0)._1 <> LSU.io.bus.toAXI(1)
     val WBU = Module(new backend.WBU)
     
     val REG = Module(new REG)

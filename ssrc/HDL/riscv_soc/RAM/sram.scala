@@ -115,34 +115,6 @@ class SRAM(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule 
         AXI.w.ready  := state_w === s_burst
         AXI.b.valid  := state_w === s_wait_resp
 
-        // object sram_bridge extends DPI {
-        //     def functionName: String = "SRAM_BRIDGE"
-        //     override def inputNames: Option[Seq[String]] = Some(Seq(
-        //         "read",
-        //         "r_addr",
-
-        //         "write",
-        //         "w_addr",
-        //         "w_data",
-        //     ))
-
-        //     override def outputNames: Option[Seq[String]] = Some(Seq(
-        //         "r_data",
-        //         "w_strb",
-        //     ))
-        // }
-
-        // sram_bridge.wrap_call(
-        //     (state_r === s_burst) || (AXI.ar.fire),
-        //     Mux(AXI.ar.fire, AXI.ar.bits.addr, read_addr),
-        //     AXI.r.bits.data,
-
-        //     state_w === s_burst,
-        //     RegEnable(AXI.aw.bits.addr, AXI.aw.fire),
-        //     AXI.w.bits.data,
-        //     AXI.w.bits.strb
-        // )
-
         AXI.r.bits.resp := "b0".U
         AXI.b.bits.resp := "b0".U
         val bridge = Module(new sram_bridge)

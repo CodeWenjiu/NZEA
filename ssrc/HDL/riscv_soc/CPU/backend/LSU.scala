@@ -49,6 +49,79 @@ class LSU_catch extends BlackBox with HasBlackBoxInline {
     setInline("LSU_catch.v", code.stripMargin)
 }
 
+class LSU_2 extends Module {
+    class user extends Bundle {
+        val pc = UInt(32.W)
+        val gpr_waddr = UInt(5.W)
+        val sig_ext = Bool()
+        val bias = UInt(2.W)
+        val size = BaseBusSize()
+    }
+
+    val user = Wire(new user)
+
+    val io = IO(new Bundle {
+        val ISU_2_LSU = Flipped(Decoupled(Input(new ISU_2_LSU)))
+        val LSU_2_WBU = Decoupled(Output(new EXU_2_WBU))
+
+        val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
+        val bus = new BaseBus(user_bits = user.getWidth)
+    })
+
+    val s_idle :: s_latch :: Nil = Enum(2)
+    val req_state = RegInit(s_idle)
+    req_state := MuxLookup(req_state, s_idle)(Seq(
+        s_idle -> Mux(!io.Pipeline_ctrl.flush && io.ISU_2_LSU.fire, s_latch, s_idle),
+        s_latch -> Mux(io.bus.resp.fire, s_idle, s_latch),
+    ))
+
+    io.bus.req.valid := Mux(req_state === s_idle, io.ISU_2_LSU.valid, false.B) && !io.Pipeline_ctrl.flush
+    io.ISU_2_LSU.ready := Mux(req_state === s_idle, io.bus.req.ready, false.B)
+    io.bus.resp.ready := io.LSU_2_WBU.ready
+
+    val is_ls = io.ISU_2_LSU
+    val ls_wb = io.LSU_2_WBU
+
+    user.gpr_waddr := is_ls.bits.gpr_waddr
+    user.pc := is_ls.bits.basic.pc
+    user.sig_ext := is_ls.bits.sig_ext
+    user.bias := is_ls.bits.addr(1, 0)
+    user.size := is_ls.bits.size
+
+    is_ls.ready := io.bus.req.ready && ls_wb.ready // is it needed?
+    ls_wb.valid := io.bus.resp.valid
+
+    val req_bits = io.bus.req.bits
+    req_bits.addr := is_ls.bits.addr
+    req_bits.wen  := is_ls.bits.Ctrl.isOneOf(LsCtrl.SB, LsCtrl.SH, LsCtrl.SW)
+    req_bits.wdata := BaseBusSize.WriteDataFix(is_ls.bits.size, is_ls.bits.data) 
+    req_bits.size := is_ls.bits.size
+    req_bits.user.get := user.asUInt
+
+    val resp_bits = io.bus.resp.bits
+    val resp_user = resp_bits.user.get.asTypeOf(user)
+    io.LSU_2_WBU.bits.basic.pc := resp_user.pc
+    io.LSU_2_WBU.bits.basic.npc := resp_user.pc + 4.U // there is no jmp in LSU
+    io.LSU_2_WBU.bits.gpr_waddr := resp_user.gpr_waddr
+
+    val rdata = BaseBusSize.ReadDataFix(resp_user.size, resp_bits.rdata, resp_user.bias, resp_user.sig_ext)
+
+    io.LSU_2_WBU.bits.Result := rdata
+    io.LSU_2_WBU.bits.CSR_rdata := 0.U 
+    io.LSU_2_WBU.bits.CSR_waddr := 0.U
+    io.LSU_2_WBU.bits.wbCtrl := WbCtrl.Write_GPR
+    io.LSU_2_WBU.bits.basic.trap := Trap_type.None // there is no trap whthin LS phase for now
+
+    if(Config.Simulate) {
+        val Catch = Module(new LSU_catch)
+        Catch.io.clock := clock
+        Catch.io.valid := io.LSU_2_WBU.fire && !reset.asBool
+        Catch.io.pc    := io.LSU_2_WBU.bits.basic.pc
+        Catch.io.diff_skip := Config.diff_mis_map.map(_.contains(io.ISU_2_LSU.bits.addr)).reduce(_ || _)
+        Catch.io.skip_val := resp_bits.rdata
+    }
+}
+
 object LS_state extends ChiselEnum{
   val s_idle,
 
@@ -135,7 +208,7 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         val wb = Dcache.io.areq.wb.get
         wb.wen := state === LS_state.s_write
         wb.wdata := data
-        wb.wmask := io.ISU_2_LSU.bits.mask
+        wb.wmask := io.ISU_2_LSU.bits.size
 
         Dcache.io.areq.addr := addr
 
@@ -202,7 +275,7 @@ class LSU(idBits: Int)(implicit p: Parameters) extends LazyModule{
         master.aw.bits.len  := Mux(state === LS_state.s_mmio_write1, 0.U, (burst_transfer_time - 1).U)
         
         master.w.valid := state.isOneOf(LS_state.s_mmio_write1, LS_state.s_mmio_write2, LS_state.s_memWriteBack_2)
-        master.w.bits.strb := Mux(state.isOneOf(LS_state.s_mmio_write1, LS_state.s_mmio_write2), io.ISU_2_LSU.bits.mask, "b1111".U(4.W)) 
+        master.w.bits.strb := Mux(state.isOneOf(LS_state.s_mmio_write1, LS_state.s_mmio_write2), io.ISU_2_LSU.bits.size, "b1111".U(4.W)) 
         val write_back_counter = Counter(0 until burst_transfer_time, master.w.fire, state === LS_state.s_idle)
         master.w.bits.last := Mux(state.isOneOf(LS_state.s_mmio_write1, LS_state.s_mmio_write2), true.B, write_back_counter._1 === (burst_transfer_time - 1).U)
 

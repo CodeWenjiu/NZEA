@@ -33,8 +33,8 @@ class CLINT(address: Seq[AddressSet], Freq: UInt)(implicit p: Parameters) extend
         AXI.b.valid := false.B
         AXI.b.bits.resp := 0.U
 
-        AXI.r.bits.id := 1.U
-        AXI.b.bits.id := 1.U
+        AXI.r.bits.id := RegEnable(AXI.ar.bits.id, AXI.ar.fire)
+        AXI.b.bits.id := RegEnable(AXI.aw.bits.id, AXI.aw.fire)
         AXI.r.bits.last := true.B
 
         val s_wait_valid :: s_wait_ready :: Nil = Enum(2)

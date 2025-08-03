@@ -56,156 +56,225 @@ object IFU_state extends ChiselEnum{
       = Value
 }
 
-class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
-    val masterNode = AXI4MasterNode(p(ExtIn).map(params =>
-        AXI4MasterPortParameters(
-        masters = Seq(AXI4MasterParameters(
-            name = "ifu",
-            id   = IdRange(0, 1 << idBits))))).toSeq)
-    lazy val module = new Impl
-    class Impl extends LazyModuleImp(this) {
-        val io = IO(new Bundle{
-            val WBU_2_IFU = Flipped(Decoupled(Input(new WBU_2_IFU)))
-            val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
+class IFU extends Module {
+    class user extends Bundle {
+        val pc = UInt(32.W)
+        val npc = UInt(32.W)
+    }
 
-            // val IFU_2_IDU_async = Output(UInt(32.W))
+    val user = Wire(new user)
 
-            val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
-        })
-        val (master, _) = masterNode.out(0)
+    val io = IO(new Bundle {
+        val WBU_2_IFU = Flipped(Decoupled(Input(new WBU_2_IFU)))
+        val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
 
-        io.WBU_2_IFU.ready := true.B
-        val pc = RegInit(Config.Reset_Vector)
-        val snpc = pc + 4.U
-        val dnpc = io.WBU_2_IFU.bits.npc
-        
-        val pc_flush = io.Pipeline_ctrl.flush
-        
-        val pc_update = io.IFU_2_IDU.fire | pc_flush
+        val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
+        val bus = new BaseBus(user_bits = user.getWidth)
+    })
 
-        val BPU = Module(new BPU)
-        BPU.io.pc := pc
-        BPU.io.flush_pc.valid := pc_flush
-        BPU.io.flush_pc.bits.pc := io.WBU_2_IFU.bits.pc
-        BPU.io.flush_pc.bits.target := io.WBU_2_IFU.bits.npc
+    io.WBU_2_IFU.ready := true.B
+    val pc = RegInit(Config.Reset_Vector)
+    val snpc = pc + 4.U
+    val dnpc = io.WBU_2_IFU.bits.npc
+    
+    val pc_flush = io.Pipeline_ctrl.flush
+    
+    val pc_update = io.bus.req.fire | pc_flush
 
-        val npc = MuxCase(snpc, Seq(
-            (pc_flush) -> dnpc,
-            (BPU.io.hit) -> BPU.io.npc,
-        ))
+    val BPU = Module(new BPU)
+    BPU.io.pc := pc
+    BPU.io.flush_pc.valid := pc_flush
+    BPU.io.flush_pc.bits.pc := io.WBU_2_IFU.bits.pc
+    BPU.io.flush_pc.bits.target := io.WBU_2_IFU.bits.npc
 
-        when(pc_update) {
-            pc := npc
-        }
+    val npc = MuxCase(snpc, Seq(
+        (pc_flush) -> dnpc,
+        (BPU.io.hit) -> BPU.io.npc,
+    ))
 
-        Config.Icache_Param match {
-            case Some((address, set, way, block_size)) => {
-                val state = RegInit(IFU_state.s_idle)
+    when(pc_update) {
+        pc := npc
+    }
 
-                val burst_transfer_time = 4
+    io.bus.req.valid := io.IFU_2_IDU.ready
+    io.WBU_2_IFU.ready := io.bus.req.ready
+    io.bus.req.bits.addr := pc
+    io.bus.req.bits.size := BaseBusSize.Word
+    io.bus.req.bits.user.get := {
+        val bundle = Wire(new user)
+        bundle.pc := pc
+        bundle.npc := npc
+        bundle.asUInt
+    }
 
-                val Icache = Module(new CacheTemplate(
-                    set = set,
-                    way = way,
-                    block_num = burst_transfer_time,
-                    name = "icache",
-                    with_valid = true,
-                    with_fence = true,
-                ))
+    user := io.bus.resp.bits.user.get.asTypeOf(user)
 
-                Icache.io.areq.ren := true.B
-                Icache.io.areq.addr := pc
+    io.IFU_2_IDU.valid := io.bus.resp.valid
+    io.IFU_2_IDU.bits.pc := user.pc
+    io.IFU_2_IDU.bits.npc := user.npc
+    io.IFU_2_IDU.bits.inst := io.bus.resp.bits.rdata
+    io.bus.resp.ready := io.IFU_2_IDU.ready
 
-                val cache_hit = Icache.io.areq.hit
+    io.bus.req.bits.wen := false.B
+    io.bus.req.bits.wdata := 0.U
 
-                val next_state = MuxLookup(state, IFU_state.s_idle)(
-                    Seq(
-                        IFU_state.s_idle -> Mux(
-                            !cache_hit && !pc_flush,
-                            IFU_state.s_send_addr,
-                            state
-                        ),
-
-                        IFU_state.s_send_addr -> MuxCase(state, Seq( 
-                            master.ar.fire -> IFU_state.s_get_data,
-                            pc_flush -> IFU_state.s_idle
-                        )),
-
-                        IFU_state.s_get_data -> Mux(
-                            master.r.fire && master.r.bits.last,
-                            IFU_state.s_idle,
-                            state
-                        )
-                    )
-                )
-                state := next_state
-
-                val flat_addr = pc & ~((burst_transfer_time << 2) - 1).U(32.W)
-                Icache.io.rreq.bits.addr := RegEnable(flat_addr, master.ar.fire)
-                Icache.io.rreq.bits.data := master.r.bits.data
-                Icache.io.rreq.valid := master.r.fire
-
-                io.IFU_2_IDU.valid := (state === IFU_state.s_idle) && cache_hit
-
-                io.IFU_2_IDU.bits.inst := Icache.io.areq.rdata
-                io.IFU_2_IDU.bits.pc := pc
-                io.IFU_2_IDU.bits.npc := npc
-
-                master.ar.valid := (state === IFU_state.s_send_addr)
-                master.ar.bits.len := (burst_transfer_time - 1).U
-                master.ar.bits.addr := flat_addr
-
-                master.r.ready := state === IFU_state.s_get_data
-            }
-            case None => {
-                // TODO: Need to fix for master.ar.ready always false
-
-                io.WBU_2_IFU.ready := master.ar.ready && io.IFU_2_IDU.ready
-
-                io.IFU_2_IDU.valid := master.r.valid
-                io.IFU_2_IDU.bits.pc := pc
-                io.IFU_2_IDU.bits.npc := io.WBU_2_IFU.bits.npc
-
-                master.ar.valid := io.WBU_2_IFU.valid
-                master.r.ready := io.IFU_2_IDU.ready
-
-                master.ar.bits.len := 0.U
-                master.ar.bits.addr := pc
-
-                io.IFU_2_IDU.bits.inst := master.r.bits.data
-            }
-        }
-
-        if(Config.Simulate){
-            val Catch = Module(new IFU_catch)
-            Catch.io.clock := clock
-            Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
-            Catch.io.inst := io.IFU_2_IDU.bits.inst
-            Catch.io.pc := io.IFU_2_IDU.bits.pc
-        }
-        master.aw.bits.size  := 0.U
-        master.ar.bits.size  := 2.U
-
-        master.aw.valid := false.B
-        master.aw.bits.addr := 0.U
-        master.aw.bits.id    := 0.U
-        master.aw.bits.len   := 0.U
-        master.aw.bits.burst := 0.U
-        master.aw.bits.lock  := 0.U
-        master.aw.bits.cache := 0.U
-        master.aw.bits.prot  := 0.U
-        master.aw.bits.qos   := 0.U
-        master.w.valid := false.B
-        master.w.bits.data := 0.U
-        master.w.bits.strb := 0.U
-        master.w.bits.last  := 1.U
-        master.b.ready := false.B
-
-        master.ar.bits.id    := 0.U
-        master.ar.bits.burst := 1.U // INCR
-        master.ar.bits.lock  := 0.U // Normal access
-        master.ar.bits.cache := 0.U // Cacheable
-        master.ar.bits.prot  := 0.U // Normal memory
-        master.ar.bits.qos   := 0.U // Quality of Service
+    if(Config.Simulate){
+        val Catch = Module(new IFU_catch)
+        Catch.io.clock := clock
+        Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
+        Catch.io.inst := io.IFU_2_IDU.bits.inst
+        Catch.io.pc := io.IFU_2_IDU.bits.pc
     }
 }
+
+// class IFU(idBits: Int)(implicit p: Parameters) extends LazyModule {
+//     val masterNode = AXI4MasterNode(p(ExtIn).map(params =>
+//         AXI4MasterPortParameters(
+//         masters = Seq(AXI4MasterParameters(
+//             name = "ifu",
+//             id   = IdRange(0, 1 << idBits))))).toSeq)
+//     lazy val module = new Impl
+//     class Impl extends LazyModuleImp(this) {
+//         val io = IO(new Bundle{
+//             val WBU_2_IFU = Flipped(Decoupled(Input(new WBU_2_IFU)))
+//             val IFU_2_IDU = Decoupled(Output(new IFU_2_IDU))
+
+//             val Pipeline_ctrl = Flipped(new Pipeline_ctrl)
+//         })
+//         val (master, _) = masterNode.out(0)
+
+//         io.WBU_2_IFU.ready := true.B
+//         val pc = RegInit(Config.Reset_Vector)
+//         val snpc = pc + 4.U
+//         val dnpc = io.WBU_2_IFU.bits.npc
+        
+//         val pc_flush = io.Pipeline_ctrl.flush
+        
+//         val pc_update = io.IFU_2_IDU.fire | pc_flush
+
+//         val BPU = Module(new BPU)
+//         BPU.io.pc := pc
+//         BPU.io.flush_pc.valid := pc_flush
+//         BPU.io.flush_pc.bits.pc := io.WBU_2_IFU.bits.pc
+//         BPU.io.flush_pc.bits.target := io.WBU_2_IFU.bits.npc
+
+//         val npc = MuxCase(snpc, Seq(
+//             (pc_flush) -> dnpc,
+//             (BPU.io.hit) -> BPU.io.npc,
+//         ))
+
+//         when(pc_update) {
+//             pc := npc
+//         }
+
+//         Config.Icache_Param match {
+//             case Some((address, set, way, block_size)) => {
+//                 val state = RegInit(IFU_state.s_idle)
+
+//                 val burst_transfer_time = 4
+
+//                 val Icache = Module(new CacheTemplate(
+//                     set = set,
+//                     way = way,
+//                     block_num = burst_transfer_time,
+//                     name = "icache",
+//                     with_valid = true,
+//                     with_fence = true,
+//                 ))
+
+//                 Icache.io.areq.ren := true.B
+//                 Icache.io.areq.addr := pc
+
+//                 val cache_hit = Icache.io.areq.hit
+
+//                 val next_state = MuxLookup(state, IFU_state.s_idle)(
+//                     Seq(
+//                         IFU_state.s_idle -> Mux(
+//                             !cache_hit && !pc_flush,
+//                             IFU_state.s_send_addr,
+//                             state
+//                         ),
+
+//                         IFU_state.s_send_addr -> MuxCase(state, Seq( 
+//                             master.ar.fire -> IFU_state.s_get_data,
+//                             pc_flush -> IFU_state.s_idle
+//                         )),
+
+//                         IFU_state.s_get_data -> Mux(
+//                             master.r.fire && master.r.bits.last,
+//                             IFU_state.s_idle,
+//                             state
+//                         )
+//                     )
+//                 )
+//                 state := next_state
+
+//                 val flat_addr = pc & ~((burst_transfer_time << 2) - 1).U(32.W)
+//                 Icache.io.rreq.bits.addr := RegEnable(flat_addr, master.ar.fire)
+//                 Icache.io.rreq.bits.data := master.r.bits.data
+//                 Icache.io.rreq.valid := master.r.fire
+
+//                 io.IFU_2_IDU.valid := (state === IFU_state.s_idle) && cache_hit
+
+//                 io.IFU_2_IDU.bits.inst := Icache.io.areq.rdata
+//                 io.IFU_2_IDU.bits.pc := pc
+//                 io.IFU_2_IDU.bits.npc := npc
+
+//                 master.ar.valid := (state === IFU_state.s_send_addr)
+//                 master.ar.bits.len := (burst_transfer_time - 1).U
+//                 master.ar.bits.addr := flat_addr
+
+//                 master.r.ready := state === IFU_state.s_get_data
+//             }
+//             case None => {
+//                 // TODO: Need to fix for master.ar.ready always false
+
+//                 io.WBU_2_IFU.ready := master.ar.ready && io.IFU_2_IDU.ready
+
+//                 io.IFU_2_IDU.valid := master.r.valid
+//                 io.IFU_2_IDU.bits.pc := pc
+//                 io.IFU_2_IDU.bits.npc := io.WBU_2_IFU.bits.npc
+
+//                 master.ar.valid := io.WBU_2_IFU.valid
+//                 master.r.ready := io.IFU_2_IDU.ready
+
+//                 master.ar.bits.len := 0.U
+//                 master.ar.bits.addr := pc
+
+//                 io.IFU_2_IDU.bits.inst := master.r.bits.data
+//             }
+//         }
+
+//         if(Config.Simulate){
+//             val Catch = Module(new IFU_catch)
+//             Catch.io.clock := clock
+//             Catch.io.valid := io.IFU_2_IDU.fire && !reset.asBool
+//             Catch.io.inst := io.IFU_2_IDU.bits.inst
+//             Catch.io.pc := io.IFU_2_IDU.bits.pc
+//         }
+//         master.aw.bits.size  := 0.U
+//         master.ar.bits.size  := 2.U
+
+//         master.aw.valid := false.B
+//         master.aw.bits.addr := 0.U
+//         master.aw.bits.id    := 0.U
+//         master.aw.bits.len   := 0.U
+//         master.aw.bits.burst := 0.U
+//         master.aw.bits.lock  := 0.U
+//         master.aw.bits.cache := 0.U
+//         master.aw.bits.prot  := 0.U
+//         master.aw.bits.qos   := 0.U
+//         master.w.valid := false.B
+//         master.w.bits.data := 0.U
+//         master.w.bits.strb := 0.U
+//         master.w.bits.last  := 1.U
+//         master.b.ready := false.B
+
+//         master.ar.bits.id    := 0.U
+//         master.ar.bits.burst := 1.U // INCR
+//         master.ar.bits.lock  := 0.U // Normal access
+//         master.ar.bits.cache := 0.U // Cacheable
+//         master.ar.bits.prot  := 0.U // Normal memory
+//         master.ar.bits.qos   := 0.U // Quality of Service
+//     }
+// }

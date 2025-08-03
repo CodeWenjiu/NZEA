@@ -30,12 +30,12 @@ object CPUAXI4BundleParameters {
 }
 
 trait HasCoreModules extends Module {
-  val IFU: frontend.IFU#Impl
+  val IFU: frontend.IFU
   val IDU: frontend.IDU
   val ISU: frontend.ISU
 
   val ALU: backend.ALU
-  val LSU: backend.LSU#Impl
+  val LSU: backend.LSU_2
   val WBU: backend.WBU
   
   val REG: REG
@@ -106,7 +106,7 @@ object CoreConnect {
     REG.io.WBU_2_REG <> WBU.io.WBU_2_REG
     REG.io.REG_2_WBU <> WBU.io.REG_2_WBU
 
-    LSU.io.is_flush := PipelineCtrl.io.EXUCtrl.flush
+    LSU.io.Pipeline_ctrl := PipelineCtrl.io.EXUCtrl
 
     IDU.io.WB_Bypass <> WBU.io.WB_Bypass
 
@@ -119,20 +119,30 @@ object CoreConnect {
 
 class npc(idBits: Int, try_true: Boolean)(implicit p: Parameters) extends LazyModule {
   ElaborationArtefacts.add("graphml", graphML)
-  val LazyIFU = LazyModule(new frontend.IFU(idBits = idBits))
-  val LazyLSU = LazyModule(new backend.LSU(idBits = idBits))
+
+  val if_axi = AXI4MasterNode(p(ExtIn).map(params => AXI4MasterPortParameters(
+    masters = Seq(AXI4MasterParameters(
+      name = "ifu",
+      id   = IdRange(0, 1 << idBits)
+    )
+  ))).toSeq)
+
+  val ls_axi = AXI4MasterNode(p(ExtIn).map(params => AXI4MasterPortParameters(
+    masters = Seq(AXI4MasterParameters(
+      name = "lsu",
+      id   = IdRange(0, 1 << idBits)
+    )
+  ))).toSeq)
 
   val xbar = AXI4Xbar(
     maxFlightPerId = 1, 
     awQueueDepth = 1
   )
-  xbar := LazyIFU.masterNode
-  xbar := LazyLSU.masterNode
+  xbar := if_axi
+  xbar := ls_axi
 
-  val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x1000)))
-  val lclint = LazyModule(
-    new peripheral.CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U)
-  )
+  val luart = LazyModule(new UART(AddressSet.misaligned(0x10000000, 0x10000)))
+  val lclint = LazyModule(new peripheral.CLINT(AddressSet.misaligned(0xa0000048L, 0x10), 985.U))
   luart.node := xbar
   lclint.node := xbar
   
@@ -146,12 +156,15 @@ class npc(idBits: Int, try_true: Boolean)(implicit p: Parameters) extends LazyMo
   
   override lazy val module = new Impl
   class Impl extends LazyModuleImp(this) with HasCoreModules with DontTouch {
-    val IFU = LazyIFU.module
+    val IFU = Module(new frontend.IFU)
+    if_axi.out(0)._1 <> IFU.io.bus.toAXI(0)
+
     val IDU = Module(new frontend.IDU)
     val ISU = Module(new frontend.ISU)
 
     val ALU = Module(new backend.ALU)
-    val LSU = LazyLSU.module
+    val LSU = Module(new backend.LSU_2)
+    ls_axi.out(0)._1 <> LSU.io.bus.bufferd.toAXI(1 << (idBits-1))
     val WBU = Module(new backend.WBU)
     
     val REG = Module(new REG)

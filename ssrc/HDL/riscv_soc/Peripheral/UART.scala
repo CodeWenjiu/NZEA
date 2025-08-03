@@ -42,9 +42,8 @@ class UART(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule 
             address       = address,
             executable    = false,
             supportsWrite = TransferSizes(1, beatBytes),
-            supportsRead  = TransferSizes(1, beatBytes),
-            interleavedId = Some(0))
-        ),
+            supportsRead  = TransferSizes(1, beatBytes)
+        )),
         beatBytes  = beatBytes)))
         
     lazy val module = new Impl
@@ -69,14 +68,18 @@ class UART(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule 
         
         state_w := MuxLookup(state_w, s_wait_addr)(
             Seq(
-                s_wait_addr -> Mux(AXI.aw.fire, s_wait_data, s_wait_addr),
+                // s_wait_addr -> Mux(AXI.aw.fire, s_wait_data, s_wait_addr),
+                s_wait_addr -> MuxCase(state_w, Seq(
+                    AXI.w.fire -> s_wait_resp,
+                    AXI.aw.fire -> s_wait_data
+                )),
                 s_wait_data -> Mux(AXI.w.fire,  s_wait_resp, s_wait_data),
                 s_wait_resp -> Mux(AXI.b.fire,  s_wait_addr, s_wait_resp)
             )
         )
 
         AXI.aw.ready := state_w === s_wait_addr
-        AXI.w.ready  := state_w === s_wait_data
+        AXI.w.ready  := state_w.isOneOf(s_wait_addr, s_wait_data)
         AXI.b.valid  := state_w === s_wait_resp
         AXI.b.bits.resp   := 0.U
 

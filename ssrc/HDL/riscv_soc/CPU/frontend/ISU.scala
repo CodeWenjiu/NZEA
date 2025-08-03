@@ -107,13 +107,30 @@ class ISU extends Module {
     io.ISU_2_LSU.bits.Ctrl := io.IDU_2_ISU.bits.ls_ctrl
     io.ISU_2_LSU.bits.gpr_waddr := io.IDU_2_ISU.bits.gpr_waddr
     io.ISU_2_LSU.bits.addr := addr
-    io.ISU_2_LSU.bits.data := (rs2_val << (addr(1, 0) << 3.U))(31, 0)
-    val write_mask = MuxLookup(io.ISU_2_LSU.bits.Ctrl, 0.U)(Seq(
-        LsCtrl.SB -> "b0001".U,
-        LsCtrl.SH -> "b0011".U,
-        LsCtrl.SW -> "b1111".U
-    )) << addr(1, 0)
-    io.ISU_2_LSU.bits.mask := write_mask
+    // io.ISU_2_LSU.bits.data := (rs2_val << (addr(1, 0) << 3.U))(31, 0)
+    // val mask = (io.ISU_2_LSU.bits.Ctrl match {
+    //     case LsCtrl.SB | LsCtrl.LB | LsCtrl.LBU => "b0001".U
+    //     case LsCtrl.SH | LsCtrl.LH | LsCtrl.LHU => "b0011".U
+    //     case LsCtrl.SW | LsCtrl.LW => "b1111".U
+    //     case _ => 0.U
+    // }) << (addr(1, 0) << 2)
+    io.ISU_2_LSU.bits.data := rs2_val
+    val mask = MuxLookup(io.ISU_2_LSU.bits.Ctrl, BaseBusSize.Byte)(Seq(
+        (LsCtrl.SB) -> BaseBusSize.Byte,
+        (LsCtrl.LB) -> BaseBusSize.Byte,
+        (LsCtrl.LBU) -> BaseBusSize.Byte,
+        (LsCtrl.SH) -> BaseBusSize.HalfWord,
+        (LsCtrl.LH) -> BaseBusSize.HalfWord,
+        (LsCtrl.LHU) -> BaseBusSize.HalfWord,
+        (LsCtrl.SW) -> BaseBusSize.Word,
+        (LsCtrl.LW) -> BaseBusSize.Word,
+    )) 
+    val sig_ext = MuxLookup(io.ISU_2_LSU.bits.Ctrl, true.B)(Seq(
+        LsCtrl.LBU -> false.B,
+        LsCtrl.LHU -> false.B
+    ))
+    io.ISU_2_LSU.bits.size := mask
+    io.ISU_2_LSU.bits.sig_ext := sig_ext
 
     if (Config.Simulate) {
         val Catch = Module(new ISU_catch)
