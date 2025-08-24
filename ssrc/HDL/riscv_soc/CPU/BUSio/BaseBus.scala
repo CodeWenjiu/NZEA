@@ -96,7 +96,7 @@ class BaseBusToAXI(user_bits: Int = 0, id: Int) extends Module {
     axi.ar.bits.prot    := 0.U
     axi.ar.bits.qos     := 0.U
 
-    axi.r.ready             := io.in.resp.ready
+    axi.r.ready             := io.in.resp.ready && (axi.r.bits.id === id.U)
 
     io.in.resp.bits.rdata := axi.r.bits.data
     
@@ -116,7 +116,7 @@ class BaseBusToAXI(user_bits: Int = 0, id: Int) extends Module {
     ))
 
     axi.aw.bits <> axi.ar.bits
-
+    axi.ar.bits.id      := id.U
     axi.aw.valid        := wvalid && (w_state === s_idle)
     axi.aw.bits.addr    := addr
     
@@ -124,7 +124,8 @@ class BaseBusToAXI(user_bits: Int = 0, id: Int) extends Module {
     axi.w.bits.data     := io.in.req.bits.wdata
     axi.w.bits.strb     := BaseBusSize.ToMask(io.in.req.bits.size, addr)
     axi.w.bits.last     := true.B
-    axi.b.ready         := io.in.resp.ready
+
+    axi.b.ready         := io.in.resp.ready  && (axi.b.bits.id === id.U)
     
     axi <> io.out
 }

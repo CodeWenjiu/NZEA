@@ -21,7 +21,7 @@ object ChipLinkParam {
   val mem  = AddressSet(0xc0000000L, 0x40000000L - 1)
   val mmio = AddressSet(0x40000000L, 0x40000000L - 1)
   val allSpace = Seq(mem, mmio)
-  val idBits = 4
+  val idBits = 3
 }
 
 object Special_instTypeEnum extends ChiselEnum {

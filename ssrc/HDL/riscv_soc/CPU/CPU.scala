@@ -25,7 +25,7 @@ object CPUAXI4BundleParameters {
   def apply() = AXI4BundleParameters(
     addrBits = 32,
     dataBits = 32,
-    idBits = ChipLinkParam.idBits
+    idBits = ChipLinkParam.idBits + 1, // combine from ifu and lsu
   )
 }
 
@@ -164,7 +164,7 @@ class npc(idBits: Int, try_true: Boolean)(implicit p: Parameters) extends LazyMo
 
     val ALU = Module(new backend.ALU)
     val LSU = Module(new backend.LSU_2)
-    ls_axi.out(0)._1 <> LSU.io.bus.bufferd.toAXI(1 << (idBits-1))
+    ls_axi.out(0)._1 <> LSU.io.bus.bufferd.toAXI(0)
     val WBU = Module(new backend.WBU)
     
     val REG = Module(new REG)

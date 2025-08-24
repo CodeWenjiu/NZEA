@@ -37,26 +37,22 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     AddressSet.misaligned(0xc0000000L, 0x40000000L) // ChipLink
 
   ElaborationArtefacts.add("graphml", graphML)
-  // val LazyLSU = LazyModule(new backend.LSU(idBits = idBits - 1))
 
   val if_axi = AXI4MasterNode(p(ExtIn).map(params => AXI4MasterPortParameters(
     masters = Seq(AXI4MasterParameters(
-      name = "if",
+      name = "ifu",
       id   = IdRange(0, 1 << idBits)
     )
   ))).toSeq)
 
   val ls_axi = AXI4MasterNode(p(ExtIn).map(params => AXI4MasterPortParameters(
     masters = Seq(AXI4MasterParameters(
-      name = "ls",
+      name = "lsu",
       id   = IdRange(0, 1 << idBits)
     )
   ))).toSeq)
 
-  val xbar = AXI4Xbar(
-    maxFlightPerId = 1, 
-    awQueueDepth = 1
-  )
+  val xbar = AXI4Xbar()
   xbar := if_axi
   xbar := ls_axi
 
@@ -76,7 +72,6 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
             executable = true,
             supportsWrite = TransferSizes(1, beatBytes),
             supportsRead = TransferSizes(1, beatBytes),
-            interleavedId = Some(0)
           )
         ),
         beatBytes = beatBytes
@@ -95,12 +90,13 @@ class core(idBits: Int)(implicit p: Parameters) extends LazyModule {
     })
     val IFU = Module(new frontend.IFU)
     if_axi.out(0)._1 <> IFU.io.bus.toAXI(0)
+
     val IDU = Module(new frontend.IDU)
     val ISU = Module(new frontend.ISU)
 
     val ALU = Module(new backend.ALU)
     val LSU = Module(new backend.LSU_2)
-    ls_axi.out(0)._1 <> LSU.io.bus.toAXI(1)
+    ls_axi.out(0)._1 <> LSU.io.bus.bufferd.toAXI(1)
     val WBU = Module(new backend.WBU)
     
     val REG = Module(new REG)

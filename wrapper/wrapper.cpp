@@ -6,6 +6,7 @@
 
 class VTop_container: public Vtop {
 public:
+
     const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
         VTop_container(const char* scopep__V):
         Vtop(scopep__V) {
@@ -78,12 +79,12 @@ public:
 
         void final_container() {
             if (tfp) {
-                tfp->close();
-                delete tfp;
-                tfp = nullptr;
+            tfp->close();
+            delete tfp;
+            tfp = nullptr;
             }
             if (nvboard_on) {
-                nvboard_quit();
+            nvboard_quit();
             }
             this->final();
         }

@@ -96,7 +96,7 @@ class IFU extends Module {
         pc := npc
     }
 
-    io.bus.req.valid := io.IFU_2_IDU.ready
+    io.bus.req.valid := io.IFU_2_IDU.ready && !reset.asBool
     io.WBU_2_IFU.ready := io.bus.req.ready
     io.bus.req.bits.addr := pc
     io.bus.req.bits.size := BaseBusSize.Word
