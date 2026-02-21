@@ -9,7 +9,7 @@ object Elaborate {
     println(s"Generating NzeaCore (width: ${config.width}, Debug: ${config.debug})")
 
     ChiselStage.emitSystemVerilogFile(
-      new GCD, // TODO: Replace with new NzeaCore(config) when top-level module supports it
+      new frontend.IFU, // TODO: Replace with new NzeaCore(config) when top-level module supports it
       args = Array("--target-dir", config.outDir),
       firtoolOpts = Array(
         "-disable-all-randomization",

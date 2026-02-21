@@ -12,6 +12,6 @@
 
 - **Build & run (recommended):** `just run` — builds and runs the CLI with default config. Append CLI flags as needed, e.g. `just run -w 64 -o out/verilog`.
 - **Verify build:** After any change, run `just run`; a successful run (and generated output) indicates the project compiles and the pipeline runs.
-- **Raw Mill:** `mill nzea_cli.run` or `mill nzea_cli.run -- -w 64 -o build/nzea` to pass arguments through to the program.
+- **Raw Mill:** `mill nzea_cli.run` or `mill nzea_cli.run -- -w 64 -o out/verilog` to pass arguments through to the program.
 
 See [BUILD_AND_RUN.md](BUILD_AND_RUN.md) for build details and [MODULES.md](MODULES.md) for each module’s role.

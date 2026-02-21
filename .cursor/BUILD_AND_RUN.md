@@ -37,7 +37,7 @@ If using Nix, from the repo root run `nix develop` (or `direnv allow` when using
 2. If the build succeeds, you’ll see Mill compile output and then something like:  
    `Generating NzeaCore (width: 32, Debug: false)`  
    and the run will complete without errors.
-3. Generated RTL (e.g. SystemVerilog) will appear under the output directory (default `build/nzea` unless overridden with `-o`).
+3. Generated RTL (e.g. SystemVerilog) will appear under the output directory (default `build` unless overridden with `-o`).
 
 So: **a successful `just run` means the project compiles and the elaboration path works.**
 
