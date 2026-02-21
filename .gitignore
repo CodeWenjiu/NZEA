@@ -6,3 +6,4 @@ ssrc/.bloop
 .direnv
 out
 .bsp
+build

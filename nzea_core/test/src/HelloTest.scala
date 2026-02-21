@@ -1,9 +1,9 @@
 package nzea_core
 import org.scalatest.funsuite.AnyFunSuite
 
-class Nzea_Core_Test extends AnyFunSuite {
+class NzeaCoreTest extends AnyFunSuite {
   test("HelloWorld Test") {
-    HelloWorld.main(Array.empty)
+    Elaborate.main(Array.empty)
     assert(true)
   }
 }
