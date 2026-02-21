@@ -2,7 +2,7 @@ package nzea_core
 
 import chisel3._
 import _root_.circt.stage.ChiselStage
-import mainargs.{arg, ParserForClass}
+import mainargs.arg
 
 case class NzeaConfig(
   @arg(short = 'w', doc = "CPU core data width") width: Int = 32,
@@ -23,10 +23,5 @@ object Elaborate {
         "-default-layer-specialization=enable"
       )
     )
-  }
-
-  def main(args: Array[String]): Unit = {
-    val config = ParserForClass[NzeaConfig].constructOrExit(args.toIndexedSeq)
-    elaborate(config)
   }
 }

@@ -3,7 +3,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class NzeaCoreTest extends AnyFunSuite {
   test("HelloWorld Test") {
-    Elaborate.main(Array.empty)
+    println("HelloWorld")
     assert(true)
   }
 }

@@ -1,9 +1,9 @@
 .cache
 .metals
 .vscode
+.direnv
+.bsp
 ssrc/out
 ssrc/.bloop
-.direnv
 out
-.bsp
 build
