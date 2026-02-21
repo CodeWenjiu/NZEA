@@ -1,4 +1,4 @@
-package myhw
+package nzea_core
 
 object HelloWorld {
   def main(args: Array[String]): Unit = {
