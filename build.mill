@@ -2,7 +2,7 @@ import mill._
 import mill.scalalib._
 
 object nzea_core extends ScalaModule {
-  def scalaVersion = "2.13.12"
+  def scalaVersion = "2.13.18"
   object test extends ScalaTests with TestModule.ScalaTest {
     def mvnDeps = Seq(mvn"org.scalatest::scalatest:3.2.18")
   }

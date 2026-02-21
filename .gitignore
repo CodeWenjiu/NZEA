@@ -5,3 +5,4 @@ ssrc/out
 ssrc/.bloop
 .direnv
 out
+.bsp
