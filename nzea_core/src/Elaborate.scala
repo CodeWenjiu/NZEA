@@ -4,14 +4,15 @@ package nzea_core
 import _root_.circt.stage.ChiselStage
 
 object Elaborate {
-  def elaborate() = {
+  def elaborate(outputPath: Option[String] = None): Unit = {
+    val targetDir = outputPath.getOrElse("build")
     println("Generate Nzea Core")
 
     ChiselStage.emitSystemVerilogFile(
       new GCD,
       args = Array(
         "--target-dir",
-        "build"
+        targetDir
       ),
       firtoolOpts = Array(
         "-disable-all-randomization",
@@ -20,7 +21,6 @@ object Elaborate {
       )
     )
   }
-
 
   def main(args: Array[String]): Unit = {
     elaborate()
