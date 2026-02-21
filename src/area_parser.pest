@@ -1,7 +1,0 @@
-WHITESPACE = _{ " " | "\t" }
-NEWLINE = _{ "\n" | "\r\n" }
-float = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
-chip_area_line = _{ "Chip area for top module '\\top':" ~ WHITESPACE* ~ float }
-other_line = _{ (!NEWLINE ~ ANY)* }
-line = _{ chip_area_line | other_line }
-file = _{ SOI ~ (line ~ NEWLINE)* ~ EOI }
