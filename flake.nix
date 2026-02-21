@@ -23,7 +23,6 @@
           buildInputs = with pkgs; [
             jdk
             mill
-            metals
             scalafmt
           ];
         };
