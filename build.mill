@@ -1,9 +1,18 @@
 import mill._
 import mill.scalalib._
 
+val mainargsVersion = "0.5.2"
+
+object nzea_config extends ScalaModule {
+  def scalaVersion = "2.13.18"
+  override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
+}
+
 object nzea_core extends ScalaModule {
   def scalaVersion = "2.13.18"
   def chiselVersion = "7.9.0"
+
+  def moduleDeps = Seq(nzea_config)
 
   override def scalacOptions = Seq(
     "-language:reflectiveCalls",
@@ -13,10 +22,7 @@ object nzea_core extends ScalaModule {
     "-Ymacro-annotations"
   )
 
-  override def mvnDeps = Seq(
-    mvn"org.chipsalliance::chisel:$chiselVersion",
-    mvn"com.lihaoyi::mainargs:0.5.2"
-  )
+  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselVersion")
   override def scalacPluginMvnDeps = Seq(
     mvn"org.chipsalliance:::chisel-plugin:$chiselVersion"
   )
@@ -31,5 +37,5 @@ object nzea_cli extends ScalaModule {
 
   def moduleDeps = Seq(nzea_core)
 
-  override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:0.5.2")
+  override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
 }

@@ -1,11 +1,12 @@
 package nzea_cli
 
 import mainargs.ParserForClass
-import nzea_core.{Elaborate, NzeaConfig}
+import nzea_config.NzeaConfig
+import nzea_core.Elaborate
 
 object Main {
   def main(args: Array[String]): Unit = {
-    val config = ParserForClass[NzeaConfig].constructOrExit(args.toIndexedSeq)
-    Elaborate.elaborate(config)
+    implicit val config = ParserForClass[NzeaConfig].constructOrExit(args.toIndexedSeq)
+    Elaborate.elaborate
   }
 }

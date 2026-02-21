@@ -2,16 +2,10 @@ package nzea_core
 
 import chisel3._
 import _root_.circt.stage.ChiselStage
-import mainargs.arg
-
-case class NzeaConfig(
-  @arg(short = 'w', doc = "CPU core data width") width: Int = 32,
-  @arg(short = 'd', doc = "Whether to enable Debug port") debug: Boolean = false,
-  @arg(short = 'o', doc = "Verilog output directory") outDir: String = "build/nzea"
-)
+import nzea_config.NzeaConfig
 
 object Elaborate {
-  def elaborate(config: NzeaConfig): Unit = {
+  def elaborate(implicit config: NzeaConfig): Unit = {
     println(s"Generating NzeaCore (width: ${config.width}, Debug: ${config.debug})")
 
     ChiselStage.emitSystemVerilogFile(
