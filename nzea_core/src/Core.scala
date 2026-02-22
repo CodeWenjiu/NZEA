@@ -23,5 +23,9 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   io.bus <> ifu.io.bus
 
+  idu.io.gpr_wr.valid := false.B
+  idu.io.gpr_wr.bits.addr := 0.U
+  idu.io.gpr_wr.bits.data := 0.U
+
   io.idDecoded <> idu.io.out
 }

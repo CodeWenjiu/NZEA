@@ -2,7 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.BitPat
-import chisel3.util.Decoupled
+import chisel3.util.{Decoupled, Valid}
 import chisel3.util.{Cat, Fill, Mux1H}
 import chisel3.util.experimental.decode.{DecodeField, DecodePattern, TruthTable, QMCMinimizer, decoder}
 
@@ -116,8 +116,23 @@ object ImmTypeField extends DecodeField[RVInst, UInt] with DecodeAPI {
 class IDU(addrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in     = Flipped(Decoupled(new nzea_core.IFUOut(addrWidth)))
-    val out = Decoupled(new nzea_core.IDUOut(addrWidth))
+    val out    = Decoupled(new nzea_core.IDUOut(addrWidth))
+    val gpr_wr = Input(Valid(new Bundle {
+      val addr = UInt(5.W)
+      val data = UInt(32.W)
+    }))
   })
+
+  // GPR: 32 x 32-bit, x0 fixed to 0
+  val gpr = RegInit(VecInit(Seq.fill(32)(0.U(32.W))))
+  when(io.gpr_wr.valid && io.gpr_wr.bits.addr =/= 0.U) {
+    gpr(io.gpr_wr.bits.addr) := io.gpr_wr.bits.data
+  }
+
+  val rs1 = io.in.bits.inst(19, 15)
+  val rs2 = io.in.bits.inst(24, 20)
+  val rs1_data = Mux(rs1 === 0.U, 0.U(32.W), gpr(rs1))
+  val rs2_data = Mux(rs2 === 0.U, 0.U(32.W), gpr(rs2))
 
   // Build TruthTable from RiscvInsts + ImmTypeField, then decode with QMCMinimizer only (no Espresso).
   val allInsts   = RiscvInsts.all
@@ -137,7 +152,9 @@ class IDU(addrWidth: Int) extends Module {
   val imm = Mux1H(immType.asUInt, Seq(immI, immS, immB, immU, immJ))
 
   io.out.valid := io.in.valid
-  io.out.bits.pc  := io.in.bits.pc
-  io.out.bits.imm := imm
+  io.out.bits.pc       := io.in.bits.pc
+  io.out.bits.imm      := imm
+  io.out.bits.rs1 := rs1_data
+  io.out.bits.rs2 := rs2_data
   io.in.ready := io.out.ready
 }
