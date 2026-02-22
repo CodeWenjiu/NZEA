@@ -111,16 +111,12 @@ object ImmTypeField extends DecodeField[RVInst, UInt] with DecodeAPI {
   def genTable(inst: RVInst): BitPat = inst.immType.fold(BitPat.dontCare(ImmType.getWidth))(bitPatFor)
 }
 
-// -------- DecodedInst bundle & IDU module --------
+// -------- IDU module --------
 
-class DecodedInst extends Bundle {
-  val imm     = UInt(32.W)
-}
-
-class IDU extends Module {
+class IDU(addrWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val inst    = Flipped(Decoupled(UInt(32.W)))
-    val decoded = Decoupled(new DecodedInst)
+    val in     = Flipped(Decoupled(new nzea_core.IFUOut(addrWidth)))
+    val out = Decoupled(new nzea_core.IDUOut(addrWidth))
   })
 
   // Build TruthTable from RiscvInsts + ImmTypeField, then decode with QMCMinimizer only (no Espresso).
@@ -128,10 +124,10 @@ class IDU extends Module {
   val mapping    = allInsts.map(p => (p.bitPat, ImmTypeField.genTable(p)))
   val default    = BitPat(ImmType.I.litValue.U(ImmType.getWidth.W))
   val table      = TruthTable(mapping, default)
-  val decodedRaw = decoder(QMCMinimizer, io.inst.bits, table)
+  val decodedRaw = decoder(QMCMinimizer, io.in.bits.inst, table)
   val (immType, _) = ImmType.safe(decodedRaw)
 
-  val inst = io.inst.bits
+  val inst = io.in.bits.inst
   val immI = Cat(Fill(20, inst(31)), inst(31, 20))
   val immS = Cat(Fill(20, inst(31)), inst(31, 25), inst(11, 7))
   val immB = Cat(Fill(19, inst(31)), inst(31), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W))
@@ -140,7 +136,8 @@ class IDU extends Module {
 
   val imm = Mux1H(immType.asUInt, Seq(immI, immS, immB, immU, immJ))
 
-  io.decoded.valid := io.inst.valid
-  io.decoded.bits.imm     := imm
-  io.inst.ready := io.decoded.ready
+  io.out.valid := io.in.valid
+  io.out.bits.pc  := io.in.bits.pc
+  io.out.bits.imm := imm
+  io.in.ready := io.out.ready
 }

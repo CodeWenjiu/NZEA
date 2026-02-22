@@ -12,16 +12,16 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val bus       = ifuBusGen()
-    val idDecoded = Decoupled(new frontend.DecodedInst)
+    val idDecoded = Decoupled(new IDUOut(addrWidth))
   })
 
   val ifu = Module(new frontend.IFU(ifuBusGen, config.defaultPc))
-  val idu = Module(new frontend.IDU())
+  val idu = Module(new frontend.IDU(addrWidth))
 
-  val if2id = PipelineReg(ifu.io.inst)
-  if2id <> idu.io.inst
+  val if2id = PipelineReg(ifu.io.out)
+  if2id <> idu.io.in
 
   io.bus <> ifu.io.bus
 
-  io.idDecoded <> idu.io.decoded
+  io.idDecoded <> idu.io.out
 }

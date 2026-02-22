@@ -34,3 +34,14 @@ object CoreBus {
   def apply(addrWidth: Int, dataWidth: Int, hasWrite: Boolean): Bundle with CoreBusLike =
     if (hasWrite) new CoreBusReadWrite(addrWidth, dataWidth) else new CoreBusReadOnly(addrWidth, dataWidth)
 }
+
+class IFUOut(width: Int) extends Bundle {
+  val pc   = UInt(width.W)
+  val inst = UInt(32.W)
+}
+
+/** IDU decode result: pc (from IF) + decoded imm. */
+class IDUOut(width: Int) extends Bundle {
+  val pc  = UInt(width.W)
+  val imm = UInt(32.W)
+}

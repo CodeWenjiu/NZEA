@@ -15,16 +15,17 @@ class IFU(busGen: () => CoreBusReadOnly, defaultPc: Long) extends Module {
 
   val io = IO(new Bundle {
     val bus  = busGen()
-    val inst = Decoupled(UInt(dataWidth.W))
+    val out = Decoupled(new nzea_core.IFUOut(addrWidth))
   })
   val pc               = RegInit(pcReset)
 
-  io.bus.req.valid := io.inst.ready
+  io.bus.req.valid := io.out.ready
   io.bus.req.bits  := pc
 
   when(io.bus.resp.fire) { pc := pc + 4.U }
 
-  io.inst.valid        := io.bus.resp.valid
-  io.inst.bits         := io.bus.resp.bits
-  io.bus.resp.ready    := io.inst.ready
+  io.out.valid      := io.bus.resp.valid
+  io.out.bits.pc    := pc
+  io.out.bits.inst  := io.bus.resp.bits
+  io.bus.resp.ready := io.out.ready
 }
