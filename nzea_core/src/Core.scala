@@ -11,15 +11,21 @@ class Core(implicit config: NzeaConfig) extends Module {
   private val ifuBusGen = () => new CoreBusReadOnly(addrWidth, dataWidth)
 
   val io = IO(new Bundle {
-    val bus       = ifuBusGen()
-    val idDecoded = Decoupled(new frontend.IDUOut(addrWidth))
+    val bus  = ifuBusGen()
+    val alu  = Decoupled(new Bundle {})
+    val bru  = Decoupled(new Bundle {})
+    val lsu  = Decoupled(new Bundle {})
+    val sysu = Decoupled(new Bundle {})
   })
 
   val ifu = Module(new frontend.IFU(ifuBusGen, config.defaultPc))
   val idu = Module(new frontend.IDU(addrWidth))
+  val isu = Module(new frontend.ISU(addrWidth))
 
   val if2id = PipelineReg(ifu.io.out)
   if2id <> idu.io.in
+  val id2is = PipelineReg(idu.io.out)
+  id2is <> isu.io.in
 
   io.bus <> ifu.io.bus
 
@@ -27,5 +33,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   idu.io.gpr_wr.bits.addr := 0.U
   idu.io.gpr_wr.bits.data := 0.U
 
-  io.idDecoded <> idu.io.out
+  io.alu  <> isu.io.alu
+  io.bru  <> isu.io.bru
+  io.lsu  <> isu.io.lsu
+  io.sysu <> isu.io.sysu
 }
