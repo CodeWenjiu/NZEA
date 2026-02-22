@@ -35,15 +35,3 @@ object CoreBus {
     if (hasWrite) new CoreBusReadWrite(addrWidth, dataWidth) else new CoreBusReadOnly(addrWidth, dataWidth)
 }
 
-class IFUOut(width: Int) extends Bundle {
-  val pc   = UInt(width.W)
-  val inst = UInt(32.W)
-}
-
-/** IDU decode result: pc, imm, GPR read data. */
-class IDUOut(width: Int) extends Bundle {
-  val pc  = UInt(width.W)
-  val imm = UInt(32.W)
-  val rs1 = UInt(32.W)
-  val rs2 = UInt(32.W)
-}

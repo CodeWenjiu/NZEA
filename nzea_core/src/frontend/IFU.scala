@@ -4,6 +4,12 @@ import chisel3._
 import chisel3.util.Decoupled
 import nzea_core.CoreBusReadOnly
 
+/** IFU stage output. */
+class IFUOut(width: Int) extends Bundle {
+  val pc   = UInt(width.W)
+  val inst = UInt(32.W)
+}
+
 /** Instruction Fetch Unit: holds PC, issues read requests, PC += 4 on readResp.fire.
   * Bus type and widths come from busGen (e.g. provided by Core).
   */
@@ -15,7 +21,7 @@ class IFU(busGen: () => CoreBusReadOnly, defaultPc: Long) extends Module {
 
   val io = IO(new Bundle {
     val bus  = busGen()
-    val out = Decoupled(new nzea_core.IFUOut(addrWidth))
+    val out = Decoupled(new IFUOut(addrWidth))
   })
   val pc               = RegInit(pcReset)
 
