@@ -3,7 +3,7 @@ package nzea_core.frontend
 import chisel3._
 import chisel3.util.BitPat
 import chisel3.util.Decoupled
-import chisel3.util.experimental.decode._
+import chisel3.util.experimental.decode.{DecodeField, DecodePattern, TruthTable, QMCMinimizer, decoder}
 
 // -------- DecodePattern: instruction patterns (32-bit) --------
 
@@ -127,11 +127,13 @@ class IDU extends Module {
     val decoded = Decoupled(new DecodedInst)
   })
 
+  // Build TruthTable from RiscvInsts + ImmTypeField, then decode with QMCMinimizer only (no Espresso).
   val allInsts   = RiscvInsts.all
-  val allFields  = Seq(ImmTypeField)
-  val decodeTable = new DecodeTable(allInsts, allFields)
-  val decodedBundle = decodeTable.decode(io.inst.bits)
-  val (immType, _)  = ImmType.safe(decodedBundle(ImmTypeField))
+  val mapping    = allInsts.map(p => (p.bitPat, ImmTypeField.genTable(p)))
+  val default    = BitPat(ImmType.I.litValue.U(ImmType.getWidth.W))
+  val table      = TruthTable(mapping, default)
+  val decodedRaw = decoder(QMCMinimizer, io.inst.bits, table)
+  val (immType, _) = ImmType.safe(decodedRaw)
 
   io.decoded.valid := io.inst.valid
   io.decoded.bits.inst     := io.inst.bits
