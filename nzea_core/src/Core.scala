@@ -14,8 +14,10 @@ class Core(implicit config: NzeaConfig) extends Module {
   })
 
   val ifu = Module(new frontend.IFU(ifuBusGen, config.defaultPc))
+  val idu = Module(new frontend.IDU())
 
   io.bus <> ifu.io.bus
 
-  ifu.io.inst.ready := true.B
+  ifu.io.inst <> idu.io.inst
+  idu.io.decoded.ready := true.B  // TODO: connect to EXU when present
 }
