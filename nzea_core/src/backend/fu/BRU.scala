@@ -16,12 +16,12 @@ object BruOp extends chisel3.ChiselEnum {
   val BGEU = Value((1 << 7).U)
 }
 
-/** BRU input: target, rs1/rs2 for branch compare, bruOp (one-hot); BRU derives is_jmp and is_taken internally. */
+/** BRU input: target, rs1/rs2 for branch compare, bruOp (ChiselEnum); BRU derives is_jmp and is_taken internally. */
 class BruInput extends Bundle {
   val target   = UInt(32.W)
   val rs1      = UInt(32.W)
   val rs2      = UInt(32.W)
-  val bruOp    = UInt(BruOp.getWidth.W)
+  val bruOp    = BruOp()
   val pc       = UInt(32.W)
   val rd_index = UInt(5.W)
 }
@@ -35,14 +35,15 @@ class BRU extends Module {
   })
 
   val b = io.in.bits
-  val is_jmp = b.bruOp(0) || b.bruOp(1)  // JAL, JALR
+  val bruOpU = b.bruOp.asUInt
+  val is_jmp = bruOpU(0) || bruOpU(1)  // JAL, JALR
   val eq  = b.rs1 === b.rs2
   val ne  = b.rs1 =/= b.rs2
   val lt  = b.rs1.asSInt < b.rs2.asSInt
   val ge  = b.rs1.asSInt >= b.rs2.asSInt
   val ltu = b.rs1 < b.rs2
   val geu = b.rs1 >= b.rs2
-  val branchTaken = Mux1H(b.bruOp, Seq(
+  val branchTaken = Mux1H(bruOpU, Seq(
     true.B, true.B, eq, ne, lt, ge, ltu, geu  // JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU
   ))
   val is_taken = is_jmp || branchTaken

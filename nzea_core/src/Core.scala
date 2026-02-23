@@ -9,15 +9,17 @@ class Core(implicit config: NzeaConfig) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val ifuBusGen = () => new CoreBusReadOnly(addrWidth, dataWidth)
+  private val lsuBusGen = () => new CoreBusReadWrite(addrWidth, dataWidth)
 
   val io = IO(new Bundle {
-    val bus = ifuBusGen()
+    val ibus = ifuBusGen()
+    val dbus = lsuBusGen()
   })
 
   val ifu = Module(new frontend.IFU(ifuBusGen, config.defaultPc))
   val idu = Module(new frontend.IDU(addrWidth))
   val isu = Module(new frontend.ISU(addrWidth))
-  val exu = Module(new backend.EXU())
+  val exu = Module(new backend.EXU(lsuBusGen))
   val wbu = Module(new backend.WBU())
 
   val if2id = PipelineReg(ifu.io.out)
@@ -38,10 +40,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   ex2wb <> wbu.io.in
   idu.io.gpr_wr := wbu.io.gpr_wr
 
-  io.bus <> ifu.io.bus
+  io.ibus <> ifu.io.bus
+  io.dbus <> exu.io.dbus
   ifu.io.pc_redirect := exu.io.pc_redirect
-
-  // Prevent EXU/WBU (and thus ALU) from being optimized away; they drive gpr_wr and are part of the datapath.
-  chisel3.dontTouch(exu.io)
-  chisel3.dontTouch(wbu.io)
 }

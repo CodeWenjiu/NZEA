@@ -3,18 +3,19 @@ package nzea_core
 import chisel3._
 import chisel3.util.Decoupled
 
-/** Request payload for read-write bus: addr, wdata, wen (read when false). */
+/** Request payload for read-write bus: addr, wdata, wen (read when false), wstrb (byte strobe when write). */
 class CoreReq(addrWidth: Int, dataWidth: Int) extends Bundle {
   val addr  = UInt(addrWidth.W)
   val wdata = UInt(dataWidth.W)
   val wen   = Bool()
+  val wstrb = UInt((dataWidth / 8).W)
 }
 
 /** Shared: resp channel. Concrete bundles add req (address-only or CoreReq). */
 trait CoreBusLike { self: Bundle =>
   def addrWidth: Int
   def dataWidth: Int
-  val resp = Flipped(Decoupled(UInt(dataWidth.W)))
+  lazy val resp = Flipped(Decoupled(UInt(dataWidth.W)))
 }
 
 /** Read-only: req is just address. */

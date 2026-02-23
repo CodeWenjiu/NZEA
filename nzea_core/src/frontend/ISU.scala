@@ -2,7 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup}
-import nzea_core.backend.fu.{AluInput, AluOp, BruInput, BruOp}
+import nzea_core.backend.fu.{AluInput, AluOp, BruInput, BruOp, LsuInput, LsuOp}
 
 /** ISU: route by fu_type; ALU uses alu_src for opA/opB; BRU gets target, rs1, rs2, bruOp; BRU derives is_jmp/taken internally. */
 class ISU(addrWidth: Int) extends Module {
@@ -10,7 +10,7 @@ class ISU(addrWidth: Int) extends Module {
     val in   = Flipped(Decoupled(new IDUOut(addrWidth)))
     val alu  = Decoupled(new AluInput)
     val bru  = Decoupled(new BruInput)
-    val lsu  = Decoupled(new Bundle {})
+    val lsu  = Decoupled(new LsuInput)
     val sysu = Decoupled(new Bundle {})
   })
 
@@ -43,12 +43,12 @@ class ISU(addrWidth: Int) extends Module {
   io.alu.bits.aluOp    := aluOp
   io.alu.bits.rd_index := io.in.bits.rd_index
 
-  // BRU path: FuDecode.take slices by enum width; no is_jmp, BRU derives it from bruOp
-  val (bruSrc, _) = BruSrc.safe(FuDecode.take(fu_src, BruSrc.getWidth))
-  val bruOp       = FuDecode.take(io.in.bits.fu_op, BruOp.getWidth)
-  val jmpAdd      = pc + imm
-  val jalrTarget  = (rs1 + imm) & ~1.U(32.W)
-  val target      = Mux(bruSrc === BruSrc.Rs1Imm, jalrTarget, jmpAdd)
+  // BRU path: FuDecode.take slices by enum width; convert to BruOp ChiselEnum
+  val (bruSrc, _)   = BruSrc.safe(FuDecode.take(fu_src, BruSrc.getWidth))
+  val (bruOp, _)    = BruOp.safe(FuDecode.take(io.in.bits.fu_op, BruOp.getWidth))
+  val jmpAdd        = pc + imm
+  val jalrTarget    = (rs1 + imm) & ~1.U(32.W)
+  val target        = Mux(bruSrc === BruSrc.Rs1Imm, jalrTarget, jmpAdd)
 
   io.bru.valid := io.in.valid && (fu_type === FuType.BRU)
   io.bru.bits.target   := target
@@ -58,9 +58,16 @@ class ISU(addrWidth: Int) extends Module {
   io.bru.bits.pc       := pc
   io.bru.bits.rd_index := io.in.bits.rd_index
 
-  Seq((io.lsu, FuType.LSU), (io.sysu, FuType.SYSU)).foreach { case (out, t) =>
-    out.valid := io.in.valid && (fu_type === t)
-    out.bits := DontCare
-  }
+  // LSU path: addr = rs1+imm (IS stage), lsuOp from fu_op as LsuOp ChiselEnum
+  val lsuAddr      = rs1 + imm
+  val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
+  io.lsu.valid := io.in.valid && (fu_type === FuType.LSU)
+  io.lsu.bits.addr      := lsuAddr
+  io.lsu.bits.lsuOp     := lsuOp
+  io.lsu.bits.rd_index  := io.in.bits.rd_index
+  io.lsu.bits.storeData := rs2
+
+  io.sysu.valid := io.in.valid && (fu_type === FuType.SYSU)
+  io.sysu.bits := DontCare
   io.in.ready := Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
 }
