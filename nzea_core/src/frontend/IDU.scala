@@ -3,21 +3,20 @@ package nzea_core.frontend
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import chisel3.util.{Cat, Fill, Mux1H}
-import nzea_core.backend.fu.AluOp
-
+import nzea_core.backend.fu.FuOpWidth
 // -------- IDU stage output --------
 
-/** IDU decode result: pc, imm, GPR read data, rs/rd indices, fu type, ALU control. */
+/** IDU decode result: pc, imm, GPR read data, rs/rd indices, fu_type (routing), fu_op (union, max FU ctrl width). */
 class IDUOut(width: Int) extends Bundle {
-  val pc       = UInt(width.W)
-  val imm      = UInt(32.W)
-  val rs1      = UInt(32.W)
-  val rs2      = UInt(32.W)
+  val pc        = UInt(width.W)
+  val imm       = UInt(32.W)
+  val rs1       = UInt(32.W)
+  val rs2       = UInt(32.W)
   val rs1_index = UInt(5.W)
   val rs2_index = UInt(5.W)
-  val rd_index = UInt(5.W)
-  val fu_type  = FuType()
-  val aluOp    = AluOp()
+  val rd_index  = UInt(5.W)
+  val fu_type   = FuType()
+  val fu_op     = UInt(FuOpWidth.Width.W)
 }
 
 // -------- IDU module --------
@@ -46,7 +45,7 @@ class IDU(addrWidth: Int) extends Module {
   val decoded = DecodeFields.decodeAll(RiscvInsts.all, io.in.bits.inst, DecodeFields.allWithDefaults)
   val (immType, _) = ImmType.safe(decoded(0))
   val (fuType, _)  = FuType.safe(decoded(1))
-  val (aluOp, _)   = AluOp.safe(decoded(2))
+  val fuOp         = decoded(2)
 
   val rd = io.in.bits.inst(11, 7)
 
@@ -68,6 +67,6 @@ class IDU(addrWidth: Int) extends Module {
   io.out.bits.rs2_index := rs2
   io.out.bits.rd_index := rd
   io.out.bits.fu_type  := fuType
-  io.out.bits.aluOp    := aluOp
+  io.out.bits.fu_op    := fuOp
   io.in.ready := io.out.ready
 }

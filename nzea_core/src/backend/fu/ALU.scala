@@ -17,7 +17,7 @@ object AluOp extends chisel3.ChiselEnum {
   val Sra = Value((1 << 7).U)
 }
 
-/** ALU FU input: operands, control, rd index (from ISU). */
+/** ALU FU input: operands, ALU ctrl (ChiselEnum from IS), rd index. */
 class AluInput extends Bundle {
   val opA      = UInt(32.W)
   val opB      = UInt(32.W)
