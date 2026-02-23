@@ -1,9 +1,14 @@
 package nzea_core.backend
 
 import chisel3._
-import chisel3.util.Decoupled
+import chisel3.util.{Decoupled, Valid}
 import chisel3.util.Mux1H
-import nzea_core.backend.fu.AluInput
+import nzea_core.backend.fu.{AluInput, AluOp, BruInput, BruOp}
+
+/** fu_op unified width: max of all FU opcode widths (e.g. ALU 10b, BRU 8b one-hot); used by decode/IDU/ISU. */
+object FuOpWidth {
+  val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth).max
+}
 
 /** EXU → WBU payload: GPR write-back. */
 class ExuOut extends Bundle {
@@ -12,14 +17,15 @@ class ExuOut extends Bundle {
   val rd_data = UInt(32.W)
 }
 
-/** EXU: exposes 4 FU input buses (for ISU pipe), aggregates to one Decoupled output to WBU. */
+/** EXU: exposes 4 FU input buses (for ISU pipe), aggregates to one Decoupled output to WBU; BRU pc_redirect to IFU. */
 class EXU extends Module {
   val io = IO(new Bundle {
-    val alu  = Flipped(Decoupled(new AluInput))
-    val bru  = Flipped(Decoupled(new Bundle {}))
-    val lsu  = Flipped(Decoupled(new Bundle {}))
-    val sysu = Flipped(Decoupled(new Bundle {}))
-    val out  = Decoupled(new ExuOut)
+    val alu         = Flipped(Decoupled(new AluInput))
+    val bru         = Flipped(Decoupled(new BruInput))
+    val lsu         = Flipped(Decoupled(new Bundle {}))
+    val sysu        = Flipped(Decoupled(new Bundle {}))
+    val out         = Decoupled(new ExuOut)
+    val pc_redirect = Output(Valid(UInt(32.W)))
   })
 
   val alu  = Module(new fu.ALU)
@@ -27,8 +33,9 @@ class EXU extends Module {
   val lsu  = Module(new fu.LSU)
   val sysu = Module(new fu.SYSU)
 
-  io.alu  <> alu.io.in
-  io.bru  <> bru.io.in
+  io.pc_redirect := bru.io.pc_redirect
+  io.alu <> alu.io.in
+  io.bru <> bru.io.in
   io.lsu  <> lsu.io.in
   io.sysu <> sysu.io.in
 

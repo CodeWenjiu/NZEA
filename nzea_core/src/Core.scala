@@ -39,6 +39,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   idu.io.gpr_wr := wbu.io.gpr_wr
 
   io.bus <> ifu.io.bus
+  ifu.io.pc_redirect := exu.io.pc_redirect
 
   // Prevent EXU/WBU (and thus ALU) from being optimized away; they drive gpr_wr and are part of the datapath.
   chisel3.dontTouch(exu.io)

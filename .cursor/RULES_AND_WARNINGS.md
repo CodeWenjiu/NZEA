@@ -4,6 +4,23 @@ This document records **rules to follow** and **past mistakes** when working in 
 
 ---
 
+## All comments and docstrings must be in English
+
+**Rule:** Use **English only** for all comments, docstrings, and user-facing documentation in the codebase (e.g. `// ...`, `/** ... */`, `/** ... */` on types/objects, README text that is part of the repo).
+
+**Why:** Keeps the codebase consistent, reviewable by a wider audience, and avoids the agent or future contributors reintroducing non-English comments by habit.
+
+**Do:**
+- Write comments like: `// ALU path: FuDecode.take slices by enum width`
+- Docstrings like: `/** fu_src width: max of all FU src enum widths */`
+
+**Do not:**
+- Use Chinese (or other non-English) in source comments or docstrings (e.g. `// 按枚举位宽截取`, `/** 各 FU 的 src 联合 */`).
+
+If you add or edit comments, use English. If you find existing non-English comments, convert them to English and add/keep this rule in `.cursor` so the convention is not forgotten.
+
+---
+
 ## Do not extract JARs inside the workspace
 
 **Wrong:** Running any command that extracts a JAR into the current directory while that directory is the project root or any path under the repo, e.g.:

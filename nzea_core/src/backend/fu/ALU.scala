@@ -5,7 +5,7 @@ import chisel3.util.Decoupled
 import chisel3.util.Mux1H
 import nzea_core.backend.ExuOut
 
-/** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra). */
+/** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
 object AluOp extends chisel3.ChiselEnum {
   val Add = Value((1 << 0).U)
   val Sub = Value((1 << 1).U)
@@ -15,6 +15,8 @@ object AluOp extends chisel3.ChiselEnum {
   val Sll = Value((1 << 5).U)
   val Srl = Value((1 << 6).U)
   val Sra = Value((1 << 7).U)
+  val Slt = Value((1 << 8).U)
+  val Sltu = Value((1 << 9).U)
 }
 
 /** ALU FU input: operands, ALU ctrl (ChiselEnum from IS), rd index. */
@@ -45,8 +47,10 @@ class ALU extends Module {
   val sll = opA << shamt
   val srl = opA >> shamt
   val sra = (opA.asSInt >> shamt).asUInt
+  val slt  = Mux(opA.asSInt < opB.asSInt, 1.U(32.W), 0.U(32.W))
+  val sltu = Mux(opA < opB, 1.U(32.W), 0.U(32.W))
 
-  val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra))
+  val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
 
   io.out.valid       := io.in.valid
   io.out.bits.rd_wen := io.in.valid

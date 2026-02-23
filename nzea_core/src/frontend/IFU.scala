@@ -1,7 +1,7 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.Decoupled
+import chisel3.util.{Decoupled, Valid}
 import nzea_core.CoreBusReadOnly
 
 /** IFU stage output. */
@@ -20,15 +20,17 @@ class IFU(busGen: () => CoreBusReadOnly, defaultPc: Long) extends Module {
   private val pcReset   = (defaultPc.toLong & ((1L << addrWidth) - 1)).U(addrWidth.W)
 
   val io = IO(new Bundle {
-    val bus  = busGen()
-    val out = Decoupled(new IFUOut(addrWidth))
+    val bus          = busGen()
+    val out          = Decoupled(new IFUOut(addrWidth))
+    val pc_redirect  = Input(Valid(UInt(addrWidth.W)))
   })
-  val pc               = RegInit(pcReset)
+  val pc = RegInit(pcReset)
 
   io.bus.req.valid := io.out.ready
   io.bus.req.bits  := pc
 
-  when(io.bus.resp.fire) { pc := pc + 4.U }
+  when(io.pc_redirect.valid) { pc := io.pc_redirect.bits }
+    .elsewhen(io.bus.resp.fire) { pc := pc + 4.U }
 
   io.out.valid      := io.bus.resp.valid
   io.out.bits.pc    := pc
