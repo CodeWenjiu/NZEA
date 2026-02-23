@@ -1,20 +1,23 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.BitPat
 import chisel3.util.{Decoupled, Valid}
 import chisel3.util.{Cat, Fill, Mux1H}
-import chisel3.util.experimental.decode.{TruthTable, QMCMinimizer, decoder}
+import nzea_core.backend.fu.AluOp
 
 // -------- IDU stage output --------
 
-/** IDU decode result: pc, imm, GPR read data, function unit type. */
+/** IDU decode result: pc, imm, GPR read data, rs/rd indices, fu type, ALU control. */
 class IDUOut(width: Int) extends Bundle {
-  val pc      = UInt(width.W)
-  val imm     = UInt(32.W)
-  val rs1     = UInt(32.W)
-  val rs2     = UInt(32.W)
-  val fu_type = FuType()
+  val pc       = UInt(width.W)
+  val imm      = UInt(32.W)
+  val rs1      = UInt(32.W)
+  val rs2      = UInt(32.W)
+  val rs1_index = UInt(5.W)
+  val rs2_index = UInt(5.W)
+  val rd_index = UInt(5.W)
+  val fu_type  = FuType()
+  val aluOp    = AluOp()
 }
 
 // -------- IDU module --------
@@ -40,16 +43,12 @@ class IDU(addrWidth: Int) extends Module {
   val rs1_data = Mux(rs1 === 0.U, 0.U(32.W), gpr(rs1))
   val rs2_data = Mux(rs2 === 0.U, 0.U(32.W), gpr(rs2))
 
-  val allInsts = RiscvInsts.all
-  val mappingImm = allInsts.map(p => (p.bitPat, ImmTypeField.genTable(p)))
-  val tableImm   = TruthTable(mappingImm, BitPat(ImmType.I.litValue.U(ImmType.getWidth.W)))
-  val decodedImm = decoder(QMCMinimizer, io.in.bits.inst, tableImm)
-  val (immType, _) = ImmType.safe(decodedImm)
+  val decoded = DecodeFields.decodeAll(RiscvInsts.all, io.in.bits.inst, DecodeFields.allWithDefaults)
+  val (immType, _) = ImmType.safe(decoded(0))
+  val (fuType, _)  = FuType.safe(decoded(1))
+  val (aluOp, _)   = AluOp.safe(decoded(2))
 
-  val mappingFu = allInsts.map(p => (p.bitPat, FuTypeField.genTable(p)))
-  val tableFu   = TruthTable(mappingFu, BitPat(FuType.ALU.litValue.U(FuType.getWidth.W)))
-  val decodedFu = decoder(QMCMinimizer, io.in.bits.inst, tableFu)
-  val (fuType, _) = FuType.safe(decodedFu)
+  val rd = io.in.bits.inst(11, 7)
 
   val inst = io.in.bits.inst
   val immI = Cat(Fill(20, inst(31)), inst(31, 20))
@@ -63,8 +62,12 @@ class IDU(addrWidth: Int) extends Module {
   io.out.valid := io.in.valid
   io.out.bits.pc      := io.in.bits.pc
   io.out.bits.imm     := imm
-  io.out.bits.rs1     := rs1_data
-  io.out.bits.rs2     := rs2_data
-  io.out.bits.fu_type := fuType
+  io.out.bits.rs1      := rs1_data
+  io.out.bits.rs2      := rs2_data
+  io.out.bits.rs1_index := rs1
+  io.out.bits.rs2_index := rs2
+  io.out.bits.rd_index := rd
+  io.out.bits.fu_type  := fuType
+  io.out.bits.aluOp    := aluOp
   io.in.ready := io.out.ready
 }

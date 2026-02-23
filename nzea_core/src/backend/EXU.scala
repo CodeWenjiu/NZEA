@@ -3,6 +3,7 @@ package nzea_core.backend
 import chisel3._
 import chisel3.util.Decoupled
 import chisel3.util.Mux1H
+import nzea_core.backend.fu.AluInput
 
 /** EXU → WBU payload: GPR write-back. */
 class ExuOut extends Bundle {
@@ -14,7 +15,7 @@ class ExuOut extends Bundle {
 /** EXU: exposes 4 FU input buses (for ISU pipe), aggregates to one Decoupled output to WBU. */
 class EXU extends Module {
   val io = IO(new Bundle {
-    val alu  = Flipped(Decoupled(new Bundle {}))
+    val alu  = Flipped(Decoupled(new AluInput))
     val bru  = Flipped(Decoupled(new Bundle {}))
     val lsu  = Flipped(Decoupled(new Bundle {}))
     val sysu = Flipped(Decoupled(new Bundle {}))
