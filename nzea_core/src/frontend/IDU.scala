@@ -6,7 +6,7 @@ import chisel3.util.{Cat, Fill, Mux1H}
 import nzea_core.backend.fu.FuOpWidth
 // -------- IDU stage output --------
 
-/** IDU decode result: pc, imm, GPR read data, rs/rd indices, fu_type (routing), fu_op (union, max FU ctrl width). */
+/** IDU decode result: pc, imm, GPR, rs/rd, fu_type, fu_op (union), isu_ctrl (union, interpreted by fu_type). */
 class IDUOut(width: Int) extends Bundle {
   val pc        = UInt(width.W)
   val imm       = UInt(32.W)
@@ -17,6 +17,7 @@ class IDUOut(width: Int) extends Bundle {
   val rd_index  = UInt(5.W)
   val fu_type   = FuType()
   val fu_op     = UInt(FuOpWidth.Width.W)
+  val isu_ctrl  = UInt(IsuCtrlWidth.Width.W)
 }
 
 // -------- IDU module --------
@@ -46,6 +47,7 @@ class IDU(addrWidth: Int) extends Module {
   val (immType, _) = ImmType.safe(decoded(0))
   val (fuType, _)  = FuType.safe(decoded(1))
   val fuOp         = decoded(2)
+  val isuCtrl     = decoded(3)
 
   val rd = io.in.bits.inst(11, 7)
 
@@ -68,5 +70,6 @@ class IDU(addrWidth: Int) extends Module {
   io.out.bits.rd_index := rd
   io.out.bits.fu_type  := fuType
   io.out.bits.fu_op    := fuOp
+  io.out.bits.isu_ctrl := isuCtrl
   io.in.ready := io.out.ready
 }

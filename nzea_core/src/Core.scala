@@ -34,8 +34,13 @@ class Core(implicit config: NzeaConfig) extends Module {
   is2ex_lsu  <> exu.io.lsu
   is2ex_sysu <> exu.io.sysu
 
-  exu.io.out <> wbu.io.in
+  val ex2wb = PipelineReg(exu.io.out)
+  ex2wb <> wbu.io.in
   idu.io.gpr_wr := wbu.io.gpr_wr
 
   io.bus <> ifu.io.bus
+
+  // Prevent EXU/WBU (and thus ALU) from being optimized away; they drive gpr_wr and are part of the datapath.
+  chisel3.dontTouch(exu.io)
+  chisel3.dontTouch(wbu.io)
 }
