@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup}
 import nzea_core.backend.fu.{AluInput, AluOp, BruInput, BruOp, LsuInput, LsuOp}
 
-/** ISU: route by fu_type; ALU uses alu_src for opA/opB; BRU gets target, rs1, rs2, bruOp; BRU derives is_jmp/taken internally. */
+/** ISU: route by fu_type; ALU uses alu_src for opA/opB; BRU gets pc, offset, use_rs1_imm, rs1, rs2, bruOp; BRU computes target and is_taken. */
 class ISU(addrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in   = Flipped(Decoupled(new IDUOut(addrWidth)))
@@ -43,20 +43,18 @@ class ISU(addrWidth: Int) extends Module {
   io.alu.bits.aluOp    := aluOp
   io.alu.bits.rd_index := io.in.bits.rd_index
 
-  // BRU path: FuDecode.take slices by enum width; convert to BruOp ChiselEnum
+  // BRU path: pass pc, offset (imm), use_rs1_imm; BRU computes target = pc+offset or (rs1+offset)&~1
   val (bruSrc, _)   = BruSrc.safe(FuDecode.take(fu_src, BruSrc.getWidth))
   val (bruOp, _)    = BruOp.safe(FuDecode.take(io.in.bits.fu_op, BruOp.getWidth))
-  val jmpAdd        = pc + imm
-  val jalrTarget    = (rs1 + imm) & ~1.U(32.W)
-  val target        = Mux(bruSrc === BruSrc.Rs1Imm, jalrTarget, jmpAdd)
 
   io.bru.valid := io.in.valid && (fu_type === FuType.BRU)
-  io.bru.bits.target   := target
-  io.bru.bits.rs1      := rs1
-  io.bru.bits.rs2      := rs2
-  io.bru.bits.bruOp    := bruOp
-  io.bru.bits.pc       := pc
-  io.bru.bits.rd_index := io.in.bits.rd_index
+  io.bru.bits.pc          := pc
+  io.bru.bits.offset      := imm
+  io.bru.bits.use_rs1_imm := (bruSrc === BruSrc.Rs1Imm)
+  io.bru.bits.rs1         := rs1
+  io.bru.bits.rs2         := rs2
+  io.bru.bits.bruOp       := bruOp
+  io.bru.bits.rd_index    := io.in.bits.rd_index
 
   // LSU path: addr = rs1+imm (IS stage), lsuOp from fu_op as LsuOp ChiselEnum
   val lsuAddr      = rs1 + imm

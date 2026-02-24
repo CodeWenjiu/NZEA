@@ -16,14 +16,15 @@ object BruOp extends chisel3.ChiselEnum {
   val BGEU = Value((1 << 7).U)
 }
 
-/** BRU input: target, rs1/rs2 for branch compare, bruOp (ChiselEnum); BRU derives is_jmp and is_taken internally. */
+/** BRU input: pc, offset (imm), rs1/rs2 for branch compare, bruOp; use_rs1_imm => target = (rs1+offset)&~1 else target = pc+offset. */
 class BruInput extends Bundle {
-  val target   = UInt(32.W)
-  val rs1      = UInt(32.W)
-  val rs2      = UInt(32.W)
-  val bruOp    = BruOp()
-  val pc       = UInt(32.W)
-  val rd_index = UInt(5.W)
+  val pc         = UInt(32.W)
+  val offset     = UInt(32.W)
+  val use_rs1_imm = Bool()
+  val rs1        = UInt(32.W)
+  val rs2        = UInt(32.W)
+  val bruOp      = BruOp()
+  val rd_index   = UInt(5.W)
 }
 
 /** BRU: branch_taken from rs1, rs2, bruOp (Mux1H); is_jmp = JAL|JALR from bruOp; is_taken = is_jmp || branch_taken. */
@@ -35,6 +36,7 @@ class BRU extends Module {
   })
 
   val b = io.in.bits
+  val target = Mux(b.use_rs1_imm, (b.rs1 + b.offset) & ~1.U(32.W), b.pc + b.offset)
   val bruOpU = b.bruOp.asUInt
   val is_jmp = bruOpU(0) || bruOpU(1)  // JAL, JALR
   val eq  = b.rs1 === b.rs2
@@ -49,7 +51,7 @@ class BRU extends Module {
   val is_taken = is_jmp || branchTaken
 
   io.pc_redirect.valid := io.in.valid && is_taken
-  io.pc_redirect.bits  := b.target
+  io.pc_redirect.bits  := target
 
   io.out.valid        := io.in.valid && is_jmp
   io.out.bits.rd_wen  := is_jmp
