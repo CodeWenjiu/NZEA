@@ -2,8 +2,8 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
-import chisel3.util.Mux1H
-import nzea_core.backend.fu.{AluInput, AluOp, BruInput, BruOp, LsuInput, LsuOp}
+import nzea_core.backend.fu.{AluInput, AluOut, BruInput, BruOut, LsuInput, LsuOut, SysuOut}
+import nzea_core.backend.fu.{AluOp, BruOp, LsuOp}
 import nzea_core.CoreBusReadWrite
 
 /** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
@@ -11,21 +11,17 @@ object FuOpWidth {
   val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth, LsuOp.getWidth).max
 }
 
-/** EXU → WBU payload: GPR write-back. */
-class ExuOut extends Bundle {
-  val rd_wen  = Bool()
-  val rd_addr = UInt(5.W)
-  val rd_data = UInt(32.W)
-}
-
-/** EXU: exposes 4 FU input buses (for ISU pipe), aggregates to one Decoupled output to WBU; BRU pc_redirect; dbus from lsuBusGen. */
+/** EXU: 4 FU input buses, 4 FU output buses (each its own type); pc_redirect from BRU; dbus from LSU. */
 class EXU(lsuBusGen: () => CoreBusReadWrite) extends Module {
   val io = IO(new Bundle {
     val alu         = Flipped(Decoupled(new AluInput))
     val bru         = Flipped(Decoupled(new BruInput))
     val lsu         = Flipped(Decoupled(new LsuInput))
     val sysu        = Flipped(Decoupled(new Bundle {}))
-    val out         = Decoupled(new ExuOut)
+    val alu_out     = Decoupled(new AluOut)
+    val bru_out     = Decoupled(new BruOut)
+    val lsu_out     = Decoupled(new LsuOut)
+    val sysu_out    = Decoupled(new SysuOut)
     val pc_redirect = Output(Valid(UInt(32.W)))
     val dbus        = lsuBusGen()
   })
@@ -47,14 +43,8 @@ class EXU(lsuBusGen: () => CoreBusReadWrite) extends Module {
   io.lsu <> lsu.io.in
   io.sysu <> sysu.io.in
 
-  val fuOuts   = Seq(alu.io.out, bru.io.out, lsu.io.out, sysu.io.out)
-  val fuValids = fuOuts.map(_.valid)
-  val anyValid = fuValids.reduce(_ || _)
-  val default  = Wire(new ExuOut)
-  default.rd_wen := false.B
-  default.rd_addr := 0.U
-  default.rd_data := 0.U
-  io.out.valid := anyValid
-  io.out.bits  := Mux1H(fuValids :+ !anyValid, fuOuts.map(_.bits) :+ default)
-  fuOuts.foreach(_.ready := io.out.ready)
+  io.alu_out  <> alu.io.out
+  io.bru_out  <> bru.io.out
+  io.lsu_out  <> lsu.io.out
+  io.sysu_out <> sysu.io.out
 }

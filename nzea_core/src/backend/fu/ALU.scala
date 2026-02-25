@@ -3,7 +3,11 @@ package nzea_core.backend.fu
 import chisel3._
 import chisel3.util.Decoupled
 import chisel3.util.Mux1H
-import nzea_core.backend.ExuOut
+/** ALU write-back payload. */
+class AluOut extends Bundle {
+  val rd_addr = UInt(5.W)
+  val rd_data = UInt(32.W)
+}
 
 /** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
 object AluOp extends chisel3.ChiselEnum {
@@ -27,11 +31,11 @@ class AluInput extends Bundle {
   val rd_index = UInt(5.W)
 }
 
-/** ALU FU: opA/opB/aluOp/rd_index in, rd_index + rd_data out to WBU. */
+/** ALU FU: opA/opB/aluOp/rd_index in, AluOut to WBU. */
 class ALU extends Module {
   val io = IO(new Bundle {
     val in  = Flipped(Decoupled(new AluInput))
-    val out = Decoupled(new ExuOut)
+    val out = Decoupled(new AluOut)
   })
 
   val opA   = io.in.bits.opA
@@ -52,8 +56,7 @@ class ALU extends Module {
 
   val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
 
-  io.out.valid       := io.in.valid
-  io.out.bits.rd_wen := io.in.valid
+  io.out.valid        := io.in.valid
   io.out.bits.rd_addr := io.in.bits.rd_index
   io.out.bits.rd_data := result
   io.in.ready := io.out.ready

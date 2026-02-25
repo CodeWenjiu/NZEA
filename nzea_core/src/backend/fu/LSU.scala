@@ -2,8 +2,13 @@ package nzea_core.backend.fu
 
 import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, Mux1H}
-import nzea_core.backend.ExuOut
 import nzea_core.{CoreBusReadWrite, CoreReq}
+
+/** LSU write-back payload. */
+class LsuOut extends Bundle {
+  val rd_addr = UInt(5.W)
+  val rd_data = UInt(32.W)
+}
 
 /** LSU op: one-hot (LB, LH, LW, LBU, LHU, SB, SH, SW). */
 object LsuOp extends chisel3.ChiselEnum {
@@ -29,7 +34,7 @@ class LsuInput extends Bundle {
 class LSU(busGen: () => CoreBusReadWrite) extends Module {
   val io = IO(new Bundle {
     val in   = Flipped(Decoupled(new LsuInput))
-    val out  = Decoupled(new ExuOut)
+    val out  = Decoupled(new LsuOut)
     val bus  = busGen()
   })
 
@@ -44,6 +49,7 @@ class LSU(busGen: () => CoreBusReadWrite) extends Module {
   val swStrb = "b1111".U(4.W)
   val wstrb = Mux1H(lsuOp.asUInt, Seq(0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), sbStrb, shStrb, swStrb))
 
+  // Store: only fire bus when we can also pass through to WB (for ordering)
   io.bus.req.valid := io.in.valid
   io.bus.req.bits.addr  := io.in.bits.addr
   io.bus.req.bits.wdata := storeData << (addr2 * 8.U)
@@ -61,11 +67,11 @@ class LSU(busGen: () => CoreBusReadWrite) extends Module {
   val loadData = Mux1H(lsuOp.asUInt, Seq(lb, lh, lw, lbu, lhu, 0.U(32.W), 0.U(32.W), 0.U(32.W)))
 
   val loadDone = io.in.valid && isLoad && io.bus.req.ready && io.bus.resp.valid
-  io.out.valid        := loadDone
-  io.out.bits.rd_wen  := isLoad
+  // All LSU (load and store) go through WB for ordering; rd from input (ID sets 0 when no write)
+  io.out.valid        := io.bus.resp.valid
   io.out.bits.rd_addr := io.in.bits.rd_index
   io.out.bits.rd_data := loadData
 
-  io.bus.resp.ready := io.in.valid && isLoad && io.bus.req.ready && io.out.ready
-  io.in.ready := Mux(isLoad, io.bus.req.ready && io.bus.resp.valid && io.out.ready, io.bus.req.ready)
+  io.bus.resp.ready := io.out.ready
+  io.in.ready := io.bus.req.ready
 }

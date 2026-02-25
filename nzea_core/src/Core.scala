@@ -36,8 +36,14 @@ class Core(implicit config: NzeaConfig) extends Module {
   is2ex_lsu  <> exu.io.lsu
   is2ex_sysu <> exu.io.sysu
 
-  val ex2wb = PipelineReg(exu.io.out)
-  ex2wb <> wbu.io.in
+  val ex2wb_alu  = PipelineReg(exu.io.alu_out)
+  val ex2wb_bru  = PipelineReg(exu.io.bru_out)
+  val ex2wb_lsu  = PipelineReg(exu.io.lsu_out)
+  val ex2wb_sysu = PipelineReg(exu.io.sysu_out)
+  ex2wb_alu  <> wbu.io.alu_in
+  ex2wb_bru  <> wbu.io.bru_in
+  ex2wb_lsu  <> wbu.io.lsu_in
+  ex2wb_sysu <> wbu.io.sysu_in
   idu.io.gpr_wr := wbu.io.gpr_wr
 
   io.ibus <> ifu.io.bus

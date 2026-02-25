@@ -2,7 +2,11 @@ package nzea_core.backend.fu
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid, Mux1H}
-import nzea_core.backend.ExuOut
+/** BRU write-back payload. */
+class BruOut extends Bundle {
+  val rd_addr = UInt(5.W)
+  val rd_data = UInt(32.W)
+}
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
 object BruOp extends chisel3.ChiselEnum {
@@ -31,7 +35,7 @@ class BruInput extends Bundle {
 class BRU extends Module {
   val io = IO(new Bundle {
     val in          = Flipped(Decoupled(new BruInput))
-    val out         = Decoupled(new ExuOut)
+    val out         = Decoupled(new BruOut)
     val pc_redirect = Output(Valid(UInt(32.W)))
   })
 
@@ -53,10 +57,10 @@ class BRU extends Module {
   io.pc_redirect.valid := io.in.valid && is_taken
   io.pc_redirect.bits  := target
 
-  io.out.valid        := io.in.valid && is_jmp
-  io.out.bits.rd_wen  := is_jmp
+  // All BRU instructions go through WB for ordering; rd from input (ID sets 0 when no write)
+  io.out.valid        := io.in.valid
   io.out.bits.rd_addr := b.rd_index
   io.out.bits.rd_data := b.pc + 4.U
 
-  io.in.ready := Mux(is_jmp, io.out.ready, true.B)
+  io.in.ready := io.out.ready
 }
