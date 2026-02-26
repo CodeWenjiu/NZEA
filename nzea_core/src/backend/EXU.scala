@@ -38,11 +38,10 @@ class EXU(lsuBusGen: () => CoreBusReadWrite) extends Module {
   lsu.io.bus.resp.valid := io.dbus.resp.valid
   lsu.io.bus.resp.bits  := io.dbus.resp.bits
   io.dbus.resp.ready := lsu.io.bus.resp.ready
-  io.alu <> alu.io.in
-  io.bru <> bru.io.in
-  io.lsu <> lsu.io.in
+  io.alu  <> alu.io.in
+  io.bru  <> bru.io.in
+  io.lsu  <> lsu.io.in
   io.sysu <> sysu.io.in
-
   io.alu_out  <> alu.io.out
   io.bru_out  <> bru.io.out
   io.lsu_out  <> lsu.io.out
