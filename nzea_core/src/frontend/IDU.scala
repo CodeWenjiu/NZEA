@@ -1,7 +1,7 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.Decoupled
 import chisel3.util.{Cat, Fill, Mux1H}
 import nzea_core.backend.FuOpWidth
 // -------- IDU stage output --------
@@ -26,16 +26,16 @@ class IDU(addrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in     = Flipped(Decoupled(new IFUOut(addrWidth)))
     val out    = Decoupled(new IDUOut(addrWidth))
-    val gpr_wr = Input(Valid(new Bundle {
+    val gpr_wr = Input(new Bundle {
       val addr = UInt(5.W)
       val data = UInt(32.W)
-    }))
+    })
   })
 
   // GPR: 32 x 32-bit, x0 fixed to 0
   val gpr = RegInit(VecInit(Seq.fill(32)(0.U(32.W))))
-  when(io.gpr_wr.valid && io.gpr_wr.bits.addr =/= 0.U) {
-    gpr(io.gpr_wr.bits.addr) := io.gpr_wr.bits.data
+  when(io.gpr_wr.addr =/= 0.U) {
+    gpr(io.gpr_wr.addr) := io.gpr_wr.data
   }
 
   val rs1 = io.in.bits.inst(19, 15)

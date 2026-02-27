@@ -2,9 +2,8 @@ package nzea_core.backend.fu
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid, Mux1H}
-/** BRU write-back payload. */
+/** BRU write-back payload (rd_index from commit queue). */
 class BruOut extends Bundle {
-  val rd_addr = UInt(5.W)
   val rd_data = UInt(32.W)
 }
 
@@ -57,9 +56,7 @@ class BRU extends Module {
   io.pc_redirect.valid := io.in.valid && is_taken
   io.pc_redirect.bits  := target
 
-  // All BRU instructions go through WB for ordering; rd from input (ID sets 0 when no write)
   io.out.valid        := io.in.valid
-  io.out.bits.rd_addr := b.rd_index
   io.out.bits.rd_data := b.pc + 4.U
 
   io.in.ready := io.out.ready

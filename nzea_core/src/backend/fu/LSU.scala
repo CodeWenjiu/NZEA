@@ -4,9 +4,8 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, Mux1H}
 import nzea_core.{CoreBusReadWrite, CoreReq}
 
-/** LSU write-back payload. */
+/** LSU write-back payload (rd_index from commit queue). */
 class LsuOut extends Bundle {
-  val rd_addr = UInt(5.W)
   val rd_data = UInt(32.W)
 }
 
@@ -67,9 +66,7 @@ class LSU(busGen: () => CoreBusReadWrite) extends Module {
   val loadData = Mux1H(lsuOp.asUInt, Seq(lb, lh, lw, lbu, lhu, 0.U(32.W), 0.U(32.W), 0.U(32.W)))
 
   val loadDone = io.in.valid && isLoad && io.bus.req.ready && io.bus.resp.valid
-  // All LSU (load and store) go through WB for ordering; rd from input (ID sets 0 when no write)
   io.out.valid        := io.bus.resp.valid
-  io.out.bits.rd_addr := io.in.bits.rd_index
   io.out.bits.rd_data := loadData
 
   io.bus.resp.ready := io.out.ready

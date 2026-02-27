@@ -3,9 +3,8 @@ package nzea_core.backend.fu
 import chisel3._
 import chisel3.util.Decoupled
 import chisel3.util.Mux1H
-/** ALU write-back payload. */
+/** ALU write-back payload (rd_index from commit queue). */
 class AluOut extends Bundle {
-  val rd_addr = UInt(5.W)
   val rd_data = UInt(32.W)
 }
 
@@ -23,7 +22,7 @@ object AluOp extends chisel3.ChiselEnum {
   val Sltu = Value((1 << 9).U)
 }
 
-/** ALU FU input: operands, ALU ctrl (ChiselEnum from IS), rd index. */
+/** ALU FU input: operands, ALU ctrl (ChiselEnum from IS). rd_index carried for commit queue only. */
 class AluInput extends Bundle {
   val opA      = UInt(32.W)
   val opB      = UInt(32.W)
@@ -57,7 +56,6 @@ class ALU extends Module {
   val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
 
   io.out.valid        := io.in.valid
-  io.out.bits.rd_addr := io.in.bits.rd_index
   io.out.bits.rd_data := result
   io.in.ready := io.out.ready
 }

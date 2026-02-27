@@ -3,6 +3,7 @@ package nzea_core
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, Queue}
 import nzea_config.NzeaConfig
+import nzea_core.backend.CommitEntry
 import nzea_core.frontend.FuType
 
 /** Core module: IFU → IDU → ISU → (pipe) → EXU → WBU; bus and GPR write-back. */
@@ -28,7 +29,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   val id2is = PipelineReg(idu.io.out)
   id2is <> isu.io.in
 
-  val commitEnq   = Wire(Decoupled(FuType()))
+  val commitEnq   = Wire(Decoupled(new CommitEntry))
   val commitQueue = Queue(commitEnq, 4)
   val commitCtrl  = Wire(new PipelineCtrl)
   commitCtrl.stall := !commitEnq.ready
@@ -40,7 +41,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   val is2ex_fire = is2ex_alu.fire || is2ex_bru.fire || is2ex_lsu.fire || is2ex_sysu.fire
   commitEnq.valid := is2ex_fire
   val enq_sel = Seq(is2ex_alu.fire, is2ex_bru.fire, is2ex_lsu.fire, is2ex_sysu.fire) :+ !is2ex_fire
-  commitEnq.bits  := Mux1H(enq_sel, Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU, FuType.ALU))
+  commitEnq.bits.fu_type  := Mux1H(enq_sel, Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU, FuType.ALU))
+  commitEnq.bits.rd_index := Mux1H(enq_sel, Seq(is2ex_alu.bits.rd_index, is2ex_bru.bits.rd_index, is2ex_lsu.bits.rd_index, 0.U(5.W), 0.U(5.W)))
   is2ex_alu  <> exu.io.alu
   is2ex_bru  <> exu.io.bru
   is2ex_lsu  <> exu.io.lsu

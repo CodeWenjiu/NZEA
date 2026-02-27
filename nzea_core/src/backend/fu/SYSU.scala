@@ -2,9 +2,8 @@ package nzea_core.backend.fu
 
 import chisel3._
 import chisel3.util.Decoupled
-/** SYSU write-back payload. */
+/** SYSU write-back payload (rd_index from commit queue). */
 class SysuOut extends Bundle {
-  val rd_addr = UInt(5.W)
   val rd_data = UInt(32.W)
 }
 
@@ -16,6 +15,5 @@ class SYSU extends Module {
   })
   io.out.valid        := io.in.valid
   io.in.ready         := io.out.ready
-  io.out.bits.rd_addr := 0.U
   io.out.bits.rd_data := 0.U
 }
