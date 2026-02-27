@@ -33,6 +33,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   val is2ex_agu  = PipelineReg(isu.io.agu)
   val is2ex_sysu = PipelineReg(isu.io.sysu)
 
+  isu.io.rob_pending_rd := wbu.io.rob_pending_rd
+  isu.io.wb_bypass      := wbu.io.wb_bypass
   wbu.io.rob_enq <> isu.io.rob_enq
 
   is2ex_alu  <> exu.io.alu
