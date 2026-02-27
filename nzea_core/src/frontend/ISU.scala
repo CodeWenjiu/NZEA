@@ -2,7 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup}
-import nzea_core.backend.fu.{AluInput, AluOp, BruInput, BruOp, LsuInput, LsuOp}
+import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp}
 import nzea_core.backend.RobEntry
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
@@ -12,13 +12,13 @@ class ISU(addrWidth: Int) extends Module {
     val rob_enq = Decoupled(new RobEntry)
     val alu     = Decoupled(new AluInput)
     val bru     = Decoupled(new BruInput)
-    val lsu     = Decoupled(new LsuInput)
+    val agu     = Decoupled(new AguInput)
     val sysu    = Decoupled(new Bundle {})
   })
 
   val fu_type = io.in.bits.fu_type
   val fu_src  = io.in.bits.fu_src
-  val outs    = Seq(io.alu, io.bru, io.lsu, io.sysu)
+  val outs    = Seq(io.alu, io.bru, io.agu, io.sysu)
   val fuTypes = Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU)
 
   val rs1 = io.in.bits.rs1
@@ -56,13 +56,13 @@ class ISU(addrWidth: Int) extends Module {
   io.bru.bits.rs2    := rs2
   io.bru.bits.bruOp  := bruOp
 
-  // LSU path: addr = rs1+imm (IS stage), lsuOp from fu_op as LsuOp ChiselEnum
-  val lsuAddr      = rs1 + imm
+  // AGU path: addr = rs1+imm (IS stage), lsuOp from fu_op as LsuOp ChiselEnum
+  val aguAddr      = rs1 + imm
   val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
-  io.lsu.valid := io.in.valid && (fu_type === FuType.LSU)
-  io.lsu.bits.addr      := lsuAddr
-  io.lsu.bits.lsuOp     := lsuOp
-  io.lsu.bits.storeData := rs2
+  io.agu.valid := io.in.valid && (fu_type === FuType.LSU)
+  io.agu.bits.addr      := aguAddr
+  io.agu.bits.lsuOp     := lsuOp
+  io.agu.bits.storeData := rs2
 
   io.sysu.valid := io.in.valid && (fu_type === FuType.SYSU)
   io.sysu.bits := DontCare
