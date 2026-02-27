@@ -21,11 +21,10 @@ object LsuOp extends chisel3.ChiselEnum {
   val SW  = Value((1 << 7).U)
 }
 
-/** LSU input: addr (from ISU, rs1+imm), lsuOp (ChiselEnum), rd_index (for load), storeData (rs2 for store). */
+/** LSU input: addr (from ISU, rs1+imm), lsuOp (ChiselEnum), storeData (rs2 for store). */
 class LsuInput extends Bundle {
   val addr      = UInt(32.W)
   val lsuOp     = LsuOp()
-  val rd_index  = UInt(5.W)
   val storeData = UInt(32.W)
 }
 

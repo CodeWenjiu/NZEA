@@ -3,15 +3,17 @@ package nzea_core.frontend
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup}
 import nzea_core.backend.fu.{AluInput, AluOp, BruInput, BruOp, LsuInput, LsuOp}
+import nzea_core.backend.RobEntry
 
-/** ISU: route by fu_type; ALU uses alu_src for opA/opB; BRU gets pc, offset, use_rs1_imm, rs1, rs2, bruOp; BRU computes target and is_taken. */
+/** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in   = Flipped(Decoupled(new IDUOut(addrWidth)))
-    val alu  = Decoupled(new AluInput)
-    val bru  = Decoupled(new BruInput)
-    val lsu  = Decoupled(new LsuInput)
-    val sysu = Decoupled(new Bundle {})
+    val in      = Flipped(Decoupled(new IDUOut(addrWidth)))
+    val rob_enq = Decoupled(new RobEntry)
+    val alu     = Decoupled(new AluInput)
+    val bru     = Decoupled(new BruInput)
+    val lsu     = Decoupled(new LsuInput)
+    val sysu    = Decoupled(new Bundle {})
   })
 
   val fu_type = io.in.bits.fu_type
@@ -38,10 +40,9 @@ class ISU(addrWidth: Int) extends Module {
   val aluOp = AluOp.safe(FuDecode.take(io.in.bits.fu_op, AluOp.getWidth))._1
 
   io.alu.valid := io.in.valid && (fu_type === FuType.ALU)
-  io.alu.bits.opA      := aluOpA
-  io.alu.bits.opB      := aluOpB
-  io.alu.bits.aluOp    := aluOp
-  io.alu.bits.rd_index := io.in.bits.rd_index
+  io.alu.bits.opA   := aluOpA
+  io.alu.bits.opB   := aluOpB
+  io.alu.bits.aluOp := aluOp
 
   // BRU path: pass pc, offset (imm), use_rs1_imm; BRU computes target = pc+offset or (rs1+offset)&~1
   val (bruSrc, _)   = BruSrc.safe(FuDecode.take(fu_src, BruSrc.getWidth))
@@ -52,9 +53,8 @@ class ISU(addrWidth: Int) extends Module {
   io.bru.bits.offset      := imm
   io.bru.bits.use_rs1_imm := (bruSrc === BruSrc.Rs1Imm)
   io.bru.bits.rs1         := rs1
-  io.bru.bits.rs2         := rs2
-  io.bru.bits.bruOp       := bruOp
-  io.bru.bits.rd_index    := io.in.bits.rd_index
+  io.bru.bits.rs2    := rs2
+  io.bru.bits.bruOp  := bruOp
 
   // LSU path: addr = rs1+imm (IS stage), lsuOp from fu_op as LsuOp ChiselEnum
   val lsuAddr      = rs1 + imm
@@ -62,10 +62,14 @@ class ISU(addrWidth: Int) extends Module {
   io.lsu.valid := io.in.valid && (fu_type === FuType.LSU)
   io.lsu.bits.addr      := lsuAddr
   io.lsu.bits.lsuOp     := lsuOp
-  io.lsu.bits.rd_index  := io.in.bits.rd_index
   io.lsu.bits.storeData := rs2
 
   io.sysu.valid := io.in.valid && (fu_type === FuType.SYSU)
   io.sysu.bits := DontCare
-  io.in.ready := Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
+
+  io.rob_enq.valid   := io.in.valid
+  io.rob_enq.bits.fu_type  := fu_type
+  io.rob_enq.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
+
+  io.in.ready := io.rob_enq.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
 }

@@ -21,13 +21,12 @@ object BruOp extends chisel3.ChiselEnum {
 
 /** BRU input: pc, offset (imm), rs1/rs2 for branch compare, bruOp; use_rs1_imm => target = (rs1+offset)&~1 else target = pc+offset. */
 class BruInput extends Bundle {
-  val pc         = UInt(32.W)
-  val offset     = UInt(32.W)
+  val pc          = UInt(32.W)
+  val offset      = UInt(32.W)
   val use_rs1_imm = Bool()
-  val rs1        = UInt(32.W)
-  val rs2        = UInt(32.W)
-  val bruOp      = BruOp()
-  val rd_index   = UInt(5.W)
+  val rs1         = UInt(32.W)
+  val rs2         = UInt(32.W)
+  val bruOp       = BruOp()
 }
 
 /** BRU: branch_taken from rs1, rs2, bruOp (Mux1H); is_jmp = JAL|JALR from bruOp; is_taken = is_jmp || branch_taken. */

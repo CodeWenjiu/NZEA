@@ -22,12 +22,11 @@ object AluOp extends chisel3.ChiselEnum {
   val Sltu = Value((1 << 9).U)
 }
 
-/** ALU FU input: operands, ALU ctrl (ChiselEnum from IS). rd_index carried for commit queue only. */
+/** ALU FU input: operands, ALU ctrl (ChiselEnum from IS). */
 class AluInput extends Bundle {
-  val opA      = UInt(32.W)
-  val opB      = UInt(32.W)
-  val aluOp    = AluOp()
-  val rd_index = UInt(5.W)
+  val opA   = UInt(32.W)
+  val opB   = UInt(32.W)
+  val aluOp = AluOp()
 }
 
 /** ALU FU: opA/opB/aluOp/rd_index in, AluOut to WBU. */
