@@ -12,8 +12,9 @@ class Core(implicit config: NzeaConfig) extends Module {
   private val lsuBusGen = () => new CoreBusReadWrite(addrWidth, dataWidth)
 
   val io = IO(new Bundle {
-    val ibus = ifuBusGen()
-    val dbus = lsuBusGen()
+    val ibus      = ifuBusGen()
+    val dbus      = lsuBusGen()
+    val commit_msg = Output(new backend.CommitMsg)
   })
 
   val ifu = Module(new frontend.IFU(ifuBusGen, config.defaultPc))
@@ -49,7 +50,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   ex2wb_sysu <> wbu.io.sysu_in
   idu.io.gpr_wr := wbu.io.gpr_wr
 
-  io.ibus <> ifu.io.bus
-  io.dbus <> wbu.io.dbus
+  io.ibus       <> ifu.io.bus
+  io.dbus       <> wbu.io.dbus
+  io.commit_msg := wbu.io.commit_msg
   ifu.io.pc_redirect := exu.io.pc_redirect
 }

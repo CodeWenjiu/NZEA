@@ -5,6 +5,7 @@ import chisel3.util.{Decoupled, Valid, Mux1H}
 /** BRU write-back payload (rd_index from commit queue). */
 class BruOut extends Bundle {
   val rd_data = UInt(32.W)
+  val next_pc = UInt(32.W)
 }
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
@@ -57,6 +58,7 @@ class BRU extends Module {
 
   io.out.valid        := io.in.valid
   io.out.bits.rd_data := b.pc + 4.U
+  io.out.bits.next_pc := Mux(is_taken, target, b.pc + 4.U)
 
   io.in.ready := io.out.ready
 }

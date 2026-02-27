@@ -21,13 +21,15 @@ class AguOut extends Bundle {
   val wdata  = UInt(32.W)
   val wstrb  = UInt(4.W)
   val lsuOp  = LsuOp()
+  val next_pc = UInt(32.W)
 }
 
-/** AGU input: addr (from ISU, rs1+imm), lsuOp, storeData (rs2 for store). */
+/** AGU input: addr (from ISU, rs1+imm), lsuOp, storeData (rs2 for store), pc for next_pc. */
 class AguInput extends Bundle {
   val addr      = UInt(32.W)
   val lsuOp     = LsuOp()
   val storeData = UInt(32.W)
+  val pc        = UInt(32.W)
 }
 
 /** AGU: generates addr, wdata, wstrb from input; passes to WBU. No bus. */
@@ -45,10 +47,11 @@ class AGU extends Module {
   val wstrb = Mux1H(io.in.bits.lsuOp.asUInt, Seq(0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), sbStrb, shStrb, swStrb))
   val wdata = storeData << (addr2 * 8.U)
 
-  io.out.valid        := io.in.valid
-  io.out.bits.addr    := io.in.bits.addr
-  io.out.bits.wdata   := wdata
-  io.out.bits.wstrb   := wstrb
-  io.out.bits.lsuOp   := io.in.bits.lsuOp
-  io.in.ready         := io.out.ready
+  io.out.valid         := io.in.valid
+  io.out.bits.addr     := io.in.bits.addr
+  io.out.bits.wdata    := wdata
+  io.out.bits.wstrb    := wstrb
+  io.out.bits.lsuOp    := io.in.bits.lsuOp
+  io.out.bits.next_pc  := io.in.bits.pc + 4.U
+  io.in.ready          := io.out.ready
 }

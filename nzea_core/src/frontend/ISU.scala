@@ -2,7 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup}
-import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp}
+import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
 import nzea_core.backend.RobEntry
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
@@ -13,7 +13,7 @@ class ISU(addrWidth: Int) extends Module {
     val alu     = Decoupled(new AluInput)
     val bru     = Decoupled(new BruInput)
     val agu     = Decoupled(new AguInput)
-    val sysu    = Decoupled(new Bundle {})
+    val sysu    = Decoupled(new SysuInput)
   })
 
   val fu_type = io.in.bits.fu_type
@@ -43,6 +43,7 @@ class ISU(addrWidth: Int) extends Module {
   io.alu.bits.opA   := aluOpA
   io.alu.bits.opB   := aluOpB
   io.alu.bits.aluOp := aluOp
+  io.alu.bits.pc    := pc
 
   // BRU path: pass pc, offset (imm), use_rs1_imm; BRU computes target = pc+offset or (rs1+offset)&~1
   val (bruSrc, _)   = BruSrc.safe(FuDecode.take(fu_src, BruSrc.getWidth))
@@ -63,9 +64,10 @@ class ISU(addrWidth: Int) extends Module {
   io.agu.bits.addr      := aguAddr
   io.agu.bits.lsuOp     := lsuOp
   io.agu.bits.storeData := rs2
+  io.agu.bits.pc        := pc
 
   io.sysu.valid := io.in.valid && (fu_type === FuType.SYSU)
-  io.sysu.bits := DontCare
+  io.sysu.bits.pc := pc
 
   io.rob_enq.valid   := io.in.valid
   io.rob_enq.bits.fu_type  := fu_type

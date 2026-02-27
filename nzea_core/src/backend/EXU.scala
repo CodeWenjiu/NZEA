@@ -2,7 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
-import nzea_core.backend.fu.{AluInput, AluOut, AguInput, AguOut, BruInput, BruOut, SysuOut}
+import nzea_core.backend.fu.{AluInput, AluOut, AguInput, AguOut, BruInput, BruOut, SysuInput, SysuOut}
 import nzea_core.backend.fu.{AluOp, BruOp, LsuOp}
 
 /** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
@@ -16,7 +16,7 @@ class EXU extends Module {
     val alu         = Flipped(Decoupled(new AluInput))
     val bru         = Flipped(Decoupled(new BruInput))
     val agu         = Flipped(Decoupled(new AguInput))
-    val sysu        = Flipped(Decoupled(new Bundle {}))
+    val sysu        = Flipped(Decoupled(new SysuInput))
     val alu_out     = Decoupled(new AluOut)
     val bru_out     = Decoupled(new BruOut)
     val agu_out     = Decoupled(new AguOut)

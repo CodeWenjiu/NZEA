@@ -73,3 +73,15 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int) extends Module {
   io.bus.resp.valid := (readFire && io.bus.resp.ready) || resp_pending
   io.bus.resp.bits  := Mux(resp_pending, resp_bits, rdata)
 }
+
+/** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
+class CommitDpiBridge extends Module {
+  val io = IO(new Bundle {
+    val commit_msg = Input(new backend.CommitMsg)
+  })
+
+  RawClockedVoidFunctionCall(
+    "commit_trace",
+    Some(Seq("next_pc", "gpr_addr", "gpr_data"))
+  )(clock, io.commit_msg.valid, io.commit_msg.next_pc, io.commit_msg.gpr_addr.pad(32), io.commit_msg.gpr_data)
+}
