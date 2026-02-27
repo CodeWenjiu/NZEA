@@ -4,28 +4,32 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, Mux1H}
 import nzea_core.backend.fu.LsuOp
 import nzea_core.CoreBusReadWrite
-
-/** MemUnit: performs actual memory access; receives (addr, wdata, wstrb, lsuOp), outputs loadData when load done.
-  * Latch request on req.fire, hold until done. req.ready := !busy; ready := !busy (commit when done).
+/** MemUnit: receives (addr, wdata, wstrb, lsuOp, next_pc), outputs loadData and loadUser when load done.
+  * next_pc passed via req.user and returned in resp.user for correct pipelining.
   */
-class MemUnit(dbusGen: () => CoreBusReadWrite) extends Module {
+class MemUnit(dbusType: CoreBusReadWrite) extends Module {
+  private val userWidth = dbusType.userWidth
+
   val io = IO(new Bundle {
     val req = Flipped(Decoupled(new Bundle {
-      val addr   = UInt(32.W)
-      val wdata  = UInt(32.W)
-      val wstrb  = UInt(4.W)
-      val lsuOp  = LsuOp()
+      val addr    = UInt(32.W)
+      val wdata   = UInt(32.W)
+      val wstrb   = UInt(4.W)
+      val lsuOp   = LsuOp()
+      val next_pc = UInt(32.W)
     }))
     val loadData = Output(UInt(32.W))
+    val loadUser = Output(UInt(userWidth.W))
     val ready    = Output(Bool())
-    val dbus    = dbusGen()
+    val dbus     = dbusType.cloneType
   })
 
   val reqReg = Reg(new Bundle {
-    val addr   = UInt(32.W)
-    val wdata  = UInt(32.W)
-    val wstrb  = UInt(4.W)
-    val lsuOp  = LsuOp()
+    val addr    = UInt(32.W)
+    val wdata   = UInt(32.W)
+    val wstrb   = UInt(4.W)
+    val lsuOp   = LsuOp()
+    val next_pc = UInt(32.W)
   })
   val busy       = RegInit(false.B)
   val loadPending = RegInit(false.B)
@@ -62,8 +66,11 @@ class MemUnit(dbusGen: () => CoreBusReadWrite) extends Module {
   io.dbus.req.bits.wdata  := reqReg.wdata
   io.dbus.req.bits.wen    := isStore
   io.dbus.req.bits.wstrb  := reqReg.wstrb
+  io.dbus.req.bits.user   := reqReg.next_pc
 
-  val rdata   = io.dbus.resp.bits
+  val rdata   = io.dbus.resp.bits.data
+  io.loadUser := io.dbus.resp.bits.user
+
   val byteSel = Mux(loadAddr2 === 0.U, rdata(7, 0), Mux(loadAddr2 === 1.U, rdata(15, 8), Mux(loadAddr2 === 2.U, rdata(23, 16), rdata(31, 24))))
   val halfSel = Mux(loadAddr2(1), rdata(31, 16), rdata(15, 0))
   val lb  = Cat(Fill(24, byteSel(7)), byteSel)

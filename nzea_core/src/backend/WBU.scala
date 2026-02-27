@@ -22,10 +22,11 @@ class WbBypass extends Bundle {
 }
 
 /** WBU: four FU inputs; Rob inside; head gives fu_type and rd_index for in-order commit.
-  * AGU output goes to MemUnit for actual memory access; dbus exposed for Core.
+  * AGU output goes to MemUnit for actual memory access; dbus defined and exposed here.
   */
-class WBU(dbusGen: () => CoreBusReadWrite)(implicit config: NzeaConfig) extends Module {
+class WBU(implicit config: NzeaConfig) extends Module {
   private val robDepth = config.robDepth
+  private val dbusType = new CoreBusReadWrite(config.width, config.width, config.width)
 
   val io = IO(new Bundle {
     val alu_in   = Flipped(Decoupled(new AluOut))
@@ -40,10 +41,10 @@ class WBU(dbusGen: () => CoreBusReadWrite)(implicit config: NzeaConfig) extends 
     val commit_msg     = Output(new CommitMsg)
     val rob_pending_rd = Output(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass      = Output(Valid(new WbBypass))
-    val dbus    = dbusGen()
+    val dbus           = dbusType.cloneType
   })
 
-  val memUnit = Module(new MemUnit(dbusGen))
+  val memUnit = Module(new MemUnit(dbusType))
   val rob = Module(new Rob(robDepth))
 
   rob.io.enq <> io.rob_enq
@@ -69,16 +70,13 @@ class WBU(dbusGen: () => CoreBusReadWrite)(implicit config: NzeaConfig) extends 
 
   io.rob_pending_rd := rob.io.pending_rd
 
-  val lsu_next_pc = RegInit(0.U(32.W))
-  when(io.agu_in.fire) { lsu_next_pc := io.agu_in.bits.next_pc }
-
   val sel = Seq(alu_ok && io.alu_in.valid, bru_ok && io.bru_in.valid, lsu_done, sysu_ok && io.sysu_in.valid)
   val rd_data = Mux1H(sel :+ !sel.reduce(_ || _), Seq(io.alu_in.bits.rd_data, io.bru_in.bits.rd_data, memUnit.io.loadData, io.sysu_in.bits.rd_data, 0.U(32.W)))
 
   io.gpr_wr.addr := Mux(rob_commit, head.rd_index, 0.U)
   io.gpr_wr.data := rd_data
 
-  val next_pc = Mux1H(sel :+ !sel.reduce(_ || _), Seq(io.alu_in.bits.next_pc, io.bru_in.bits.next_pc, lsu_next_pc, io.sysu_in.bits.next_pc, 0.U(32.W)))
+  val next_pc = Mux1H(sel :+ !sel.reduce(_ || _), Seq(io.alu_in.bits.next_pc, io.bru_in.bits.next_pc, memUnit.io.loadUser, io.sysu_in.bits.next_pc, 0.U(32.W)))
   io.commit_msg.valid    := rob_commit
   io.commit_msg.next_pc  := next_pc
   io.commit_msg.gpr_addr := head.rd_index

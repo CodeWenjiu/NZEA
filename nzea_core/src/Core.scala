@@ -7,21 +7,18 @@ import nzea_config.NzeaConfig
 /** Core module: IFU → IDU → ISU → (pipe) → EXU → WBU; bus and GPR write-back. Rob inside WBU. */
 class Core(implicit config: NzeaConfig) extends Module {
   private val addrWidth = config.width
-  private val dataWidth = config.width
-  private val ifuBusGen = () => new CoreBusReadOnly(addrWidth, dataWidth)
-  private val lsuBusGen = () => new CoreBusReadWrite(addrWidth, dataWidth)
 
-  val io = IO(new Bundle {
-    val ibus      = ifuBusGen()
-    val dbus      = lsuBusGen()
-    val commit_msg = Output(new backend.CommitMsg)
-  })
-
-  val ifu = Module(new frontend.IFU(ifuBusGen, config.defaultPc))
+  val ifu = Module(new frontend.IFU)
   val idu = Module(new frontend.IDU(addrWidth))
   val isu = Module(new frontend.ISU(addrWidth))
   val exu = Module(new backend.EXU)
-  val wbu = Module(new backend.WBU(lsuBusGen))
+  val wbu = Module(new backend.WBU)
+
+  val io = IO(new Bundle {
+    val ibus       = chiselTypeOf(ifu.io.bus)
+    val dbus       = chiselTypeOf(wbu.io.dbus)
+    val commit_msg = Output(new backend.CommitMsg)
+  })
 
   val if2id = PipelineReg(ifu.io.out)
   if2id <> idu.io.in

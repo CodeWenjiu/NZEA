@@ -11,17 +11,15 @@ class Top(implicit config: NzeaConfig) extends Module {
   val core = Module(new Core)
   config.platform match {
     case nzea_config.SynthPlatform.Yosys =>
-      // Synthesis: expose Core's bus and commit as top-level IO (no DPI)
-      val ibus = IO(new CoreBusReadOnly(addrWidth, dataWidth))
-      val dbus = IO(new CoreBusReadWrite(addrWidth, dataWidth))
+      val ibus = IO(chiselTypeOf(core.io.ibus))
+      val dbus = IO(chiselTypeOf(core.io.dbus))
       val commit_msg = IO(Output(new backend.CommitMsg))
       ibus <> core.io.ibus
       dbus <> core.io.dbus
       commit_msg := core.io.commit_msg
     case _ =>
-      // Simulation: Core's bus connects to DPI-C bridges
       val ib = Module(new IbusDpiBridge(addrWidth, dataWidth))
-      val db = Module(new DbusDpiBridge(addrWidth, dataWidth))
+      val db = Module(new DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
       val cb = Module(new CommitDpiBridge)
       core.io.ibus     <> ib.io.bus
       core.io.dbus     <> db.io.bus
