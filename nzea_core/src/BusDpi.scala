@@ -85,3 +85,33 @@ class CommitDpiBridge extends Module {
     Some(Seq("next_pc", "gpr_addr", "gpr_data"))
   )(clock, io.commit_msg.valid, io.commit_msg.next_pc, io.commit_msg.gpr_addr.pad(32), io.commit_msg.gpr_data)
 }
+
+// ========== Synthesis stubs (no DPI, for Yosys) ==========
+
+/** Ibus stub: resp_bits from req.bits so Chisel keeps full Core interface; synth stub overrides. */
+class IbusSynthBridge(addrWidth: Int, dataWidth: Int) extends Module {
+  val io = IO(new Bundle {
+    val bus = Flipped(new CoreBusReadOnly(addrWidth, dataWidth))
+  })
+  io.bus.req.ready := true.B
+  io.bus.resp.valid := io.bus.req.valid
+  io.bus.resp.bits  := io.bus.req.bits.pad(dataWidth)  // use input so Chisel keeps interface; synth stub has undriven
+}
+
+/** Dbus stub: resp_bits from req.addr so Chisel keeps full interface; synth stub overrides. */
+class DbusSynthBridge(addrWidth: Int, dataWidth: Int) extends Module {
+  val io = IO(new Bundle {
+    val bus = Flipped(new CoreBusReadWrite(addrWidth, dataWidth))
+  })
+  io.bus.req.ready := true.B
+  io.bus.resp.valid := io.bus.req.valid && !io.bus.req.bits.wen
+  io.bus.resp.bits  := io.bus.req.bits.addr.pad(dataWidth)  // use input so Chisel keeps interface; synth stub has undriven
+}
+
+/** Commit stub for synthesis: sink only. */
+class CommitSynthBridge extends Module {
+  val io = IO(new Bundle {
+    val commit_msg = Input(new backend.CommitMsg)
+  })
+  // no-op
+}

@@ -1,0 +1,4 @@
+# Yosys synthesis script - DO NOT USE DIRECTLY
+# This script is superseded by scripts/synth.sh which auto-discovers .sv files.
+# The synth.sh script reads build/yosys/*.sv (from filelist.f order) and runs synthesis.
+# Usage: bash scripts/synth.sh [hdl_dir] [synth_output_dir]

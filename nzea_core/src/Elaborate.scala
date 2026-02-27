@@ -6,16 +6,14 @@ import nzea_config.NzeaConfig
 
 object Elaborate {
   def elaborate(implicit config: NzeaConfig): Unit = {
-    println(s"Generating NzeaCore (width: ${config.width}, Debug: ${config.debug})")
+    println(s"Generating NzeaCore (width: ${config.width}, Debug: ${config.debug}, platform: ${config.synthPlatform})")
+    println(s"Output: ${config.effectiveOutDir}")
 
+    lazy val topModule = new Top
     ChiselStage.emitSystemVerilogFile(
-      new Top,
-      args = Array("--target-dir", config.outDir),
-      firtoolOpts = Array(
-        "-disable-all-randomization",
-        "-strip-debug-info",
-        "-default-layer-specialization=enable"
-      )
+      topModule,
+      args = Array("--target-dir", config.effectiveOutDir),
+      firtoolOpts = config.platform.firtoolOpts
     )
   }
 }
