@@ -2,7 +2,7 @@ package nzea_core.backend.fu
 
 import chisel3._
 import chisel3.util.Decoupled
-/** SYSU write-back payload (rd_index from commit queue). */
+/** SYSU write-back payload (rd_index from Rob head). */
 class SysuOut extends Bundle {
   val rd_data = UInt(32.W)
   val next_pc = UInt(32.W)

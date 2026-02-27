@@ -15,31 +15,33 @@ object LsuOp extends chisel3.ChiselEnum {
   val SW  = Value((1 << 7).U)
 }
 
-/** AGU output: addr, wdata, wstrb, lsuOp for WBU/MemUnit to perform memory access. */
+/** AGU output: addr, wdata, wstrb, lsuOp for WBU/MemUnit. */
 class AguOut extends Bundle {
-  val addr   = UInt(32.W)
-  val wdata  = UInt(32.W)
-  val wstrb  = UInt(4.W)
-  val lsuOp  = LsuOp()
+  val addr    = UInt(32.W)
+  val wdata   = UInt(32.W)
+  val wstrb   = UInt(4.W)
+  val lsuOp   = LsuOp()
   val next_pc = UInt(32.W)
 }
 
-/** AGU input: addr (from ISU, rs1+imm), lsuOp, storeData (rs2 for store), pc for next_pc. */
+/** AGU input: base (rs1), imm, lsuOp, storeData (rs2 for store), pc. AGU computes addr = base + imm. */
 class AguInput extends Bundle {
-  val addr      = UInt(32.W)
+  val base      = UInt(32.W)
+  val imm       = UInt(32.W)
   val lsuOp     = LsuOp()
   val storeData = UInt(32.W)
   val pc        = UInt(32.W)
 }
 
-/** AGU: generates addr, wdata, wstrb from input; passes to WBU. No bus. */
+/** AGU: computes addr = base+imm; generates wdata, wstrb; passes to WBU. No bus. */
 class AGU extends Module {
   val io = IO(new Bundle {
     val in  = Flipped(Decoupled(new AguInput))
     val out = Decoupled(new AguOut)
   })
 
-  val addr2     = io.in.bits.addr(1, 0)
+  val addr      = io.in.bits.base + io.in.bits.imm
+  val addr2     = addr(1, 0)
   val storeData = io.in.bits.storeData
   val sbStrb = Mux(addr2 === 0.U, "b0001".U(4.W), Mux(addr2 === 1.U, "b0010".U(4.W), Mux(addr2 === 2.U, "b0100".U(4.W), "b1000".U(4.W))))
   val shStrb = Mux(addr2(1), "b1100".U(4.W), "b0011".U(4.W))
@@ -48,7 +50,7 @@ class AGU extends Module {
   val wdata = storeData << (addr2 * 8.U)
 
   io.out.valid         := io.in.valid
-  io.out.bits.addr     := io.in.bits.addr
+  io.out.bits.addr     := addr
   io.out.bits.wdata    := wdata
   io.out.bits.wstrb    := wstrb
   io.out.bits.lsuOp    := io.in.bits.lsuOp

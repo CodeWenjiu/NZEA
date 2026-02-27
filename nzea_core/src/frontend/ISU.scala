@@ -2,14 +2,17 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
+import nzea_config.NzeaConfig
 import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
 import nzea_core.backend.{RobEntry, WbBypass}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
-class ISU(addrWidth: Int) extends Module {
+class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
+  private val robDepth = config.robDepth
+
   val io = IO(new Bundle {
     val in            = Flipped(Decoupled(new IDUOut(addrWidth)))
-    val rob_pending_rd = Input(Vec(4, Valid(UInt(5.W))))
+    val rob_pending_rd = Input(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass     = Input(Valid(new WbBypass))
     val rob_enq       = Decoupled(new RobEntry)
     val alu           = Decoupled(new AluInput)
@@ -70,11 +73,11 @@ class ISU(addrWidth: Int) extends Module {
   io.bru.bits.rs2         := rs2_val
   io.bru.bits.bruOp  := bruOp
 
-  // AGU path: addr = rs1+imm (IS stage), lsuOp from fu_op as LsuOp ChiselEnum
-  val aguAddr      = rs1_val + imm
+  // AGU path: pass base(rs1), imm, lsuOp, storeData; AGU computes addr = base+imm
   val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
   io.agu.valid := io.in.valid && !stall && (fu_type === FuType.LSU)
-  io.agu.bits.addr      := aguAddr
+  io.agu.bits.base      := rs1_val
+  io.agu.bits.imm       := imm
   io.agu.bits.lsuOp     := lsuOp
   io.agu.bits.storeData := rs2_val
   io.agu.bits.pc        := pc

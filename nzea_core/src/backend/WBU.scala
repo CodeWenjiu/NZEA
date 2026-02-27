@@ -1,16 +1,11 @@
 package nzea_core.backend
 
 import chisel3._
-import chisel3.util.{Decoupled, Mux1H, PriorityEncoder, Queue, Valid}
+import chisel3.util.{Decoupled, Mux1H, Valid}
+import nzea_config.NzeaConfig
 import nzea_core.backend.fu.{AluOut, AguOut, BruOut, SysuOut}
 import nzea_core.frontend.FuType
 import nzea_core.CoreBusReadWrite
-
-/** One entry in the Rob: fu_type + rd_index (GPR write address). */
-class RobEntry extends Bundle {
-  val fu_type  = FuType()
-  val rd_index = UInt(5.W)
-}
 
 /** Commit message for Debugger/Difftest: next_pc (PC after commit) and GPR write. */
 class CommitMsg extends Bundle {
@@ -26,10 +21,12 @@ class WbBypass extends Bundle {
   val data = UInt(32.W)
 }
 
-/** WBU: four FU inputs; Rob (Queue) inside; head gives fu_type and rd_index for in-order commit.
+/** WBU: four FU inputs; Rob inside; head gives fu_type and rd_index for in-order commit.
   * AGU output goes to MemUnit for actual memory access; dbus exposed for Core.
   */
-class WBU(dbusGen: () => CoreBusReadWrite) extends Module {
+class WBU(dbusGen: () => CoreBusReadWrite)(implicit config: NzeaConfig) extends Module {
+  private val robDepth = config.robDepth
+
   val io = IO(new Bundle {
     val alu_in   = Flipped(Decoupled(new AluOut))
     val bru_in   = Flipped(Decoupled(new BruOut))
@@ -41,19 +38,21 @@ class WBU(dbusGen: () => CoreBusReadWrite) extends Module {
       val data = UInt(32.W)
     })
     val commit_msg     = Output(new CommitMsg)
-    val rob_pending_rd = Output(Vec(4, Valid(UInt(5.W))))
+    val rob_pending_rd = Output(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass      = Output(Valid(new WbBypass))
     val dbus    = dbusGen()
   })
 
   val memUnit = Module(new MemUnit(dbusGen))
+  val rob = Module(new Rob(robDepth))
 
-  val rob   = Queue(io.rob_enq, 4)
-  val head  = rob.bits
-  val alu_ok  = rob.valid && (head.fu_type === FuType.ALU)
-  val bru_ok  = rob.valid && (head.fu_type === FuType.BRU)
-  val lsu_ok  = rob.valid && (head.fu_type === FuType.LSU)
-  val sysu_ok = rob.valid && (head.fu_type === FuType.SYSU)
+  rob.io.enq <> io.rob_enq
+
+  val head = rob.io.deq.bits
+  val alu_ok  = rob.io.deq.valid && (head.fu_type === FuType.ALU)
+  val bru_ok  = rob.io.deq.valid && (head.fu_type === FuType.BRU)
+  val lsu_ok  = rob.io.deq.valid && (head.fu_type === FuType.LSU)
+  val sysu_ok = rob.io.deq.valid && (head.fu_type === FuType.SYSU)
 
   memUnit.io.req.valid := lsu_ok && io.agu_in.valid
   memUnit.io.req.bits  := io.agu_in.bits
@@ -66,22 +65,9 @@ class WBU(dbusGen: () => CoreBusReadWrite) extends Module {
   val lsu_done = lsu_ok && memUnit.io.ready
   val rob_commit = (alu_ok  && io.alu_in.valid) || (bru_ok  && io.bru_in.valid) ||
                    lsu_done || (sysu_ok && io.sysu_in.valid)
-  rob.ready := rob_commit
+  rob.io.commit := rob_commit
 
-  val rob_rd_slots = RegInit(VecInit(Seq.fill(4)(0.U.asTypeOf(Valid(UInt(5.W))))))
-  val enqSlot = PriorityEncoder(rob_rd_slots.map(s => !s.valid))
-  when(rob_commit && io.rob_enq.fire) {
-    for (i <- 0 until 3) { rob_rd_slots(i) := rob_rd_slots(i + 1) }
-    rob_rd_slots(3).valid := true.B
-    rob_rd_slots(3).bits := io.rob_enq.bits.rd_index
-  }.elsewhen(rob_commit) {
-    for (i <- 0 until 3) { rob_rd_slots(i) := rob_rd_slots(i + 1) }
-    rob_rd_slots(3).valid := false.B
-  }.elsewhen(io.rob_enq.fire) {
-    rob_rd_slots(enqSlot).valid := true.B
-    rob_rd_slots(enqSlot).bits := io.rob_enq.bits.rd_index
-  }
-  io.rob_pending_rd := rob_rd_slots
+  io.rob_pending_rd := rob.io.pending_rd
 
   val lsu_next_pc = RegInit(0.U(32.W))
   when(io.agu_in.fire) { lsu_next_pc := io.agu_in.bits.next_pc }

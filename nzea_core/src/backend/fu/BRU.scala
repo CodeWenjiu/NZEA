@@ -2,7 +2,7 @@ package nzea_core.backend.fu
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid, Mux1H}
-/** BRU write-back payload (rd_index from commit queue). */
+/** BRU write-back payload (rd_index from Rob head). */
 class BruOut extends Bundle {
   val rd_data = UInt(32.W)
   val next_pc = UInt(32.W)
