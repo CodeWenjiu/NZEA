@@ -5,7 +5,7 @@ _default:
 init:
     @mill mill.bsp.BSP/install
 
-# Generate Verilog (default: build/rtl). Use --synthPlatform yosys for build/yosys
+# Generate Verilog (default: build/sim for simulation). Use --synthPlatform yosys for synthesis
 run *ARGS:
     @mill nzea_cli.run {{ ARGS }}
 

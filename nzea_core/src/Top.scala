@@ -3,7 +3,7 @@ package nzea_core
 import chisel3._
 import nzea_config.NzeaConfig
 
-/** Top: Core + ibus/dbus DPI-C bridges + commit_trace DPI. */
+/** Top: Sim = Core + DPI bridges; Yosys = Core with ibus/dbus/commit exposed (synthesizable). */
 class Top(implicit config: NzeaConfig) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
@@ -11,25 +11,20 @@ class Top(implicit config: NzeaConfig) extends Module {
   val core = Module(new Core)
   config.platform match {
     case nzea_config.SynthPlatform.Yosys =>
-      val ib = Module(new IbusSynthBridge(addrWidth, dataWidth))
-      val db = Module(new DbusSynthBridge(addrWidth, dataWidth))
-      val cb = Module(new CommitSynthBridge)
-      core.io.ibus       <> ib.io.bus
-      core.io.dbus       <> db.io.bus
-      cb.io.commit_msg   := core.io.commit_msg
+      // Synthesis: expose Core's bus and commit as top-level IO (no DPI)
+      val ibus = IO(new CoreBusReadOnly(addrWidth, dataWidth))
+      val dbus = IO(new CoreBusReadWrite(addrWidth, dataWidth))
+      val commit_msg = IO(Output(new backend.CommitMsg))
+      ibus <> core.io.ibus
+      dbus <> core.io.dbus
+      commit_msg := core.io.commit_msg
     case _ =>
+      // Simulation: Core's bus connects to DPI-C bridges
       val ib = Module(new IbusDpiBridge(addrWidth, dataWidth))
       val db = Module(new DbusDpiBridge(addrWidth, dataWidth))
       val cb = Module(new CommitDpiBridge)
-      core.io.ibus       <> ib.io.bus
-      core.io.dbus       <> db.io.bus
-      cb.io.commit_msg   := core.io.commit_msg
+      core.io.ibus     <> ib.io.bus
+      core.io.dbus     <> db.io.bus
+      cb.io.commit_msg := core.io.commit_msg
   }
-
-  /** For Yosys synthesis: expose commit_msg to prevent DCE. */
-  val commit_out = config.platform match {
-    case nzea_config.SynthPlatform.Yosys => Some(IO(Output(new backend.CommitMsg)))
-    case _                               => None
-  }
-  commit_out.foreach(_ := core.io.commit_msg)
 }

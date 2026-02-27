@@ -22,7 +22,7 @@ if {[info exists env(PDK_PATH)] && [file exists $env(PDK_PATH)]} {
   close $outfile
 }
 
-# Build file list from filelist.f; use Chisel-generated bridges (resp_bits from req keeps full Core)
+# Build file list from filelist.f. Top = Core with ibus/dbus/commit exposed as top-level ports
 set VERILOG_FILES {}
 if {[file exists "$HDL_DIR/filelist.f"]} {
   set f [open "$HDL_DIR/filelist.f" r]
@@ -52,6 +52,7 @@ yosys -import
 
 foreach file $VERILOG_FILES { read_verilog -sv $file }
 hierarchy -check -top $DESIGN
+# Top's ibus_resp_*, dbus_resp_* are primary inputs; logic preserved
 
 synth -top $DESIGN -run :fine
 share -aggressive

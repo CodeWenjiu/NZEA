@@ -5,7 +5,7 @@
 #   - synth_stat.txt (area/cell report, transistor estimate)
 #   - synth_check.txt (check report)
 #   - yosys.log (full log)
-# Prerequisite: mill nzea_cli.run --synthPlatform yosys
+# Prerequisite: mill nzea_cli.run --synthPlatform yosys (generates build/yosys with Core+exposed IO)
 
 def main [
   hdl_dir?: string
