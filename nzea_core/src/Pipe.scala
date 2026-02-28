@@ -22,7 +22,8 @@ object PipelineReg {
 
     val currentValid = Wire(Bool())
 
-    in.ready  := (!currentValid || out.ready) && !ctrl.stall && !ctrl.flush
+    // Flush clears currentValid; no need to block ready - wrong-path data is discarded anyway.
+    in.ready  := (!currentValid || out.ready) && !ctrl.stall
     out.valid := currentValid && !ctrl.stall
 
     out.bits := RegEnable(in.bits, in.fire)
@@ -31,8 +32,8 @@ object PipelineReg {
         currentValid,
         Seq(
           ctrl.flush -> false.B,
-          in.fire    -> true.B, 
-          out.fire   -> false.B 
+          in.fire    -> true.B,
+          out.fire   -> false.B
         )
       ),
       init = false.B

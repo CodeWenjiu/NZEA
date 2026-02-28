@@ -22,7 +22,7 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   val pipeCtrl = Wire(new PipelineCtrl)
   pipeCtrl.stall := false.B
-  pipeCtrl.flush := exu.io.flush
+  pipeCtrl.flush := wbu.io.flush
 
   val if2id = PipelineReg(ifu.io.out, pipeCtrl)
   if2id <> idu.io.in
@@ -34,7 +34,6 @@ class Core(implicit config: NzeaConfig) extends Module {
   val is2ex_agu  = PipelineReg(isu.io.agu, pipeCtrl)
   val is2ex_sysu = PipelineReg(isu.io.sysu, pipeCtrl)
 
-  isu.io.flush          := pipeCtrl.flush
   isu.io.rob_pending_rd := wbu.io.rob_pending_rd
   isu.io.wb_bypass      := wbu.io.wb_bypass
   wbu.io.rob_enq <> isu.io.rob_enq
@@ -44,10 +43,10 @@ class Core(implicit config: NzeaConfig) extends Module {
   is2ex_agu  <> exu.io.agu
   is2ex_sysu <> exu.io.sysu
 
-  val ex2wb_alu  = PipelineReg(exu.io.alu_out)
-  val ex2wb_bru  = PipelineReg(exu.io.bru_out)
-  val ex2wb_agu  = PipelineReg(exu.io.agu_out)
-  val ex2wb_sysu = PipelineReg(exu.io.sysu_out)
+  val ex2wb_alu  = PipelineReg(exu.io.alu_out, pipeCtrl)
+  val ex2wb_bru  = PipelineReg(exu.io.bru_out, pipeCtrl)
+  val ex2wb_agu  = PipelineReg(exu.io.agu_out, pipeCtrl)
+  val ex2wb_sysu = PipelineReg(exu.io.sysu_out, pipeCtrl)
   ex2wb_alu  <> wbu.io.alu_in
   ex2wb_bru  <> wbu.io.bru_in
   ex2wb_agu  <> wbu.io.agu_in
@@ -57,5 +56,6 @@ class Core(implicit config: NzeaConfig) extends Module {
   io.ibus       <> ifu.io.bus
   io.dbus       <> wbu.io.dbus
   io.commit_msg := wbu.io.commit_msg
-  ifu.io.pc_redirect := exu.io.pc_redirect
+  ifu.io.flush       := wbu.io.flush
+  ifu.io.redirect_pc := wbu.io.redirect_pc
 }

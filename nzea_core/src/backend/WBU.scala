@@ -42,6 +42,8 @@ class WBU(implicit config: NzeaConfig) extends Module {
     val rob_pending_rd = Output(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass      = Output(Valid(new WbBypass))
     val dbus           = dbusType.cloneType
+    val flush       = Output(Bool())
+    val redirect_pc = Output(UInt(32.W))  // when flush, IFU sets pc to this
   })
 
   val memUnit = Module(new MemUnit(dbusType))
@@ -54,24 +56,26 @@ class WBU(implicit config: NzeaConfig) extends Module {
   val lsu_ok  = rob.io.deq.valid && (head.fu_type === FuType.LSU)
   val sysu_ok = rob.io.deq.valid && (head.fu_type === FuType.SYSU)
 
-  val bru_flush = io.bru_in.valid && io.bru_in.bits.flush
+  // Only handle flush when ROB head is BRU and we have bru result (in-order commit path).
+  val bru_flush = bru_ok && io.bru_in.valid && io.bru_in.bits.flush
 
-  memUnit.io.req.valid := lsu_ok && io.agu_in.valid && !bru_flush
+  memUnit.io.req.valid := lsu_ok && io.agu_in.valid
   memUnit.io.req.bits.addr       := io.agu_in.bits.addr
   memUnit.io.req.bits.wdata      := io.agu_in.bits.wdata
   memUnit.io.req.bits.wstrb      := io.agu_in.bits.wstrb
   memUnit.io.req.bits.lsuOp      := io.agu_in.bits.lsuOp
   memUnit.io.req.bits.pred_next_pc := head.pred_next_pc
-  io.agu_in.ready  := !io.agu_in.valid || (lsu_ok && memUnit.io.req.ready) || bru_flush
 
-  io.alu_in.ready  := !io.alu_in.valid  || alu_ok  || bru_flush
-  io.bru_in.ready  := !io.bru_in.valid  || bru_ok  || bru_flush
-  io.sysu_in.ready := !io.sysu_in.valid || sysu_ok || bru_flush
+  // No bru_flush in ready to avoid combinational cycle (flush -> pipeCtrl -> ex2wb depends on bru_in.valid)
+  io.agu_in.ready  := !io.agu_in.valid || (lsu_ok && memUnit.io.req.ready)
+  io.alu_in.ready  := !io.alu_in.valid  || alu_ok
+  io.bru_in.ready  := !io.bru_in.valid  || bru_ok
+  io.sysu_in.ready := !io.sysu_in.valid || sysu_ok
 
   val lsu_done = lsu_ok && memUnit.io.ready
-  val rob_commit = !bru_flush && ((alu_ok  && io.alu_in.valid) || (bru_ok  && io.bru_in.valid) ||
-                   lsu_done || (sysu_ok && io.sysu_in.valid))
-  rob.io.commit := rob_commit
+  val rob_commit = (alu_ok  && io.alu_in.valid) || (bru_ok  && io.bru_in.valid) ||
+                   lsu_done || (sysu_ok && io.sysu_in.valid)
+  rob.io.commit := rob_commit  // ROB ignores commit when flush (when(io.flush) takes precedence)
   rob.io.flush  := bru_flush
 
   io.rob_pending_rd := rob.io.pending_rd
@@ -93,6 +97,9 @@ class WBU(implicit config: NzeaConfig) extends Module {
   io.wb_bypass.valid := any_commit
   io.wb_bypass.bits.rd   := head.rd_index
   io.wb_bypass.bits.data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
+
+  io.flush       := bru_flush
+  io.redirect_pc := io.bru_in.bits.next_pc
 
   io.dbus <> memUnit.io.dbus
 }

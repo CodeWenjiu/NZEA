@@ -30,7 +30,7 @@ class Rob(depth: Int) extends Module {
 
   io.deq.valid := head.valid
   io.deq.bits  := head.bits
-  io.enq.ready := (!full || io.commit) && !io.flush
+  io.enq.ready := (!full || io.commit)
   for (i <- 0 until depth) {
     io.pending_rd(i).valid := slots(i).valid
     io.pending_rd(i).bits   := slots(i).bits.rd_index

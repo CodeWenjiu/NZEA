@@ -12,7 +12,6 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val in            = Flipped(Decoupled(new IDUOut(addrWidth)))
-    val flush         = Input(Bool())  // mispredict: block dispatch to ROB/FU
     val rob_pending_rd = Input(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass     = Input(Valid(new WbBypass))
     val rob_enq       = Decoupled(new RobEntry)
@@ -56,7 +55,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   ))
   val aluOp = AluOp.safe(FuDecode.take(io.in.bits.fu_op, AluOp.getWidth))._1
 
-  val can_dispatch = !io.flush && io.in.valid && !stall
+  val can_dispatch = io.in.valid && !stall
   io.alu.valid := can_dispatch && (fu_type === FuType.ALU)
   io.alu.bits.opA   := aluOpA
   io.alu.bits.opB   := aluOpB
@@ -91,5 +90,5 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.rob_enq.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.bits.pred_next_pc := io.in.bits.pred_next_pc
 
-  io.in.ready := !io.flush && !stall && io.rob_enq.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
+  io.in.ready := !stall && io.rob_enq.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
 }

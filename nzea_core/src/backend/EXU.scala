@@ -1,7 +1,7 @@
 package nzea_core.backend
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.Decoupled
 import nzea_core.backend.fu.{AluInput, AluOut, AguInput, AguOut, BruInput, BruOut, SysuInput, SysuOut}
 import nzea_core.backend.fu.{AluOp, BruOp, LsuOp}
 
@@ -13,16 +13,14 @@ object FuOpWidth {
 /** EXU: 4 FU input buses, 4 FU output buses (each its own type). AGU outputs to WBU (no dbus). */
 class EXU extends Module {
   val io = IO(new Bundle {
-    val alu         = Flipped(Decoupled(new AluInput))
-    val bru         = Flipped(Decoupled(new BruInput))
-    val agu         = Flipped(Decoupled(new AguInput))
-    val sysu        = Flipped(Decoupled(new SysuInput))
-    val alu_out     = Decoupled(new AluOut)
-    val bru_out     = Decoupled(new BruOut)
-    val agu_out     = Decoupled(new AguOut)
-    val sysu_out    = Decoupled(new SysuOut)
-    val pc_redirect = Output(Valid(UInt(32.W)))
-    val flush       = Output(Bool())
+    val alu      = Flipped(Decoupled(new AluInput))
+    val bru      = Flipped(Decoupled(new BruInput))
+    val agu      = Flipped(Decoupled(new AguInput))
+    val sysu     = Flipped(Decoupled(new SysuInput))
+    val alu_out  = Decoupled(new AluOut)
+    val bru_out  = Decoupled(new BruOut)
+    val agu_out  = Decoupled(new AguOut)
+    val sysu_out = Decoupled(new SysuOut)
   })
 
   val alu  = Module(new fu.ALU)
@@ -30,8 +28,6 @@ class EXU extends Module {
   val agu  = Module(new fu.AGU)
   val sysu = Module(new fu.SYSU)
 
-  io.pc_redirect := bru.io.pc_redirect
-  io.flush       := bru.io.flush
   io.alu  <> alu.io.in
   io.bru  <> bru.io.in
   io.agu  <> agu.io.in
