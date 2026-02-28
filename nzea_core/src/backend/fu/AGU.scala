@@ -15,25 +15,23 @@ object LsuOp extends chisel3.ChiselEnum {
   val SW  = Value((1 << 7).U)
 }
 
-/** AGU output: addr, wdata, wstrb, lsuOp for WBU/MemUnit. */
+/** AGU output: addr, wdata, wstrb, lsuOp. next_pc from ROB head in WBU. */
 class AguOut extends Bundle {
   val addr    = UInt(32.W)
   val wdata   = UInt(32.W)
   val wstrb   = UInt(4.W)
   val lsuOp   = LsuOp()
-  val next_pc = UInt(32.W)
 }
 
-/** AGU input: base (rs1), imm, lsuOp, storeData (rs2 for store), pc. AGU computes addr = base + imm. */
+/** AGU input: base, imm, lsuOp, storeData. */
 class AguInput extends Bundle {
   val base      = UInt(32.W)
   val imm       = UInt(32.W)
   val lsuOp     = LsuOp()
   val storeData = UInt(32.W)
-  val pc        = UInt(32.W)
 }
 
-/** AGU: computes addr = base+imm; generates wdata, wstrb; passes to WBU. No bus. */
+/** AGU: computes addr = base+imm; generates wdata, wstrb. */
 class AGU extends Module {
   val io = IO(new Bundle {
     val in  = Flipped(Decoupled(new AguInput))
@@ -54,6 +52,5 @@ class AGU extends Module {
   io.out.bits.wdata    := wdata
   io.out.bits.wstrb    := wstrb
   io.out.bits.lsuOp    := io.in.bits.lsuOp
-  io.out.bits.next_pc  := io.in.bits.pc + 4.U
   io.in.ready          := io.out.ready
 }

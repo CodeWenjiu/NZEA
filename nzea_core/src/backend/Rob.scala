@@ -4,10 +4,11 @@ import chisel3._
 import chisel3.util.{Decoupled, PopCount, PriorityEncoder, Valid}
 import nzea_core.frontend.FuType
 
-/** One entry in the Rob: fu_type + rd_index (GPR write address). */
+/** One entry in the Rob: fu_type, rd_index, pred_next_pc (predicted; real next_pc from WBU commit_msg). */
 class RobEntry extends Bundle {
-  val fu_type  = FuType()
-  val rd_index = UInt(5.W)
+  val fu_type      = FuType()
+  val rd_index     = UInt(5.W)
+  val pred_next_pc = UInt(32.W)
 }
 
 /** Rob: depth-entry FIFO using shift-register. Head and pending_rd are direct wires (no MUX, better timing). */
@@ -15,10 +16,10 @@ class Rob(depth: Int) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
 
   val io = IO(new Bundle {
-    val enq         = Flipped(Decoupled(new RobEntry))
-    val deq         = Output(Valid(new RobEntry))  // head; consumer sets commit to deq
-    val commit      = Input(Bool())
-    val pending_rd  = Output(Vec(depth, Valid(UInt(5.W))))
+    val enq        = Flipped(Decoupled(new RobEntry))
+    val deq        = Output(Valid(new RobEntry))  // head; consumer sets commit to deq
+    val commit     = Input(Bool())
+    val pending_rd = Output(Vec(depth, Valid(UInt(5.W))))
   })
 
   val slots   = RegInit(VecInit(Seq.fill(depth)(0.U.asTypeOf(Valid(new RobEntry)))))

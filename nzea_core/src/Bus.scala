@@ -25,11 +25,13 @@ trait CoreBusLike { self: Bundle =>
   def userWidth: Int
 }
 
-/** Read-only: req is just address. No user. */
-class CoreBusReadOnly(val addrWidth: Int, val dataWidth: Int) extends Bundle with CoreBusLike {
-  override def userWidth: Int = 0
-  val req  = Decoupled(UInt(addrWidth.W))
-  val resp = Flipped(Decoupled(UInt(dataWidth.W)))
+/** Read-only: req is addr + user; resp returns data + user (user passthrough). */
+class CoreBusReadOnly(val addrWidth: Int, val dataWidth: Int, val userWidth: Int = 0) extends Bundle with CoreBusLike {
+  val req  = Decoupled(new Bundle {
+    val addr = UInt(addrWidth.W)
+    val user = UInt(userWidth.W)
+  })
+  val resp = Flipped(Decoupled(new CoreResp(dataWidth, userWidth)))
 }
 
 /** Read-write: req is CoreReq; resp returns data + user (user passthrough from req). */

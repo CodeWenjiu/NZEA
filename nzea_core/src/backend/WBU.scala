@@ -7,7 +7,7 @@ import nzea_core.backend.fu.{AluOut, AguOut, BruOut, SysuOut}
 import nzea_core.frontend.FuType
 import nzea_core.CoreBusReadWrite
 
-/** Commit message for Debugger/Difftest: next_pc (PC after commit) and GPR write. */
+/** Commit message for Debugger/Difftest: next_pc (real PC after commit) and GPR write. */
 class CommitMsg extends Bundle {
   val valid    = Bool()
   val next_pc  = UInt(32.W)
@@ -48,7 +48,6 @@ class WBU(implicit config: NzeaConfig) extends Module {
   val rob = Module(new Rob(robDepth))
 
   rob.io.enq <> io.rob_enq
-
   val head = rob.io.deq.bits
   val alu_ok  = rob.io.deq.valid && (head.fu_type === FuType.ALU)
   val bru_ok  = rob.io.deq.valid && (head.fu_type === FuType.BRU)
@@ -56,7 +55,11 @@ class WBU(implicit config: NzeaConfig) extends Module {
   val sysu_ok = rob.io.deq.valid && (head.fu_type === FuType.SYSU)
 
   memUnit.io.req.valid := lsu_ok && io.agu_in.valid
-  memUnit.io.req.bits  := io.agu_in.bits
+  memUnit.io.req.bits.addr       := io.agu_in.bits.addr
+  memUnit.io.req.bits.wdata      := io.agu_in.bits.wdata
+  memUnit.io.req.bits.wstrb      := io.agu_in.bits.wstrb
+  memUnit.io.req.bits.lsuOp      := io.agu_in.bits.lsuOp
+  memUnit.io.req.bits.pred_next_pc := head.pred_next_pc
   io.agu_in.ready  := !io.agu_in.valid || (lsu_ok && memUnit.io.req.ready)
 
   io.alu_in.ready  := !io.alu_in.valid  || alu_ok
@@ -76,7 +79,7 @@ class WBU(implicit config: NzeaConfig) extends Module {
   io.gpr_wr.addr := Mux(rob_commit, head.rd_index, 0.U)
   io.gpr_wr.data := rd_data
 
-  val next_pc = Mux1H(sel :+ !sel.reduce(_ || _), Seq(io.alu_in.bits.next_pc, io.bru_in.bits.next_pc, memUnit.io.loadUser, io.sysu_in.bits.next_pc, 0.U(32.W)))
+  val next_pc = Mux1H(sel :+ !sel.reduce(_ || _), Seq(head.pred_next_pc, io.bru_in.bits.next_pc, memUnit.io.loadUser, head.pred_next_pc, 0.U(32.W)))
   io.commit_msg.valid    := rob_commit
   io.commit_msg.next_pc  := next_pc
   io.commit_msg.gpr_addr := head.rd_index

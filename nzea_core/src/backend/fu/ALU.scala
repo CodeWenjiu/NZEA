@@ -6,7 +6,6 @@ import chisel3.util.Mux1H
 /** ALU write-back payload (rd_index from Rob head). */
 class AluOut extends Bundle {
   val rd_data = UInt(32.W)
-  val next_pc = UInt(32.W)
 }
 
 /** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
@@ -23,7 +22,7 @@ object AluOp extends chisel3.ChiselEnum {
   val Sltu = Value((1 << 9).U)
 }
 
-/** ALU FU input: operands, ALU ctrl (ChiselEnum from IS), pc for next_pc. */
+/** ALU FU input: operands, ALU ctrl; pc for AUIPC. */
 class AluInput extends Bundle {
   val opA   = UInt(32.W)
   val opB   = UInt(32.W)
@@ -31,7 +30,7 @@ class AluInput extends Bundle {
   val pc    = UInt(32.W)
 }
 
-/** ALU FU: opA/opB/aluOp/rd_index in, AluOut to WBU. */
+/** ALU FU: opA/opB/aluOp in, AluOut to WBU. */
 class ALU extends Module {
   val io = IO(new Bundle {
     val in  = Flipped(Decoupled(new AluInput))
@@ -58,6 +57,5 @@ class ALU extends Module {
 
   io.out.valid        := io.in.valid
   io.out.bits.rd_data := result
-  io.out.bits.next_pc := io.in.bits.pc + 4.U
   io.in.ready         := io.out.ready
 }

@@ -12,6 +12,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val in            = Flipped(Decoupled(new IDUOut(addrWidth)))
+    val flush         = Input(Bool())  // mispredict: block dispatch to ROB/FU
     val rob_pending_rd = Input(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass     = Input(Valid(new WbBypass))
     val rob_enq       = Decoupled(new RobEntry)
@@ -55,39 +56,40 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   ))
   val aluOp = AluOp.safe(FuDecode.take(io.in.bits.fu_op, AluOp.getWidth))._1
 
-  io.alu.valid := io.in.valid && !stall && (fu_type === FuType.ALU)
+  val can_dispatch = !io.flush && io.in.valid && !stall
+  io.alu.valid := can_dispatch && (fu_type === FuType.ALU)
   io.alu.bits.opA   := aluOpA
   io.alu.bits.opB   := aluOpB
   io.alu.bits.aluOp := aluOp
   io.alu.bits.pc    := pc
 
-  // BRU path: pass pc, offset (imm), use_rs1_imm; BRU computes target = pc+offset or (rs1+offset)&~1
+  // BRU path: pass pc, offset; next_pc from BRU output
   val (bruSrc, _)   = BruSrc.safe(FuDecode.take(fu_src, BruSrc.getWidth))
   val (bruOp, _)    = BruOp.safe(FuDecode.take(io.in.bits.fu_op, BruOp.getWidth))
 
-  io.bru.valid := io.in.valid && !stall && (fu_type === FuType.BRU)
-  io.bru.bits.pc          := pc
-  io.bru.bits.offset      := imm
+  io.bru.valid := can_dispatch && (fu_type === FuType.BRU)
+  io.bru.bits.pc           := pc
+  io.bru.bits.pred_next_pc := io.in.bits.pred_next_pc
+  io.bru.bits.offset       := imm
   io.bru.bits.use_rs1_imm := (bruSrc === BruSrc.Rs1Imm)
   io.bru.bits.rs1         := rs1_val
   io.bru.bits.rs2         := rs2_val
-  io.bru.bits.bruOp  := bruOp
+  io.bru.bits.bruOp       := bruOp
 
-  // AGU path: pass base(rs1), imm, lsuOp, storeData; AGU computes addr = base+imm
+  // AGU path: next_pc from ROB head in WBU
   val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
-  io.agu.valid := io.in.valid && !stall && (fu_type === FuType.LSU)
+  io.agu.valid := can_dispatch && (fu_type === FuType.LSU)
   io.agu.bits.base      := rs1_val
   io.agu.bits.imm       := imm
   io.agu.bits.lsuOp     := lsuOp
   io.agu.bits.storeData := rs2_val
-  io.agu.bits.pc        := pc
 
-  io.sysu.valid := io.in.valid && !stall && (fu_type === FuType.SYSU)
-  io.sysu.bits.pc := pc
+  io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
 
-  io.rob_enq.valid   := io.in.valid && !stall
+  io.rob_enq.valid   := can_dispatch
   io.rob_enq.bits.fu_type  := fu_type
   io.rob_enq.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
+  io.rob_enq.bits.pred_next_pc := io.in.bits.pred_next_pc
 
-  io.in.ready := !stall && io.rob_enq.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
+  io.in.ready := !io.flush && !stall && io.rob_enq.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
 }

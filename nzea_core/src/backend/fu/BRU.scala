@@ -20,14 +20,16 @@ object BruOp extends chisel3.ChiselEnum {
   val BGEU = Value((1 << 7).U)
 }
 
-/** BRU input: pc, offset (imm), rs1/rs2 for branch compare, bruOp; use_rs1_imm => target = (rs1+offset)&~1 else target = pc+offset. */
+/** BRU input: pc, offset (imm), rs1/rs2 for branch compare, bruOp; pred_next_pc for mispredict detect.
+  * use_rs1_imm => target = (rs1+offset)&~1 else target = pc+offset. */
 class BruInput extends Bundle {
-  val pc          = UInt(32.W)
-  val offset      = UInt(32.W)
-  val use_rs1_imm = Bool()
-  val rs1         = UInt(32.W)
-  val rs2         = UInt(32.W)
-  val bruOp       = BruOp()
+  val pc           = UInt(32.W)
+  val pred_next_pc = UInt(32.W)
+  val offset       = UInt(32.W)
+  val use_rs1_imm  = Bool()
+  val rs1          = UInt(32.W)
+  val rs2          = UInt(32.W)
+  val bruOp        = BruOp()
 }
 
 /** BRU: branch_taken from rs1, rs2, bruOp (Mux1H); is_jmp = JAL|JALR from bruOp; is_taken = is_jmp || branch_taken. */
@@ -35,7 +37,7 @@ class BRU extends Module {
   val io = IO(new Bundle {
     val in          = Flipped(Decoupled(new BruInput))
     val out         = Decoupled(new BruOut)
-    val pc_redirect = Output(Valid(UInt(32.W)))
+    val pc_redirect = Output(Valid(UInt(32.W)))  // mispredict: redirect PC and flush IF/ID/IS
   })
 
   val b = io.in.bits
@@ -52,13 +54,15 @@ class BRU extends Module {
     true.B, true.B, eq, ne, lt, ge, ltu, geu  // JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU
   ))
   val is_taken = is_jmp || branchTaken
+  val next_pc  = Mux(is_taken, target, b.pc + 4.U)
+  val mispredict = b.pred_next_pc =/= next_pc
 
-  io.pc_redirect.valid := io.in.valid && is_taken
-  io.pc_redirect.bits  := target
+  io.pc_redirect.valid := io.in.valid && mispredict
+  io.pc_redirect.bits  := next_pc
 
   io.out.valid        := io.in.valid
   io.out.bits.rd_data := b.pc + 4.U
-  io.out.bits.next_pc := Mux(is_taken, target, b.pc + 4.U)
+  io.out.bits.next_pc := next_pc
 
   io.in.ready := io.out.ready
 }

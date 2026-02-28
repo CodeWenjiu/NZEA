@@ -4,19 +4,19 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, Mux1H}
 import nzea_core.backend.fu.LsuOp
 import nzea_core.CoreBusReadWrite
-/** MemUnit: receives (addr, wdata, wstrb, lsuOp, next_pc), outputs loadData and loadUser when load done.
-  * next_pc passed via req.user and returned in resp.user for correct pipelining.
+/** MemUnit: receives (addr, wdata, wstrb, lsuOp, pred_next_pc), outputs loadData and loadUser when load done.
+  * pred_next_pc passed via req.user and returned in resp.user for correct pipelining.
   */
 class MemUnit(dbusType: CoreBusReadWrite) extends Module {
   private val userWidth = dbusType.userWidth
 
   val io = IO(new Bundle {
     val req = Flipped(Decoupled(new Bundle {
-      val addr    = UInt(32.W)
-      val wdata   = UInt(32.W)
-      val wstrb   = UInt(4.W)
-      val lsuOp   = LsuOp()
-      val next_pc = UInt(32.W)
+      val addr        = UInt(32.W)
+      val wdata       = UInt(32.W)
+      val wstrb       = UInt(4.W)
+      val lsuOp       = LsuOp()
+      val pred_next_pc = UInt(32.W)
     }))
     val loadData = Output(UInt(32.W))
     val loadUser = Output(UInt(userWidth.W))
@@ -25,11 +25,11 @@ class MemUnit(dbusType: CoreBusReadWrite) extends Module {
   })
 
   val reqReg = Reg(new Bundle {
-    val addr    = UInt(32.W)
-    val wdata   = UInt(32.W)
-    val wstrb   = UInt(4.W)
-    val lsuOp   = LsuOp()
-    val next_pc = UInt(32.W)
+    val addr        = UInt(32.W)
+    val wdata       = UInt(32.W)
+    val wstrb       = UInt(4.W)
+    val lsuOp       = LsuOp()
+    val pred_next_pc = UInt(32.W)
   })
   val busy       = RegInit(false.B)
   val loadPending = RegInit(false.B)
@@ -66,7 +66,7 @@ class MemUnit(dbusType: CoreBusReadWrite) extends Module {
   io.dbus.req.bits.wdata  := reqReg.wdata
   io.dbus.req.bits.wen    := isStore
   io.dbus.req.bits.wstrb  := reqReg.wstrb
-  io.dbus.req.bits.user   := reqReg.next_pc
+  io.dbus.req.bits.user   := reqReg.pred_next_pc
 
   val rdata   = io.dbus.resp.bits.data
   io.loadUser := io.dbus.resp.bits.user

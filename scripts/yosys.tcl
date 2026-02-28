@@ -54,7 +54,7 @@ foreach file $VERILOG_FILES { read_verilog -sv $file }
 hierarchy -check -top $DESIGN
 # Top's ibus_resp_*, dbus_resp_* are primary inputs; logic preserved
 
-synth -top $DESIGN -run :fine
+synth -top $DESIGN -flatten -run :fine
 share -aggressive
 onehot
 muxpack
@@ -79,6 +79,13 @@ if {$USE_PDK} {
 }
 
 opt_clean -purge
+
+# splitting nets resolves unwanted compound assign statements in netlist (assign {..} = {..})
+# required for iEDA STA compatibility (from yosys-sta)
+if {$USE_PDK} {
+  splitnets -format __v -ports
+  opt_clean -purge
+}
 
 # reports
 if {$USE_PDK} {

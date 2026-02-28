@@ -22,7 +22,7 @@ object PipelineReg {
 
     val currentValid = Wire(Bool())
 
-    in.ready  := (!currentValid || out.ready) && !ctrl.stall
+    in.ready  := (!currentValid || out.ready) && !ctrl.stall && !ctrl.flush
     out.valid := currentValid && !ctrl.stall
 
     out.bits := RegEnable(in.bits, in.fire)
