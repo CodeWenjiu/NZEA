@@ -22,17 +22,17 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   val pipeCtrl = Wire(new PipelineCtrl)
   pipeCtrl.stall := false.B
-  pipeCtrl.flush := exu.io.pc_redirect.valid
+  pipeCtrl.flush := exu.io.flush
 
   val if2id = PipelineReg(ifu.io.out, pipeCtrl)
   if2id <> idu.io.in
   val id2is = PipelineReg(idu.io.out, pipeCtrl)
   id2is <> isu.io.in
 
-  val is2ex_alu  = PipelineReg(isu.io.alu)
-  val is2ex_bru  = PipelineReg(isu.io.bru)
-  val is2ex_agu  = PipelineReg(isu.io.agu)
-  val is2ex_sysu = PipelineReg(isu.io.sysu)
+  val is2ex_alu  = PipelineReg(isu.io.alu, pipeCtrl)
+  val is2ex_bru  = PipelineReg(isu.io.bru, pipeCtrl)
+  val is2ex_agu  = PipelineReg(isu.io.agu, pipeCtrl)
+  val is2ex_sysu = PipelineReg(isu.io.sysu, pipeCtrl)
 
   isu.io.flush          := pipeCtrl.flush
   isu.io.rob_pending_rd := wbu.io.rob_pending_rd

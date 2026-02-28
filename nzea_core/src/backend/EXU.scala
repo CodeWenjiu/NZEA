@@ -10,7 +10,7 @@ object FuOpWidth {
   val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth, LsuOp.getWidth).max
 }
 
-/** EXU: 4 FU input buses, 4 FU output buses (each its own type); pc_redirect from BRU. AGU outputs to WBU (no dbus). */
+/** EXU: 4 FU input buses, 4 FU output buses (each its own type). AGU outputs to WBU (no dbus). */
 class EXU extends Module {
   val io = IO(new Bundle {
     val alu         = Flipped(Decoupled(new AluInput))
@@ -22,6 +22,7 @@ class EXU extends Module {
     val agu_out     = Decoupled(new AguOut)
     val sysu_out    = Decoupled(new SysuOut)
     val pc_redirect = Output(Valid(UInt(32.W)))
+    val flush       = Output(Bool())
   })
 
   val alu  = Module(new fu.ALU)
@@ -30,6 +31,7 @@ class EXU extends Module {
   val sysu = Module(new fu.SYSU)
 
   io.pc_redirect := bru.io.pc_redirect
+  io.flush       := bru.io.flush
   io.alu  <> alu.io.in
   io.bru  <> bru.io.in
   io.agu  <> agu.io.in

@@ -1,11 +1,12 @@
 package nzea_core.backend.fu
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid, Mux1H}
-/** BRU write-back payload (rd_index from Rob head). */
+import chisel3.util.{Decoupled, Valid, Mux1H, RegEnable}
+/** BRU write-back payload: rd_data, next_pc, flush (mispredict; WBU uses next_pc from here, rd_index from ROB head). */
 class BruOut extends Bundle {
   val rd_data = UInt(32.W)
   val next_pc = UInt(32.W)
+  val flush   = Bool()
 }
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
@@ -20,7 +21,7 @@ object BruOp extends chisel3.ChiselEnum {
   val BGEU = Value((1 << 7).U)
 }
 
-/** BRU input: pc, offset (imm), rs1/rs2 for branch compare, bruOp; pred_next_pc for mispredict detect.
+/** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp.
   * use_rs1_imm => target = (rs1+offset)&~1 else target = pc+offset. */
 class BruInput extends Bundle {
   val pc           = UInt(32.W)
@@ -37,7 +38,8 @@ class BRU extends Module {
   val io = IO(new Bundle {
     val in          = Flipped(Decoupled(new BruInput))
     val out         = Decoupled(new BruOut)
-    val pc_redirect = Output(Valid(UInt(32.W)))  // mispredict: redirect PC and flush IF/ID/IS
+    val pc_redirect = Output(Valid(UInt(32.W)))  // mispredict: redirect PC (registered, 1 cycle delay)
+    val flush       = Output(Bool())             // mispredict: flush IF/ID/IS (registered, 1 cycle delay)
   })
 
   val b = io.in.bits
@@ -53,16 +55,24 @@ class BRU extends Module {
   val branchTaken = Mux1H(bruOpU, Seq(
     true.B, true.B, eq, ne, lt, ge, ltu, geu  // JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU
   ))
-  val is_taken = is_jmp || branchTaken
-  val next_pc  = Mux(is_taken, target, b.pc + 4.U)
+  val is_taken   = is_jmp || branchTaken
+  val next_pc    = Mux(is_taken, target, b.pc + 4.U)
   val mispredict = b.pred_next_pc =/= next_pc
 
-  io.pc_redirect.valid := io.in.valid && mispredict
-  io.pc_redirect.bits  := next_pc
+  // Store flush in regs, flush next cycle (no comb path to IFU). At most one mispredict before flush.
+  val flush_pending = RegNext(io.in.fire && mispredict)
+  val flush_pc      = RegEnable(next_pc, io.in.fire && mispredict)
 
-  io.out.valid        := io.in.valid
-  io.out.bits.rd_data := b.pc + 4.U
-  io.out.bits.next_pc := next_pc
+  io.pc_redirect.valid := flush_pending
+  io.pc_redirect.bits  := flush_pc
+  io.flush             := flush_pending
 
-  io.in.ready := io.out.ready
+  val out_bits = Wire(new BruOut)
+  out_bits.rd_data := b.pc + 4.U
+  out_bits.next_pc := next_pc
+  out_bits.flush   := mispredict
+
+  io.out.valid := io.in.valid
+  io.out.bits  := out_bits
+  io.in.ready  := io.out.ready
 }

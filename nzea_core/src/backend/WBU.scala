@@ -54,40 +54,45 @@ class WBU(implicit config: NzeaConfig) extends Module {
   val lsu_ok  = rob.io.deq.valid && (head.fu_type === FuType.LSU)
   val sysu_ok = rob.io.deq.valid && (head.fu_type === FuType.SYSU)
 
-  memUnit.io.req.valid := lsu_ok && io.agu_in.valid
+  val bru_flush = io.bru_in.valid && io.bru_in.bits.flush
+
+  memUnit.io.req.valid := lsu_ok && io.agu_in.valid && !bru_flush
   memUnit.io.req.bits.addr       := io.agu_in.bits.addr
   memUnit.io.req.bits.wdata      := io.agu_in.bits.wdata
   memUnit.io.req.bits.wstrb      := io.agu_in.bits.wstrb
   memUnit.io.req.bits.lsuOp      := io.agu_in.bits.lsuOp
   memUnit.io.req.bits.pred_next_pc := head.pred_next_pc
-  io.agu_in.ready  := !io.agu_in.valid || (lsu_ok && memUnit.io.req.ready)
+  io.agu_in.ready  := !io.agu_in.valid || (lsu_ok && memUnit.io.req.ready) || bru_flush
 
-  io.alu_in.ready  := !io.alu_in.valid  || alu_ok
-  io.bru_in.ready  := !io.bru_in.valid  || bru_ok
-  io.sysu_in.ready := !io.sysu_in.valid || sysu_ok
+  io.alu_in.ready  := !io.alu_in.valid  || alu_ok  || bru_flush
+  io.bru_in.ready  := !io.bru_in.valid  || bru_ok  || bru_flush
+  io.sysu_in.ready := !io.sysu_in.valid || sysu_ok || bru_flush
 
   val lsu_done = lsu_ok && memUnit.io.ready
-  val rob_commit = (alu_ok  && io.alu_in.valid) || (bru_ok  && io.bru_in.valid) ||
-                   lsu_done || (sysu_ok && io.sysu_in.valid)
+  val rob_commit = !bru_flush && ((alu_ok  && io.alu_in.valid) || (bru_ok  && io.bru_in.valid) ||
+                   lsu_done || (sysu_ok && io.sysu_in.valid))
   rob.io.commit := rob_commit
+  rob.io.flush  := bru_flush
 
   io.rob_pending_rd := rob.io.pending_rd
 
   val sel = Seq(alu_ok && io.alu_in.valid, bru_ok && io.bru_in.valid, lsu_done, sysu_ok && io.sysu_in.valid)
   val rd_data = Mux1H(sel :+ !sel.reduce(_ || _), Seq(io.alu_in.bits.rd_data, io.bru_in.bits.rd_data, memUnit.io.loadData, io.sysu_in.bits.rd_data, 0.U(32.W)))
+  val next_pc_rob = Mux1H(sel :+ !sel.reduce(_ || _), Seq(head.pred_next_pc, io.bru_in.bits.next_pc, memUnit.io.loadUser, head.pred_next_pc, 0.U(32.W)))
 
-  io.gpr_wr.addr := Mux(rob_commit, head.rd_index, 0.U)
-  io.gpr_wr.data := rd_data
+  val any_commit = rob_commit || bru_flush
+  // bru_flush: ROB head is the BRU (in-order); head still valid this cycle before flush clears it.
+  io.gpr_wr.addr := Mux(rob_commit || bru_flush, head.rd_index, 0.U)
+  io.gpr_wr.data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
 
-  val next_pc = Mux1H(sel :+ !sel.reduce(_ || _), Seq(head.pred_next_pc, io.bru_in.bits.next_pc, memUnit.io.loadUser, head.pred_next_pc, 0.U(32.W)))
-  io.commit_msg.valid    := rob_commit
-  io.commit_msg.next_pc  := next_pc
+  io.commit_msg.valid    := any_commit
+  io.commit_msg.next_pc  := Mux(bru_flush, io.bru_in.bits.next_pc, next_pc_rob)
   io.commit_msg.gpr_addr := head.rd_index
-  io.commit_msg.gpr_data := rd_data
+  io.commit_msg.gpr_data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
 
-  io.wb_bypass.valid := rob_commit
+  io.wb_bypass.valid := any_commit
   io.wb_bypass.bits.rd   := head.rd_index
-  io.wb_bypass.bits.data := rd_data
+  io.wb_bypass.bits.data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
 
   io.dbus <> memUnit.io.dbus
 }
