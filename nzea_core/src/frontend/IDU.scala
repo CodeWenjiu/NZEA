@@ -50,9 +50,9 @@ class IDU(addrWidth: Int) extends Module {
 
   val decoded = DecodeFields.decodeAll(RiscvInsts.all, io.in.bits.inst, DecodeFields.allWithDefaults)
   val (immType, _) = ImmType.safe(decoded(0))
-  val (fuType, _)  = FuType.safe(decoded(1))
-  val fuOp         = decoded(2)
-  val fuSrc        = decoded(3)
+  val (fuType, _) = FuType.safe(decoded(1))
+  val fuOp        = decoded(2)
+  val fuSrc       = decoded(3)
 
   val rd = io.in.bits.inst(11, 7)
 
@@ -74,7 +74,7 @@ class IDU(addrWidth: Int) extends Module {
   io.out.bits.rs1_index := rs1
   io.out.bits.rs2_index := rs2
   io.out.bits.rd_index := rd
-  io.out.bits.fu_type  := fuType
+  io.out.bits.fu_type := fuType
   io.out.bits.fu_op    := fuOp
   io.out.bits.fu_src   := fuSrc
   io.in.ready := io.out.ready

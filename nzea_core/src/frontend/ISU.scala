@@ -13,7 +13,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val in            = Flipped(new PipeIO(new IDUOut(addrWidth)))
-    val rob_pending_rd = Input(Vec(robDepth, Valid(UInt(5.W))))
+    val rob_pending_rd = Input(UInt(32.W))  // bit i = 1 if rd i is pending in ROB
     val wb_bypass     = Input(Valid(new WbBypass))
     val rob_enq       = Decoupled(new RobEntry)
     val alu           = new PipeIO(new AluInput)
@@ -42,8 +42,8 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val rs1_val = Mux(can_bypass_rs1, io.wb_bypass.bits.data, rs1)
   val rs2_val = Mux(can_bypass_rs2, io.wb_bypass.bits.data, rs2)
 
-  val conflict_rs1 = io.rob_pending_rd.map { s => s.valid && s.bits === rs1_index && rs1_index =/= 0.U }.reduce(_ || _)
-  val conflict_rs2 = io.rob_pending_rd.map { s => s.valid && s.bits === rs2_index && rs2_index =/= 0.U }.reduce(_ || _)
+  val conflict_rs1 = rs1_index =/= 0.U && io.rob_pending_rd(rs1_index)
+  val conflict_rs2 = rs2_index =/= 0.U && io.rob_pending_rd(rs2_index)
   val stall = io.in.valid && ((conflict_rs1 && !can_bypass_rs1) || (conflict_rs2 && !can_bypass_rs2))
 
   // ALU path: FuDecode.take slices by enum width; no manual bit-width when AluSrc/AluOp change
