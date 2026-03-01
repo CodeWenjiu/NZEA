@@ -1,44 +1,48 @@
 package nzea_core
 
 import chisel3._
-import chisel3.util.{Decoupled, DecoupledIO, MuxCase, RegEnable}
+import chisel3.util.{DecoupledIO, MuxCase, RegEnable}
 
-class PipelineCtrl extends Bundle {
-  val stall = Output(Bool())
-  val flush = Output(Bool())
+/** PipeIO: extends DecoupledIO with flush. Inherits fire (valid && ready).
+  * flush: Input (like ready), driven by downstream (e.g. WBU). Flush source drives all pipe flush inputs.
+  */
+class PipeIO[T <: Data](gen: T) extends DecoupledIO(gen) {
+  val flush = Input(Bool())
 }
 
-object PipelineReg {
-  /** Pipeline reg without stall/flush: builds ctrl with stall=false, flush=false and calls the full apply. */
-  def apply[T <: Data](in: DecoupledIO[T]): DecoupledIO[T] = {
-    val ctrl = Wire(new PipelineCtrl)
-    ctrl.stall := false.B
-    ctrl.flush := false.B
-    apply(in, ctrl)
+object PipeIO {
+  def apply[T <: Data](gen: T): PipeIO[T] = new PipeIO(gen)
+}
+
+/** PipelineConnect: connects pipeline register between in (producer) and out (consumer).
+  * Caller provides both ends; PipelineConnect gets flush from out.flush and propagates to in.flush.
+  */
+object PipelineConnect {
+  /** Connect producer in to consumer out with pipeline register in between. Flush from out propagates to in. */
+  def apply[T <: Data](in: PipeIO[T], out: PipeIO[T]): Unit = {
+    val mid = Wire(new PipeIO(chiselTypeOf(in.bits)))
+    mid <> out
+    connectReg(in, mid)
   }
 
-  def apply[T <: Data](in: DecoupledIO[T], ctrl: PipelineCtrl): DecoupledIO[T] = {
-    val out = Wire(Decoupled(chiselTypeOf(in.bits)))
+  private def connectReg[T <: Data](in: PipeIO[T], out: PipeIO[T]): Unit = {
+    in.flush := out.flush
+    val currentValid = RegInit(false.B)
 
-    val currentValid = Wire(Bool())
+    in.ready  := (!currentValid || out.ready) && !out.flush
+    out.valid := currentValid
+    out.bits  := RegEnable(in.bits, in.fire)
 
-    // Flush clears currentValid; no need to block ready - wrong-path data is discarded anyway.
-    in.ready  := (!currentValid || out.ready) && !ctrl.stall
-    out.valid := currentValid && !ctrl.stall
-
-    out.bits := RegEnable(in.bits, in.fire)
-    currentValid := RegNext(
-      next = MuxCase(
-        currentValid,
-        Seq(
-          ctrl.flush -> false.B,
-          in.fire    -> true.B,
-          out.fire   -> false.B
-        )
-      ),
-      init = false.B
+    val inFire  = in.fire
+    val outFire = out.fire
+    currentValid := MuxCase(
+      currentValid,
+      Seq(
+        out.flush -> false.B,
+        inFire     -> true.B,
+        outFire    -> false.B
+      )
     )
-
-    out
   }
 }
+

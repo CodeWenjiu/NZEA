@@ -1,8 +1,8 @@
 package nzea_core.backend.fu
 
 import chisel3._
-import chisel3.util.Decoupled
 import chisel3.util.Mux1H
+import nzea_core.PipeIO
 /** ALU write-back payload (rd_index from Rob head). */
 class AluOut extends Bundle {
   val rd_data = UInt(32.W)
@@ -33,8 +33,8 @@ class AluInput extends Bundle {
 /** ALU FU: opA/opB/aluOp in, AluOut to WBU. */
 class ALU extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(Decoupled(new AluInput))
-    val out = Decoupled(new AluOut)
+    val in  = Flipped(new PipeIO(new AluInput))
+    val out = new PipeIO(new AluOut)
   })
 
   val opA   = io.in.bits.opA
@@ -58,4 +58,5 @@ class ALU extends Module {
   io.out.valid        := io.in.valid
   io.out.bits.rd_data := result
   io.in.ready         := io.out.ready
+  io.in.flush          := io.out.flush
 }

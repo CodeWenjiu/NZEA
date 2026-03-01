@@ -1,7 +1,8 @@
 package nzea_core.backend.fu
 
 import chisel3._
-import chisel3.util.{Decoupled, Mux1H}
+import chisel3.util.Mux1H
+import nzea_core.PipeIO
 
 /** LsuOp: one-hot (LB, LH, LW, LBU, LHU, SB, SH, SW). Kept for decode/AGU. */
 object LsuOp extends chisel3.ChiselEnum {
@@ -34,8 +35,8 @@ class AguInput extends Bundle {
 /** AGU: computes addr = base+imm; generates wdata, wstrb. */
 class AGU extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(Decoupled(new AguInput))
-    val out = Decoupled(new AguOut)
+    val in  = Flipped(new PipeIO(new AguInput))
+    val out = new PipeIO(new AguOut)
   })
 
   val addr      = io.in.bits.base + io.in.bits.imm
@@ -53,4 +54,5 @@ class AGU extends Module {
   io.out.bits.wstrb    := wstrb
   io.out.bits.lsuOp    := io.in.bits.lsuOp
   io.in.ready          := io.out.ready
+  io.in.flush          := io.out.flush
 }

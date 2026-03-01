@@ -1,7 +1,8 @@
 package nzea_core.backend.fu
 
 import chisel3._
-import chisel3.util.{Decoupled, Mux1H}
+import chisel3.util.Mux1H
+import nzea_core.PipeIO
 /** BRU write-back payload: rd_data, next_pc, flush (mispredict; WBU uses next_pc from here, rd_index from ROB head). */
 class BruOut extends Bundle {
   val rd_data = UInt(32.W)
@@ -36,8 +37,8 @@ class BruInput extends Bundle {
 /** BRU: branch_taken from rs1, rs2, bruOp (Mux1H); is_jmp = JAL|JALR from bruOp; is_taken = is_jmp || branch_taken. */
 class BRU extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(Decoupled(new BruInput))
-    val out = Decoupled(new BruOut)
+    val in  = Flipped(new PipeIO(new BruInput))
+    val out = new PipeIO(new BruOut)
   })
 
   val b = io.in.bits
@@ -65,4 +66,5 @@ class BRU extends Module {
   io.out.valid := io.in.valid
   io.out.bits  := out_bits
   io.in.ready  := io.out.ready
+  io.in.flush  := io.out.flush
 }

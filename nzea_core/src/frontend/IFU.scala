@@ -2,6 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Cat, Decoupled}
+import nzea_core.PipeIO
 import nzea_core.CoreBusReadOnly
 import nzea_config.NzeaConfig
 
@@ -24,8 +25,7 @@ class IFU(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val bus         = busType.cloneType
-    val out         = Decoupled(new IFUOut(addrWidth))
-    val flush       = Input(Bool())
+    val out         = new PipeIO(new IFUOut(addrWidth))
     val redirect_pc = Input(UInt(addrWidth.W))
   })
   val pc = RegInit(pcReset)
@@ -35,12 +35,12 @@ class IFU(implicit config: NzeaConfig) extends Module {
   io.bus.req.bits.addr := pc
   io.bus.req.bits.user := Cat(pred_next_pc, pc)
 
-  when(io.flush) { pc := io.redirect_pc }
+  when(io.out.flush) { pc := io.redirect_pc }
     .elsewhen(io.bus.resp.fire) { pc := pc + 4.U }
 
-  io.out.valid        := io.bus.resp.valid && !io.flush
+  io.out.valid        := io.bus.resp.valid && !io.out.flush
   io.out.bits.pc      := io.bus.resp.bits.user(addrWidth - 1, 0)
   io.out.bits.pred_next_pc := io.bus.resp.bits.user(addrWidth * 2 - 1, addrWidth)
   io.out.bits.inst    := io.bus.resp.bits.data
-  io.bus.resp.ready   := io.out.ready || io.flush
+  io.bus.resp.ready   := io.out.ready || io.out.flush
 }

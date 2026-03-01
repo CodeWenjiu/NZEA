@@ -4,7 +4,9 @@ import chisel3._
 import chisel3.util.Decoupled
 import nzea_config.NzeaConfig
 
-/** Core module: IFU → IDU → ISU → (pipe) → EXU → WBU; bus and GPR write-back. Rob inside WBU. */
+/** Core module: IFU → IDU → ISU → (pipe) → EXU → WBU; bus and GPR write-back. Rob inside WBU.
+  * Flush: WBU drives on alu_in/bru_in etc.; propagates forward via <> and PipelineConnect.
+  */
 class Core(implicit config: NzeaConfig) extends Module {
   private val addrWidth = config.width
 
@@ -20,42 +22,26 @@ class Core(implicit config: NzeaConfig) extends Module {
     val commit_msg = Output(new backend.CommitMsg)
   })
 
-  val pipeCtrl = Wire(new PipelineCtrl)
-  pipeCtrl.stall := false.B
-  pipeCtrl.flush := wbu.io.flush
+  PipelineConnect(exu.io.alu_out, wbu.io.alu_in)
+  PipelineConnect(exu.io.bru_out, wbu.io.bru_in)
+  PipelineConnect(exu.io.agu_out, wbu.io.agu_in)
+  PipelineConnect(exu.io.sysu_out, wbu.io.sysu_in)
 
-  val if2id = PipelineReg(ifu.io.out, pipeCtrl)
-  if2id <> idu.io.in
-  val id2is = PipelineReg(idu.io.out, pipeCtrl)
-  id2is <> isu.io.in
+  PipelineConnect(isu.io.alu, exu.io.alu_in)
+  PipelineConnect(isu.io.bru, exu.io.bru_in)
+  PipelineConnect(isu.io.agu, exu.io.agu_in)
+  PipelineConnect(isu.io.sysu, exu.io.sysu_in)
 
-  val is2ex_alu  = PipelineReg(isu.io.alu, pipeCtrl)
-  val is2ex_bru  = PipelineReg(isu.io.bru, pipeCtrl)
-  val is2ex_agu  = PipelineReg(isu.io.agu, pipeCtrl)
-  val is2ex_sysu = PipelineReg(isu.io.sysu, pipeCtrl)
+  PipelineConnect(idu.io.out, isu.io.in)
+  PipelineConnect(ifu.io.out, idu.io.in)
 
   isu.io.rob_pending_rd := wbu.io.rob_pending_rd
   isu.io.wb_bypass      := wbu.io.wb_bypass
   wbu.io.rob_enq <> isu.io.rob_enq
-
-  is2ex_alu  <> exu.io.alu
-  is2ex_bru  <> exu.io.bru
-  is2ex_agu  <> exu.io.agu
-  is2ex_sysu <> exu.io.sysu
-
-  val ex2wb_alu  = PipelineReg(exu.io.alu_out, pipeCtrl)
-  val ex2wb_bru  = PipelineReg(exu.io.bru_out, pipeCtrl)
-  val ex2wb_agu  = PipelineReg(exu.io.agu_out, pipeCtrl)
-  val ex2wb_sysu = PipelineReg(exu.io.sysu_out, pipeCtrl)
-  ex2wb_alu  <> wbu.io.alu_in
-  ex2wb_bru  <> wbu.io.bru_in
-  ex2wb_agu  <> wbu.io.agu_in
-  ex2wb_sysu <> wbu.io.sysu_in
   idu.io.gpr_wr := wbu.io.gpr_wr
 
   io.ibus       <> ifu.io.bus
   io.dbus       <> wbu.io.dbus
   io.commit_msg := wbu.io.commit_msg
-  ifu.io.flush       := wbu.io.flush
   ifu.io.redirect_pc := wbu.io.redirect_pc
 }

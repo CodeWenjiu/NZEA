@@ -2,6 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, Valid}
+import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.fu.{AluOut, AguOut, BruOut, SysuOut}
 import nzea_core.frontend.FuType
@@ -29,10 +30,10 @@ class WBU(implicit config: NzeaConfig) extends Module {
   private val dbusType = new CoreBusReadWrite(config.width, config.width, config.width)
 
   val io = IO(new Bundle {
-    val alu_in   = Flipped(Decoupled(new AluOut))
-    val bru_in   = Flipped(Decoupled(new BruOut))
-    val agu_in   = Flipped(Decoupled(new AguOut))
-    val sysu_in  = Flipped(Decoupled(new SysuOut))
+    val alu_in   = Flipped(new PipeIO(new AluOut))
+    val bru_in   = Flipped(new PipeIO(new BruOut))
+    val agu_in   = Flipped(new PipeIO(new AguOut))
+    val sysu_in  = Flipped(new PipeIO(new SysuOut))
     val rob_enq  = Flipped(Decoupled(new RobEntry))
     val gpr_wr   = Output(new Bundle {
       val addr = UInt(5.W)
@@ -42,7 +43,6 @@ class WBU(implicit config: NzeaConfig) extends Module {
     val rob_pending_rd = Output(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass      = Output(Valid(new WbBypass))
     val dbus           = dbusType.cloneType
-    val flush       = Output(Bool())
     val redirect_pc = Output(UInt(32.W))  // when flush, IFU sets pc to this
   })
 
@@ -58,6 +58,12 @@ class WBU(implicit config: NzeaConfig) extends Module {
 
   // Only handle flush when ROB head is BRU and we have bru result (in-order commit path).
   val bru_flush = bru_ok && io.bru_in.valid && io.bru_in.bits.flush
+
+  // Flush from BRU mispredict; drive on consumer inputs, propagates forward via PipeIO
+  io.alu_in.flush := bru_flush
+  io.bru_in.flush := bru_flush
+  io.agu_in.flush := bru_flush
+  io.sysu_in.flush := bru_flush
 
   memUnit.io.req.valid := lsu_ok && io.agu_in.valid
   memUnit.io.req.bits.addr       := io.agu_in.bits.addr
@@ -98,7 +104,6 @@ class WBU(implicit config: NzeaConfig) extends Module {
   io.wb_bypass.bits.rd   := head.rd_index
   io.wb_bypass.bits.data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
 
-  io.flush       := bru_flush
   io.redirect_pc := io.bru_in.bits.next_pc
 
   io.dbus <> memUnit.io.dbus

@@ -2,6 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
+import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
 import nzea_core.backend.{RobEntry, WbBypass}
@@ -11,15 +12,18 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val robDepth = config.robDepth
 
   val io = IO(new Bundle {
-    val in            = Flipped(Decoupled(new IDUOut(addrWidth)))
+    val in            = Flipped(new PipeIO(new IDUOut(addrWidth)))
     val rob_pending_rd = Input(Vec(robDepth, Valid(UInt(5.W))))
     val wb_bypass     = Input(Valid(new WbBypass))
     val rob_enq       = Decoupled(new RobEntry)
-    val alu           = Decoupled(new AluInput)
-    val bru     = Decoupled(new BruInput)
-    val agu     = Decoupled(new AguInput)
-    val sysu    = Decoupled(new SysuInput)
+    val alu           = new PipeIO(new AluInput)
+    val bru           = new PipeIO(new BruInput)
+    val agu           = new PipeIO(new AguInput)
+    val sysu          = new PipeIO(new SysuInput)
   })
+
+  // Flush propagates from output (is2ex) to input (id2is)
+  io.in.flush := io.alu.flush
 
   val fu_type = io.in.bits.fu_type
   val fu_src  = io.in.bits.fu_src
