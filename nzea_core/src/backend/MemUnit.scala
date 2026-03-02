@@ -21,7 +21,7 @@ class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
   )
 
   val io = IO(new Bundle {
-    val req = Flipped(Decoupled(new RobMemReq(robIdWidth)))
+    val req  = Flipped(Decoupled(new RobMemReq(robIdWidth)))
     val resp = Decoupled(new RobMemResp(robIdWidth))
     val dbus = dbusType.cloneType
   })
@@ -30,11 +30,11 @@ class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
     io.req.bits.lsuOp === LsuOp.SB || io.req.bits.lsuOp === LsuOp.SH || io.req.bits.lsuOp === LsuOp.SW
   val isLoad = !isStore
 
-  val loadPending = RegInit(false.B)
-  when(io.dbus.req.fire && isLoad) { loadPending := true.B }
-  when(io.dbus.resp.fire) { loadPending := false.B }
+  val pending = RegInit(false.B)
+  when(io.dbus.req.fire) { pending := true.B }
+  when(io.dbus.resp.fire) { pending := false.B }
 
-  val dbusReqValid = io.req.valid && (isStore || !loadPending)
+  val dbusReqValid = io.req.valid && !pending
   io.dbus.req.valid := dbusReqValid
   io.dbus.req.bits.addr := io.req.bits.addr
   io.dbus.req.bits.wdata := io.req.bits.wdata
@@ -46,8 +46,10 @@ class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
   userReq.addr2 := io.req.bits.addr(1, 0)
   io.dbus.req.bits.user := userReq.asUInt
 
-  io.req.ready := io.dbus.req.ready && (isStore || !loadPending)
-  io.dbus.resp.ready := loadPending
+  io.req.ready := io.dbus.req.ready && !pending
+  io.dbus.resp.ready := pending
+  io.dbus.resp.flush := false.B
+  io.dbus.flush := false.B
 
   val rdata = io.dbus.resp.bits.data
   val respUser = io.dbus.resp.bits.user.asTypeOf(userBundleType)
@@ -69,10 +71,10 @@ class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
   val loadData =
     Mux1H(respUser.lsuOp, Seq(lb, lh, lw, lbu, lhu, 0.U(32.W), 0.U(32.W), 0.U(32.W)))
 
-  val store_complete = io.req.valid && isStore && io.dbus.req.ready
-  val load_complete = loadPending && io.dbus.resp.valid
+  val isStoreFromResp = respUser.lsuOp === LsuOp.SB.asUInt || respUser.lsuOp === LsuOp.SH.asUInt || respUser.lsuOp === LsuOp.SW.asUInt
+  val complete = pending && io.dbus.resp.valid
 
-  io.resp.valid := store_complete || load_complete
-  io.resp.bits.rob_id := Mux(isStore, io.req.bits.rob_id, respUser.rob_id)
-  io.resp.bits.data := Mux(isLoad, loadData, 0.U(32.W))
+  io.resp.valid := complete
+  io.resp.bits.rob_id := respUser.rob_id
+  io.resp.bits.data := Mux(isStoreFromResp, 0.U(32.W), loadData)
 }

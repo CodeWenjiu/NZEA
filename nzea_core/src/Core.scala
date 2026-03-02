@@ -52,6 +52,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   isu.io.gpr_bypass := rob.io.gpr_bypass
   idu.io.gpr_wr := wbu.io.gpr_wr
 
+  val do_flush = rob.io.commit.fire && rob.io.commit.bits.flush
   io.ibus       <> ifu.io.bus
   io.dbus       <> memUnit.io.dbus
   io.commit_msg := wbu.io.commit_msg

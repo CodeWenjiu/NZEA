@@ -3,54 +3,61 @@ package nzea_core
 import chisel3._
 import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFunctionCall}
 
-/** Bridges Core ibus to DPI-C bus_read. Same-cycle response when possible; user passthrough. */
+/** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect.
+  * Flush clears in-flight; req.flush/resp.flush propagated from bus.flush. */
 class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
   val io = IO(new Bundle {
     val bus = Flipped(new CoreBusReadOnly(addrWidth, dataWidth, userWidth))
   })
-  val resp_pending = RegInit(false.B)
-  val resp_data    = Reg(UInt(dataWidth.W))
-  val resp_user    = Reg(UInt(userWidth.W))
+  val flush = io.bus.flush
+  io.bus.req.flush := flush
 
-  io.bus.req.ready := !resp_pending
-  val fire = io.bus.req.valid && io.bus.req.ready
+  val respType = new CoreResp(dataWidth, userWidth)
+  val internalResp = Wire(new PipeIO(respType))
+  val stage1 = Wire(new PipeIO(respType))
+  stage1.flush := flush
 
+  io.bus.req.ready := internalResp.ready
+  val reqFire = io.bus.req.valid && io.bus.req.ready
   val rdata = RawUnclockedNonVoidFunctionCall(
     "bus_read",
     Output(UInt(dataWidth.W)),
     Some(Seq("addr")),
     Some("rdata")
-  )(fire, io.bus.req.bits.addr)
+  )(reqFire, io.bus.req.bits.addr)
 
-  when(fire) {
-    when(io.bus.resp.ready) {
-      // Same-cycle delivery
-    }.otherwise {
-      resp_pending := true.B
-      resp_data    := rdata
-      resp_user    := io.bus.req.bits.user
-    }
-  }
-  when(io.bus.resp.fire) { resp_pending := false.B }
+  internalResp.valid := reqFire
+  internalResp.bits.data := rdata
+  internalResp.bits.user := io.bus.req.bits.user
 
-  io.bus.resp.valid := (fire && io.bus.resp.ready) || resp_pending
-  io.bus.resp.bits.data := Mux(resp_pending, resp_data, rdata)
-  io.bus.resp.bits.user := Mux(resp_pending, resp_user, io.bus.req.bits.user)
+  PipelineConnect(internalResp, stage1)
+  PipelineConnect(stage1, io.bus.resp)
 }
 
-/** Bridges Core dbus to DPI-C bus_read and bus_write. Read: same-cycle when core takes resp; else one-slot buffer. Write: always accept. User passthrough. */
+/** Bridges Core dbus to DPI-C bus_read and bus_write. Read and write both go through 2-cycle pipeline.
+  * Store also waits for resp (for fault handling). Flush clears in-flight. */
 class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
   val io = IO(new Bundle {
     val bus = Flipped(new CoreBusReadWrite(addrWidth, dataWidth, userWidth))
   })
-  val req = io.bus.req.bits
-  val resp_pending = RegInit(false.B)
-  val resp_data   = Reg(UInt(dataWidth.W))
-  val resp_user   = Reg(UInt(userWidth.W))
+  val flush = io.bus.flush
+  io.bus.req.flush := flush
 
-  io.bus.req.ready := Mux(req.wen, true.B, !resp_pending)
-  val readFire  = io.bus.req.valid && !req.wen && io.bus.req.ready
-  val writeFire = io.bus.req.valid && req.wen
+  val req = io.bus.req.bits
+  val isRead = !req.wen
+  val respType = new CoreResp(dataWidth, userWidth)
+
+  val internalResp = Wire(new PipeIO(respType))
+  val stage1 = Wire(new PipeIO(respType))
+  val readRespOut = Wire(new PipeIO(respType))
+  stage1.flush := flush
+  readRespOut.flush := flush
+
+  val canAccept = RegNext(internalResp.ready, true.B)
+  io.bus.req.ready := canAccept
+  val fire = io.bus.req.valid && io.bus.req.ready
+  val readFire  = fire && isRead
+  val writeFire = fire && req.wen
 
   val rdata = RawUnclockedNonVoidFunctionCall(
     "bus_read",
@@ -64,20 +71,17 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
     Some(Seq("addr", "wdata", "wstrb"))
   )(clock, writeFire, req.addr, req.wdata, req.wstrb.pad(32))
 
-  when(readFire) {
-    when(io.bus.resp.ready) {
-      // Same-cycle delivery
-    }.otherwise {
-      resp_pending := true.B
-      resp_data    := rdata
-      resp_user    := req.user
-    }
-  }
-  when(io.bus.resp.fire) { resp_pending := false.B }
+  internalResp.valid := fire
+  internalResp.bits.data := Mux(readFire, rdata, 0.U(dataWidth.W))
+  internalResp.bits.user := req.user
 
-  io.bus.resp.valid := (readFire && io.bus.resp.ready) || resp_pending
-  io.bus.resp.bits.data := Mux(resp_pending, resp_data, rdata)
-  io.bus.resp.bits.user := Mux(resp_pending, resp_user, req.user)
+  PipelineConnect(internalResp, stage1)
+  PipelineConnect(stage1, readRespOut)
+  readRespOut.ready := io.bus.resp.ready
+
+  io.bus.resp.valid := readRespOut.valid
+  io.bus.resp.bits.data := readRespOut.bits.data
+  io.bus.resp.bits.user := readRespOut.bits.user
 }
 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
@@ -91,4 +95,3 @@ class CommitDpiBridge extends Module {
     Some(Seq("next_pc", "gpr_addr", "gpr_data"))
   )(clock, io.commit_msg.valid, io.commit_msg.next_pc, io.commit_msg.gpr_addr.pad(32), io.commit_msg.gpr_data)
 }
-

@@ -1,7 +1,7 @@
 package nzea_core
 
 import chisel3._
-import chisel3.util.Decoupled
+import nzea_core.PipeIO
 
 /** Request payload for read-write bus: addr, wdata, wen, wstrb, user (passthrough to resp). */
 class CoreReq(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Bundle {
@@ -25,21 +25,23 @@ trait CoreBusLike { self: Bundle =>
   def userWidth: Int
 }
 
-/** Read-only: req is addr + user; resp returns data + user (user passthrough). */
+/** Read-only: req is addr + user; resp returns data + user (user passthrough). PipeIO for flush propagation. */
 class CoreBusReadOnly(val addrWidth: Int, val dataWidth: Int, val userWidth: Int = 0) extends Bundle with CoreBusLike {
-  val req  = Decoupled(new Bundle {
+  val req  = new PipeIO(new Bundle {
     val addr = UInt(addrWidth.W)
     val user = UInt(userWidth.W)
   })
-  val resp = Flipped(Decoupled(new CoreResp(dataWidth, userWidth)))
+  val resp = Flipped(new PipeIO(new CoreResp(dataWidth, userWidth)))
+  val flush = Output(Bool())  // from Core to bridge: clear in-flight when redirect
 }
 
-/** Read-write: req is CoreReq; resp returns data + user (user passthrough from req). */
+/** Read-write: req is CoreReq; resp returns data + user (user passthrough from req). PipeIO for flush propagation. */
 class CoreBusReadWrite(a: Int, d: Int, val userWidth: Int = 0) extends Bundle with CoreBusLike {
   override val addrWidth = a
   override val dataWidth = d
-  val req  = Decoupled(new CoreReq(addrWidth, dataWidth, userWidth))
-  val resp = Flipped(Decoupled(new CoreResp(dataWidth, userWidth)))
+  val req  = new PipeIO(new CoreReq(addrWidth, dataWidth, userWidth))
+  val resp = Flipped(new PipeIO(new CoreResp(dataWidth, userWidth)))
+  val flush = Output(Bool())  // from Core to bridge: clear in-flight when redirect
 }
 
 /** Parameterized by hasWrite: yields CoreBusReadOnly or CoreBusReadWrite. */
