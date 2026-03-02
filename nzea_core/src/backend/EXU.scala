@@ -3,14 +3,10 @@ package nzea_core.backend
 import chisel3._
 import nzea_core.PipeIO
 import nzea_core.backend.fu.{
-  AluInput,
-  AluOut,
   AguInput,
-  AguOut,
+  AluInput,
   BruInput,
-  BruOut,
-  SysuInput,
-  SysuOut
+  SysuInput
 }
 import nzea_core.backend.fu.{AluOp, BruOp, LsuOp}
 
@@ -19,9 +15,7 @@ object FuOpWidth {
   val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth, LsuOp.getWidth).max
 }
 
-/** EXU: 4 FU input buses, 4 FU output buses (each its own type). AGU outputs to
-  * WBU (no dbus). robIdWidth from upper level.
-  */
+/** EXU: 4 FU input buses; FUs write to Rob via rob_access; Rob sends mem_req to MemUnit. */
 class EXU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val alu_in  = Flipped(new PipeIO(new AluInput(robIdWidth)))
@@ -29,10 +23,10 @@ class EXU(robIdWidth: Int) extends Module {
     val agu_in  = Flipped(new PipeIO(new AguInput(robIdWidth)))
     val sysu_in = Flipped(new PipeIO(new SysuInput(robIdWidth)))
 
-    val alu_out  = new PipeIO(new AluOut(robIdWidth))
-    val bru_out  = new PipeIO(new BruOut(robIdWidth))
-    val agu_out  = new PipeIO(new AguOut(robIdWidth))
-    val sysu_out = new PipeIO(new SysuOut(robIdWidth))
+    val alu_rob_access  = new RobAccessIO(robIdWidth)
+    val bru_rob_access  = new RobAccessIO(robIdWidth)
+    val sysu_rob_access = new RobAccessIO(robIdWidth)
+    val agu_rob_access  = new RobAccessIO(robIdWidth)
   })
 
   val alu  = Module(new fu.ALU(robIdWidth))
@@ -44,8 +38,9 @@ class EXU(robIdWidth: Int) extends Module {
   io.bru_in <> bru.io.in
   io.agu_in <> agu.io.in
   io.sysu_in <> sysu.io.in
-  io.alu_out <> alu.io.out
-  io.bru_out <> bru.io.out
-  io.agu_out <> agu.io.out
-  io.sysu_out <> sysu.io.out
+
+  io.alu_rob_access <> alu.io.rob_access
+  io.bru_rob_access <> bru.io.rob_access
+  io.sysu_rob_access <> sysu.io.rob_access
+  io.agu_rob_access <> agu.io.rob_access
 }

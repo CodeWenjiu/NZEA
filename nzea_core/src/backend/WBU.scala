@@ -2,12 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, Valid}
-import nzea_core.PipeIO
 import nzea_config.NzeaConfig
-import nzea_core.backend.fu.{AluOut, AguOut, BruOut, SysuOut}
-import nzea_core.frontend.FuType
-import nzea_core.backend.RobState
-import nzea_core.CoreBusReadWrite
 
 /** Commit message for Debugger/Difftest: next_pc (real PC after commit) and GPR
   * write.
@@ -19,136 +14,33 @@ class CommitMsg extends Bundle {
   val gpr_data = UInt(32.W)
 }
 
-/** WB bypass payload: rd and data for ISU to bypass when head commits. */
-class WbBypass extends Bundle {
-  val rd = UInt(5.W)
-  val data = UInt(32.W)
-}
-
-/** WBU: four FU inputs; Rob inside; head gives fu_type and rd_index for
-  * in-order commit. AGU output goes to MemUnit for actual memory access; dbus
-  * defined and exposed here.
-  */
+/** WBU: receives Rob commit via Decoupled (only when head is Done); commits and writes GPR. */
 class WBU(implicit config: NzeaConfig) extends Module {
-  private val robDepth   = config.robDepth
-  private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
-  private val dbusType   =
-    new CoreBusReadWrite(config.width, config.width, config.width)
+  private val robDepth = config.robDepth
 
   val io = IO(new Bundle {
-    val alu_in = Flipped(new PipeIO(new AluOut(robIdWidth)))
-    val bru_in = Flipped(new PipeIO(new BruOut(robIdWidth)))
-    val agu_in = Flipped(new PipeIO(new AguOut(robIdWidth)))
-    val sysu_in = Flipped(new PipeIO(new SysuOut(robIdWidth)))
-    val rob_enq     = Flipped(Decoupled(new RobEnqPayload))
-    val rob_enq_rob_id = Output(UInt(chisel3.util.log2Ceil(robDepth.max(2)).W))
+    val rob_commit  = Flipped(Decoupled(new RobCommitInfo))
     val gpr_wr = Output(new Bundle {
       val addr = UInt(5.W)
       val data = UInt(32.W)
     })
-    val commit_msg = Output(new CommitMsg)
-    val rob_pending_rd =
-      Output(UInt(32.W)) // bit i = 1 if rd i is pending in ROB
-    val wb_bypass = Output(Valid(new WbBypass))
-    val dbus = dbusType.cloneType
-    val redirect_pc = Output(UInt(32.W)) // when flush, IFU sets pc to this
+    val commit_msg  = Output(new CommitMsg)
+    val redirect_pc = Output(UInt(32.W))
   })
 
-  val memUnit = Module(new MemUnit(dbusType, robIdWidth))
-  val rob = Module(new Rob(robDepth))
+  val c = io.rob_commit.bits
+  val can_commit = io.rob_commit.valid
 
-  rob.io.enq <> io.rob_enq
-  io.rob_enq_rob_id := rob.io.enq_rob_id
-  val head = rob.io.deq.bits
+  io.rob_commit.ready := true.B
 
-  rob.io.accessPorts(0) := io.alu_in.bits.rob_entry_access
-  rob.io.accessPorts(1) := io.bru_in.bits.rob_entry_access
-  rob.io.accessPorts(2) := io.sysu_in.bits.rob_entry_access
-  rob.io.accessPorts(3) := io.agu_in.bits.rob_entry_access
-  rob.io.accessPorts(4) := Rob.entryStateUpdate(memUnit.io.ready, memUnit.io.complete_rob_id, RobState.Done)(robIdWidth)
-
-  val head_rob_id = rob.io.deq.bits.rob_id
-  val alu_done  = (head.rob_state === RobState.Done) || (io.alu_in.valid && io.alu_in.bits.rob_id === head_rob_id)
-  val bru_done  = (head.rob_state === RobState.Done) || (io.bru_in.valid && io.bru_in.bits.rob_id === head_rob_id)
-  val sysu_done = (head.rob_state === RobState.Done) || (io.sysu_in.valid && io.sysu_in.bits.rob_id === head_rob_id)
-  val lsu_done_state = (head.rob_state === RobState.Done) || (memUnit.io.ready && memUnit.io.complete_rob_id === head_rob_id)
-  val alu_ok  = rob.io.deq.valid && (head.fu_type === FuType.ALU) && alu_done
-  val bru_ok  = rob.io.deq.valid && (head.fu_type === FuType.BRU) && bru_done
-  val lsu_ok  = rob.io.deq.valid && (head.fu_type === FuType.LSU) && lsu_done_state
-  val sysu_ok = rob.io.deq.valid && (head.fu_type === FuType.SYSU) && sysu_done
-
-  // Only handle flush when ROB head is BRU and we have bru result (in-order commit path).
-  val bru_flush = bru_ok && io.bru_in.valid && io.bru_in.bits.flush
-
-  // Flush from BRU mispredict; drive on consumer inputs, propagates forward via PipeIO
-  io.alu_in.flush := bru_flush
-  io.bru_in.flush := bru_flush
-  io.agu_in.flush := bru_flush
-  io.sysu_in.flush := bru_flush
-
-  memUnit.io.req.valid := io.agu_in.valid
-  memUnit.io.req.bits.addr := io.agu_in.bits.addr
-  memUnit.io.req.bits.wdata := io.agu_in.bits.wdata
-  memUnit.io.req.bits.wstrb := io.agu_in.bits.wstrb
-  memUnit.io.req.bits.lsuOp := io.agu_in.bits.lsuOp
-  memUnit.io.req.bits.pred_next_pc := io.agu_in.bits.pred_next_pc
-  memUnit.io.req.bits.rob_id := io.agu_in.bits.rob_id
-
-  io.agu_in.ready := memUnit.io.req.ready
-  io.alu_in.ready := alu_ok
-  io.bru_in.ready := bru_ok
-  io.sysu_in.ready := sysu_ok
-
-  val lsu_done = lsu_ok && memUnit.io.ready
-  val rob_commit = (alu_ok && io.alu_in.valid) || (bru_ok && io.bru_in.valid) ||
-    lsu_done || (sysu_ok && io.sysu_in.valid)
-  rob.io.deq.ready := rob_commit
-  rob.io.flush := bru_flush
-
-  io.rob_pending_rd := rob.io.pending_rd
-
-  val sel = Seq(
-    alu_ok && io.alu_in.valid,
-    bru_ok && io.bru_in.valid,
-    lsu_done,
-    sysu_ok && io.sysu_in.valid
-  )
-  val rd_data = Mux1H(
-    sel :+ !sel.reduce(_ || _),
-    Seq(
-      io.alu_in.bits.rd_data,
-      io.bru_in.bits.rd_data,
-      memUnit.io.loadData,
-      io.sysu_in.bits.rd_data,
-      0.U(32.W)
-    )
-  )
-  val next_pc_rob = Mux1H(
-    sel :+ !sel.reduce(_ || _),
-    Seq(
-      head.pred_next_pc,
-      io.bru_in.bits.next_pc,
-      memUnit.io.loadUser,
-      head.pred_next_pc,
-      0.U(32.W)
-    )
-  )
-
-  val any_commit = rob_commit || bru_flush
-  // bru_flush: ROB head is the BRU (in-order); head still valid this cycle before flush clears it.
-  io.gpr_wr.addr := Mux(rob_commit || bru_flush, head.rd_index, 0.U)
-  io.gpr_wr.data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
+  val any_commit = can_commit
+  io.gpr_wr.addr := Mux(any_commit, c.rd_index, 0.U)
+  io.gpr_wr.data := c.rd_value
 
   io.commit_msg.valid := any_commit
-  io.commit_msg.next_pc := Mux(bru_flush, io.bru_in.bits.next_pc, next_pc_rob)
-  io.commit_msg.gpr_addr := head.rd_index
-  io.commit_msg.gpr_data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
+  io.commit_msg.next_pc := c.next_pc
+  io.commit_msg.gpr_addr := c.rd_index
+  io.commit_msg.gpr_data := c.rd_value
 
-  io.wb_bypass.valid := any_commit
-  io.wb_bypass.bits.rd := head.rd_index
-  io.wb_bypass.bits.data := Mux(bru_flush, io.bru_in.bits.rd_data, rd_data)
-
-  io.redirect_pc := io.bru_in.bits.next_pc
-
-  io.dbus <> memUnit.io.dbus
+  io.redirect_pc := c.next_pc
 }

@@ -1,7 +1,7 @@
 package nzea_core.backend.fu
 
 import chisel3._
-import chisel3.util.{Mux1H, Valid}
+import chisel3.util.{Mux1H}
 import nzea_core.PipeIO
 import nzea_core.backend.{Rob, RobState}
 
@@ -17,15 +17,14 @@ object LsuOp extends chisel3.ChiselEnum {
   val SW  = Value((1 << 7).U)
 }
 
-/** AGU output: addr, wdata, wstrb, lsuOp, rob_id, pred_next_pc, rob_entry_access (WaitingForMem) for MemUnit. */
-class AguOut(robIdWidth: Int) extends Bundle {
-  val addr            = UInt(32.W)
-  val wdata           = UInt(32.W)
-  val wstrb           = UInt(4.W)
-  val lsuOp           = LsuOp()
-  val rob_id          = UInt(robIdWidth.W)
-  val pred_next_pc    = UInt(32.W)
-  val rob_entry_access = Valid(new nzea_core.backend.RobEntryStateUpdate(robIdWidth))
+/** MemUnit request: addr, wdata, wstrb, lsuOp, pred_next_pc, rob_id. */
+class AguMemReq(robIdWidth: Int) extends Bundle {
+  val addr         = UInt(32.W)
+  val wdata        = UInt(32.W)
+  val wstrb        = UInt(4.W)
+  val lsuOp        = LsuOp()
+  val pred_next_pc = UInt(32.W)
+  val rob_id       = UInt(robIdWidth.W)
 }
 
 /** AGU input: base, imm, lsuOp, storeData; rob_id, pred_next_pc from IS. robIdWidth from upper level. */
@@ -38,11 +37,11 @@ class AguInput(robIdWidth: Int) extends Bundle {
   val pred_next_pc = UInt(32.W)
 }
 
-/** AGU: computes addr = base+imm; generates wdata, wstrb. robIdWidth from upper level. */
+/** AGU: computes addr; writes WaitingForMem to Rob; sends mem_req to MemUnit. */
 class AGU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(new PipeIO(new AguInput(robIdWidth)))
-    val out = new PipeIO(new AguOut(robIdWidth))
+    val in         = Flipped(new PipeIO(new AguInput(robIdWidth)))
+    val rob_access = new nzea_core.backend.RobAccessIO(robIdWidth)
   })
 
   val addr      = io.in.bits.base + io.in.bits.imm
@@ -54,14 +53,12 @@ class AGU(robIdWidth: Int) extends Module {
   val wstrb = Mux1H(io.in.bits.lsuOp.asUInt, Seq(0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), sbStrb, shStrb, swStrb))
   val wdata = storeData << (addr2 * 8.U)
 
-  io.out.valid := io.in.valid
-  io.out.bits.addr := addr
-  io.out.bits.wdata := wdata
-  io.out.bits.wstrb := wstrb
-  io.out.bits.lsuOp := io.in.bits.lsuOp
-  io.out.bits.rob_id := io.in.bits.rob_id
-  io.out.bits.pred_next_pc := io.in.bits.pred_next_pc
-  io.out.bits.rob_entry_access := Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, RobState.WaitingForMem)(robIdWidth)
-  io.in.ready := io.out.ready
-  io.in.flush := io.out.flush
+  val u = Rob.entryStateUpdate(
+    io.in.valid, io.in.bits.rob_id, RobState.WaitingForMem, 0.U(32.W),
+    mem_addr = addr, mem_wdata = wdata, mem_wstrb = wstrb,
+    mem_lsuOp = io.in.bits.lsuOp, mem_pred_next_pc = io.in.bits.pred_next_pc)(robIdWidth)
+  io.rob_access.valid := u.valid
+  io.rob_access.bits := u.bits
+  io.in.ready := true.B
+  io.in.flush := io.rob_access.flush
 }

@@ -4,12 +4,6 @@ import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
 import nzea_core.backend.{Rob, RobState}
-/** ALU write-back payload: rd_data, rob_id, rob_entry_access (from Rob.entryStateUpdate). */
-class AluOut(robIdWidth: Int) extends Bundle {
-  val rd_data         = UInt(32.W)
-  val rob_id          = UInt(robIdWidth.W)
-  val rob_entry_access = Valid(new nzea_core.backend.RobEntryStateUpdate(robIdWidth))
-}
 
 /** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
 object AluOp extends chisel3.ChiselEnum {
@@ -34,11 +28,11 @@ class AluInput(robIdWidth: Int) extends Bundle {
   val rob_id = UInt(robIdWidth.W)
 }
 
-/** ALU FU: opA/opB/aluOp in, AluOut to WBU. robIdWidth from upper level. */
+/** ALU FU: combinational; writes result to Rob via rob_access. */
 class ALU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(new PipeIO(new AluInput(robIdWidth)))
-    val out = new PipeIO(new AluOut(robIdWidth))
+    val in         = Flipped(new PipeIO(new AluInput(robIdWidth)))
+    val rob_access = new nzea_core.backend.RobAccessIO(robIdWidth)
   })
 
   val opA   = io.in.bits.opA
@@ -59,10 +53,9 @@ class ALU(robIdWidth: Int) extends Module {
 
   val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
 
-  io.out.valid := io.in.valid
-  io.out.bits.rd_data := result
-  io.out.bits.rob_id := io.in.bits.rob_id
-  io.out.bits.rob_entry_access := Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, RobState.Done)(robIdWidth)
-  io.in.ready         := io.out.ready
-  io.in.flush          := io.out.flush
+  val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, RobState.Done, result)(robIdWidth)
+  io.rob_access.valid := u.valid
+  io.rob_access.bits := u.bits
+  io.in.ready := true.B
+  io.in.flush := io.rob_access.flush
 }

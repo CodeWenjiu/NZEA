@@ -4,41 +4,22 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, Mux1H}
 import nzea_core.backend.fu.LsuOp
 import nzea_core.CoreBusReadWrite
-/** MemUnit: receives (addr, wdata, wstrb, lsuOp, pred_next_pc, rob_id), outputs loadData, loadUser, complete_rob_id when done.
-  * pred_next_pc passed via req.user and returned in resp.user for correct pipelining.
-  */
+
+/** MemUnit: receives req (addr, wdata, wstrb, lsuOp, pred_next_pc, rob_id); when done outputs resp Decoupled(rob_id, data). */
 class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
   private val userWidth = dbusType.userWidth
 
   val io = IO(new Bundle {
-    val req = Flipped(Decoupled(new Bundle {
-      val addr         = UInt(32.W)
-      val wdata        = UInt(32.W)
-      val wstrb        = UInt(4.W)
-      val lsuOp        = LsuOp()
-      val pred_next_pc = UInt(32.W)
-      val rob_id       = UInt(robIdWidth.W)
-    }))
-    val loadData       = Output(UInt(32.W))
-    val loadUser       = Output(UInt(userWidth.W))
-    val ready          = Output(Bool())
-    val complete_rob_id = Output(UInt(robIdWidth.W))
-    val dbus           = dbusType.cloneType
+    val req  = Flipped(Decoupled(new RobMemReq(robIdWidth)))
+    val resp = Decoupled(new RobMemResp(robIdWidth))
+    val dbus = dbusType.cloneType
   })
 
-  val reqReg = Reg(new Bundle {
-    val addr         = UInt(32.W)
-    val wdata        = UInt(32.W)
-    val wstrb        = UInt(4.W)
-    val lsuOp        = LsuOp()
-    val pred_next_pc = UInt(32.W)
-    val rob_id       = UInt(robIdWidth.W)
-  })
-  io.complete_rob_id := reqReg.rob_id
-  val busy       = RegInit(false.B)
+  val reqReg    = Reg(new RobMemReq(robIdWidth))
+  val busy      = RegInit(false.B)
   val loadPending = RegInit(false.B)
-  val loadAddr2  = Reg(UInt(2.W))
-  val loadLsuOp  = Reg(LsuOp())
+  val loadAddr2 = Reg(UInt(2.W))
+  val loadLsuOp = Reg(LsuOp())
 
   val isLoad  = reqReg.lsuOp === LsuOp.LB || reqReg.lsuOp === LsuOp.LH || reqReg.lsuOp === LsuOp.LW ||
                 reqReg.lsuOp === LsuOp.LBU || reqReg.lsuOp === LsuOp.LHU
@@ -49,19 +30,19 @@ class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
     busy   := true.B
     loadPending := false.B
   }
-  when(busy && isStore && io.dbus.req.ready) {
-    busy := false.B
-  }
+
+  val store_complete = busy && isStore && io.dbus.req.ready
   when(busy && isLoad) {
     when(!loadPending && io.dbus.req.ready) {
       loadPending := true.B
       loadAddr2   := reqReg.addr(1, 0)
       loadLsuOp   := reqReg.lsuOp
     }
-    when(loadPending && io.dbus.resp.valid) {
-      busy        := false.B
-      loadPending := false.B
-    }
+  }
+  val load_complete = busy && isLoad && loadPending && io.dbus.resp.valid
+  when(io.resp.fire) {
+    busy := false.B
+    when(isLoad) { loadPending := false.B }
   }
 
   val dbusReqValid = busy && (isStore || (isLoad && !loadPending))
@@ -72,9 +53,7 @@ class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
   io.dbus.req.bits.wstrb  := reqReg.wstrb
   io.dbus.req.bits.user   := reqReg.pred_next_pc
 
-  val rdata   = io.dbus.resp.bits.data
-  io.loadUser := io.dbus.resp.bits.user
-
+  val rdata = io.dbus.resp.bits.data
   val byteSel = Mux(loadAddr2 === 0.U, rdata(7, 0), Mux(loadAddr2 === 1.U, rdata(15, 8), Mux(loadAddr2 === 2.U, rdata(23, 16), rdata(31, 24))))
   val halfSel = Mux(loadAddr2(1), rdata(31, 16), rdata(15, 0))
   val lb  = Cat(Fill(24, byteSel(7)), byteSel)
@@ -82,10 +61,13 @@ class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
   val lw  = rdata
   val lbu = Cat(0.U(24.W), byteSel)
   val lhu = Cat(0.U(16.W), halfSel)
-  io.loadData := Mux1H(loadLsuOp.asUInt, Seq(lb, lh, lw, lbu, lhu, 0.U(32.W), 0.U(32.W), 0.U(32.W)))
+  val loadData = Mux1H(loadLsuOp.asUInt, Seq(lb, lh, lw, lbu, lhu, 0.U(32.W), 0.U(32.W), 0.U(32.W)))
 
   io.dbus.resp.ready := loadPending
 
+  io.resp.valid := store_complete || load_complete
+  io.resp.bits.rob_id := reqReg.rob_id
+  io.resp.bits.data   := Mux(isLoad, loadData, 0.U(32.W))
+
   io.req.ready := !busy
-  io.ready    := !busy
 }

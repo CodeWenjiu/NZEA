@@ -4,14 +4,6 @@ import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
 import nzea_core.backend.{Rob, RobState}
-/** BRU write-back payload: rd_data, next_pc, flush, rob_id, rob_entry_access (from Rob.entryStateUpdate). */
-class BruOut(robIdWidth: Int) extends Bundle {
-  val rd_data          = UInt(32.W)
-  val next_pc          = UInt(32.W)
-  val flush            = Bool()
-  val rob_id           = UInt(robIdWidth.W)
-  val rob_entry_access = Valid(new nzea_core.backend.RobEntryStateUpdate(robIdWidth))
-}
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
 object BruOp extends chisel3.ChiselEnum {
@@ -38,11 +30,11 @@ class BruInput(robIdWidth: Int) extends Bundle {
   val rob_id       = UInt(robIdWidth.W)
 }
 
-/** BRU: branch_taken from rs1, rs2, bruOp (Mux1H); is_jmp = JAL|JALR from bruOp; is_taken = is_jmp || branch_taken. robIdWidth from upper level. */
+/** BRU: combinational; writes result to Rob via rob_access. */
 class BRU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(new PipeIO(new BruInput(robIdWidth)))
-    val out = new PipeIO(new BruOut(robIdWidth))
+    val in         = Flipped(new PipeIO(new BruInput(robIdWidth)))
+    val rob_access = new nzea_core.backend.RobAccessIO(robIdWidth)
   })
 
   val b = io.in.bits
@@ -61,16 +53,11 @@ class BRU(robIdWidth: Int) extends Module {
   val is_taken   = is_jmp || branchTaken
   val next_pc    = Mux(is_taken, target, b.pc + 4.U)
   val mispredict = b.pred_next_pc =/= next_pc
+  val rd_value   = b.pc + 4.U
 
-  val out_bits = Wire(new BruOut(robIdWidth))
-  out_bits.rd_data := b.pc + 4.U
-  out_bits.next_pc := next_pc
-  out_bits.flush := mispredict
-  out_bits.rob_id := b.rob_id
-  out_bits.rob_entry_access := Rob.entryStateUpdate(io.in.valid, b.rob_id, RobState.Done)(robIdWidth)
-
-  io.out.valid := io.in.valid
-  io.out.bits := out_bits
-  io.in.ready  := io.out.ready
-  io.in.flush  := io.out.flush
+  val u = Rob.entryStateUpdate(io.in.valid, b.rob_id, RobState.Done, rd_value, mispredict, next_pc)(robIdWidth)
+  io.rob_access.valid := u.valid
+  io.rob_access.bits := u.bits
+  io.in.ready := true.B
+  io.in.flush := io.rob_access.flush
 }
