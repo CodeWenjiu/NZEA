@@ -4,13 +4,12 @@ import chisel3._
 import chisel3.util.{Decoupled, PopCount, PriorityEncoder, Valid}
 import nzea_core.backend.fu.LsuOp
 
-/** ROB entry state: Executing -> (ALU/BRU/SYSU: Done; AGU: WaitingForMem -> WaitingForData -> Done). */
+/** ROB entry state: Executing -> (ALU/BRU/SYSU: Done; AGU: WaitingForMem -> WaitingForResult when mem_req.fire -> Done when mem_resp.fire). */
 object RobState extends chisel3.ChiselEnum {
-  val Executing      = Value  // just entered ROB
-  val WaitingForMem  = Value  // AGU done, waiting to send to MemUnit
-  val WaitingForData = Value  // MemUnit req accepted, waiting for load data
-  val WaitingForResult = Value  // reserved
-  val Done           = Value  // FU complete, ready to commit
+  val Executing        = Value  // just entered ROB
+  val WaitingForMem    = Value  // AGU done, req not sent yet, eligible for mem_req selection
+  val WaitingForResult = Value  // req sent, waiting for mem_resp
+  val Done             = Value  // FU complete, ready to commit
 }
 
 /** One entry in the Rob: all fields in a single bundle. Mem fields used when WaitingForMem. */
@@ -243,7 +242,7 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     count := count + Mux(io.enq.fire, 1.U, 0.U) - Mux(io.commit.fire, 1.U, 0.U)
   }
 
-  // 从旧到新扫描：Done/Executing 不选，WaitingForMem 选，WaitingForData/WaitingForResult 跳过看下一个
+  // 从旧到新扫描：Done/Executing 不选，WaitingForMem 选，WaitingForResult 跳过看下一个
   val waiting_for_mem = (0 until depth).map { j =>
     val idx = (head_ptr + j.U)(idWidth - 1, 0)
     slots(idx).valid && slots(idx).bits.rob_state === RobState.WaitingForMem
@@ -259,10 +258,10 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   io.mem_req.bits.wstrb := sel_slot.bits.mem_wstrb
   io.mem_req.bits.lsuOp := sel_slot.bits.mem_lsuOp
   io.mem_req.bits.pred_next_pc := sel_slot.bits.mem_pred_next_pc
-  when(!do_flush && io.mem_req.fire) {
-    slots(sel_idx).bits.rob_state := RobState.WaitingForData
-  }
   io.mem_resp.ready := true.B
+  when(!do_flush && io.mem_req.fire) {
+    slots(sel_idx).bits.rob_state := RobState.WaitingForResult
+  }
   when(!do_flush && io.mem_resp.fire) {
     slots(io.mem_resp.bits.rob_id).bits.rob_state := RobState.Done
     slots(io.mem_resp.bits.rob_id).bits.rd_value := io.mem_resp.bits.data
