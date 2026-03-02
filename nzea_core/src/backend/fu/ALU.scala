@@ -1,11 +1,14 @@
 package nzea_core.backend.fu
 
 import chisel3._
-import chisel3.util.Mux1H
+import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
-/** ALU write-back payload (rd_index from Rob head). */
-class AluOut extends Bundle {
-  val rd_data = UInt(32.W)
+import nzea_core.backend.{Rob, RobState}
+/** ALU write-back payload: rd_data, rob_id, rob_entry_access (from Rob.entryStateUpdate). */
+class AluOut(robIdWidth: Int) extends Bundle {
+  val rd_data         = UInt(32.W)
+  val rob_id          = UInt(robIdWidth.W)
+  val rob_entry_access = Valid(new nzea_core.backend.RobEntryStateUpdate(robIdWidth))
 }
 
 /** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
@@ -35,7 +38,7 @@ class AluInput(robIdWidth: Int) extends Bundle {
 class ALU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in  = Flipped(new PipeIO(new AluInput(robIdWidth)))
-    val out = new PipeIO(new AluOut)
+    val out = new PipeIO(new AluOut(robIdWidth))
   })
 
   val opA   = io.in.bits.opA
@@ -56,8 +59,10 @@ class ALU(robIdWidth: Int) extends Module {
 
   val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
 
-  io.out.valid        := io.in.valid
+  io.out.valid := io.in.valid
   io.out.bits.rd_data := result
+  io.out.bits.rob_id := io.in.bits.rob_id
+  io.out.bits.rob_entry_access := Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, RobState.Done)(robIdWidth)
   io.in.ready         := io.out.ready
   io.in.flush          := io.out.flush
 }

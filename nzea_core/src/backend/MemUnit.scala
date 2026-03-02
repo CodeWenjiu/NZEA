@@ -4,33 +4,37 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, Mux1H}
 import nzea_core.backend.fu.LsuOp
 import nzea_core.CoreBusReadWrite
-/** MemUnit: receives (addr, wdata, wstrb, lsuOp, pred_next_pc), outputs loadData and loadUser when load done.
+/** MemUnit: receives (addr, wdata, wstrb, lsuOp, pred_next_pc, rob_id), outputs loadData, loadUser, complete_rob_id when done.
   * pred_next_pc passed via req.user and returned in resp.user for correct pipelining.
   */
-class MemUnit(dbusType: CoreBusReadWrite) extends Module {
+class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
   private val userWidth = dbusType.userWidth
 
   val io = IO(new Bundle {
     val req = Flipped(Decoupled(new Bundle {
-      val addr        = UInt(32.W)
-      val wdata       = UInt(32.W)
-      val wstrb       = UInt(4.W)
-      val lsuOp       = LsuOp()
+      val addr         = UInt(32.W)
+      val wdata        = UInt(32.W)
+      val wstrb        = UInt(4.W)
+      val lsuOp        = LsuOp()
       val pred_next_pc = UInt(32.W)
+      val rob_id       = UInt(robIdWidth.W)
     }))
-    val loadData = Output(UInt(32.W))
-    val loadUser = Output(UInt(userWidth.W))
-    val ready    = Output(Bool())
-    val dbus     = dbusType.cloneType
+    val loadData       = Output(UInt(32.W))
+    val loadUser       = Output(UInt(userWidth.W))
+    val ready          = Output(Bool())
+    val complete_rob_id = Output(UInt(robIdWidth.W))
+    val dbus           = dbusType.cloneType
   })
 
   val reqReg = Reg(new Bundle {
-    val addr        = UInt(32.W)
-    val wdata       = UInt(32.W)
-    val wstrb       = UInt(4.W)
-    val lsuOp       = LsuOp()
+    val addr         = UInt(32.W)
+    val wdata        = UInt(32.W)
+    val wstrb        = UInt(4.W)
+    val lsuOp        = LsuOp()
     val pred_next_pc = UInt(32.W)
+    val rob_id       = UInt(robIdWidth.W)
   })
+  io.complete_rob_id := reqReg.rob_id
   val busy       = RegInit(false.B)
   val loadPending = RegInit(false.B)
   val loadAddr2  = Reg(UInt(2.W))

@@ -29,10 +29,10 @@ class EXU(robIdWidth: Int) extends Module {
     val agu_in  = Flipped(new PipeIO(new AguInput(robIdWidth)))
     val sysu_in = Flipped(new PipeIO(new SysuInput(robIdWidth)))
 
-    val alu_out  = new PipeIO(new AluOut)
-    val bru_out  = new PipeIO(new BruOut)
-    val agu_out  = new PipeIO(new AguOut)
-    val sysu_out = new PipeIO(new SysuOut)
+    val alu_out  = new PipeIO(new AluOut(robIdWidth))
+    val bru_out  = new PipeIO(new BruOut(robIdWidth))
+    val agu_out  = new PipeIO(new AguOut(robIdWidth))
+    val sysu_out = new PipeIO(new SysuOut(robIdWidth))
   })
 
   val alu  = Module(new fu.ALU(robIdWidth))

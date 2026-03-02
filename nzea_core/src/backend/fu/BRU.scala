@@ -1,13 +1,16 @@
 package nzea_core.backend.fu
 
 import chisel3._
-import chisel3.util.Mux1H
+import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
-/** BRU write-back payload: rd_data, next_pc, flush (mispredict; WBU uses next_pc from here, rd_index from ROB head). */
-class BruOut extends Bundle {
-  val rd_data = UInt(32.W)
-  val next_pc = UInt(32.W)
-  val flush   = Bool()
+import nzea_core.backend.{Rob, RobState}
+/** BRU write-back payload: rd_data, next_pc, flush, rob_id, rob_entry_access (from Rob.entryStateUpdate). */
+class BruOut(robIdWidth: Int) extends Bundle {
+  val rd_data          = UInt(32.W)
+  val next_pc          = UInt(32.W)
+  val flush            = Bool()
+  val rob_id           = UInt(robIdWidth.W)
+  val rob_entry_access = Valid(new nzea_core.backend.RobEntryStateUpdate(robIdWidth))
 }
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
@@ -39,7 +42,7 @@ class BruInput(robIdWidth: Int) extends Bundle {
 class BRU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in  = Flipped(new PipeIO(new BruInput(robIdWidth)))
-    val out = new PipeIO(new BruOut)
+    val out = new PipeIO(new BruOut(robIdWidth))
   })
 
   val b = io.in.bits
@@ -59,13 +62,15 @@ class BRU(robIdWidth: Int) extends Module {
   val next_pc    = Mux(is_taken, target, b.pc + 4.U)
   val mispredict = b.pred_next_pc =/= next_pc
 
-  val out_bits = Wire(new BruOut)
+  val out_bits = Wire(new BruOut(robIdWidth))
   out_bits.rd_data := b.pc + 4.U
   out_bits.next_pc := next_pc
-  out_bits.flush   := mispredict
+  out_bits.flush := mispredict
+  out_bits.rob_id := b.rob_id
+  out_bits.rob_entry_access := Rob.entryStateUpdate(io.in.valid, b.rob_id, RobState.Done)(robIdWidth)
 
   io.out.valid := io.in.valid
-  io.out.bits  := out_bits
+  io.out.bits := out_bits
   io.in.ready  := io.out.ready
   io.in.flush  := io.out.flush
 }

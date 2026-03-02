@@ -6,6 +6,7 @@ import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.fu.{AluOut, AguOut, BruOut, SysuOut}
 import nzea_core.frontend.FuType
+import nzea_core.backend.RobState
 import nzea_core.CoreBusReadWrite
 
 /** Commit message for Debugger/Difftest: next_pc (real PC after commit) and GPR
@@ -29,15 +30,16 @@ class WbBypass extends Bundle {
   * defined and exposed here.
   */
 class WBU(implicit config: NzeaConfig) extends Module {
-  private val robDepth = config.robDepth
-  private val dbusType =
+  private val robDepth   = config.robDepth
+  private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
+  private val dbusType   =
     new CoreBusReadWrite(config.width, config.width, config.width)
 
   val io = IO(new Bundle {
-    val alu_in = Flipped(new PipeIO(new AluOut))
-    val bru_in = Flipped(new PipeIO(new BruOut))
-    val agu_in = Flipped(new PipeIO(new AguOut))
-    val sysu_in = Flipped(new PipeIO(new SysuOut))
+    val alu_in = Flipped(new PipeIO(new AluOut(robIdWidth)))
+    val bru_in = Flipped(new PipeIO(new BruOut(robIdWidth)))
+    val agu_in = Flipped(new PipeIO(new AguOut(robIdWidth)))
+    val sysu_in = Flipped(new PipeIO(new SysuOut(robIdWidth)))
     val rob_enq     = Flipped(Decoupled(new RobEnqPayload))
     val rob_enq_rob_id = Output(UInt(chisel3.util.log2Ceil(robDepth.max(2)).W))
     val gpr_wr = Output(new Bundle {
@@ -52,16 +54,28 @@ class WBU(implicit config: NzeaConfig) extends Module {
     val redirect_pc = Output(UInt(32.W)) // when flush, IFU sets pc to this
   })
 
-  val memUnit = Module(new MemUnit(dbusType))
+  val memUnit = Module(new MemUnit(dbusType, robIdWidth))
   val rob = Module(new Rob(robDepth))
 
   rob.io.enq <> io.rob_enq
   io.rob_enq_rob_id := rob.io.enq_rob_id
   val head = rob.io.deq.bits
-  val alu_ok  = rob.io.deq.valid && (head.fu_type === FuType.ALU)
-  val bru_ok  = rob.io.deq.valid && (head.fu_type === FuType.BRU)
-  val lsu_ok  = rob.io.deq.valid && (head.fu_type === FuType.LSU)
-  val sysu_ok = rob.io.deq.valid && (head.fu_type === FuType.SYSU)
+
+  rob.io.accessPorts(0) := io.alu_in.bits.rob_entry_access
+  rob.io.accessPorts(1) := io.bru_in.bits.rob_entry_access
+  rob.io.accessPorts(2) := io.sysu_in.bits.rob_entry_access
+  rob.io.accessPorts(3) := io.agu_in.bits.rob_entry_access
+  rob.io.accessPorts(4) := Rob.entryStateUpdate(memUnit.io.ready, memUnit.io.complete_rob_id, RobState.Done)(robIdWidth)
+
+  val head_rob_id = rob.io.deq.bits.rob_id
+  val alu_done  = (head.rob_state === RobState.Done) || (io.alu_in.valid && io.alu_in.bits.rob_id === head_rob_id)
+  val bru_done  = (head.rob_state === RobState.Done) || (io.bru_in.valid && io.bru_in.bits.rob_id === head_rob_id)
+  val sysu_done = (head.rob_state === RobState.Done) || (io.sysu_in.valid && io.sysu_in.bits.rob_id === head_rob_id)
+  val lsu_done_state = (head.rob_state === RobState.Done) || (memUnit.io.ready && memUnit.io.complete_rob_id === head_rob_id)
+  val alu_ok  = rob.io.deq.valid && (head.fu_type === FuType.ALU) && alu_done
+  val bru_ok  = rob.io.deq.valid && (head.fu_type === FuType.BRU) && bru_done
+  val lsu_ok  = rob.io.deq.valid && (head.fu_type === FuType.LSU) && lsu_done_state
+  val sysu_ok = rob.io.deq.valid && (head.fu_type === FuType.SYSU) && sysu_done
 
   // Only handle flush when ROB head is BRU and we have bru result (in-order commit path).
   val bru_flush = bru_ok && io.bru_in.valid && io.bru_in.bits.flush
@@ -72,15 +86,15 @@ class WBU(implicit config: NzeaConfig) extends Module {
   io.agu_in.flush := bru_flush
   io.sysu_in.flush := bru_flush
 
-  memUnit.io.req.valid := lsu_ok && io.agu_in.valid
+  memUnit.io.req.valid := io.agu_in.valid
   memUnit.io.req.bits.addr := io.agu_in.bits.addr
   memUnit.io.req.bits.wdata := io.agu_in.bits.wdata
   memUnit.io.req.bits.wstrb := io.agu_in.bits.wstrb
   memUnit.io.req.bits.lsuOp := io.agu_in.bits.lsuOp
-  memUnit.io.req.bits.pred_next_pc := head.pred_next_pc
+  memUnit.io.req.bits.pred_next_pc := io.agu_in.bits.pred_next_pc
+  memUnit.io.req.bits.rob_id := io.agu_in.bits.rob_id
 
-  // No bru_flush in ready to avoid combinational cycle (flush -> pipeCtrl -> ex2wb depends on bru_in.valid)
-  io.agu_in.ready := (lsu_ok && memUnit.io.req.ready)
+  io.agu_in.ready := memUnit.io.req.ready
   io.alu_in.ready := alu_ok
   io.bru_in.ready := bru_ok
   io.sysu_in.ready := sysu_ok
