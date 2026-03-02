@@ -22,18 +22,19 @@ object AluOp extends chisel3.ChiselEnum {
   val Sltu = Value((1 << 9).U)
 }
 
-/** ALU FU input: operands, ALU ctrl; pc for AUIPC. */
-class AluInput extends Bundle {
-  val opA   = UInt(32.W)
-  val opB   = UInt(32.W)
-  val aluOp = AluOp()
-  val pc    = UInt(32.W)
+/** ALU FU input: operands, ALU ctrl; pc for AUIPC; rob_id from IS. robIdWidth from upper level. */
+class AluInput(robIdWidth: Int) extends Bundle {
+  val opA    = UInt(32.W)
+  val opB    = UInt(32.W)
+  val aluOp  = AluOp()
+  val pc     = UInt(32.W)
+  val rob_id = UInt(robIdWidth.W)
 }
 
-/** ALU FU: opA/opB/aluOp in, AluOut to WBU. */
-class ALU extends Module {
+/** ALU FU: opA/opB/aluOp in, AluOut to WBU. robIdWidth from upper level. */
+class ALU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(new PipeIO(new AluInput))
+    val in  = Flipped(new PipeIO(new AluInput(robIdWidth)))
     val out = new PipeIO(new AluOut)
   })
 

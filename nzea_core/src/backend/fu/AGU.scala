@@ -24,18 +24,19 @@ class AguOut extends Bundle {
   val lsuOp   = LsuOp()
 }
 
-/** AGU input: base, imm, lsuOp, storeData. */
-class AguInput extends Bundle {
+/** AGU input: base, imm, lsuOp, storeData; rob_id from IS. robIdWidth from upper level. */
+class AguInput(robIdWidth: Int) extends Bundle {
   val base      = UInt(32.W)
   val imm       = UInt(32.W)
   val lsuOp     = LsuOp()
   val storeData = UInt(32.W)
+  val rob_id    = UInt(robIdWidth.W)
 }
 
-/** AGU: computes addr = base+imm; generates wdata, wstrb. */
-class AGU extends Module {
+/** AGU: computes addr = base+imm; generates wdata, wstrb. robIdWidth from upper level. */
+class AGU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(new PipeIO(new AguInput))
+    val in  = Flipped(new PipeIO(new AguInput(robIdWidth)))
     val out = new PipeIO(new AguOut)
   })
 

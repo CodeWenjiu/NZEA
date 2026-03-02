@@ -38,7 +38,8 @@ class WBU(implicit config: NzeaConfig) extends Module {
     val bru_in = Flipped(new PipeIO(new BruOut))
     val agu_in = Flipped(new PipeIO(new AguOut))
     val sysu_in = Flipped(new PipeIO(new SysuOut))
-    val rob_enq = Flipped(Decoupled(new RobEntry))
+    val rob_enq     = Flipped(Decoupled(new RobEnqPayload))
+    val rob_enq_rob_id = Output(UInt(chisel3.util.log2Ceil(robDepth.max(2)).W))
     val gpr_wr = Output(new Bundle {
       val addr = UInt(5.W)
       val data = UInt(32.W)
@@ -55,6 +56,7 @@ class WBU(implicit config: NzeaConfig) extends Module {
   val rob = Module(new Rob(robDepth))
 
   rob.io.enq <> io.rob_enq
+  io.rob_enq_rob_id := rob.io.enq_rob_id
   val head = rob.io.deq.bits
   val alu_ok  = rob.io.deq.valid && (head.fu_type === FuType.ALU)
   val bru_ok  = rob.io.deq.valid && (head.fu_type === FuType.BRU)

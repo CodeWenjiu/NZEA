@@ -8,12 +8,13 @@ import nzea_config.NzeaConfig
   * Flush: WBU drives on alu_in/bru_in etc.; propagates forward via <> and PipelineConnect.
   */
 class Core(implicit config: NzeaConfig) extends Module {
-  private val addrWidth = config.width
+  private val addrWidth  = config.width
+  private val robIdWidth = chisel3.util.log2Ceil(config.robDepth.max(2))
 
   val ifu = Module(new frontend.IFU)
   val idu = Module(new frontend.IDU(addrWidth))
   val isu = Module(new frontend.ISU(addrWidth))
-  val exu = Module(new backend.EXU)
+  val exu = Module(new backend.EXU(robIdWidth))
   val wbu = Module(new backend.WBU)
 
   val io = IO(new Bundle {
@@ -35,8 +36,9 @@ class Core(implicit config: NzeaConfig) extends Module {
   PipelineConnect(idu.io.out, isu.io.in)
   PipelineConnect(ifu.io.out, idu.io.in)
 
-  isu.io.rob_pending_rd := wbu.io.rob_pending_rd
+  isu.io.rob_pending_rd  := wbu.io.rob_pending_rd
   isu.io.wb_bypass      := wbu.io.wb_bypass
+  isu.io.rob_enq_rob_id := wbu.io.rob_enq_rob_id
   wbu.io.rob_enq <> isu.io.rob_enq
   idu.io.gpr_wr := wbu.io.gpr_wr
 

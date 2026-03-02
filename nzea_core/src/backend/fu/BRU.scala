@@ -22,9 +22,9 @@ object BruOp extends chisel3.ChiselEnum {
   val BGEU = Value((1 << 7).U)
 }
 
-/** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp.
-  * use_rs1_imm => target = (rs1+offset)&~1 else target = pc+offset. */
-class BruInput extends Bundle {
+/** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; rob_id from IS.
+  * use_rs1_imm => target = (rs1+offset)&~1 else target = pc+offset. robIdWidth from upper level. */
+class BruInput(robIdWidth: Int) extends Bundle {
   val pc           = UInt(32.W)
   val pred_next_pc = UInt(32.W)
   val offset       = UInt(32.W)
@@ -32,12 +32,13 @@ class BruInput extends Bundle {
   val rs1          = UInt(32.W)
   val rs2          = UInt(32.W)
   val bruOp        = BruOp()
+  val rob_id       = UInt(robIdWidth.W)
 }
 
-/** BRU: branch_taken from rs1, rs2, bruOp (Mux1H); is_jmp = JAL|JALR from bruOp; is_taken = is_jmp || branch_taken. */
-class BRU extends Module {
+/** BRU: branch_taken from rs1, rs2, bruOp (Mux1H); is_jmp = JAL|JALR from bruOp; is_taken = is_jmp || branch_taken. robIdWidth from upper level. */
+class BRU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in  = Flipped(new PipeIO(new BruInput))
+    val in  = Flipped(new PipeIO(new BruInput(robIdWidth)))
     val out = new PipeIO(new BruOut)
   })
 

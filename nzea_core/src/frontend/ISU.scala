@@ -5,21 +5,23 @@ import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.backend.{RobEntry, WbBypass}
+import nzea_core.backend.{RobEnqPayload, WbBypass}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
-  private val robDepth = config.robDepth
+  private val robDepth   = config.robDepth
+  private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
 
   val io = IO(new Bundle {
-    val in            = Flipped(new PipeIO(new IDUOut(addrWidth)))
-    val rob_pending_rd = Input(UInt(32.W))  // bit i = 1 if rd i is pending in ROB
-    val wb_bypass     = Input(Valid(new WbBypass))
-    val rob_enq       = Decoupled(new RobEntry)
-    val alu           = new PipeIO(new AluInput)
-    val bru           = new PipeIO(new BruInput)
-    val agu           = new PipeIO(new AguInput)
-    val sysu          = new PipeIO(new SysuInput)
+    val in             = Flipped(new PipeIO(new IDUOut(addrWidth)))
+    val rob_pending_rd = Input(UInt(32.W))
+    val wb_bypass      = Input(Valid(new WbBypass))
+    val rob_enq        = Decoupled(new RobEnqPayload)
+    val rob_enq_rob_id = Input(UInt(robIdWidth.W))
+    val alu            = new PipeIO(new AluInput(robIdWidth))
+    val bru            = new PipeIO(new BruInput(robIdWidth))
+    val agu            = new PipeIO(new AguInput(robIdWidth))
+    val sysu           = new PipeIO(new SysuInput(robIdWidth))
   })
 
   // Flush propagates from output (is2ex) to input (id2is)
@@ -36,6 +38,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val rs2_index = io.in.bits.rs2_index
   val imm       = io.in.bits.imm
   val pc        = io.in.bits.pc
+  val rob_id    = io.rob_enq_rob_id
 
   val can_bypass_rs1 = io.wb_bypass.valid && rs1_index =/= 0.U && io.wb_bypass.bits.rd === rs1_index
   val can_bypass_rs2 = io.wb_bypass.valid && rs2_index =/= 0.U && io.wb_bypass.bits.rd === rs2_index
@@ -65,6 +68,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.alu.bits.opB   := aluOpB
   io.alu.bits.aluOp := aluOp
   io.alu.bits.pc    := pc
+  io.alu.bits.rob_id := rob_id
 
   // BRU path: pass pc, offset; next_pc from BRU output
   val (bruSrc, _)   = BruSrc.safe(FuDecode.take(fu_src, BruSrc.getWidth))
@@ -78,6 +82,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.bru.bits.rs1         := rs1_val
   io.bru.bits.rs2         := rs2_val
   io.bru.bits.bruOp       := bruOp
+  io.bru.bits.rob_id      := rob_id
 
   // AGU path: next_pc from ROB head in WBU
   val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
@@ -86,11 +91,13 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.agu.bits.imm       := imm
   io.agu.bits.lsuOp     := lsuOp
   io.agu.bits.storeData := rs2_val
+  io.agu.bits.rob_id    := rob_id
 
   io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
+  io.sysu.bits.rob_id := rob_id
 
-  io.rob_enq.valid   := can_dispatch
-  io.rob_enq.bits.fu_type  := fu_type
+  io.rob_enq.valid := can_dispatch
+  io.rob_enq.bits.fu_type := fu_type
   io.rob_enq.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.bits.pred_next_pc := io.in.bits.pred_next_pc
 
