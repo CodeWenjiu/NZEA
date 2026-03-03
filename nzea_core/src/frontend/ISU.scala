@@ -87,12 +87,11 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   // AGU path: next_pc from ROB head in WBU
   val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
   io.agu.valid := can_dispatch && (fu_type === FuType.LSU)
-  io.agu.bits.base         := rs1_val
-  io.agu.bits.imm          := imm
-  io.agu.bits.lsuOp        := lsuOp
-  io.agu.bits.storeData    := rs2_val
-  io.agu.bits.rob_id       := rob_id
-  io.agu.bits.pred_next_pc := io.in.bits.pred_next_pc
+  io.agu.bits.base      := rs1_val
+  io.agu.bits.imm       := imm
+  io.agu.bits.lsuOp     := lsuOp
+  io.agu.bits.storeData := rs2_val
+  io.agu.bits.rob_id    := rob_id
 
   io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
   io.sysu.bits.rob_id := rob_id

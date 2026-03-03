@@ -15,20 +15,16 @@ object RobState extends chisel3.ChiselEnum {
   val Done = Value // FU complete, ready to commit
 }
 
-/** One entry in the Rob: all fields in a single bundle. Mem fields used when
-  * WaitingForMem.
-  */
+/** One entry in the Rob. rd_value reused for mem_addr before load/store completes. */
 class RobEntry extends Bundle {
-  val rd_index = UInt(5.W)
-  val rob_state = RobState()
-  val rd_value = UInt(32.W)
-  val next_pc = UInt(32.W)
-  val flush = Bool()
-  val mem_addr = UInt(32.W)
-  val mem_wdata = UInt(32.W)
-  val mem_wstrb = UInt(4.W)
-  val mem_lsuOp = LsuOp()
-  val mem_pred_next_pc = UInt(32.W)
+  val rd_index   = UInt(5.W)
+  val rob_state  = RobState()
+  val rd_value   = UInt(32.W)  // load result, or mem_addr before mem completes
+  val next_pc    = UInt(32.W)
+  val flush      = Bool()
+  val mem_wdata  = UInt(32.W)
+  val mem_wstrb  = UInt(4.W)
+  val mem_lsuOp  = LsuOp()
 }
 
 /** Payload for Rob enq: rd_index, pred_next_pc (stored in next_pc_vec at enq).
@@ -60,15 +56,13 @@ class RobCommitInfo extends Bundle {
   val flush = Bool()
 }
 
-/** MemUnit request from Rob: rob_id, addr, wdata, wstrb, lsuOp, pred_next_pc.
-  */
+/** MemUnit request from Rob: rob_id, addr, wdata, wstrb, lsuOp. */
 class RobMemReq(idWidth: Int) extends Bundle {
   val rob_id = UInt(idWidth.W)
-  val addr = UInt(32.W)
-  val wdata = UInt(32.W)
-  val wstrb = UInt(4.W)
-  val lsuOp = LsuOp()
-  val pred_next_pc = UInt(32.W)
+  val addr   = UInt(32.W)
+  val wdata  = UInt(32.W)
+  val wstrb  = UInt(4.W)
+  val lsuOp  = LsuOp()
 }
 
 /** MemUnit response to Rob: rob_id, data (load result; store ignores). */
@@ -85,20 +79,18 @@ class GprBypass extends Bundle {
   val data = UInt(32.W)
 }
 
-/** ROB entry state update: rob_id, new_state, rd_value. For BRU: flush,
-  * next_pc. For AGU WaitingForMem: mem_*
+/** ROB entry state update: rob_id, new_state, rd_value. For BRU: flush, next_pc.
+  * For AGU WaitingForMem: rd_value=addr, mem_wdata, mem_wstrb, mem_lsuOp.
   */
 class RobEntryStateUpdate(idWidth: Int) extends Bundle {
-  val rob_id = UInt(idWidth.W)
+  val rob_id    = UInt(idWidth.W)
   val new_state = RobState()
-  val rd_value = UInt(32.W)
-  val flush = Bool()
-  val next_pc = UInt(32.W)
-  val mem_addr = UInt(32.W)
+  val rd_value  = UInt(32.W)
+  val flush     = Bool()
+  val next_pc   = UInt(32.W)
   val mem_wdata = UInt(32.W)
   val mem_wstrb = UInt(4.W)
   val mem_lsuOp = LsuOp()
-  val mem_pred_next_pc = UInt(32.W)
 }
 
 /** FU output to Rob: valid/bits from FU, ready/flush from Rob. Compatible with
@@ -124,11 +116,9 @@ object Rob {
       rd_value: UInt,
       flush: Bool = false.B,
       next_pc: UInt = 0.U,
-      mem_addr: UInt = 0.U,
       mem_wdata: UInt = 0.U,
       mem_wstrb: UInt = 0.U,
-      mem_lsuOp: LsuOp.Type = LsuOp.LB,
-      mem_pred_next_pc: UInt = 0.U
+      mem_lsuOp: LsuOp.Type = LsuOp.LB
   )(idWidth: Int): Valid[RobEntryStateUpdate] = {
     val w = Wire(Valid(new RobEntryStateUpdate(idWidth)))
     w.valid := valid
@@ -137,11 +127,9 @@ object Rob {
     w.bits.rd_value := rd_value
     w.bits.flush := flush
     w.bits.next_pc := next_pc
-    w.bits.mem_addr := mem_addr
     w.bits.mem_wdata := mem_wdata
     w.bits.mem_wstrb := mem_wstrb
     w.bits.mem_lsuOp := mem_lsuOp
-    w.bits.mem_pred_next_pc := mem_pred_next_pc
     w
   }
 }
@@ -194,11 +182,9 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     e.rd_value := 0.U
     e.next_pc := 0.U
     e.flush := false.B
-    e.mem_addr := 0.U
     e.mem_wdata := 0.U
     e.mem_wstrb := 0.U
     e.mem_lsuOp := LsuOp.LB
-    e.mem_pred_next_pc := 0.U
     e
   }
 
@@ -249,11 +235,10 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
           slots(p.bits.rob_id).bits.next_pc := p.bits.next_pc
         }
         when(p.bits.new_state === RobState.WaitingForMem) {
-          slots(p.bits.rob_id).bits.mem_addr := p.bits.mem_addr
+          slots(p.bits.rob_id).bits.rd_value := p.bits.rd_value
           slots(p.bits.rob_id).bits.mem_wdata := p.bits.mem_wdata
           slots(p.bits.rob_id).bits.mem_wstrb := p.bits.mem_wstrb
           slots(p.bits.rob_id).bits.mem_lsuOp := p.bits.mem_lsuOp
-          slots(p.bits.rob_id).bits.mem_pred_next_pc := p.bits.mem_pred_next_pc
         }
       }
     }
@@ -293,18 +278,19 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val has_waiting = waiting_for_mem.reduce(_ || _)
   io.mem_req.valid := !do_flush && has_waiting
   io.mem_req.bits.rob_id := sel_idx
-  io.mem_req.bits.addr := sel_slot.bits.mem_addr
+  io.mem_req.bits.addr := sel_slot.bits.rd_value
   io.mem_req.bits.wdata := sel_slot.bits.mem_wdata
   io.mem_req.bits.wstrb := sel_slot.bits.mem_wstrb
   io.mem_req.bits.lsuOp := sel_slot.bits.mem_lsuOp
-  io.mem_req.bits.pred_next_pc := sel_slot.bits.mem_pred_next_pc
   io.mem_resp.ready := true.B
   when(!do_flush && io.mem_req.fire) {
     slots(sel_idx).bits.rob_state := RobState.WaitingForResult
   }
   when(!do_flush && io.mem_resp.fire) {
     slots(io.mem_resp.bits.rob_id).bits.rob_state := RobState.Done
-    slots(io.mem_resp.bits.rob_id).bits.rd_value := io.mem_resp.bits.data
+    val resp_slot = slots(io.mem_resp.bits.rob_id)
+    val is_load = resp_slot.bits.mem_lsuOp =/= LsuOp.SB && resp_slot.bits.mem_lsuOp =/= LsuOp.SH && resp_slot.bits.mem_lsuOp =/= LsuOp.SW
+    when(is_load) { resp_slot.bits.rd_value := io.mem_resp.bits.data }
   }
 
   val pending_rd = RegInit(0.U(32.W))

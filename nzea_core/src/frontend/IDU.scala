@@ -53,8 +53,9 @@ class IDU(addrWidth: Int) extends Module {
   val (fuType, _) = FuType.safe(decoded(1))
   val fuOp        = decoded(2)
   val fuSrc       = decoded(3)
+  val gprWr       = decoded(4).asBool
 
-  val rd = io.in.bits.inst(11, 7)
+  val rd = Mux(gprWr, io.in.bits.inst(11, 7), 0.U(5.W))
 
   val inst = io.in.bits.inst
   val immI = Cat(Fill(20, inst(31)), inst(31, 20))

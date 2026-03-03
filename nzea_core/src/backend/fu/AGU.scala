@@ -17,24 +17,13 @@ object LsuOp extends chisel3.ChiselEnum {
   val SW  = Value((1 << 7).U)
 }
 
-/** MemUnit request: addr, wdata, wstrb, lsuOp, pred_next_pc, rob_id. */
-class AguMemReq(robIdWidth: Int) extends Bundle {
-  val addr         = UInt(32.W)
-  val wdata        = UInt(32.W)
-  val wstrb        = UInt(4.W)
-  val lsuOp        = LsuOp()
-  val pred_next_pc = UInt(32.W)
-  val rob_id       = UInt(robIdWidth.W)
-}
-
-/** AGU input: base, imm, lsuOp, storeData; rob_id, pred_next_pc from IS. robIdWidth from upper level. */
+/** AGU input: base, imm, lsuOp, storeData; rob_id from IS. */
 class AguInput(robIdWidth: Int) extends Bundle {
-  val base         = UInt(32.W)
-  val imm          = UInt(32.W)
-  val lsuOp        = LsuOp()
-  val storeData    = UInt(32.W)
-  val rob_id       = UInt(robIdWidth.W)
-  val pred_next_pc = UInt(32.W)
+  val base      = UInt(32.W)
+  val imm       = UInt(32.W)
+  val lsuOp     = LsuOp()
+  val storeData = UInt(32.W)
+  val rob_id    = UInt(robIdWidth.W)
 }
 
 /** AGU: computes addr; writes WaitingForMem to Rob; sends mem_req to MemUnit. */
@@ -54,9 +43,8 @@ class AGU(robIdWidth: Int) extends Module {
   val wdata = storeData << (addr2 * 8.U)
 
   val u = Rob.entryStateUpdate(
-    io.in.valid, io.in.bits.rob_id, RobState.WaitingForMem, 0.U(32.W),
-    mem_addr = addr, mem_wdata = wdata, mem_wstrb = wstrb,
-    mem_lsuOp = io.in.bits.lsuOp, mem_pred_next_pc = io.in.bits.pred_next_pc)(robIdWidth)
+    io.in.valid, io.in.bits.rob_id, RobState.WaitingForMem, addr,
+    mem_wdata = wdata, mem_wstrb = wstrb, mem_lsuOp = io.in.bits.lsuOp)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := true.B

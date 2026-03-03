@@ -94,13 +94,14 @@ object FuDecode {
 }
 
 /** RISC-V instruction pattern: single fu (op+src); decode yields fu_type,
-  * fu_op, fu_src.
+  * fu_op, fu_src, gpr_wr (true if instruction writes GPR).
   */
 case class RVInst(
     name: String,
     bitPatStr: String,
     immType: Option[ImmType.Type],
-    fu: Fu.Type
+    fu: Fu.Type,
+    gprWr: Boolean = true
 ) extends DecodePattern {
   def bitPat: BitPat = BitPat(bitPatStr)
 }
@@ -228,13 +229,15 @@ object RiscvInsts {
     "ECALL",
     "b00000000000000000000000001110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU,
+    gprWr = false
   )
   val EBREAK = RVInst(
     "EBREAK",
     "b00000000000100000000000001110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU,
+    gprWr = false
   )
   val CSRRW = RVInst(
     "CSRRW",
@@ -278,19 +281,22 @@ object RiscvInsts {
     "SB",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0100011",
     Some(ImmType.S),
-    Fu.LSU(LsuOp.SB, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.SB, LsuSrc.Rs1Imm),
+    gprWr = false
   )
   val SH = RVInst(
     "SH",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "0100011",
     Some(ImmType.S),
-    Fu.LSU(LsuOp.SH, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.SH, LsuSrc.Rs1Imm),
+    gprWr = false
   )
   val SW = RVInst(
     "SW",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0100011",
     Some(ImmType.S),
-    Fu.LSU(LsuOp.SW, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.SW, LsuSrc.Rs1Imm),
+    gprWr = false
   )
 
   // B-type
@@ -298,37 +304,43 @@ object RiscvInsts {
     "BEQ",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "1100011",
     Some(ImmType.B),
-    Fu.BRU(BruOp.BEQ, BruSrc.PcImm)
+    Fu.BRU(BruOp.BEQ, BruSrc.PcImm),
+    gprWr = false
   )
   val BNE = RVInst(
     "BNE",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "1100011",
     Some(ImmType.B),
-    Fu.BRU(BruOp.BNE, BruSrc.PcImm)
+    Fu.BRU(BruOp.BNE, BruSrc.PcImm),
+    gprWr = false
   )
   val BLT = RVInst(
     "BLT",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "1100011",
     Some(ImmType.B),
-    Fu.BRU(BruOp.BLT, BruSrc.PcImm)
+    Fu.BRU(BruOp.BLT, BruSrc.PcImm),
+    gprWr = false
   )
   val BGE = RVInst(
     "BGE",
     "b" + n(7) + n(5) + n(5) + "101" + n(5) + "1100011",
     Some(ImmType.B),
-    Fu.BRU(BruOp.BGE, BruSrc.PcImm)
+    Fu.BRU(BruOp.BGE, BruSrc.PcImm),
+    gprWr = false
   )
   val BLTU = RVInst(
     "BLTU",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "1100011",
     Some(ImmType.B),
-    Fu.BRU(BruOp.BLTU, BruSrc.PcImm)
+    Fu.BRU(BruOp.BLTU, BruSrc.PcImm),
+    gprWr = false
   )
   val BGEU = RVInst(
     "BGEU",
     "b" + n(7) + n(5) + n(5) + "111" + n(5) + "1100011",
     Some(ImmType.B),
-    Fu.BRU(BruOp.BGEU, BruSrc.PcImm)
+    Fu.BRU(BruOp.BGEU, BruSrc.PcImm),
+    gprWr = false
   )
 
   // R-type
@@ -397,7 +409,8 @@ object RiscvInsts {
     "FENCE",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0001111",
     None,
-    Fu.SYSU
+    Fu.SYSU,
+    gprWr = false
   )
 
   val all: Seq[RVInst] = Seq(
@@ -492,6 +505,12 @@ object FuSrcField extends DecodeField[RVInst, UInt] with DecodeAPI {
   )
 }
 
+object GprWrField extends DecodeField[RVInst, UInt] with DecodeAPI {
+  def name = "gpr_wr"
+  def chiselType = UInt(1.W)
+  def genTable(inst: RVInst): BitPat = BitPat("b" + (if (inst.gprWr) "1" else "0"))
+}
+
 /** All decode fields with defaults; decode in one pass (one decoder call per
   * field).
   */
@@ -500,7 +519,8 @@ object DecodeFields {
     (ImmTypeField, BitPat(ImmType.I.litValue.U(ImmType.getWidth.W))),
     (FuTypeField, BitPat(FuType.ALU.litValue.U(FuType.getWidth.W))),
     (FuOpField, BitPat(0.U(FuOpWidth.Width.W))),
-    (FuSrcField, BitPat(0.U(FuSrcWidth.Width.W)))
+    (FuSrcField, BitPat(0.U(FuSrcWidth.Width.W))),
+    (GprWrField, BitPat(0.U(1.W)))
   )
 
   def decodeAll(
