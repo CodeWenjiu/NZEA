@@ -2,13 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import nzea_core.PipeIO
-import nzea_core.backend.fu.{
-  AguInput,
-  AluInput,
-  BruInput,
-  SysuInput
-}
-import nzea_core.backend.fu.{AluOp, BruOp, LsuOp}
+import nzea_core.retire.rob.RobAccessIO
 
 /** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
 object FuOpWidth {
@@ -29,10 +23,10 @@ class EXU(robIdWidth: Int) extends Module {
     val agu_rob_access  = new RobAccessIO(robIdWidth)
   })
 
-  val alu  = Module(new fu.ALU(robIdWidth))
-  val bru  = Module(new fu.BRU(robIdWidth))
-  val agu  = Module(new fu.AGU(robIdWidth))
-  val sysu = Module(new fu.SYSU(robIdWidth))
+  val alu  = Module(new ALU(robIdWidth))
+  val bru  = Module(new BRU(robIdWidth))
+  val agu  = Module(new AGU(robIdWidth))
+  val sysu = Module(new SYSU(robIdWidth))
 
   io.alu_in <> alu.io.in
   io.bru_in <> bru.io.in

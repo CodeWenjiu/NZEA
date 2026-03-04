@@ -1,9 +1,10 @@
-package nzea_core.backend
+package nzea_core.retire
 
 import chisel3._
 import chisel3.util.{Cat, Decoupled, Mux1H}
-import nzea_core.backend.fu.LsuOp
+import nzea_core.backend.LsuOp
 import nzea_core.CoreBusReadWrite
+import nzea_core.retire.rob.{RobMemReq, RobMemResp}
 
 /** Dbus user payload: rob_id + lsuOp + addr2, passthrough req->resp for load result selection. */
 class DbusUserBundle(robIdWidth: Int) extends Bundle {

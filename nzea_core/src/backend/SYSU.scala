@@ -1,9 +1,9 @@
-package nzea_core.backend.fu
+package nzea_core.backend
 
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.PipeIO
-import nzea_core.backend.{Rob, RobState}
+import nzea_core.retire.rob.{Rob, RobState}
 
 /** SYSU FU input: rob_id from IS (next_pc from ROB head). robIdWidth from upper level. */
 class SysuInput(robIdWidth: Int) extends Bundle {
@@ -14,7 +14,7 @@ class SysuInput(robIdWidth: Int) extends Bundle {
 class SYSU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new SysuInput(robIdWidth)))
-    val rob_access = new nzea_core.backend.RobAccessIO(robIdWidth)
+    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
   })
   val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, RobState.Done, 0.U(32.W))(robIdWidth)
   io.rob_access.valid := u.valid

@@ -15,22 +15,22 @@ class Core(implicit config: NzeaConfig) extends Module {
   val idu = Module(new frontend.IDU(addrWidth))
   val isu = Module(new frontend.ISU(addrWidth))
   val exu = Module(new backend.EXU(robIdWidth))
-  val wbu = Module(new backend.WBU)
+  val wbu = Module(new retire.WBU)
   val fuOutputs = Seq(
     exu.io.alu_rob_access,
     exu.io.bru_rob_access,
     exu.io.sysu_rob_access,
     exu.io.agu_rob_access
   )
-  val rob = Module(new backend.Rob(robDepth, numAccessPorts = fuOutputs.size))
-  val memUnit = Module(new backend.MemUnit(dbusType, robIdWidth))
+  val rob = Module(new nzea_core.retire.rob.Rob(robDepth, numAccessPorts = fuOutputs.size))
+  val memUnit = Module(new retire.MemUnit(dbusType, robIdWidth))
 
   rob.connectFuOutputs(fuOutputs)
 
   val io = IO(new Bundle {
     val ibus       = chiselTypeOf(ifu.io.bus)
     val dbus       = dbusType.cloneType
-    val commit_msg = Output(new backend.CommitMsg)
+    val commit_msg = Output(new retire.CommitMsg)
   })
 
   rob.enq.req <> isu.io.rob_enq

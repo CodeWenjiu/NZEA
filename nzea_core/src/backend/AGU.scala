@@ -1,9 +1,9 @@
-package nzea_core.backend.fu
+package nzea_core.backend
 
 import chisel3._
-import chisel3.util.{Mux1H}
+import chisel3.util.Mux1H
 import nzea_core.PipeIO
-import nzea_core.backend.{Rob, RobState}
+import nzea_core.retire.rob.{Rob, RobState}
 
 /** LsuOp: one-hot (LB, LH, LW, LBU, LHU, SB, SH, SW). Kept for decode/AGU. */
 object LsuOp extends chisel3.ChiselEnum {
@@ -30,7 +30,7 @@ class AguInput(robIdWidth: Int) extends Bundle {
 class AGU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new AguInput(robIdWidth)))
-    val rob_access = new nzea_core.backend.RobAccessIO(robIdWidth)
+    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
   })
 
   val addr      = io.in.bits.base + io.in.bits.imm

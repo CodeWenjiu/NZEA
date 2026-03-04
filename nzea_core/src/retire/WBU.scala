@@ -1,8 +1,9 @@
-package nzea_core.backend
+package nzea_core.retire
 
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, Valid}
 import nzea_config.NzeaConfig
+import nzea_core.retire.rob.RobCommitInfo
 
 /** Commit message for Debugger/Difftest: next_pc (real PC after commit) and GPR
   * write.

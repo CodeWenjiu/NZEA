@@ -1,9 +1,9 @@
-package nzea_core.backend.fu
+package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
-import nzea_core.backend.{Rob, RobState}
+import nzea_core.retire.rob.{Rob, RobState}
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
 object BruOp extends chisel3.ChiselEnum {
@@ -34,7 +34,7 @@ class BruInput(robIdWidth: Int) extends Bundle {
 class BRU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new BruInput(robIdWidth)))
-    val rob_access = new nzea_core.backend.RobAccessIO(robIdWidth)
+    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
   })
 
   val b = io.in.bits

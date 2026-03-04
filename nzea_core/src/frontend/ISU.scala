@@ -4,8 +4,8 @@ import chisel3._
 import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
-import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.backend.{RatReq, RatResp, RobEnqPayload}
+import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
+import nzea_core.retire.rob.{RatReq, RatResp, RobEnqPayload}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {

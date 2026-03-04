@@ -87,7 +87,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
 class CommitDpiBridge extends Module {
   val io = IO(new Bundle {
-    val commit_msg = Input(new backend.CommitMsg)
+    val commit_msg = Input(new retire.CommitMsg)
   })
 
   RawClockedVoidFunctionCall(

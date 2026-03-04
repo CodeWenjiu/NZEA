@@ -13,7 +13,7 @@ class Top(implicit config: NzeaConfig) extends Module {
     case nzea_config.SynthPlatform.Yosys =>
       val ibus = IO(chiselTypeOf(core.io.ibus))
       val dbus = IO(chiselTypeOf(core.io.dbus))
-      val commit_msg = IO(Output(new backend.CommitMsg))
+      val commit_msg = IO(Output(new retire.CommitMsg))
       ibus <> core.io.ibus
       dbus <> core.io.dbus
       commit_msg := core.io.commit_msg

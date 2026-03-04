@@ -1,9 +1,9 @@
-package nzea_core.backend.fu
+package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
-import nzea_core.backend.{Rob, RobState}
+import nzea_core.retire.rob.{Rob, RobState}
 
 /** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
 object AluOp extends chisel3.ChiselEnum {
@@ -32,7 +32,7 @@ class AluInput(robIdWidth: Int) extends Bundle {
 class ALU(robIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new AluInput(robIdWidth)))
-    val rob_access = new nzea_core.backend.RobAccessIO(robIdWidth)
+    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
   })
 
   val opA   = io.in.bits.opA

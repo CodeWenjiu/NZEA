@@ -10,7 +10,7 @@ import chisel3.util.experimental.decode.{
   decoder
 }
 import nzea_core.backend.FuOpWidth
-import nzea_core.backend.fu.{AluOp, BruOp, LsuOp}
+import nzea_core.backend.{AluOp, BruOp, LsuOp}
 // -------- Instruction pattern & decode fields (ImmType, Fu = op+src per FU, RVInst, RiscvInsts) --------
 
 /** One-hot encoding for Mux1H; better timing than binary. */
