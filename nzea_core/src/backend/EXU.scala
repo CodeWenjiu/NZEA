@@ -37,4 +37,12 @@ class EXU(robIdWidth: Int) extends Module {
   io.bru_rob_access <> bru.io.rob_access
   io.sysu_rob_access <> sysu.io.rob_access
   io.agu_rob_access <> agu.io.rob_access
+
+  /** All FU outputs for Rob; order matches accessPorts. */
+  def fuOutputs: Seq[RobAccessIO] = Seq(
+    io.alu_rob_access,
+    io.bru_rob_access,
+    io.sysu_rob_access,
+    io.agu_rob_access
+  )
 }

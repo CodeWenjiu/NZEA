@@ -13,7 +13,7 @@ class RatEntry(idWidth: Int) extends Bundle {
 class Rat(depth: Int, idWidth: Int, numAccessPorts: Int) extends Module {
   val io = IO(new Bundle {
     // RAT lookup interface
-    val rat = new RobRatIO
+    val rat = new RobRatIO(idWidth)
 
     // Completion event processing
     val completionQueueEnq = Flipped(Decoupled(new CompletionEvent(idWidth)))
@@ -121,4 +121,12 @@ class Rat(depth: Int, idWidth: Int, numAccessPorts: Int) extends Module {
   }
 
   io.rat.resp := ratLookup(io.rat.req)
+
+  // Expose bypass rob_ids for Rob to fill slot values (Chisel disallows cross-module Reg access)
+  val rs1Idx = io.rat.req.rs1_index
+  val rs2Idx = io.rat.req.rs2_index
+  io.rat.rs1_bypass_valid := rs1Idx =/= 0.U && ratTable(rs1Idx).valid && !stallTable(rs1Idx)
+  io.rat.rs1_bypass_rob_id := ratTable(rs1Idx).rob_id
+  io.rat.rs2_bypass_valid := rs2Idx =/= 0.U && ratTable(rs2Idx).valid && !stallTable(rs2Idx)
+  io.rat.rs2_bypass_rob_id := ratTable(rs2Idx).rob_id
 }

@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{DecoupledIO, MuxCase, RegEnable}
 
 /** PipeIO: extends DecoupledIO with flush. Inherits fire (valid && ready).
-  * flush: Input (like ready), driven by downstream (e.g. WBU). Flush source
+  * flush: Input (like ready), driven by downstream (e.g. Commit). Flush source
   * drives all pipe flush inputs.
   */
 class PipeIO[T <: Data](gen: T) extends DecoupledIO(gen) {

@@ -13,13 +13,12 @@ class DbusUserBundle(robIdWidth: Int) extends Bundle {
   val addr2   = UInt(2.W)
 }
 
-class MemUnit(dbusType: CoreBusReadWrite, robIdWidth: Int) extends Module {
-  private val userBundleType = new DbusUserBundle(robIdWidth)
+class MemUnit(width: Int, robIdWidth: Int) extends Module {
   private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2
-  require(
-    dbusType.userWidth >= userPayloadWidth,
-    s"userWidth ${dbusType.userWidth} < $userPayloadWidth"
-  )
+  private val userWidth = width.max(userPayloadWidth)
+  private val dbusType = new CoreBusReadWrite(width, width, userWidth)
+
+  private val userBundleType = new DbusUserBundle(robIdWidth)
 
   val io = IO(new Bundle {
     val req  = Flipped(Decoupled(new RobMemReq(robIdWidth)))

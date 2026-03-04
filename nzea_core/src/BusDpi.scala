@@ -1,6 +1,7 @@
 package nzea_core
 
 import chisel3._
+import chisel3.util.Valid
 import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFunctionCall}
 
 /** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect.
@@ -87,11 +88,11 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
 class CommitDpiBridge extends Module {
   val io = IO(new Bundle {
-    val commit_msg = Input(new retire.CommitMsg)
+    val commit_msg = Input(Valid(new retire.CommitMsg))
   })
 
   RawClockedVoidFunctionCall(
     "commit_trace",
     Some(Seq("next_pc", "gpr_addr", "gpr_data"))
-  )(clock, io.commit_msg.valid, io.commit_msg.next_pc, io.commit_msg.gpr_addr.pad(32), io.commit_msg.gpr_data)
+  )(clock, io.commit_msg.valid, io.commit_msg.bits.next_pc, io.commit_msg.bits.rd_index.pad(32), io.commit_msg.bits.rd_value)
 }

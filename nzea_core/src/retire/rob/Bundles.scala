@@ -34,14 +34,6 @@ class RobEnqPayload extends Bundle {
   val pred_next_pc = UInt(32.W)
 }
 
-/** Commit info for WBU: next_pc, rd_index, rd_value, flush (only when head is Done). */
-class RobCommitInfo extends Bundle {
-  val next_pc   = UInt(32.W)
-  val rd_index  = UInt(5.W)
-  val rd_value  = UInt(32.W)
-  val flush     = Bool()
-}
-
 /** MemUnit request: rob_id, addr, wdata, wstrb, lsuOp. */
 class RobMemReq(idWidth: Int) extends Bundle {
   val rob_id = UInt(idWidth.W)
@@ -98,10 +90,10 @@ class CompletionEvent(idWidth: Int) extends Bundle {
   val rd     = UInt(5.W)
 }
 
-/** ROB IO interfaces */
-class RobEnqIO extends Bundle {
+/** ROB enq IO: req (consumer side), rob_id (from Rob). Use Flipped for producer (e.g. ISU). */
+class RobEnqIO(idWidth: Int) extends Bundle {
   val req    = Flipped(Decoupled(new RobEnqPayload))
-  val rob_id = Output(UInt(32.W)) // Will be sized properly in Rob
+  val rob_id = Output(UInt(idWidth.W))
 }
 
 class RobMemIO(idWidth: Int) extends Bundle {
@@ -109,14 +101,16 @@ class RobMemIO(idWidth: Int) extends Bundle {
   val resp = Flipped(Decoupled(new RobMemResp(idWidth)))
 }
 
-class RobRatIO extends Bundle {
+class RobRatIO(idWidth: Int) extends Bundle {
   val req  = Input(new RatReq)
   val resp = Output(new RatResp)
+  // Bypass: when rs*_bypass_valid, Rob fills resp.rs*_val from slots(rs*_bypass_rob_id)
+  val rs1_bypass_valid = Output(Bool())
+  val rs1_bypass_rob_id = Output(UInt(idWidth.W))
+  val rs2_bypass_valid = Output(Bool())
+  val rs2_bypass_rob_id = Output(UInt(idWidth.W))
 }
 
-class RobCommitIO extends Bundle {
-  val commit = Decoupled(new RobCommitInfo)
-}
 
 class RobAccessPortsIO(idWidth: Int, numPorts: Int) extends Bundle {
   val accessPorts = Vec(numPorts, Flipped(new RobAccessIO(idWidth)))

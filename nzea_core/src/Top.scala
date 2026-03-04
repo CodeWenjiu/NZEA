@@ -1,6 +1,7 @@
 package nzea_core
 
 import chisel3._
+import chisel3.util.Valid
 import nzea_config.NzeaConfig
 
 /** Top: Sim = Core + DPI bridges; Yosys = Core with ibus/dbus/commit exposed (synthesizable). */
@@ -13,7 +14,7 @@ class Top(implicit config: NzeaConfig) extends Module {
     case nzea_config.SynthPlatform.Yosys =>
       val ibus = IO(chiselTypeOf(core.io.ibus))
       val dbus = IO(chiselTypeOf(core.io.dbus))
-      val commit_msg = IO(Output(new retire.CommitMsg))
+      val commit_msg = IO(Output(Valid(new retire.CommitMsg)))
       ibus <> core.io.ibus
       dbus <> core.io.dbus
       commit_msg := core.io.commit_msg

@@ -3,9 +3,22 @@ package nzea_core.retire.rob
 import chisel3._
 import chisel3.util.{Decoupled, Mux1H, PriorityEncoder, Valid}
 import nzea_core.backend.LsuOp
+import nzea_core.retire.CommitMsg
 
-/** Companion object: entryStateUpdate helper for FU outputs. */
+/** Companion object: entryStateUpdate helper and apply for wiring. */
 object Rob {
+  /** Create Rob and wire fuOutputs; call from parent (e.g. Core) so connection context is correct. */
+  def apply(depth: Int, fuOutputs: Seq[RobAccessIO]): Rob = {
+    val r = Module(new Rob(depth, fuOutputs.size))
+    (r.io.accessPorts zip fuOutputs).foreach { case (p, fu) =>
+      p.valid := fu.valid
+      p.bits := fu.bits
+      fu.ready := p.ready
+      fu.flush := p.flush
+    }
+    r
+  }
+
   def entryStateUpdate(
     valid: Bool,
     rob_id: UInt,
@@ -32,7 +45,7 @@ object Rob {
 }
 
 /** Rob: depth-entry circular buffer. rob_id = stable slot index.
-  * Call connectFuOutputs(fuOutputs) to wire FU outputs.
+  * Use Rob.apply(depth, fuOutputs) to create and wire in one call.
   */
 class Rob(depth: Int, numAccessPorts: Int) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
@@ -41,26 +54,13 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   private val idWidth = chisel3.util.log2Ceil(depth.max(2))
 
   // IO interfaces
-  val enq = IO(new Bundle {
-    val req    = Flipped(Decoupled(new RobEnqPayload))
-    val rob_id = Output(UInt(idWidth.W))
-  })
+  val enq = IO(new RobEnqIO(idWidth))
+  val rat = IO(new RobRatIO(idWidth))
   val mem = IO(new RobMemIO(idWidth))
-  val rat = IO(new RobRatIO)
   val io = IO(new Bundle {
-    val commit      = Decoupled(new RobCommitInfo)
+    val commit      = Valid(new CommitMsg)
     val accessPorts = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
   })
-
-  def connectFuOutputs(fuOutputs: Seq[RobAccessIO]): Unit = {
-    require(fuOutputs.size == numAccessPorts)
-    (io.accessPorts zip fuOutputs).foreach { case (p, fu) =>
-      p.valid := fu.valid
-      p.bits := fu.bits
-      fu.ready := p.ready
-      fu.flush := p.flush
-    }
-  }
 
   // -------- Pointers & Slots --------
 
@@ -102,13 +102,12 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   // -------- Commit --------
 
   val head_done = head_slot.valid && head_bits.rob_state === RobState.Done
-  val do_flush  = io.commit.fire && head_bits.flush
+  val do_flush  = io.commit.valid && head_bits.flush
 
   io.commit.valid := head_done
   io.commit.bits.next_pc  := head_bits.next_pc
   io.commit.bits.rd_index := head_bits.rd_index
   io.commit.bits.rd_value := head_bits.rd_value
-  io.commit.bits.flush    := head_bits.flush
 
   io.accessPorts.foreach { p =>
     p.ready := true.B
@@ -120,8 +119,24 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val ratModule = Module(new Rat(depth, idWidth, numAccessPorts))
   val memReqManager = Module(new MemReqManager(depth, idWidth))
 
-  // Connect RAT
-  ratModule.io.rat <> rat
+  // Connect RAT (manual: req in, resp out with bypass fill; <> would conflict with resp overwrite)
+  ratModule.io.rat.req := rat.req
+  rat.resp.is_stall := ratModule.io.rat.resp.is_stall
+  rat.resp.rs1_val := Mux(
+    ratModule.io.rat.rs1_bypass_valid,
+    slots(ratModule.io.rat.rs1_bypass_rob_id).bits.rd_value,
+    ratModule.io.rat.resp.rs1_val
+  )
+  rat.resp.rs2_val := Mux(
+    ratModule.io.rat.rs2_bypass_valid,
+    slots(ratModule.io.rat.rs2_bypass_rob_id).bits.rd_value,
+    ratModule.io.rat.resp.rs2_val
+  )
+  rat.rs1_bypass_valid := ratModule.io.rat.rs1_bypass_valid
+  rat.rs1_bypass_rob_id := ratModule.io.rat.rs1_bypass_rob_id
+  rat.rs2_bypass_valid := ratModule.io.rat.rs2_bypass_valid
+  rat.rs2_bypass_rob_id := ratModule.io.rat.rs2_bypass_rob_id
+  ratModule.io.completionQueueDeq.ready := true.B
   ratModule.io.flush := do_flush
   ratModule.io.enqValid := enq.req.fire
   ratModule.io.enqRd := enq.req.bits.rd_index
@@ -138,7 +153,7 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val nextOffset = Mux(hasNextInSlots, PriorityEncoder(VecInit(nextWriterCandidates).asUInt) + 1.U, 0.U)
   val nextRobId = idxFromHead(nextOffset)
 
-  ratModule.io.commitValid := io.commit.fire
+  ratModule.io.commitValid := io.commit.valid
   ratModule.io.commitRd := commitRd
   ratModule.io.commitNextWriterValid := hasNextInSlots
   ratModule.io.commitNextWriterRobId := nextRobId
@@ -166,6 +181,8 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
       slots(i).valid := false.B
       slots(i).bits := emptyEntry
     }
+    ratModule.io.completionQueueEnq.valid := false.B
+    ratModule.io.completionQueueEnq.bits := DontCare
   }.otherwise {
     applyFuUpdates()
     applyMemSlotUpdates()
@@ -249,27 +266,13 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   }
 
   def applyCommit(): Unit = {
-    when(io.commit.fire) {
+    when(io.commit.valid) {
       slots(head_ptr).valid := false.B
       head_ptr := (head_ptr + 1.U)(idWidth - 1, 0)
     }
   }
 
   def updateCount(): Unit = {
-    count := count + Mux(enq.req.fire, 1.U, 0.U) - Mux(io.commit.fire, 1.U, 0.U)
+    count := count + Mux(enq.req.fire, 1.U, 0.U) - Mux(io.commit.valid, 1.U, 0.U)
   }
-
-  // RAT bypass values need to be filled with actual slot data
-  val ratResp = ratModule.io.rat.resp
-  rat.resp.is_stall := ratResp.is_stall
-  rat.resp.rs1_val := Mux(
-    rat.req.rs1_index =/= 0.U && ratModule.ratTable(rat.req.rs1_index).valid && !ratModule.stallTable(rat.req.rs1_index),
-    slots(ratModule.ratTable(rat.req.rs1_index).rob_id).bits.rd_value,
-    ratResp.rs1_val
-  )
-  rat.resp.rs2_val := Mux(
-    rat.req.rs2_index =/= 0.U && ratModule.ratTable(rat.req.rs2_index).valid && !ratModule.stallTable(rat.req.rs2_index),
-    slots(ratModule.ratTable(rat.req.rs2_index).rob_id).bits.rd_value,
-    ratResp.rs2_val
-  )
 }

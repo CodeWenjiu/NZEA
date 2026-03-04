@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.retire.rob.{RatReq, RatResp, RobEnqPayload}
+import nzea_core.retire.rob.{RobEnqIO, RobRatIO}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
@@ -14,23 +14,21 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val in             = Flipped(new PipeIO(new IDUOut(addrWidth)))
-    val rat_req        = Output(new RatReq)
-    val rat_resp       = Input(new RatResp)
-    val rob_enq        = Decoupled(new RobEnqPayload)
-    val rob_enq_rob_id = Input(UInt(robIdWidth.W))
+    val rat             = Flipped(new RobRatIO(robIdWidth))
+    val rob_enq        = Flipped(new RobEnqIO(robIdWidth))
     val alu            = new PipeIO(new AluInput(robIdWidth))
     val bru            = new PipeIO(new BruInput(robIdWidth))
     val agu            = new PipeIO(new AguInput(robIdWidth))
     val sysu           = new PipeIO(new SysuInput(robIdWidth))
   })
 
-  // Flush propagates from output (is2ex) to input (id2is)
-  io.in.flush := io.alu.flush
-
   val fu_type = io.in.bits.fu_type
   val fu_src  = io.in.bits.fu_src
   val outs    = Seq(io.alu, io.bru, io.agu, io.sysu)
   val fuTypes = Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU)
+
+  // Flush propagates from output (is2ex) to input (id2is)
+  io.in.flush := outs.map(_.flush).reduce(_ || _)
 
   val rs1       = io.in.bits.rs1
   val rs2       = io.in.bits.rs2
@@ -38,17 +36,17 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val rs2_index = io.in.bits.rs2_index
   val imm       = io.in.bits.imm
   val pc        = io.in.bits.pc
-  val rob_id    = io.rob_enq_rob_id
+  val rob_id    = io.rob_enq.rob_id
 
   // RAT lookup for stall check and bypass
-  io.rat_req.rs1_index := rs1_index
-  io.rat_req.rs2_index := rs2_index
-  io.rat_req.rs1_data  := rs1
-  io.rat_req.rs2_data  := rs2
+  io.rat.req.rs1_index := rs1_index
+  io.rat.req.rs2_index := rs2_index
+  io.rat.req.rs1_data  := rs1
+  io.rat.req.rs2_data  := rs2
 
-  val rs1_val = io.rat_resp.rs1_val
-  val rs2_val = io.rat_resp.rs2_val
-  val stall   = io.in.valid && io.rat_resp.is_stall
+  val rs1_val = io.rat.resp.rs1_val
+  val rs2_val = io.rat.resp.rs2_val
+  val stall   = io.in.valid && io.rat.resp.is_stall
 
   // ALU path: FuDecode.take slices by enum width; no manual bit-width when AluSrc/AluOp change
   val (aluSrc, _) = AluSrc.safe(FuDecode.take(fu_src, AluSrc.getWidth))
@@ -85,7 +83,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.bru.bits.bruOp       := bruOp
   io.bru.bits.rob_id      := rob_id
 
-  // AGU path: next_pc from ROB head in WBU
+  // AGU path: next_pc from ROB head in Commit
   val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
   io.agu.valid := can_dispatch && (fu_type === FuType.LSU)
   io.agu.bits.base      := rs1_val
@@ -97,9 +95,9 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
   io.sysu.bits.rob_id := rob_id
 
-  io.rob_enq.valid := can_dispatch
-  io.rob_enq.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
-  io.rob_enq.bits.pred_next_pc := io.in.bits.pred_next_pc
+  io.rob_enq.req.valid := can_dispatch
+  io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
+  io.rob_enq.req.bits.pred_next_pc := io.in.bits.pred_next_pc
 
-  io.in.ready := !stall && io.rob_enq.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
+  io.in.ready := !stall && io.rob_enq.req.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
 }
