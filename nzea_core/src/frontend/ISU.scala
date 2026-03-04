@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.fu.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.backend.{RobEnqPayload, GprBypass}
+import nzea_core.backend.{RatReq, RatResp, RobEnqPayload}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
@@ -14,8 +14,8 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val in             = Flipped(new PipeIO(new IDUOut(addrWidth)))
-    val rob_pending_rd = Input(UInt(32.W))
-    val gpr_bypass     = Input(Valid(new GprBypass))
+    val rat_req        = Output(new RatReq)
+    val rat_resp       = Input(new RatResp)
     val rob_enq        = Decoupled(new RobEnqPayload)
     val rob_enq_rob_id = Input(UInt(robIdWidth.W))
     val alu            = new PipeIO(new AluInput(robIdWidth))
@@ -40,14 +40,15 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val pc        = io.in.bits.pc
   val rob_id    = io.rob_enq_rob_id
 
-  val can_bypass_rs1 = io.gpr_bypass.valid && rs1_index =/= 0.U && io.gpr_bypass.bits.rd === rs1_index
-  val can_bypass_rs2 = io.gpr_bypass.valid && rs2_index =/= 0.U && io.gpr_bypass.bits.rd === rs2_index
-  val rs1_val = Mux(can_bypass_rs1, io.gpr_bypass.bits.data, rs1)
-  val rs2_val = Mux(can_bypass_rs2, io.gpr_bypass.bits.data, rs2)
+  // RAT lookup for stall check and bypass
+  io.rat_req.rs1_index := rs1_index
+  io.rat_req.rs2_index := rs2_index
+  io.rat_req.rs1_data  := rs1
+  io.rat_req.rs2_data  := rs2
 
-  val conflict_rs1 = rs1_index =/= 0.U && io.rob_pending_rd(rs1_index)
-  val conflict_rs2 = rs2_index =/= 0.U && io.rob_pending_rd(rs2_index)
-  val stall = io.in.valid && ((conflict_rs1 && !can_bypass_rs1) || (conflict_rs2 && !can_bypass_rs2))
+  val rs1_val = io.rat_resp.rs1_val
+  val rs2_val = io.rat_resp.rs2_val
+  val stall   = io.in.valid && io.rat_resp.is_stall
 
   // ALU path: FuDecode.take slices by enum width; no manual bit-width when AluSrc/AluOp change
   val (aluSrc, _) = AluSrc.safe(FuDecode.take(fu_src, AluSrc.getWidth))

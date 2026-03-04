@@ -33,13 +33,14 @@ class Core(implicit config: NzeaConfig) extends Module {
     val commit_msg = Output(new backend.CommitMsg)
   })
 
-  rob.io.enq <> isu.io.rob_enq
-  isu.io.rob_enq_rob_id := rob.io.enq_rob_id
-  isu.io.rob_pending_rd := rob.io.pending_rd
+  rob.enq.req <> isu.io.rob_enq
+  isu.io.rob_enq_rob_id := rob.enq.rob_id
+  rob.rat.req := isu.io.rat_req
+  isu.io.rat_resp := rob.rat.resp
 
   rob.io.commit <> wbu.io.rob_commit
-  rob.io.mem_req <> memUnit.io.req
-  rob.io.mem_resp <> memUnit.io.resp
+  rob.mem.req <> memUnit.io.req
+  rob.mem.resp <> memUnit.io.resp
 
   PipelineConnect(isu.io.alu, exu.io.alu_in)
   PipelineConnect(isu.io.bru, exu.io.bru_in)
@@ -49,7 +50,6 @@ class Core(implicit config: NzeaConfig) extends Module {
   PipelineConnect(idu.io.out, isu.io.in)
   PipelineConnect(ifu.io.out, idu.io.in)
 
-  isu.io.gpr_bypass := rob.io.gpr_bypass
   idu.io.gpr_wr := wbu.io.gpr_wr
 
   val do_flush = rob.io.commit.fire && rob.io.commit.bits.flush
