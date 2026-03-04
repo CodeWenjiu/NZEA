@@ -32,8 +32,10 @@ class Core(implicit config: NzeaConfig) extends Module {
   PipelineConnect(isu.io.sysu, exu.io.sysu_in)
 
   rob.enq <> isu.io.rob_enq
-  rob.rat <> isu.io.rat
   rob.io.commit <> commit.io.rob_commit
+  isu.io.rob_slots := rob.io.slotsRead
+  idu.io.rat_isu_write := isu.io.rat_write
+  idu.io.rat_rob_write := rob.io.rat_rob_write
   rob.mem.req <> memUnit.io.req
   rob.mem.resp <> memUnit.io.resp
   idu.io.gpr_wr := commit.io.gpr_wr

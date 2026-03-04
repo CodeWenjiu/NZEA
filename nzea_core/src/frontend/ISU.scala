@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.retire.rob.{RobEnqIO, RobRatIO}
+import nzea_core.retire.rob.{RobEnqIO, RobSlotRead, RobState}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
@@ -13,9 +13,10 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
 
   val io = IO(new Bundle {
-    val in             = Flipped(new PipeIO(new IDUOut(addrWidth)))
-    val rat             = Flipped(new RobRatIO(robIdWidth))
+    val in             = Flipped(new PipeIO(new IDUOut(addrWidth, robIdWidth)))
     val rob_enq        = Flipped(new RobEnqIO(robIdWidth))
+    val rob_slots      = Input(Vec(robDepth, new RobSlotRead))
+    val rat_write      = Output(Valid(new Bundle { val rd_index = UInt(5.W); val rob_id = UInt(robIdWidth.W) }))
     val alu            = new PipeIO(new AluInput(robIdWidth))
     val bru            = new PipeIO(new BruInput(robIdWidth))
     val agu            = new PipeIO(new AguInput(robIdWidth))
@@ -32,21 +33,26 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val rs1       = io.in.bits.rs1
   val rs2       = io.in.bits.rs2
-  val rs1_index = io.in.bits.rs1_index
-  val rs2_index = io.in.bits.rs2_index
+  val rs1_rat   = io.in.bits.rs1_rat
+  val rs2_rat   = io.in.bits.rs2_rat
   val imm       = io.in.bits.imm
   val pc        = io.in.bits.pc
   val rob_id    = io.rob_enq.rob_id
 
-  // RAT lookup for stall check and bypass
-  io.rat.req.rs1_index := rs1_index
-  io.rat.req.rs2_index := rs2_index
-  io.rat.req.rs1_data  := rs1
-  io.rat.req.rs2_data  := rs2
+  def needStall(rat: RatEntry): Bool = {
+    rat.busy && {
+      val slot = io.rob_slots(rat.rob_id)
+      !slot.valid || slot.rob_state =/= RobState.Done
+    }
+  }
 
-  val rs1_val = io.rat.resp.rs1_val
-  val rs2_val = io.rat.resp.rs2_val
-  val stall   = io.in.valid && io.rat.resp.is_stall
+  val rs1_val = Mux(!rs1_rat.busy, rs1,
+    Mux(io.rob_slots(rs1_rat.rob_id).valid && io.rob_slots(rs1_rat.rob_id).rob_state === RobState.Done,
+      io.rob_slots(rs1_rat.rob_id).rd_value, 0.U))
+  val rs2_val = Mux(!rs2_rat.busy, rs2,
+    Mux(io.rob_slots(rs2_rat.rob_id).valid && io.rob_slots(rs2_rat.rob_id).rob_state === RobState.Done,
+      io.rob_slots(rs2_rat.rob_id).rd_value, 0.U))
+  val stall   = io.in.valid && (needStall(rs1_rat) || needStall(rs2_rat))
 
   // ALU path: FuDecode.take slices by enum width; no manual bit-width when AluSrc/AluOp change
   val (aluSrc, _) = AluSrc.safe(FuDecode.take(fu_src, AluSrc.getWidth))
@@ -98,6 +104,11 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.rob_enq.req.valid := can_dispatch
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.req.bits.pred_next_pc := io.in.bits.pred_next_pc
+
+  val dispatch_fire = outs.map(_.fire).reduce(_ || _)
+  io.rat_write.valid := dispatch_fire
+  io.rat_write.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
+  io.rat_write.bits.rob_id := rob_id
 
   io.in.ready := !stall && io.rob_enq.req.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
 }

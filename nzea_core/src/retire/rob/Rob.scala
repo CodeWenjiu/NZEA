@@ -55,11 +55,12 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
 
   // IO interfaces
   val enq = IO(new RobEnqIO(idWidth))
-  val rat = IO(new RobRatIO(idWidth))
   val mem = IO(new RobMemIO(idWidth))
   val io = IO(new Bundle {
-    val commit      = Valid(new CommitMsg)
-    val accessPorts = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
+    val commit       = Valid(new CommitMsg)
+    val accessPorts  = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
+    val slotsRead    = Output(Vec(depth, new RobSlotRead))
+    val rat_rob_write = Output(Valid(new Bundle { val rd_index = UInt(5.W); val rob_id = UInt(idWidth.W) }))
   })
 
   // -------- Pointers & Slots --------
@@ -114,50 +115,19 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     p.flush := do_flush
   }
 
+  for (i <- 0 until depth) {
+    io.slotsRead(i).valid     := slots(i).valid
+    io.slotsRead(i).rob_state := slots(i).bits.rob_state
+    io.slotsRead(i).rd_value  := slots(i).bits.rd_value
+  }
+
+  io.rat_rob_write.valid := io.commit.valid
+  io.rat_rob_write.bits.rd_index := head_bits.rd_index
+  io.rat_rob_write.bits.rob_id   := head_ptr
+
   // -------- Submodules --------
 
-  val ratModule = Module(new Rat(depth, idWidth, numAccessPorts))
   val memReqManager = Module(new MemReqManager(depth, idWidth))
-
-  // Connect RAT (manual: req in, resp out with bypass fill; <> would conflict with resp overwrite)
-  ratModule.io.rat.req := rat.req
-  rat.resp.is_stall := ratModule.io.rat.resp.is_stall
-  rat.resp.rs1_val := Mux(
-    ratModule.io.rat.rs1_bypass_valid,
-    slots(ratModule.io.rat.rs1_bypass_rob_id).bits.rd_value,
-    ratModule.io.rat.resp.rs1_val
-  )
-  rat.resp.rs2_val := Mux(
-    ratModule.io.rat.rs2_bypass_valid,
-    slots(ratModule.io.rat.rs2_bypass_rob_id).bits.rd_value,
-    ratModule.io.rat.resp.rs2_val
-  )
-  rat.rs1_bypass_valid := ratModule.io.rat.rs1_bypass_valid
-  rat.rs1_bypass_rob_id := ratModule.io.rat.rs1_bypass_rob_id
-  rat.rs2_bypass_valid := ratModule.io.rat.rs2_bypass_valid
-  rat.rs2_bypass_rob_id := ratModule.io.rat.rs2_bypass_rob_id
-  ratModule.io.completionQueueDeq.ready := true.B
-  ratModule.io.flush := do_flush
-  ratModule.io.enqValid := enq.req.fire
-  ratModule.io.enqRd := enq.req.bits.rd_index
-  ratModule.io.enqRobId := tail_ptr
-
-  // RAT commit logic - find next writer
-  val commitRd = head_bits.rd_index
-  val nextWriterCandidates = (1 until depth).map { offset =>
-    val idx = idxFromHead(offset.U)
-    val inRange = offset.U < count
-    slots(idx).valid && inRange && slots(idx).bits.rd_index === commitRd
-  }
-  val hasNextInSlots = nextWriterCandidates.reduce((a, b) => a || b)
-  val nextOffset = Mux(hasNextInSlots, PriorityEncoder(VecInit(nextWriterCandidates).asUInt) + 1.U, 0.U)
-  val nextRobId = idxFromHead(nextOffset)
-
-  ratModule.io.commitValid := io.commit.valid
-  ratModule.io.commitRd := commitRd
-  ratModule.io.commitNextWriterValid := hasNextInSlots
-  ratModule.io.commitNextWriterRobId := nextRobId
-  ratModule.io.commitEnqSameRd := enq.req.fire && enq.req.bits.rd_index === commitRd
 
   // Connect Memory Request Manager
   memReqManager.io.mem <> mem
@@ -181,12 +151,9 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
       slots(i).valid := false.B
       slots(i).bits := emptyEntry
     }
-    ratModule.io.completionQueueEnq.valid := false.B
-    ratModule.io.completionQueueEnq.bits := DontCare
   }.otherwise {
     applyFuUpdates()
     applyMemSlotUpdates()
-    collectCompletionEvents()
     applyEnq()
     applyCommit()
     updateCount()
@@ -228,28 +195,6 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
         }
       }
     }
-  }
-
-  def collectCompletionEvents(): Unit = {
-    val completedEvents = io.accessPorts.map { p =>
-      val event = Wire(new CompletionEvent(idWidth))
-      event.rob_id := p.bits.rob_id
-      event.rd := slots(p.bits.rob_id).bits.rd_index
-      (p.valid && p.bits.new_state === RobState.Done, event)
-    } :+ {
-      val event = Wire(new CompletionEvent(idWidth))
-      event.rob_id := mem.resp.bits.rob_id
-      event.rd := slots(mem.resp.bits.rob_id).bits.rd_index
-      (mem.resp.fire, event)
-    }
-
-    val eventCandidates = completedEvents.map(_._2)
-    val validCandidates = completedEvents.map(_._1)
-    val hasValid = validCandidates.reduce(_ || _)
-    val selectedEvent = Mux1H(validCandidates, eventCandidates)
-
-    ratModule.io.completionQueueEnq.valid := hasValid
-    ratModule.io.completionQueueEnq.bits := selectedEvent
   }
 
   def applyEnq(): Unit = {

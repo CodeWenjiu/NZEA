@@ -49,19 +49,11 @@ class RobMemResp(idWidth: Int) extends Bundle {
   val data   = UInt(32.W)
 }
 
-/** RAT request: rs1/rs2 indices and GPR values (fallback when no bypass). */
-class RatReq extends Bundle {
-  val rs1_index = UInt(5.W)
-  val rs2_index = UInt(5.W)
-  val rs1_data  = UInt(32.W)
-  val rs2_data  = UInt(32.W)
-}
-
-/** RAT response: is_stall (OR of rs1/rs2 stall), rs1_val/rs2_val (bypass or fallback). */
-class RatResp extends Bundle {
-  val is_stall = Bool()
-  val rs1_val  = UInt(32.W)
-  val rs2_val  = UInt(32.W)
+/** Rob slot read interface for ISU bypass: valid, rob_state, rd_value. */
+class RobSlotRead extends Bundle {
+  val valid     = Bool()
+  val rob_state = RobState()
+  val rd_value  = UInt(32.W)
 }
 
 /** FU output to Rob: state update for an entry. */
@@ -84,12 +76,6 @@ class RobAccessIO(idWidth: Int) extends Bundle {
   val flush = Input(Bool())
 }
 
-/** Completion event: rob_id and rd for clearing stallTable (delayed by 1 cycle). */
-class CompletionEvent(idWidth: Int) extends Bundle {
-  val rob_id = UInt(idWidth.W)
-  val rd     = UInt(5.W)
-}
-
 /** ROB enq IO: req (consumer side), rob_id (from Rob). Use Flipped for producer (e.g. ISU). */
 class RobEnqIO(idWidth: Int) extends Bundle {
   val req    = Flipped(Decoupled(new RobEnqPayload))
@@ -100,17 +86,6 @@ class RobMemIO(idWidth: Int) extends Bundle {
   val req  = Decoupled(new RobMemReq(idWidth))
   val resp = Flipped(Decoupled(new RobMemResp(idWidth)))
 }
-
-class RobRatIO(idWidth: Int) extends Bundle {
-  val req  = Input(new RatReq)
-  val resp = Output(new RatResp)
-  // Bypass: when rs*_bypass_valid, Rob fills resp.rs*_val from slots(rs*_bypass_rob_id)
-  val rs1_bypass_valid = Output(Bool())
-  val rs1_bypass_rob_id = Output(UInt(idWidth.W))
-  val rs2_bypass_valid = Output(Bool())
-  val rs2_bypass_rob_id = Output(UInt(idWidth.W))
-}
-
 
 class RobAccessPortsIO(idWidth: Int, numPorts: Int) extends Bundle {
   val accessPorts = Vec(numPorts, Flipped(new RobAccessIO(idWidth)))

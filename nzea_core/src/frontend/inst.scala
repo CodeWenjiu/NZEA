@@ -101,7 +101,9 @@ case class RVInst(
     bitPatStr: String,
     immType: Option[ImmType.Type],
     fu: Fu.Type,
-    gprWr: Boolean = true
+    gprWr: Boolean = true,
+    rs1Rd: Boolean = true,
+    rs2Rd: Boolean = false
 ) extends DecodePattern {
   def bitPat: BitPat = BitPat(bitPatStr)
 }
@@ -117,13 +119,17 @@ object RiscvInsts {
     "LUI",
     "b" + n(25) + "0110111",
     Some(ImmType.U),
-    Fu.ALU(AluOp.Add, AluSrc.ImmZero)
+    Fu.ALU(AluOp.Add, AluSrc.ImmZero),
+    rs1Rd = false,
+    rs2Rd = false
   )
   val AUIPC = RVInst(
     "AUIPC",
     "b" + n(25) + "0010111",
     Some(ImmType.U),
-    Fu.ALU(AluOp.Add, AluSrc.PcImm)
+    Fu.ALU(AluOp.Add, AluSrc.PcImm),
+    rs1Rd = false,
+    rs2Rd = false
   )
 
   // J-type: JAL=1101111
@@ -131,7 +137,9 @@ object RiscvInsts {
     "JAL",
     "b" + n(25) + "1101111",
     Some(ImmType.J),
-    Fu.BRU(BruOp.JAL, BruSrc.PcImm)
+    Fu.BRU(BruOp.JAL, BruSrc.PcImm),
+    rs1Rd = false,
+    rs2Rd = false
   )
 
   // I-type
@@ -230,14 +238,18 @@ object RiscvInsts {
     "b00000000000000000000000001110011",
     Some(ImmType.I),
     Fu.SYSU,
-    gprWr = false
+    gprWr = false,
+    rs1Rd = false,
+    rs2Rd = false
   )
   val EBREAK = RVInst(
     "EBREAK",
     "b00000000000100000000000001110011",
     Some(ImmType.I),
     Fu.SYSU,
-    gprWr = false
+    gprWr = false,
+    rs1Rd = false,
+    rs2Rd = false
   )
   val CSRRW = RVInst(
     "CSRRW",
@@ -261,19 +273,22 @@ object RiscvInsts {
     "CSRRWI",
     "b" + n(12) + n(5) + "101" + n(5) + "1110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU,
+    rs1Rd = false
   )
   val CSRRSI = RVInst(
     "CSRRSI",
     "b" + n(12) + n(5) + "110" + n(5) + "1110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU,
+    rs1Rd = false
   )
   val CSRRCI = RVInst(
     "CSRRCI",
     "b" + n(12) + n(5) + "111" + n(5) + "1110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU,
+    rs1Rd = false
   )
 
   // S-type
@@ -282,21 +297,24 @@ object RiscvInsts {
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0100011",
     Some(ImmType.S),
     Fu.LSU(LsuOp.SB, LsuSrc.Rs1Imm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
   val SH = RVInst(
     "SH",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "0100011",
     Some(ImmType.S),
     Fu.LSU(LsuOp.SH, LsuSrc.Rs1Imm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
   val SW = RVInst(
     "SW",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0100011",
     Some(ImmType.S),
     Fu.LSU(LsuOp.SW, LsuSrc.Rs1Imm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
 
   // B-type
@@ -305,42 +323,48 @@ object RiscvInsts {
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BEQ, BruSrc.PcImm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
   val BNE = RVInst(
     "BNE",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BNE, BruSrc.PcImm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
   val BLT = RVInst(
     "BLT",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BLT, BruSrc.PcImm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
   val BGE = RVInst(
     "BGE",
     "b" + n(7) + n(5) + n(5) + "101" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BGE, BruSrc.PcImm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
   val BLTU = RVInst(
     "BLTU",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BLTU, BruSrc.PcImm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
   val BGEU = RVInst(
     "BGEU",
     "b" + n(7) + n(5) + n(5) + "111" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BGEU, BruSrc.PcImm),
-    gprWr = false
+    gprWr = false,
+    rs2Rd = true
   )
 
   // R-type
@@ -348,61 +372,71 @@ object RiscvInsts {
     "ADD",
     "b0000000" + n(5) + n(5) + "000" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Add, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Add, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val SUB = RVInst(
     "SUB",
     "b0100000" + n(5) + n(5) + "000" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sub, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Sub, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val SLL = RVInst(
     "SLL",
     "b0000000" + n(5) + n(5) + "001" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sll, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Sll, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val SLT = RVInst(
     "SLT",
     "b0000000" + n(5) + n(5) + "010" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Slt, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Slt, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val SLTU = RVInst(
     "SLTU",
     "b0000000" + n(5) + n(5) + "011" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sltu, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Sltu, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val XOR = RVInst(
     "XOR",
     "b0000000" + n(5) + n(5) + "100" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Xor, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Xor, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val SRL = RVInst(
     "SRL",
     "b0000000" + n(5) + n(5) + "101" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Srl, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Srl, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val SRA = RVInst(
     "SRA",
     "b0100000" + n(5) + n(5) + "101" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sra, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Sra, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val OR = RVInst(
     "OR",
     "b0000000" + n(5) + n(5) + "110" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Or, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.Or, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
   val AND = RVInst(
     "AND",
     "b0000000" + n(5) + n(5) + "111" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.And, AluSrc.Rs1Rs2)
+    Fu.ALU(AluOp.And, AluSrc.Rs1Rs2),
+    rs2Rd = true
   )
 
   val FENCE = RVInst(
@@ -410,7 +444,9 @@ object RiscvInsts {
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0001111",
     None,
     Fu.SYSU,
-    gprWr = false
+    gprWr = false,
+    rs1Rd = false,
+    rs2Rd = false
   )
 
   val all: Seq[RVInst] = Seq(
@@ -511,6 +547,18 @@ object GprWrField extends DecodeField[RVInst, UInt] with DecodeAPI {
   def genTable(inst: RVInst): BitPat = BitPat("b" + (if (inst.gprWr) "1" else "0"))
 }
 
+object Rs1RdField extends DecodeField[RVInst, UInt] with DecodeAPI {
+  def name = "rs1_rd"
+  def chiselType = UInt(1.W)
+  def genTable(inst: RVInst): BitPat = BitPat("b" + (if (inst.rs1Rd) "1" else "0"))
+}
+
+object Rs2RdField extends DecodeField[RVInst, UInt] with DecodeAPI {
+  def name = "rs2_rd"
+  def chiselType = UInt(1.W)
+  def genTable(inst: RVInst): BitPat = BitPat("b" + (if (inst.rs2Rd) "1" else "0"))
+}
+
 /** All decode fields with defaults; decode in one pass (one decoder call per
   * field).
   */
@@ -520,7 +568,9 @@ object DecodeFields {
     (FuTypeField, BitPat(FuType.ALU.litValue.U(FuType.getWidth.W))),
     (FuOpField, BitPat(0.U(FuOpWidth.Width.W))),
     (FuSrcField, BitPat(0.U(FuSrcWidth.Width.W))),
-    (GprWrField, BitPat(0.U(1.W)))
+    (GprWrField, BitPat(0.U(1.W))),
+    (Rs1RdField, BitPat(0.U(1.W))),
+    (Rs2RdField, BitPat(0.U(1.W)))
   )
 
   def decodeAll(
