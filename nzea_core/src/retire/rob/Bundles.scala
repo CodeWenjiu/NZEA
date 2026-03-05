@@ -49,14 +49,20 @@ class RobMemResp(idWidth: Int) extends Bundle {
   val data   = UInt(32.W)
 }
 
-/** Rob slot read interface for ISU bypass: valid, rob_state, rd_value. */
+/** Unified Rob slot read: all fields any consumer may need.
+  * ISU: valid, rob_state, rd_value.
+  * MemReqManager: valid, rob_state, rd_value (addr), mem_wdata, mem_wstrb, mem_lsuOp.
+  */
 class RobSlotRead extends Bundle {
   val valid     = Bool()
   val rob_state = RobState()
   val rd_value  = UInt(32.W)
+  val mem_wdata = UInt(32.W)
+  val mem_wstrb = UInt(4.W)
+  val mem_lsuOp = LsuOp()
 }
 
-/** Rob slot read port: ISU provides rob_id, Rob returns slot. Use Flipped on ISU side. */
+/** Unified slot read port: consumer provides rob_id, Rob returns slot. Use Flipped on consumer side. */
 class RobSlotReadPort(idWidth: Int) extends Bundle {
   val rob_id = Input(UInt(idWidth.W))
   val slot   = Output(new RobSlotRead)
