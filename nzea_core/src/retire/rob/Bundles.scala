@@ -56,6 +56,12 @@ class RobSlotRead extends Bundle {
   val rd_value  = UInt(32.W)
 }
 
+/** Rob slot read port: ISU provides rob_id, Rob returns slot. Use Flipped on ISU side. */
+class RobSlotReadPort(idWidth: Int) extends Bundle {
+  val rob_id = Input(UInt(idWidth.W))
+  val slot   = Output(new RobSlotRead)
+}
+
 /** FU output to Rob: state update for an entry. */
 class RobEntryStateUpdate(idWidth: Int) extends Bundle {
   val rob_id    = UInt(idWidth.W)

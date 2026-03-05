@@ -33,7 +33,8 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   rob.enq <> isu.io.rob_enq
   rob.io.commit <> commit.io.rob_commit
-  isu.io.rob_slots := rob.io.slotsRead
+  rob.io.slotReadRs1 <> isu.io.rob_slot_rs1
+  rob.io.slotReadRs2 <> isu.io.rob_slot_rs2
   idu.io.rat_isu_write := isu.io.rat_write
   idu.io.rat_rob_write := rob.io.rat_rob_write
   rob.mem.req <> memUnit.io.req

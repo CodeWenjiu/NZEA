@@ -19,9 +19,9 @@ class Top(implicit config: NzeaConfig) extends Module {
       dbus <> core.io.dbus
       commit_msg := core.io.commit_msg
     case _ =>
-      val ib = Module(new IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth))
-      val db = Module(new DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
-      val cb = Module(new CommitDpiBridge)
+      val ib = Module(new nzea_core.dpi.IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth))
+      val db = Module(new nzea_core.dpi.DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
+      val cb = Module(new nzea_core.dpi.CommitDpiBridge)
       core.io.ibus     <> ib.io.bus
       core.io.dbus     <> db.io.bus
       cb.io.commit_msg := core.io.commit_msg

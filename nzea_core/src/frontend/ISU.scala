@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.retire.rob.{RobEnqIO, RobSlotRead, RobState}
+import nzea_core.retire.rob.{RobEnqIO, RobSlotRead, RobSlotReadPort, RobState}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
@@ -15,7 +15,8 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val io = IO(new Bundle {
     val in             = Flipped(new PipeIO(new IDUOut(addrWidth, robIdWidth)))
     val rob_enq        = Flipped(new RobEnqIO(robIdWidth))
-    val rob_slots      = Input(Vec(robDepth, new RobSlotRead))
+    val rob_slot_rs1   = Flipped(new RobSlotReadPort(robIdWidth))
+    val rob_slot_rs2   = Flipped(new RobSlotReadPort(robIdWidth))
     val rat_write      = Output(Valid(new Bundle { val rd_index = UInt(5.W); val rob_id = UInt(robIdWidth.W) }))
     val alu            = new PipeIO(new AluInput(robIdWidth))
     val bru            = new PipeIO(new BruInput(robIdWidth))
@@ -39,20 +40,18 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val pc        = io.in.bits.pc
   val rob_id    = io.rob_enq.rob_id
 
-  def needStall(rat: RatEntry): Bool = {
-    rat.busy && {
-      val slot = io.rob_slots(rat.rob_id)
-      !slot.valid || slot.rob_state =/= RobState.Done
-    }
+  io.rob_slot_rs1.rob_id := rs1_rat.rob_id
+  io.rob_slot_rs2.rob_id := rs2_rat.rob_id
+  val slot_rs1 = io.rob_slot_rs1.slot
+  val slot_rs2 = io.rob_slot_rs2.slot
+
+  def needStall(rat: RatEntry, slot: RobSlotRead): Bool = {
+    rat.busy && (!slot.valid || slot.rob_state =/= RobState.Done)
   }
 
-  val rs1_val = Mux(!rs1_rat.busy, rs1,
-    Mux(io.rob_slots(rs1_rat.rob_id).valid && io.rob_slots(rs1_rat.rob_id).rob_state === RobState.Done,
-      io.rob_slots(rs1_rat.rob_id).rd_value, 0.U))
-  val rs2_val = Mux(!rs2_rat.busy, rs2,
-    Mux(io.rob_slots(rs2_rat.rob_id).valid && io.rob_slots(rs2_rat.rob_id).rob_state === RobState.Done,
-      io.rob_slots(rs2_rat.rob_id).rd_value, 0.U))
-  val stall   = io.in.valid && (needStall(rs1_rat) || needStall(rs2_rat))
+  val rs1_val = Mux(!rs1_rat.busy, rs1, slot_rs1.rd_value)
+  val rs2_val = Mux(!rs2_rat.busy, rs2, slot_rs2.rd_value)
+  val stall   = io.in.valid && (needStall(rs1_rat, slot_rs1) || needStall(rs2_rat, slot_rs2))
 
   // ALU path: FuDecode.take slices by enum width; no manual bit-width when AluSrc/AluOp change
   val (aluSrc, _) = AluSrc.safe(FuDecode.take(fu_src, AluSrc.getWidth))

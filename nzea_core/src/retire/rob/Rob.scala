@@ -57,9 +57,10 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val enq = IO(new RobEnqIO(idWidth))
   val mem = IO(new RobMemIO(idWidth))
   val io = IO(new Bundle {
-    val commit       = Valid(new CommitMsg)
-    val accessPorts  = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
-    val slotsRead    = Output(Vec(depth, new RobSlotRead))
+    val commit        = Valid(new CommitMsg)
+    val accessPorts   = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
+    val slotReadRs1   = new RobSlotReadPort(idWidth)
+    val slotReadRs2   = new RobSlotReadPort(idWidth)
     val rat_rob_write = Output(Valid(new Bundle { val rd_index = UInt(5.W); val rob_id = UInt(idWidth.W) }))
   })
 
@@ -115,11 +116,15 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     p.flush := do_flush
   }
 
-  for (i <- 0 until depth) {
-    io.slotsRead(i).valid     := slots(i).valid
-    io.slotsRead(i).rob_state := slots(i).bits.rob_state
-    io.slotsRead(i).rd_value  := slots(i).bits.rd_value
+  def readSlot(idx: UInt): RobSlotRead = {
+    val s = Wire(new RobSlotRead)
+    s.valid     := Mux1H((0 until depth).map(i => idx === i.U), slots.map(_.valid))
+    s.rob_state := Mux1H((0 until depth).map(i => idx === i.U), slots.map(_.bits.rob_state))
+    s.rd_value  := Mux1H((0 until depth).map(i => idx === i.U), slots.map(_.bits.rd_value))
+    s
   }
+  io.slotReadRs1.slot := readSlot(io.slotReadRs1.rob_id)
+  io.slotReadRs2.slot := readSlot(io.slotReadRs2.rob_id)
 
   io.rat_rob_write.valid := io.commit.valid
   io.rat_rob_write.bits.rd_index := head_bits.rd_index

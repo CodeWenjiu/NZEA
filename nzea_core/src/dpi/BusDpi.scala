@@ -1,8 +1,9 @@
-package nzea_core
+package nzea_core.dpi
 
 import chisel3._
 import chisel3.util.Valid
 import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFunctionCall}
+import nzea_core._
 
 /** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect.
   * Flush clears in-flight; req.flush/resp.flush propagated from bus.flush. */
@@ -54,8 +55,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   stage1.flush := flush
   readRespOut.flush := flush
 
-  val canAccept = RegNext(internalResp.ready, true.B)
-  io.bus.req.ready := canAccept
+  io.bus.req.ready := internalResp.ready
   val fire = io.bus.req.valid && io.bus.req.ready
   val readFire  = fire && isRead
   val writeFire = fire && req.wen

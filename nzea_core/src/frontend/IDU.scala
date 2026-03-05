@@ -16,8 +16,6 @@ class IDUOut(width: Int, robIdWidth: Int) extends Bundle {
   val imm       = UInt(32.W)
   val rs1       = UInt(32.W)
   val rs2       = UInt(32.W)
-  val rs1_index = UInt(5.W)
-  val rs2_index = UInt(5.W)
   val rd_index  = UInt(5.W)
   val fu_type   = FuType()
   val fu_op     = UInt(FuOpWidth.Width.W)
@@ -51,40 +49,41 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     gpr(io.gpr_wr.addr) := io.gpr_wr.data
   }
 
-  // RAT: Reg(Vec(32, RatEntry)), two write sources (ISU > ROB), bypass read
-  val ratTable = RegInit(VecInit(Seq.fill(32)({
-    val e = Wire(new RatEntry(robIdWidth))
-    e.rob_id := 0.U
-    e.busy   := false.B
-    e
-  })))
+  // RAT: rob_id in Vec(32), busy in UInt(32) (bit i = busy for reg i)
+  val ratTable_rob_id = RegInit(VecInit(Seq.fill(32)(0.U(robIdWidth.W))))
+  val ratTable_busy   = RegInit(0.U(32.W))
 
   def bypassRead(idx: UInt): RatEntry = {
-    val regVal = ratTable(idx)
+    val sel_rob_id = Mux1H((0 until 32).map(i => idx === i.U), ratTable_rob_id)
+    val sel_busy   = Mux1H((0 until 32).map(i => idx === i.U), (0 until 32).map(i => ratTable_busy(i)))
     val isuWrite = io.rat_isu_write.valid && io.rat_isu_write.bits.rd_index === idx
-    val robWrite = io.rat_rob_write.valid && io.rat_rob_write.bits.rd_index === idx
-    val robMatch = regVal.rob_id === io.rat_rob_write.bits.rob_id
+    val robMatch = sel_rob_id === io.rat_rob_write.bits.rob_id
+    val robWrite = io.rat_rob_write.valid && robMatch
     val w = Wire(new RatEntry(robIdWidth))
     w.rob_id := Mux(isuWrite, io.rat_isu_write.bits.rob_id,
-      Mux(robWrite && robMatch, regVal.rob_id, regVal.rob_id))
-    w.busy := Mux(isuWrite, true.B, Mux(robWrite && robMatch, false.B, regVal.busy))
+      Mux(robWrite && robMatch, sel_rob_id, sel_rob_id))
+    w.busy := Mux(isuWrite, true.B, Mux(robWrite && robMatch, false.B, sel_busy))
     w
   }
 
+  // ROB commit: 32 entries all listen, clear busy where rob_id matches (no rd_index indexing)
+  val rob_commit_rob_id = io.rat_rob_write.bits.rob_id
+  val rob_commit_match_mask = VecInit((0 until 32).map(i =>
+    (ratTable_rob_id(i) === rob_commit_rob_id).asUInt)).asUInt
+  val after_rob_clear = Mux(io.rat_rob_write.valid, ratTable_busy & ~rob_commit_match_mask, ratTable_busy)
+
   when(io.out.flush) {
-    for (i <- 0 until 32) {
-      ratTable(i).busy := false.B
-    }
+    ratTable_busy := 0.U
   }.otherwise {
-    when(io.rat_rob_write.valid && io.rat_rob_write.bits.rd_index =/= 0.U &&
-         !(io.rat_isu_write.valid && io.rat_isu_write.bits.rd_index === io.rat_rob_write.bits.rd_index)) {
-      when(ratTable(io.rat_rob_write.bits.rd_index).rob_id === io.rat_rob_write.bits.rob_id) {
-        ratTable(io.rat_rob_write.bits.rd_index).busy := false.B
-      }
-    }
     when(io.rat_isu_write.valid && io.rat_isu_write.bits.rd_index =/= 0.U) {
-      ratTable(io.rat_isu_write.bits.rd_index).rob_id := io.rat_isu_write.bits.rob_id
-      ratTable(io.rat_isu_write.bits.rd_index).busy   := true.B
+      for (i <- 0 until 32) {
+        when(io.rat_isu_write.bits.rd_index === i.U) {
+          ratTable_rob_id(i) := io.rat_isu_write.bits.rob_id
+        }
+      }
+      ratTable_busy := after_rob_clear | (1.U << io.rat_isu_write.bits.rd_index)
+    }.otherwise {
+      ratTable_busy := after_rob_clear
     }
   }
 
@@ -119,8 +118,6 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.out.bits.imm     := imm
   io.out.bits.rs1      := rs1_data
   io.out.bits.rs2      := rs2_data
-  io.out.bits.rs1_index := rs1_index
-  io.out.bits.rs2_index := rs2_index
   io.out.bits.rd_index := rd_index
   io.out.bits.fu_type := fuType
   io.out.bits.fu_op    := fuOp
