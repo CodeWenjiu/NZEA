@@ -66,7 +66,8 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
   require(numAccessPorts >= 1, "Rob numAccessPorts must >= 1")
 
-  private val idWidth = chisel3.util.log2Ceil(depth.max(2))
+  private val idWidth  = chisel3.util.log2Ceil(depth.max(2))
+  private val ptrWidth = idWidth + 1  // 低 idWidth 位为物理索引，最高位为 wrap/lap 位
 
   // IO interfaces
   val enq = IO(new RobEnqIO(idWidth))
@@ -80,10 +81,13 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   })
 
   // -------- Pointers & Split Slot Regs --------
-
-  val head_ptr = RegInit(0.U(idWidth.W))
-  val tail_ptr = RegInit(0.U(idWidth.W))
-  val count    = RegInit(0.U((idWidth + 1).W))
+  // 空满标志位方案：ptrWidth 位指针，低 idWidth 位为物理索引，最高位为 wrap 位
+  // 空：head === tail；满：head(idWidth-1,0) === tail(idWidth-1,0) && head(ptrWidth-1) =/= tail(ptrWidth-1)
+  val head_ptr = RegInit(0.U(ptrWidth.W))
+  val tail_ptr = RegInit(0.U(ptrWidth.W))
+  val head_phys = head_ptr(idWidth - 1, 0)
+  val tail_phys = tail_ptr(idWidth - 1, 0)
+  val count = (tail_ptr - head_ptr)(ptrWidth - 1, 0)  // 组合逻辑，无寄存器
 
   // Each field in its own Reg; writers only touch what they need
   val slots_rd_index  = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
@@ -97,8 +101,8 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val slots_mem_lsuOp   = RegInit(VecInit(Seq.fill(depth)(LsuOp.LB)))
   val slots_might_flush = RegInit(VecInit(Seq.fill(depth)(false.B)))
 
-  /** Slot i is valid iff it lies in [head_ptr, head_ptr+count) (circular). */
-  def slotValid(idx: UInt): Bool = (idx - head_ptr)(idWidth - 1, 0) < count
+  /** Slot i is valid iff it lies in [head_phys, head_phys+count) (circular). */
+  def slotValid(idx: UInt): Bool = (idx - head_phys)(idWidth - 1, 0) < count
 
   /** Tree mux: O(log depth) for indexed read. */
   private def muxTree[T <: Data](idx: UInt, data: Seq[T]): T = {
@@ -126,21 +130,22 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     s
   }
 
-  val head_is_done = muxTree(head_ptr, slots_is_done)
-  val head_next_pc  = muxTree(head_ptr, slots_next_pc)
-  val head_rd_index = muxTree(head_ptr, slots_rd_index)
-  val head_rd_value = muxTree(head_ptr, slots_rd_value)
-  val head_flush    = muxTree(head_ptr, slots_flush)
+  val head_is_done = muxTree(head_phys, slots_is_done)
+  val head_next_pc  = muxTree(head_phys, slots_next_pc)
+  val head_rd_index = muxTree(head_phys, slots_rd_index)
+  val head_rd_value = muxTree(head_phys, slots_rd_value)
+  val head_flush    = muxTree(head_phys, slots_flush)
 
   // -------- Enq --------
 
-  val full = count === depth.U
-  enq.rob_id := tail_ptr
+  val empty = head_ptr === tail_ptr
+  val full  = (head_phys === tail_phys) && (head_ptr(ptrWidth - 1) =/= tail_ptr(ptrWidth - 1))
+  enq.rob_id := tail_phys
   enq.req.ready := !full
 
   // -------- Commit --------
 
-  val head_done = (count > 0.U) && head_is_done
+  val head_done = !empty && head_is_done
   val do_flush  = io.commit.valid && head_flush
 
   io.commit.valid := head_done
@@ -158,7 +163,7 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
 
   io.rat_rob_write.valid := io.commit.valid
   io.rat_rob_write.bits.rd_index := head_rd_index
-  io.rat_rob_write.bits.rob_id   := head_ptr
+  io.rat_rob_write.bits.rob_id   := head_phys
 
   // -------- Mem request (req_ptr, safe_ptr; rob_id via dbus user, resp writes directly) --------
 
@@ -168,8 +173,8 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val req_slot  = readSlot(req_ptr)
   val safe_slot = readSlot(safe_ptr)
 
-  val req_offset  = (req_ptr - head_ptr)(idWidth - 1, 0)
-  val safe_offset = (safe_ptr - head_ptr)(idWidth - 1, 0)
+  val req_offset  = (req_ptr - head_phys)(idWidth - 1, 0)
+  val safe_offset = (safe_ptr - head_phys)(idWidth - 1, 0)
 
   val req_ptr_in_range    = req_slot.valid
   val safe_ptr_before_tail = safe_offset < count
@@ -189,7 +194,6 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   when(do_flush) {
     head_ptr := 0.U
     tail_ptr := 0.U
-    count := 0.U
     req_ptr := 0.U
     safe_ptr := 0.U
     for (i <- 0 until depth) {
@@ -207,7 +211,7 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   }.otherwise {
     // safe_ptr: sync to head when stale; else advance when !might_flush and before tail
     when(safe_offset >= count) {
-      safe_ptr := head_ptr
+      safe_ptr := head_phys
     }.elsewhen(safe_slot.valid && !safe_slot.might_flush && safe_ptr_before_tail) {
       safe_ptr := (safe_ptr + 1.U)(idWidth - 1, 0)
     }
@@ -229,18 +233,17 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     applyMemSlotUpdates()
     applyEnq()
     applyCommit()
-    updateCount()
   }
 
   // -------- Slot updates by write source --------
   // IS (enq): rd_index, might_flush, flush(init). is_done/need_mem init false.
   def applyEnq(): Unit = {
     when(enq.req.fire) {
-      val idx = tail_ptr
+      val idx = tail_phys
       slots_rd_index(idx)    := enq.req.bits.rd_index
       slots_might_flush(idx) := enq.req.bits.might_flush
       slots_flush(idx)       := false.B  // clear on slot reuse
-      tail_ptr := (tail_ptr + 1.U)(idWidth - 1, 0)
+      tail_ptr := (tail_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }
 
@@ -284,11 +287,7 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
 
   def applyCommit(): Unit = {
     when(io.commit.valid) {
-      head_ptr := (head_ptr + 1.U)(idWidth - 1, 0)
+      head_ptr := (head_ptr + 1.U)(ptrWidth - 1, 0)
     }
-  }
-
-  def updateCount(): Unit = {
-    count := count + Mux(enq.req.fire, 1.U, 0.U) - Mux(io.commit.valid, 1.U, 0.U)
   }
 }

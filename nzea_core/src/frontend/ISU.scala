@@ -82,11 +82,11 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.bru.bits.pc           := pc
   io.bru.bits.pred_next_pc := io.in.bits.pred_next_pc
   io.bru.bits.offset       := imm
-  io.bru.bits.use_rs1_imm := (bruSrc === BruSrc.Rs1Imm)
-  io.bru.bits.rs1         := rs1_val
-  io.bru.bits.rs2         := rs2_val
-  io.bru.bits.bruOp       := bruOp
-  io.bru.bits.rob_id      := rob_id
+  io.bru.bits.use_rs1_imm  := (bruSrc === BruSrc.Rs1Imm)
+  io.bru.bits.rs1          := rs1_val
+  io.bru.bits.rs2          := rs2_val
+  io.bru.bits.bruOp        := bruOp
+  io.bru.bits.rob_id       := rob_id
 
   // AGU path: next_pc from ROB head in Commit
   val (lsuOp, _)   = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
