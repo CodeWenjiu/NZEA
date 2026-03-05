@@ -46,11 +46,11 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val slot_rs2 = io.rob_slot_rs2.slot
 
   def needStall(rat: RatEntry, slot: RobSlotRead): Bool = {
-    rat.busy && (!slot.valid || slot.rob_state =/= RobState.Done)
+    rat.busy && slot.rob_state =/= RobState.Done
   }
 
-  val rs1_val = Mux(!rs1_rat.busy, rs1, slot_rs1.rd_value)
-  val rs2_val = Mux(!rs2_rat.busy, rs2, slot_rs2.rd_value)
+  val rs1_val = Mux(!rs1_rat.busy, rs1, Mux(slot_rs1.rob_state === RobState.Done, slot_rs1.rd_value, 0.U))
+  val rs2_val = Mux(!rs2_rat.busy, rs2, Mux(slot_rs2.rob_state === RobState.Done, slot_rs2.rd_value, 0.U))
   val stall   = io.in.valid && (needStall(rs1_rat, slot_rs1) || needStall(rs2_rat, slot_rs2))
 
   // ALU path: FuDecode.take slices by enum width; no manual bit-width when AluSrc/AluOp change
