@@ -3,7 +3,7 @@ package nzea_core.backend
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
-import nzea_core.retire.rob.{Rob, RobState}
+import nzea_core.retire.rob.Rob
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
 object BruOp extends chisel3.ChiselEnum {
@@ -55,7 +55,7 @@ class BRU(robIdWidth: Int) extends Module {
   val mispredict = b.pred_next_pc =/= next_pc
   val rd_value   = b.pc + 4.U
 
-  val u = Rob.entryStateUpdate(io.in.valid, b.rob_id, RobState.Done, rd_value, mispredict, next_pc)(robIdWidth)
+  val u = Rob.entryStateUpdate(io.in.valid, b.rob_id, is_done = true.B, need_mem = false.B, rd_value, mispredict, next_pc)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := true.B

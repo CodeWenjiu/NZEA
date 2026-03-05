@@ -4,22 +4,13 @@ import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.backend.LsuOp
 
-// -------- RobState & Bundles --------
-
-/** ROB entry state: Executing -> (ALU/BRU/SYSU: Done; AGU: WaitingForMem ->
-  * WaitingForResult when mem_req.fire -> Done when mem_resp.fire).
-  */
-object RobState extends chisel3.ChiselEnum {
-  val Executing = Value
-  val WaitingForMem = Value
-  val WaitingForResult = Value
-  val Done = Value
-}
+// -------- Bundles --------
 
 /** One entry in the Rob. rd_value reused for mem_addr before load/store completes. */
 class RobEntry extends Bundle {
   val rd_index  = UInt(5.W)
-  val rob_state = RobState()
+  val is_done   = Bool()
+  val need_mem  = Bool()
   val rd_value  = UInt(32.W)
   val next_pc   = UInt(32.W)
   val flush     = Bool()
@@ -28,11 +19,11 @@ class RobEntry extends Bundle {
   val mem_lsuOp = LsuOp()
 }
 
-/** Payload for Rob enq: rd_index, pred_next_pc (stored in next_pc at enq), might_flush (branch/trap). */
+
+/** Payload for Rob enq: rd_index, might_flush (branch/trap). next_pc written by EX stage. */
 class RobEnqPayload extends Bundle {
-  val rd_index     = UInt(5.W)
-  val pred_next_pc = UInt(32.W)
-  val might_flush  = Bool()
+  val rd_index    = UInt(5.W)
+  val might_flush = Bool()
 }
 
 /** MemUnit request: rob_id, addr, wdata, wstrb, lsuOp. */
@@ -51,12 +42,13 @@ class RobMemResp(idWidth: Int) extends Bundle {
 }
 
 /** Unified Rob slot read: all fields any consumer may need.
-  * ISU: valid, rob_state, rd_value.
-  * MemReqManager: valid, rob_state, rd_value (addr), mem_wdata, mem_wstrb, mem_lsuOp, might_flush.
+  * ISU: valid, is_done, rd_value.
+  * Rob mem req: valid, need_mem, rd_value (addr), mem_wdata, mem_wstrb, mem_lsuOp, might_flush (req_ptr, safe_ptr).
   */
 class RobSlotRead extends Bundle {
   val valid       = Bool()
-  val rob_state   = RobState()
+  val is_done     = Bool()
+  val need_mem    = Bool()
   val rd_value    = UInt(32.W)
   val mem_wdata   = UInt(32.W)
   val mem_wstrb   = UInt(4.W)
@@ -73,7 +65,8 @@ class RobSlotReadPort(idWidth: Int) extends Bundle {
 /** FU output to Rob: state update for an entry. */
 class RobEntryStateUpdate(idWidth: Int) extends Bundle {
   val rob_id    = UInt(idWidth.W)
-  val new_state = RobState()
+  val is_done   = Bool()
+  val need_mem  = Bool()
   val rd_value  = UInt(32.W)
   val flush     = Bool()
   val next_pc   = UInt(32.W)

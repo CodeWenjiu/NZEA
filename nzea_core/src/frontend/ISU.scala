@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.retire.rob.{RobEnqIO, RobSlotRead, RobSlotReadPort, RobState}
+import nzea_core.retire.rob.{RobEnqIO, RobSlotRead, RobSlotReadPort}
 
 /** ISU: route by fu_type; ALU/BRU/LSU/SYSU; on dispatch, enqueues Rob entry (fu_type, rd_index). */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
@@ -46,11 +46,11 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val slot_rs2 = io.rob_slot_rs2.slot
 
   def needStall(rat: RatEntry, slot: RobSlotRead): Bool = {
-    rat.busy && slot.rob_state =/= RobState.Done
+    rat.busy && !slot.is_done
   }
 
-  val rs1_val = Mux(!rs1_rat.busy, rs1, Mux(slot_rs1.rob_state === RobState.Done, slot_rs1.rd_value, 0.U))
-  val rs2_val = Mux(!rs2_rat.busy, rs2, Mux(slot_rs2.rob_state === RobState.Done, slot_rs2.rd_value, 0.U))
+  val rs1_val = Mux(!rs1_rat.busy, rs1, Mux(slot_rs1.is_done, slot_rs1.rd_value, 0.U))
+  val rs2_val = Mux(!rs2_rat.busy, rs2, Mux(slot_rs2.is_done, slot_rs2.rd_value, 0.U))
   val stall   = io.in.valid && (needStall(rs1_rat, slot_rs1) || needStall(rs2_rat, slot_rs2))
 
   // ALU path: FuDecode.take slices by enum width; no manual bit-width when AluSrc/AluOp change
@@ -95,14 +95,15 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.agu.bits.imm       := imm
   io.agu.bits.lsuOp     := lsuOp
   io.agu.bits.storeData := rs2_val
+  io.agu.bits.pc        := pc
   io.agu.bits.rob_id    := rob_id
 
   io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
   io.sysu.bits.rob_id := rob_id
+  io.sysu.bits.pc     := pc
 
   io.rob_enq.req.valid := can_dispatch
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
-  io.rob_enq.req.bits.pred_next_pc := io.in.bits.pred_next_pc
   io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
 
   val dispatch_fire = outs.map(_.fire).reduce(_ || _)

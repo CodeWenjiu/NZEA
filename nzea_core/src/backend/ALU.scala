@@ -3,7 +3,7 @@ package nzea_core.backend
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
-import nzea_core.retire.rob.{Rob, RobState}
+import nzea_core.retire.rob.Rob
 
 /** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
 object AluOp extends chisel3.ChiselEnum {
@@ -53,7 +53,8 @@ class ALU(robIdWidth: Int) extends Module {
 
   val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
 
-  val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, RobState.Done, result)(robIdWidth)
+  val next_pc = io.in.bits.pc + 4.U
+  val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, need_mem = false.B, result, next_pc = next_pc)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := true.B

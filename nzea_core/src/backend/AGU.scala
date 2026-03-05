@@ -3,7 +3,7 @@ package nzea_core.backend
 import chisel3._
 import chisel3.util.Mux1H
 import nzea_core.PipeIO
-import nzea_core.retire.rob.{Rob, RobState}
+import nzea_core.retire.rob.Rob
 
 /** LsuOp: one-hot (LB, LH, LW, LBU, LHU, SB, SH, SW). Kept for decode/AGU. */
 object LsuOp extends chisel3.ChiselEnum {
@@ -17,12 +17,13 @@ object LsuOp extends chisel3.ChiselEnum {
   val SW  = Value((1 << 7).U)
 }
 
-/** AGU input: base, imm, lsuOp, storeData; rob_id from IS. */
+/** AGU input: base, imm, lsuOp, storeData, pc; rob_id from IS. */
 class AguInput(robIdWidth: Int) extends Bundle {
   val base      = UInt(32.W)
   val imm       = UInt(32.W)
   val lsuOp     = LsuOp()
   val storeData = UInt(32.W)
+  val pc        = UInt(32.W)
   val rob_id    = UInt(robIdWidth.W)
 }
 
@@ -42,9 +43,10 @@ class AGU(robIdWidth: Int) extends Module {
   val wstrb = Mux1H(io.in.bits.lsuOp.asUInt, Seq(0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), sbStrb, shStrb, swStrb))
   val wdata = storeData << (addr2 * 8.U)
 
+  val next_pc = io.in.bits.pc + 4.U
   val u = Rob.entryStateUpdate(
-    io.in.valid, io.in.bits.rob_id, RobState.WaitingForMem, addr,
-    mem_wdata = wdata, mem_wstrb = wstrb, mem_lsuOp = io.in.bits.lsuOp)(robIdWidth)
+    io.in.valid, io.in.bits.rob_id, false.B, true.B, addr,
+    next_pc = next_pc, mem_wdata = wdata, mem_wstrb = wstrb, mem_lsuOp = io.in.bits.lsuOp)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := true.B
