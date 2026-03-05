@@ -39,7 +39,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   idu.io.rat_rob_write := rob.io.rat_rob_write
   rob.mem.req <> memUnit.io.req
   rob.mem.resp <> memUnit.io.resp
-  idu.io.gpr_wr := commit.io.gpr_wr
+  idu.io.gpr_wr := rob.io.gpr_wr
 
   io.ibus       <> ifu.io.bus
   io.dbus       <> memUnit.io.dbus

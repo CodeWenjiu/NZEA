@@ -111,10 +111,10 @@ object LsCtrl extends ChiselEnum {
 }
 
 object CSR_TypeEnum extends ChiselEnum{
-  val CSR_N   ,    // 非csr读写指令
-      CSR_R1W0,    // 不读写一， 目前只有 mret 符合
-      CSR_R1W1,    // 读写一
-      CSR_R1W2     // 读一写二， 目前只有 ecall 符合
+  val CSR_N   ,    // non-CSR read/write instruction
+      CSR_R1W0,    // read-one write-zero, currently only mret
+      CSR_R1W1,    // read-one write-one
+      CSR_R1W2     // read-one write-two, currently only ecall
       = Value
 }
 

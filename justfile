@@ -14,8 +14,8 @@ synth:
     @just run --synthPlatform yosys
     @nu scripts/synth.nu
 
-# Synth + STA: 面积 + 时序. 需 nix develop (iEDA, PDK_PATH)
-# 报告: build/synth/synth_stat.txt (面积), Top.rpt (时序), Top.pwr (功耗), sta.log
+# Synth + STA: area + timing. Requires nix develop (iEDA, PDK_PATH)
+# Reports: build/synth/synth_stat.txt (area), Top.rpt (timing), Top.pwr (power), sta.log
 sta: synth
     @nu scripts/sta.nu
 

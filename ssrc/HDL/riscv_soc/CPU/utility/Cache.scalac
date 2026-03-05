@@ -203,7 +203,7 @@ class CacheTemplate(
     }
 
     when(io.rreq.valid) {
-        // 通过 IO 接口控制 shifter
+        // Control shifter via IO interface
         shifter.io.shift := true.B
         shifter.io.shamt := 1.U
         shifter.io.left := true.B
@@ -223,7 +223,7 @@ class CacheTemplate(
             cache_meta_write.wrap_call(replace_set, replace_way, replace_tag)
         }
     }.otherwise {
-        // 默认状态：不进行任何操作
+        // Default state: no operation
         shifter.io.shift := false.B
         shifter.io.shamt := DontCare
         shifter.io.left := DontCare

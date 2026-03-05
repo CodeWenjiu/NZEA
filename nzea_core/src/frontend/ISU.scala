@@ -74,7 +74,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.alu.bits.pc    := pc
   io.alu.bits.rob_id := rob_id
 
-  // BRU path: pass pc, offset; use_rs1 由 BRU 从 bruOp(1) 推导
+  // BRU path: pass pc, offset; use_rs1 derived in BRU from bruOp(1)
   val (bruOp, _) = BruOp.safe(FuDecode.take(io.in.bits.fu_op, BruOp.getWidth))
 
   io.bru.valid := can_dispatch && (fu_type === FuType.BRU)

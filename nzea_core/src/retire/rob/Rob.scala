@@ -48,7 +48,7 @@ object Rob {
 
 /** Rob: depth-entry circular buffer. rob_id = stable slot index.
   *
-  * Slot fields and write sources (同一 slot 每周期仅被一个来源写入):
+  * Slot fields and write sources (at most one writer per slot per cycle):
   * | Field        | IS (enq)     | FU              | MemUnit        |
   * |--------------|--------------|-----------------|----------------|
   * | rd_index     | ✓            |                 |                |
@@ -67,13 +67,14 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   require(numAccessPorts >= 1, "Rob numAccessPorts must >= 1")
 
   private val idWidth  = chisel3.util.log2Ceil(depth.max(2))
-  private val ptrWidth = idWidth + 1  // 低 idWidth 位为物理索引，最高位为 wrap/lap 位
+  private val ptrWidth = idWidth + 1  // low idWidth bits = physical index, MSB = wrap/lap bit
 
   // IO interfaces
   val enq = IO(new RobEnqIO(idWidth))
   val mem = IO(new RobMemIO(idWidth))
   val io = IO(new Bundle {
     val commit        = Valid(new CommitMsg)
+    val gpr_wr        = Output(new Bundle { val addr = UInt(5.W); val data = UInt(32.W) })
     val accessPorts   = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
     val slotReadRs1   = new RobSlotReadPort(idWidth)
     val slotReadRs2   = new RobSlotReadPort(idWidth)
@@ -81,13 +82,13 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   })
 
   // -------- Pointers & Split Slot Regs --------
-  // 空满标志位方案：ptrWidth 位指针，低 idWidth 位为物理索引，最高位为 wrap 位
-  // 空：head === tail；满：head(idWidth-1,0) === tail(idWidth-1,0) && head(ptrWidth-1) =/= tail(ptrWidth-1)
+  // Empty/full by wrap bits: ptrWidth-bit ptr, low idWidth bits = physical index, MSB = wrap
+  // Empty: head === tail; Full: head(idWidth-1,0) === tail(idWidth-1,0) && head(ptrWidth-1) =/= tail(ptrWidth-1)
   val head_ptr = RegInit(0.U(ptrWidth.W))
   val tail_ptr = RegInit(0.U(ptrWidth.W))
   val head_phys = head_ptr(idWidth - 1, 0)
   val tail_phys = tail_ptr(idWidth - 1, 0)
-  val count = (tail_ptr - head_ptr)(ptrWidth - 1, 0)  // 组合逻辑，无寄存器
+  val count = (tail_ptr - head_ptr)(ptrWidth - 1, 0)  // combinational, no register
 
   // Each field in its own Reg; writers only touch what they need
   val slots_rd_index  = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
@@ -130,11 +131,12 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     s
   }
 
-  val head_is_done = muxTree(head_phys, slots_is_done)
-  val head_next_pc  = muxTree(head_phys, slots_next_pc)
-  val head_rd_index = muxTree(head_phys, slots_rd_index)
-  val head_rd_value = muxTree(head_phys, slots_rd_value)
-  val head_flush    = muxTree(head_phys, slots_flush)
+  val head_is_done   = muxTree(head_phys, slots_is_done)
+  val head_need_mem  = muxTree(head_phys, slots_need_mem)
+  val head_next_pc   = muxTree(head_phys, slots_next_pc)
+  val head_rd_index  = muxTree(head_phys, slots_rd_index)
+  val head_rd_value  = muxTree(head_phys, slots_rd_value)
+  val head_flush     = muxTree(head_phys, slots_flush)
 
   // -------- Enq --------
 
@@ -149,9 +151,14 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val do_flush  = io.commit.valid && head_flush
 
   io.commit.valid := head_done
-  io.commit.bits.next_pc  := head_next_pc
-  io.commit.bits.rd_index := head_rd_index
-  io.commit.bits.rd_value := head_rd_value
+  io.commit.bits.next_pc   := head_next_pc
+  io.commit.bits.rd_index  := head_rd_index
+  io.commit.bits.rd_value  := head_rd_value
+  io.commit.bits.mem_count := Mux(head_need_mem, 1.U(32.W), 0.U(32.W))
+
+  // Separate muxTree to avoid sharing with commit.bits (which would pull in slots_need_mem/slots_next_pc on critical path)
+  io.gpr_wr.addr := Mux(head_done, muxTree(head_phys, slots_rd_index), 0.U)
+  io.gpr_wr.data := muxTree(head_phys, slots_rd_value)
 
   io.accessPorts.foreach { p =>
     p.ready := true.B

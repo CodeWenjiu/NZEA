@@ -100,8 +100,8 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val rs2_index = Mux(rs2Rd, io.in.bits.inst(24, 20), 0.U(5.W))
   val rd_index  = Mux(gprWr, io.in.bits.inst(11, 7), 0.U(5.W))
 
-  val rs1_data = Mux(rs1_index === 0.U, 0.U(32.W), gpr(rs1_index))
-  val rs2_data = Mux(rs2_index === 0.U, 0.U(32.W), gpr(rs2_index))
+  val rs1_data = Mux(rs1_index === io.gpr_wr.addr, io.gpr_wr.data, gpr(rs1_index))
+  val rs2_data = Mux(rs2_index === io.gpr_wr.addr, io.gpr_wr.data, gpr(rs2_index))
 
   val inst = io.in.bits.inst
   val immI = Cat(Fill(20, inst(31)), inst(31, 20))

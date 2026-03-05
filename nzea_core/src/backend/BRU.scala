@@ -18,7 +18,7 @@ object BruOp extends chisel3.ChiselEnum {
 }
 
 /** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; rob_id from IS.
-  * JALR (bruOp(1)) => target = rs1+offset else target = pc+offset. 不实现 C 扩展故省略 &~1. robIdWidth from upper level. */
+  * JALR (bruOp(1)) => target = rs1+offset else target = pc+offset. No C ext, so &~1 omitted. robIdWidth from upper level. */
 class BruInput(robIdWidth: Int) extends Bundle {
   val pc           = UInt(32.W)
   val pred_next_pc = UInt(32.W)
@@ -38,7 +38,7 @@ class BRU(robIdWidth: Int) extends Module {
 
   val b = io.in.bits
   val bruOpU = b.bruOp.asUInt
-  val is_jalr = bruOpU(1)  // JALR 唯一用 rs1 做 target 的 op
+  val is_jalr = bruOpU(1)  // JALR is the only op that uses rs1 for target
   val target = Mux(is_jalr, b.rs1 + b.offset, b.pc + b.offset)
   val is_jmp = bruOpU(0) || bruOpU(1)  // JAL, JALR
   val eq  = b.rs1 === b.rs2
