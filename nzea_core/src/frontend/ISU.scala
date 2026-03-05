@@ -103,6 +103,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.rob_enq.req.valid := can_dispatch
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.req.bits.pred_next_pc := io.in.bits.pred_next_pc
+  io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
 
   val dispatch_fire = outs.map(_.fire).reduce(_ || _)
   io.rat_write.valid := dispatch_fire

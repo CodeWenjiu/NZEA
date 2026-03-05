@@ -28,10 +28,11 @@ class RobEntry extends Bundle {
   val mem_lsuOp = LsuOp()
 }
 
-/** Payload for Rob enq: rd_index, pred_next_pc (stored in next_pc at enq). */
+/** Payload for Rob enq: rd_index, pred_next_pc (stored in next_pc at enq), might_flush (branch/trap). */
 class RobEnqPayload extends Bundle {
   val rd_index     = UInt(5.W)
   val pred_next_pc = UInt(32.W)
+  val might_flush  = Bool()
 }
 
 /** MemUnit request: rob_id, addr, wdata, wstrb, lsuOp. */
@@ -51,15 +52,16 @@ class RobMemResp(idWidth: Int) extends Bundle {
 
 /** Unified Rob slot read: all fields any consumer may need.
   * ISU: valid, rob_state, rd_value.
-  * MemReqManager: valid, rob_state, rd_value (addr), mem_wdata, mem_wstrb, mem_lsuOp.
+  * MemReqManager: valid, rob_state, rd_value (addr), mem_wdata, mem_wstrb, mem_lsuOp, might_flush.
   */
 class RobSlotRead extends Bundle {
-  val valid     = Bool()
-  val rob_state = RobState()
-  val rd_value  = UInt(32.W)
-  val mem_wdata = UInt(32.W)
-  val mem_wstrb = UInt(4.W)
-  val mem_lsuOp = LsuOp()
+  val valid       = Bool()
+  val rob_state   = RobState()
+  val rd_value    = UInt(32.W)
+  val mem_wdata   = UInt(32.W)
+  val mem_wstrb   = UInt(4.W)
+  val mem_lsuOp   = LsuOp()
+  val might_flush = Bool()
 }
 
 /** Unified slot read port: consumer provides rob_id, Rob returns slot. Use Flipped on consumer side. */

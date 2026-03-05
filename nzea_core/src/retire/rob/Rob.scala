@@ -45,8 +45,19 @@ object Rob {
 }
 
 /** Rob: depth-entry circular buffer. rob_id = stable slot index.
-  * Slots are split into separate Regs per field so each writer (enq, FU, mem)
-  * only touches the fields it needs, avoiding read-modify-write boilerplate.
+  *
+  * Slot fields and write sources (同一 slot 每周期仅被一个来源写入):
+  * | Field        | IS (enq)     | FU              | MemUnit        |
+  * |--------------|--------------|-----------------|----------------|
+  * | rd_index     | ✓            |                 |                |
+  * | might_flush  | ✓            |                 |                |
+  * | rob_state    | ✓ Executing  | ✓ Done/WaitMem  | ✓ WaitResult/Done |
+  * | next_pc      | ✓ pred_next  | ✓ (when flush)  |                |
+  * | flush        | ✓ false(init)| ✓ (when branch) |               |
+  * | rd_value     |              | ✓ Done/WaitMem  | ✓ (load resp)  |
+  * | mem_wdata    |              | ✓ (AGU only)    |                |
+  * | mem_wstrb    |              | ✓ (AGU only)    |                |
+  * | mem_lsuOp    |              | ✓ (AGU only)    |                |
   */
 class Rob(depth: Int, numAccessPorts: Int) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
@@ -77,9 +88,10 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val slots_rd_value  = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
   val slots_next_pc   = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
   val slots_flush     = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_mem_wdata = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
-  val slots_mem_wstrb = RegInit(VecInit(Seq.fill(depth)(0.U(4.W))))
-  val slots_mem_lsuOp = RegInit(VecInit(Seq.fill(depth)(LsuOp.LB)))
+  val slots_mem_wdata   = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
+  val slots_mem_wstrb   = RegInit(VecInit(Seq.fill(depth)(0.U(4.W))))
+  val slots_mem_lsuOp   = RegInit(VecInit(Seq.fill(depth)(LsuOp.LB)))
+  val slots_might_flush = RegInit(VecInit(Seq.fill(depth)(false.B)))
 
   /** Slot i is valid iff it lies in [head_ptr, head_ptr+count) (circular). */
   def slotValid(idx: UInt): Bool = (idx - head_ptr)(idWidth - 1, 0) < count
@@ -99,12 +111,13 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
 
   def readSlot(idx: UInt): RobSlotRead = {
     val s = Wire(new RobSlotRead)
-    s.valid     := slotValid(idx)
-    s.rob_state := muxTree(idx, slots_rob_state)
-    s.rd_value  := muxTree(idx, slots_rd_value)
-    s.mem_wdata := muxTree(idx, slots_mem_wdata)
-    s.mem_wstrb := muxTree(idx, slots_mem_wstrb)
-    s.mem_lsuOp := muxTree(idx, slots_mem_lsuOp)
+    s.valid       := slotValid(idx)
+    s.rob_state   := muxTree(idx, slots_rob_state)
+    s.rd_value    := muxTree(idx, slots_rd_value)
+    s.mem_wdata   := muxTree(idx, slots_mem_wdata)
+    s.mem_wstrb   := muxTree(idx, slots_mem_wstrb)
+    s.mem_lsuOp   := muxTree(idx, slots_mem_lsuOp)
+    s.might_flush := muxTree(idx, slots_might_flush)
     s
   }
 
@@ -148,8 +161,11 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   memReqManager.io.mem <> mem
   memReqManager.io.flush := do_flush
   memReqManager.io.headPtr := head_ptr
+  memReqManager.io.tailPtr := tail_ptr
+  memReqManager.io.count := count
   memReqManager.io.slotReqRead.slot := readSlot(memReqManager.io.slotReqRead.rob_id)
   memReqManager.io.slotRespRead.slot := readSlot(memReqManager.io.slotRespRead.rob_id)
+  memReqManager.io.slotSafeRead.slot := readSlot(memReqManager.io.slotSafeRead.rob_id)
 
   // -------- Main Update Logic --------
 
@@ -158,14 +174,15 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     tail_ptr := 0.U
     count := 0.U
     for (i <- 0 until depth) {
-      slots_rd_index(i)  := 0.U
-      slots_rob_state(i) := RobState.Executing
-      slots_rd_value(i)  := 0.U
-      slots_next_pc(i)   := 0.U
-      slots_flush(i)     := false.B
-      slots_mem_wdata(i) := 0.U
-      slots_mem_wstrb(i) := 0.U
-      slots_mem_lsuOp(i) := LsuOp.LB
+      slots_rd_index(i)    := 0.U
+      slots_rob_state(i)   := RobState.Executing
+      slots_rd_value(i)    := 0.U
+      slots_next_pc(i)     := 0.U
+      slots_flush(i)       := false.B
+      slots_might_flush(i) := false.B
+      slots_mem_wdata(i)   := 0.U
+      slots_mem_wstrb(i)   := 0.U
+      slots_mem_lsuOp(i)   := LsuOp.LB
     }
   }.otherwise {
     applyFuUpdates()
@@ -175,22 +192,21 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     updateCount()
   }
 
-  /** Enq: only writes rd_index, rob_state, rd_value, next_pc, flush. */
+  // -------- Slot updates by write source --------
+  // IS (enq): rd_index, might_flush, rob_state, next_pc, flush(init). No rd_value/mem_*.
   def applyEnq(): Unit = {
     when(enq.req.fire) {
-      slots_rd_index(tail_ptr)  := enq.req.bits.rd_index
-      slots_rob_state(tail_ptr) := RobState.Executing
-      slots_rd_value(tail_ptr)   := 0.U
-      slots_next_pc(tail_ptr)   := enq.req.bits.pred_next_pc
-      slots_flush(tail_ptr)     := false.B
+      val idx = tail_ptr
+      slots_rd_index(idx)    := enq.req.bits.rd_index
+      slots_might_flush(idx) := enq.req.bits.might_flush
+      slots_rob_state(idx)   := RobState.Executing
+      slots_next_pc(idx)     := enq.req.bits.pred_next_pc
+      slots_flush(idx)       := false.B  // clear on slot reuse
       tail_ptr := (tail_ptr + 1.U)(idWidth - 1, 0)
     }
   }
 
-  /** FU updates: each FU writes only the fields it produces.
-    * ALU/BRU/SYSU: rob_state, rd_value (Done); flush, next_pc (branch).
-    * AGU: rob_state, rd_value (addr), mem_wdata, mem_wstrb, mem_lsuOp (WaitingForMem).
-    */
+  // FU: rd_value, next_pc, flush, rob_state, mem_wdata/wstrb/lsuOp (AGU only).
   def applyFuUpdates(): Unit = {
     for (p <- io.accessPorts) {
       when(p.valid) {
@@ -199,21 +215,21 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
         when(p.bits.new_state === RobState.Done) {
           slots_rd_value(idx) := p.bits.rd_value
         }
+        when(p.bits.new_state === RobState.WaitingForMem) {
+          slots_rd_value(idx)   := p.bits.rd_value
+          slots_mem_wdata(idx) := p.bits.mem_wdata
+          slots_mem_wstrb(idx) := p.bits.mem_wstrb
+          slots_mem_lsuOp(idx) := p.bits.mem_lsuOp
+        }
         when(p.bits.flush) {
           slots_flush(idx)   := true.B
           slots_next_pc(idx) := p.bits.next_pc
-        }
-        when(p.bits.new_state === RobState.WaitingForMem) {
-          slots_rd_value(idx)   := p.bits.rd_value
-          slots_mem_wdata(idx)  := p.bits.mem_wdata
-          slots_mem_wstrb(idx)  := p.bits.mem_wstrb
-          slots_mem_lsuOp(idx)  := p.bits.mem_lsuOp
         }
       }
     }
   }
 
-  /** Mem updates: mem.req only writes rob_state; mem.resp writes rob_state and rd_value (load). */
+  // MemUnit: rob_state (req→WaitingForResult, resp→Done); rd_value (resp for load only).
   def applyMemSlotUpdates(): Unit = {
     when(mem.req.fire) {
       slots_rob_state(mem.req.bits.rob_id) := RobState.WaitingForResult

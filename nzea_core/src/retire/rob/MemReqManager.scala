@@ -2,18 +2,20 @@ package nzea_core.retire.rob
 
 import chisel3._
 
-/** Memory Request Manager: two pointers (req_ptr, resp_ptr) with explicit advance logic.
-  * Uses two read ports instead of full slots - one for req slot, one for resp slot.
+/** Memory Request Manager: req_ptr, resp_ptr, safe_ptr.
+  *
+  * safe_ptr: from head, chases tail; stops at first might_flush (branch/trap).
+  *   Enables multiple consecutive mem requests when no flush in between.
   *
   * req_ptr: points to slot to consider for sending mem request.
   *   - In range: [head, tail), else don't advance.
-  *   - Executing: don't advance (unknown if mem op).
-  *   - WaitingForMem: send only when req_ptr==head (oldest); on mem.req.fire, advance.
+  *   - Executing: don't advance.
+  *   - WaitingForMem: send when req_ptr in [head, safe_ptr); on mem.req.fire, advance.
   *   - WaitingForResult/Done: advance (skip).
   *
   * resp_ptr: points to slot to consider for receiving mem response.
   *   - In range: [head, req_ptr], else don't advance.
-  *   - Executing/WaitingForMem: wait (don't advance).
+  *   - Executing/WaitingForMem: wait.
   *   - WaitingForResult: on mem.resp.fire, advance.
   *   - Done: advance (skip).
   */
@@ -22,46 +24,61 @@ class MemReqManager(depth: Int, idWidth: Int) extends Module {
     val mem = new RobMemIO(idWidth)
     val slotReqRead  = Flipped(new RobSlotReadPort(idWidth))
     val slotRespRead = Flipped(new RobSlotReadPort(idWidth))
+    val slotSafeRead = Flipped(new RobSlotReadPort(idWidth))
     val headPtr     = Input(UInt(idWidth.W))
+    val tailPtr     = Input(UInt(idWidth.W))
+    val count       = Input(UInt((idWidth + 1).W))
     val flush       = Input(Bool())
   })
 
   val req_ptr  = RegInit(0.U(idWidth.W))
   val resp_ptr = RegInit(0.U(idWidth.W))
+  val safe_ptr = RegInit(0.U(idWidth.W))
 
-  // Drive rob_id for read ports (combinational)
   io.slotReqRead.rob_id  := req_ptr
   io.slotRespRead.rob_id := resp_ptr
+  io.slotSafeRead.rob_id := safe_ptr
 
   val req_slot_valid  = io.slotReqRead.slot.valid
   val req_slot_state  = io.slotReqRead.slot.rob_state
   val resp_slot_valid = io.slotRespRead.slot.valid
   val resp_slot_state = io.slotRespRead.slot.rob_state
+  val safe_slot_valid  = io.slotSafeRead.slot.valid
+  val safe_slot_might_flush = io.slotSafeRead.slot.might_flush
 
-  // req_ptr in [head, tail): slotValid(req_ptr)
-  val req_ptr_in_range = req_slot_valid
-  // resp_ptr in [head, req_ptr]: valid and (resp_ptr-head) <= (req_ptr-head) in circular order
-  val resp_offset = (resp_ptr - io.headPtr)(idWidth - 1, 0)
   val req_offset  = (req_ptr - io.headPtr)(idWidth - 1, 0)
-  val resp_ptr_in_range = resp_slot_valid && (resp_offset <= req_offset)
+  val resp_offset = (resp_ptr - io.headPtr)(idWidth - 1, 0)
+  val safe_offset = (safe_ptr - io.headPtr)(idWidth - 1, 0)
 
-  val can_send = req_ptr_in_range && (req_ptr === io.headPtr) && (req_slot_state === RobState.WaitingForMem)
+  val req_ptr_in_range  = req_slot_valid
+  val resp_ptr_in_range = resp_slot_valid && (resp_offset <= req_offset)
+  val safe_ptr_before_tail = safe_offset < io.count
+
+  val req_in_safe_region = req_ptr_in_range && (req_offset < safe_offset)
+  val can_send = req_in_safe_region && (req_slot_state === RobState.WaitingForMem)
   val can_accept_resp = resp_ptr_in_range && (resp_slot_state === RobState.WaitingForResult)
 
   when(io.flush) {
     req_ptr  := 0.U
     resp_ptr := 0.U
+    safe_ptr := 0.U
   }.otherwise {
+    // safe_ptr: sync to head when stale (after commit); else advance when !might_flush and before tail
+    when(safe_offset >= io.count) {
+      safe_ptr := io.headPtr
+    }.elsewhen(safe_slot_valid && !safe_slot_might_flush && safe_ptr_before_tail) {
+      safe_ptr := (safe_ptr + 1.U)(idWidth - 1, 0)
+    }
+
     // req_ptr advance
     when(req_ptr_in_range) {
       when(req_slot_state === RobState.Executing) {
         // wait
       }.elsewhen(req_slot_state === RobState.WaitingForMem) {
-        when(req_ptr === io.headPtr && io.mem.req.fire) {
+        when(req_in_safe_region && io.mem.req.fire) {
           req_ptr := (req_ptr + 1.U)(idWidth - 1, 0)
         }
       }.otherwise {
-        // WaitingForResult or Done: advance
         req_ptr := (req_ptr + 1.U)(idWidth - 1, 0)
       }
     }
@@ -75,7 +92,6 @@ class MemReqManager(depth: Int, idWidth: Int) extends Module {
           resp_ptr := (resp_ptr + 1.U)(idWidth - 1, 0)
         }
       }.otherwise {
-        // Done: advance
         resp_ptr := (resp_ptr + 1.U)(idWidth - 1, 0)
       }
     }
