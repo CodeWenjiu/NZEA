@@ -66,11 +66,13 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     w
   }
 
-  // ROB commit: 32 entries all listen, clear busy where rob_id matches (no rd_index indexing)
+  // ROB commit: clear busy where rob_id matches. Exclude rd_index=0 (x0) and never touch ratTable_busy(0)
   val rob_commit_rob_id = io.rat_rob_write.bits.rob_id
+  val rob_commit_rd = io.rat_rob_write.bits.rd_index
   val rob_commit_match_mask = VecInit((0 until 32).map(i =>
-    (ratTable_rob_id(i) === rob_commit_rob_id).asUInt)).asUInt
-  val after_rob_clear = Mux(io.rat_rob_write.valid, ratTable_busy & ~rob_commit_match_mask, ratTable_busy)
+    (if (i == 0) 0.U else (ratTable_rob_id(i) === rob_commit_rob_id).asUInt))).asUInt
+  val after_rob_clear = Mux(io.rat_rob_write.valid && rob_commit_rd =/= 0.U,
+    ratTable_busy & ~rob_commit_match_mask, ratTable_busy)
 
   when(io.out.flush) {
     ratTable_busy := 0.U
@@ -81,9 +83,9 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
           ratTable_rob_id(i) := io.rat_isu_write.bits.rob_id
         }
       }
-      ratTable_busy := after_rob_clear | (1.U << io.rat_isu_write.bits.rd_index)
+      ratTable_busy := (after_rob_clear | (1.U << io.rat_isu_write.bits.rd_index)) & ~(1.U << 0)
     }.otherwise {
-      ratTable_busy := after_rob_clear
+      ratTable_busy := after_rob_clear & ~(1.U << 0)
     }
   }
 
@@ -100,8 +102,8 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val rs2_index = Mux(rs2Rd, io.in.bits.inst(24, 20), 0.U(5.W))
   val rd_index  = Mux(gprWr, io.in.bits.inst(11, 7), 0.U(5.W))
 
-  val rs1_data = Mux(rs1_index === io.gpr_wr.addr, io.gpr_wr.data, gpr(rs1_index))
-  val rs2_data = Mux(rs2_index === io.gpr_wr.addr, io.gpr_wr.data, gpr(rs2_index))
+  val rs1_data = Mux(rs1_index === 0.U, 0.U, Mux(rs1_index === io.gpr_wr.addr, io.gpr_wr.data, gpr(rs1_index)))
+  val rs2_data = Mux(rs2_index === 0.U, 0.U, Mux(rs2_index === io.gpr_wr.addr, io.gpr_wr.data, gpr(rs2_index)))
 
   val inst = io.in.bits.inst
   val immI = Cat(Fill(20, inst(31)), inst(31, 20))
