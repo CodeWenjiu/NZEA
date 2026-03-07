@@ -49,43 +49,38 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     gpr(io.gpr_wr.addr) := io.gpr_wr.data
   }
 
-  // RAT: rob_id in Vec(32), busy in UInt(32) (bit i = busy for reg i)
   val ratTable_rob_id = RegInit(VecInit(Seq.fill(32)(0.U(robIdWidth.W))))
-  val ratTable_busy   = RegInit(0.U(32.W))
+  val ratTable_busy   = RegInit(VecInit(Seq.fill(32)(false.B)))
 
   def bypassRead(idx: UInt): RatEntry = {
     val sel_rob_id = Mux1H((0 until 32).map(i => idx === i.U), ratTable_rob_id)
-    val sel_busy   = Mux1H((0 until 32).map(i => idx === i.U), (0 until 32).map(i => ratTable_busy(i)))
-    val isuWrite = io.rat_isu_write.valid && io.rat_isu_write.bits.rd_index === idx
-    val robMatch = sel_rob_id === io.rat_rob_write.bits.rob_id
-    val robWrite = io.rat_rob_write.valid && robMatch
+    val reg_busy   = Mux1H((0 until 32).map(i => idx === i.U), ratTable_busy)
+    val isu_match = io.rat_isu_write.valid && io.rat_isu_write.bits.rd_index === idx
+    val rob_match = io.rat_rob_write.valid && idx === io.rat_rob_write.bits.rd_index && sel_rob_id === io.rat_rob_write.bits.rob_id
     val w = Wire(new RatEntry(robIdWidth))
-    w.rob_id := Mux(isuWrite, io.rat_isu_write.bits.rob_id,
-      Mux(robWrite && robMatch, sel_rob_id, sel_rob_id))
-    w.busy := Mux(isuWrite, true.B, Mux(robWrite && robMatch, false.B, sel_busy))
+    w.rob_id := Mux(isu_match, io.rat_isu_write.bits.rob_id, sel_rob_id)
+    w.busy := Mux(isu_match, true.B, Mux(rob_match, false.B, reg_busy))
     w
   }
 
-  // ROB commit: clear busy where rob_id matches. Exclude rd_index=0 (x0) and never touch ratTable_busy(0)
-  val rob_commit_rob_id = io.rat_rob_write.bits.rob_id
-  val rob_commit_rd = io.rat_rob_write.bits.rd_index
-  val rob_commit_match_mask = VecInit((0 until 32).map(i =>
-    (if (i == 0) 0.U else (ratTable_rob_id(i) === rob_commit_rob_id).asUInt))).asUInt
-  val after_rob_clear = Mux(io.rat_rob_write.valid && rob_commit_rd =/= 0.U,
-    ratTable_busy & ~rob_commit_match_mask, ratTable_busy)
-
+  // ratTable_rob_id
   when(io.out.flush) {
-    ratTable_busy := 0.U
+    for (i <- 0 until 32) { ratTable_rob_id(i) := 0.U }
+  }.elsewhen(io.rat_isu_write.valid && io.rat_isu_write.bits.rd_index =/= 0.U) {
+    ratTable_rob_id(io.rat_isu_write.bits.rd_index) := io.rat_isu_write.bits.rob_id
+  }
+
+  // ratTable_busy: ISU sets by rd_index; Rob clears by rd_index when ratTable_rob_id matches. ISU priority.
+  val rob_commit_rob_id = io.rat_rob_write.bits.rob_id
+  val rob_commit_rd    = io.rat_rob_write.bits.rd_index
+  when(io.out.flush) {
+    ratTable_busy := VecInit(Seq.fill(32)(false.B))
   }.otherwise {
+    when(io.rat_rob_write.valid && rob_commit_rd =/= 0.U && ratTable_rob_id(rob_commit_rd) === rob_commit_rob_id) {
+      ratTable_busy(rob_commit_rd) := false.B
+    }
     when(io.rat_isu_write.valid && io.rat_isu_write.bits.rd_index =/= 0.U) {
-      for (i <- 0 until 32) {
-        when(io.rat_isu_write.bits.rd_index === i.U) {
-          ratTable_rob_id(i) := io.rat_isu_write.bits.rob_id
-        }
-      }
-      ratTable_busy := (after_rob_clear | (1.U << io.rat_isu_write.bits.rd_index)) & ~(1.U << 0)
-    }.otherwise {
-      ratTable_busy := after_rob_clear & ~(1.U << 0)
+      ratTable_busy(io.rat_isu_write.bits.rd_index) := true.B  // 后写，同索引时优先
     }
   }
 

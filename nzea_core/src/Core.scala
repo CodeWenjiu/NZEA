@@ -14,9 +14,10 @@ class Core(implicit config: NzeaConfig) extends Module {
   val idu = Module(new frontend.IDU(addrWidth))
   val isu = Module(new frontend.ISU(addrWidth))
   val exu = Module(new backend.EXU(robIdWidth))
-  val rob = nzea_core.retire.rob.Rob(robDepth, exu.fuOutputs)
+  val rob = nzea_core.retire.rob.Rob(robDepth, exu.fuOutputs, aguPortIndex = 3)
   val commit = Module(new retire.Commit)
-  val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth))
+  private val lsBufferDepth = (robDepth / 2).max(1)
+  val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth))
 
   val io = IO(new Bundle {
     val ibus       = chiselTypeOf(ifu.io.bus)
@@ -32,12 +33,16 @@ class Core(implicit config: NzeaConfig) extends Module {
   PipelineConnect(isu.io.sysu, exu.io.sysu_in)
 
   rob.enq <> isu.io.rob_enq
+  memUnit.io.ls_enq <> exu.io.agu_ls_enq
   rob.io.commit <> commit.io.rob_commit
   rob.io.slotReadRs1 <> isu.io.rob_slot_rs1
   rob.io.slotReadRs2 <> isu.io.rob_slot_rs2
   idu.io.rat_isu_write := isu.io.rat_write
   idu.io.rat_rob_write := rob.io.rat_rob_write
-  rob.mem.req <> memUnit.io.req
+  memUnit.io.issue := rob.mem.issue
+  rob.mem.issue_rob_id := memUnit.io.issue_rob_id
+  rob.mem.ls_enq_ready := memUnit.io.ls_enq.ready
+  memUnit.io.flush := rob.mem.flush
   rob.mem.resp <> memUnit.io.resp
   idu.io.gpr_wr := rob.io.gpr_wr
 

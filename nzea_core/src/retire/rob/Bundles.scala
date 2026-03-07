@@ -6,17 +6,15 @@ import nzea_core.backend.LsuOp
 
 // -------- Bundles --------
 
-/** One entry in the Rob. rd_value reused for mem_addr before load/store completes. */
+/** One entry in the Rob. Mem addr/wdata/wstrb in MemUnit LsBuffer. */
 class RobEntry extends Bundle {
-  val rd_index  = UInt(5.W)
-  val is_done   = Bool()
-  val need_mem  = Bool()
-  val rd_value  = UInt(32.W)
-  val next_pc   = UInt(32.W)
-  val flush     = Bool()
-  val mem_wdata = UInt(32.W)
-  val mem_wstrb = UInt(4.W)
-  val mem_lsuOp = LsuOp()
+  val rd_index   = UInt(5.W)
+  val is_done    = Bool()
+  val need_mem   = Bool()
+  val rd_value   = UInt(32.W)
+  val next_pc    = UInt(32.W)
+  val flush      = Bool()
+  val mem_lsuOp  = LsuOp()
 }
 
 
@@ -26,7 +24,7 @@ class RobEnqPayload extends Bundle {
   val might_flush = Bool()
 }
 
-/** MemUnit request: rob_id, addr, wdata, wstrb, lsuOp. */
+/** MemUnit request / LS_Queue entry: rob_id, addr, wdata, wstrb, lsuOp. */
 class RobMemReq(idWidth: Int) extends Bundle {
   val rob_id = UInt(idWidth.W)
   val addr   = UInt(32.W)
@@ -42,16 +40,13 @@ class RobMemResp(idWidth: Int) extends Bundle {
 }
 
 /** Unified Rob slot read: all fields any consumer may need.
-  * ISU: valid, is_done, rd_value.
-  * Rob mem req: valid, need_mem, rd_value (addr), mem_wdata, mem_wstrb, mem_lsuOp, might_flush (req_ptr, safe_ptr).
+  * ISU: valid, is_done, rd_value. Mem data in LS_Queue.
   */
 class RobSlotRead extends Bundle {
   val valid       = Bool()
   val is_done     = Bool()
   val need_mem    = Bool()
   val rd_value    = UInt(32.W)
-  val mem_wdata   = UInt(32.W)
-  val mem_wstrb   = UInt(4.W)
   val mem_lsuOp   = LsuOp()
   val might_flush = Bool()
 }
@@ -62,16 +57,14 @@ class RobSlotReadPort(idWidth: Int) extends Bundle {
   val slot   = Output(new RobSlotRead)
 }
 
-/** FU output to Rob: state update for an entry. */
+/** FU output to Rob: state update for an entry. Mem data (addr,wdata,wstrb) goes to LS_Queue. */
 class RobEntryStateUpdate(idWidth: Int) extends Bundle {
-  val rob_id    = UInt(idWidth.W)
-  val is_done   = Bool()
-  val need_mem  = Bool()
-  val rd_value  = UInt(32.W)
-  val flush     = Bool()
-  val next_pc   = UInt(32.W)
-  val mem_wdata = UInt(32.W)
-  val mem_wstrb = UInt(4.W)
+  val rob_id   = UInt(idWidth.W)
+  val is_done  = Bool()
+  val need_mem = Bool()
+  val rd_value = UInt(32.W)
+  val flush    = Bool()
+  val next_pc  = UInt(32.W)
   val mem_lsuOp = LsuOp()
 }
 
@@ -89,9 +82,13 @@ class RobEnqIO(idWidth: Int) extends Bundle {
   val rob_id = Output(UInt(idWidth.W))
 }
 
+/** Rob–MemUnit: Rob issues mem request; MemUnit provides issue_rob_id, ls_enq_ready, resp. */
 class RobMemIO(idWidth: Int) extends Bundle {
-  val req  = Decoupled(new RobMemReq(idWidth))
-  val resp = Flipped(Decoupled(new RobMemResp(idWidth)))
+  val issue        = Output(Bool())
+  val issue_rob_id = Input(Valid(UInt(idWidth.W)))
+  val ls_enq_ready = Input(Bool())
+  val flush        = Output(Bool())
+  val resp         = Flipped(Decoupled(new RobMemResp(idWidth)))
 }
 
 class RobAccessPortsIO(idWidth: Int, numPorts: Int) extends Bundle {

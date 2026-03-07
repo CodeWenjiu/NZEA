@@ -8,8 +8,8 @@ import nzea_core.retire.CommitMsg
 /** Companion object: entryStateUpdate helper and apply for wiring. */
 object Rob {
   /** Create Rob and wire fuOutputs; call from parent (e.g. Core) so connection context is correct. */
-  def apply(depth: Int, fuOutputs: Seq[RobAccessIO]): Rob = {
-    val r = Module(new Rob(depth, fuOutputs.size))
+  def apply(depth: Int, fuOutputs: Seq[RobAccessIO], aguPortIndex: Int = 3): Rob = {
+    val r = Module(new Rob(depth, fuOutputs.size, aguPortIndex))
     (r.io.accessPorts zip fuOutputs).foreach { case (p, fu) =>
       p.valid := fu.valid
       p.bits := fu.bits
@@ -27,8 +27,6 @@ object Rob {
     rd_value: UInt,
     flush: Bool = false.B,
     next_pc: UInt = 0.U,
-    mem_wdata: UInt = 0.U,
-    mem_wstrb: UInt = 0.U,
     mem_lsuOp: nzea_core.backend.LsuOp.Type = nzea_core.backend.LsuOp.LB
   )(idWidth: Int): chisel3.util.Valid[RobEntryStateUpdate] = {
     val w = Wire(chisel3.util.Valid(new RobEntryStateUpdate(idWidth)))
@@ -39,32 +37,19 @@ object Rob {
     w.bits.rd_value := rd_value
     w.bits.flush := flush
     w.bits.next_pc := next_pc
-    w.bits.mem_wdata := mem_wdata
-    w.bits.mem_wstrb := mem_wstrb
     w.bits.mem_lsuOp := mem_lsuOp
     w
   }
 }
 
 /** Rob: depth-entry circular buffer. rob_id = stable slot index.
-  *
-  * Slot fields and write sources (at most one writer per slot per cycle):
-  * | Field        | IS (enq)     | FU              | MemUnit        |
-  * |--------------|--------------|-----------------|----------------|
-  * | rd_index     | ✓            |                 |                |
-  * | might_flush  | ✓            |                 |                |
-  * | is_done      |              | ✓ (FU)          | ✓ (mem.resp)     |
- * | need_mem     |              | ✓ (AGU only)    |                  |
-  * | next_pc      |              | ✓ (always)      |                |
-  * | flush        | ✓ false(init)| ✓ (when branch) |               |
-  * | rd_value     |              | ✓ Done/WaitMem  | ✓ (load resp)  |
-  * | mem_wdata    |              | ✓ (AGU only)    |                |
-  * | mem_wstrb    |              | ✓ (AGU only)    |                |
-  * | mem_lsuOp    |              | ✓ (AGU only)    |                |
+  * MemUnit holds LsBuffer; AGU enqueues there. Rob issues mem request by rob_id; receives resp.
+  * Slot fields: rd_index, need_mem, rd_value, mem_lsuOp (for resp).
   */
-class Rob(depth: Int, numAccessPorts: Int) extends Module {
+class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
   require(numAccessPorts >= 1, "Rob numAccessPorts must >= 1")
+  require(aguPortIndex >= 0 && aguPortIndex < numAccessPorts, "aguPortIndex must be valid")
 
   private val idWidth  = chisel3.util.log2Ceil(depth.max(2))
   private val ptrWidth = idWidth + 1  // low idWidth bits = physical index, MSB = wrap/lap bit
@@ -90,15 +75,13 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   val tail_phys = tail_ptr(idWidth - 1, 0)
   val count = (tail_ptr - head_ptr)(ptrWidth - 1, 0)  // combinational, no register
 
-  // Each field in its own Reg; writers only touch what they need
-  val slots_rd_index  = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
-  val slots_is_done   = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_need_mem  = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_rd_value  = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
-  val slots_next_pc   = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
-  val slots_flush     = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_mem_wdata   = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
-  val slots_mem_wstrb   = RegInit(VecInit(Seq.fill(depth)(0.U(4.W))))
+  // Each field in its own Reg; mem addr/wdata/wstrb in LS_Queue
+  val slots_rd_index    = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
+  val slots_is_done     = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val slots_need_mem    = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val slots_rd_value    = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
+  val slots_next_pc     = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
+  val slots_flush       = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val slots_mem_lsuOp   = RegInit(VecInit(Seq.fill(depth)(LsuOp.LB)))
   val slots_might_flush = RegInit(VecInit(Seq.fill(depth)(false.B)))
 
@@ -124,8 +107,6 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     s.is_done     := muxTree(idx, slots_is_done)
     s.need_mem    := muxTree(idx, slots_need_mem)
     s.rd_value    := muxTree(idx, slots_rd_value)
-    s.mem_wdata   := muxTree(idx, slots_mem_wdata)
-    s.mem_wstrb   := muxTree(idx, slots_mem_wstrb)
     s.mem_lsuOp   := muxTree(idx, slots_mem_lsuOp)
     s.might_flush := muxTree(idx, slots_might_flush)
     s
@@ -156,44 +137,35 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   io.commit.bits.rd_value  := head_rd_value
   io.commit.bits.mem_count := Mux(head_need_mem, 1.U(32.W), 0.U(32.W))
 
+  io.rat_rob_write.valid := io.commit.valid
+  io.rat_rob_write.bits.rd_index := head_rd_index
+  io.rat_rob_write.bits.rob_id   := head_phys
+
   // Separate muxTree to avoid sharing with commit.bits (which would pull in slots_need_mem/slots_next_pc on critical path)
   io.gpr_wr.addr := Mux(head_done, muxTree(head_phys, slots_rd_index), 0.U)
   io.gpr_wr.data := muxTree(head_phys, slots_rd_value)
 
-  io.accessPorts.foreach { p =>
-    p.ready := true.B
+  io.accessPorts.zipWithIndex.foreach { case (p, i) =>
+    p.ready := Mux((i == aguPortIndex).B, mem.ls_enq_ready, true.B)
     p.flush := do_flush
   }
 
   io.slotReadRs1.slot := readSlot(io.slotReadRs1.rob_id)
   io.slotReadRs2.slot := readSlot(io.slotReadRs2.rob_id)
 
-  io.rat_rob_write.valid := io.commit.valid
-  io.rat_rob_write.bits.rd_index := head_rd_index
-  io.rat_rob_write.bits.rob_id   := head_phys
+  // -------- Mem issue to MemUnit; safe_ptr for ordering --------
 
-  // -------- Mem request (req_ptr, safe_ptr; rob_id via dbus user, resp writes directly) --------
-
-  val req_ptr  = RegInit(0.U(idWidth.W))
   val safe_ptr = RegInit(0.U(idWidth.W))
-
-  val req_slot  = readSlot(req_ptr)
   val safe_slot = readSlot(safe_ptr)
-
-  val req_offset  = (req_ptr - head_phys)(idWidth - 1, 0)
   val safe_offset = (safe_ptr - head_phys)(idWidth - 1, 0)
-
-  val req_ptr_in_range    = req_slot.valid
   val safe_ptr_before_tail = safe_offset < count
-  val req_in_safe_region  = req_ptr_in_range && (req_offset < safe_offset)
-  val can_send = req_in_safe_region && req_slot.need_mem
 
-  mem.req.valid := !do_flush && can_send
-  mem.req.bits.rob_id := req_ptr
-  mem.req.bits.addr   := req_slot.rd_value
-  mem.req.bits.wdata  := req_slot.mem_wdata
-  mem.req.bits.wstrb  := req_slot.mem_wstrb
-  mem.req.bits.lsuOp  := req_slot.mem_lsuOp
+  val ls_head_rob_id = mem.issue_rob_id.bits
+  val ls_head_offset = (ls_head_rob_id - head_phys)(idWidth - 1, 0)
+  val ls_head_in_safe = mem.issue_rob_id.valid && slotValid(ls_head_rob_id) && (ls_head_offset < safe_offset)
+
+  mem.issue := !do_flush && ls_head_in_safe
+  mem.flush := do_flush
   mem.resp.ready := !do_flush
 
   // -------- Main Update Logic --------
@@ -201,7 +173,6 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
   when(do_flush) {
     head_ptr := 0.U
     tail_ptr := 0.U
-    req_ptr := 0.U
     safe_ptr := 0.U
     for (i <- 0 until depth) {
       slots_rd_index(i)    := 0.U
@@ -211,8 +182,6 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
       slots_next_pc(i)     := 0.U
       slots_flush(i)       := false.B
       slots_might_flush(i) := false.B
-      slots_mem_wdata(i)   := 0.U
-      slots_mem_wstrb(i)   := 0.U
       slots_mem_lsuOp(i)   := LsuOp.LB
     }
   }.otherwise {
@@ -221,19 +190,6 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
       safe_ptr := head_phys
     }.elsewhen(safe_slot.valid && !safe_slot.might_flush && safe_ptr_before_tail) {
       safe_ptr := (safe_ptr + 1.U)(idWidth - 1, 0)
-    }
-
-    // req_ptr advance: !need_mem&&!is_done => wait; need_mem => advance on send; is_done => advance
-    when(req_ptr_in_range) {
-      when(!req_slot.need_mem && !req_slot.is_done) {
-        // Executing: wait
-      }.elsewhen(req_slot.need_mem) {
-        when(req_in_safe_region && mem.req.fire) {
-          req_ptr := (req_ptr + 1.U)(idWidth - 1, 0)
-        }
-      }.otherwise {
-        req_ptr := (req_ptr + 1.U)(idWidth - 1, 0)  // is_done
-      }
     }
 
     applyFuUpdates()
@@ -254,7 +210,7 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
     }
   }
 
-  // FU: is_done, need_mem, rd_value, next_pc, flush, mem_wdata/wstrb/lsuOp (AGU only).
+  // FU: is_done, need_mem, rd_value, next_pc, flush, mem_lsuOp (AGU). Mem addr/wdata/wstrb in LS_Queue.
   def applyFuUpdates(): Unit = {
     for (p <- io.accessPorts) {
       when(p.valid) {
@@ -266,13 +222,13 @@ class Rob(depth: Int, numAccessPorts: Int) extends Module {
           slots_rd_value(idx) := p.bits.rd_value
         }
         when(p.bits.need_mem) {
-          slots_rd_value(idx)   := p.bits.rd_value
-          slots_mem_wdata(idx) := p.bits.mem_wdata
-          slots_mem_wstrb(idx) := p.bits.mem_wstrb
           slots_mem_lsuOp(idx) := p.bits.mem_lsuOp
         }
         when(p.bits.flush) {
           slots_flush(idx) := true.B
+        }.elsewhen(p.bits.is_done) {
+          // Branch resolved as not taken: clear might_flush so safe_ptr can advance
+          slots_might_flush(idx) := false.B
         }
       }
     }

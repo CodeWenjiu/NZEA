@@ -1,7 +1,7 @@
 package nzea_core.retire
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, Mux1H}
+import chisel3.util.{Cat, Decoupled, Mux1H, Valid}
 import nzea_core.backend.LsuOp
 import nzea_core.CoreBusReadWrite
 import nzea_core.retire.rob.{RobMemReq, RobMemResp}
@@ -13,7 +13,8 @@ class DbusUserBundle(robIdWidth: Int) extends Bundle {
   val addr2   = UInt(2.W)
 }
 
-class MemUnit(width: Int, robIdWidth: Int) extends Module {
+/** MemUnit: LsBuffer inside; AGU enqueues; Rob issues; load data formatting. No in-flight management. */
+class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
   private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2
   private val userWidth = width.max(userPayloadWidth)
   private val dbusType = new CoreBusReadWrite(width, width, userWidth)
@@ -21,34 +22,56 @@ class MemUnit(width: Int, robIdWidth: Int) extends Module {
   private val userBundleType = new DbusUserBundle(robIdWidth)
 
   val io = IO(new Bundle {
-    val req  = Flipped(Decoupled(new RobMemReq(robIdWidth)))
-    val resp = Decoupled(new RobMemResp(robIdWidth))
-    val dbus = dbusType.cloneType
+    val ls_enq      = Flipped(Decoupled(new RobMemReq(robIdWidth)))
+    val issue       = Input(Bool())
+    val issue_rob_id = Output(Valid(UInt(robIdWidth.W)))
+    val flush       = Input(Bool())
+    val resp        = Decoupled(new RobMemResp(robIdWidth))
+    val dbus        = dbusType.cloneType
   })
 
-  val isStore =
-    io.req.bits.lsuOp === LsuOp.SB || io.req.bits.lsuOp === LsuOp.SH || io.req.bits.lsuOp === LsuOp.SW
-  val isLoad = !isStore
+  // LS buffer: FIFO for mem ops, flush clears instantly
+  private val ptrWidth = chisel3.util.log2Ceil(lsBufferDepth.max(2)) + 1
+  val ls_slots   = Reg(Vec(lsBufferDepth, new RobMemReq(robIdWidth)))
+  val ls_head_ptr = RegInit(0.U(ptrWidth.W))
+  val ls_tail_ptr = RegInit(0.U(ptrWidth.W))
+  val ls_head_phys = ls_head_ptr(ptrWidth - 2, 0)
+  val ls_tail_phys = ls_tail_ptr(ptrWidth - 2, 0)
+  val ls_empty = ls_head_ptr === ls_tail_ptr
+  val ls_full  = (ls_tail_phys === ls_head_phys) && (ls_tail_ptr(ptrWidth - 1) =/= ls_head_ptr(ptrWidth - 1))
 
-  val pipelineDepth = 2
-  val inFlight = RegInit(0.U(2.W))
-  when(io.dbus.req.fire) { inFlight := inFlight + 1.U }
-  when(io.dbus.resp.fire) { inFlight := inFlight - 1.U }
+  io.ls_enq.ready := !ls_full && !io.flush
+  io.issue_rob_id.valid := !ls_empty
+  io.issue_rob_id.bits := ls_slots(ls_head_phys).rob_id
 
-  val dbusReqValid = io.req.valid && inFlight < pipelineDepth.U
-  io.dbus.req.valid := dbusReqValid
-  io.dbus.req.bits.addr := io.req.bits.addr
-  io.dbus.req.bits.wdata := io.req.bits.wdata
+  val do_issue = io.issue && !ls_empty
+  val head = ls_slots(ls_head_phys)
+  val isStore = head.lsuOp === LsuOp.SB || head.lsuOp === LsuOp.SH || head.lsuOp === LsuOp.SW
+
+  io.dbus.req.valid := do_issue
+  io.dbus.req.bits.addr := head.addr
+  io.dbus.req.bits.wdata := head.wdata
   io.dbus.req.bits.wen := isStore
-  io.dbus.req.bits.wstrb := io.req.bits.wstrb
+  io.dbus.req.bits.wstrb := head.wstrb
   val userReq = Wire(userBundleType)
-  userReq.rob_id := io.req.bits.rob_id
-  userReq.lsuOp := io.req.bits.lsuOp.asUInt
-  userReq.addr2 := io.req.bits.addr(1, 0)
+  userReq.rob_id := head.rob_id
+  userReq.lsuOp := head.lsuOp.asUInt
+  userReq.addr2 := head.addr(1, 0)
   io.dbus.req.bits.user := userReq.asUInt
 
-  io.req.ready := io.dbus.req.ready && inFlight < pipelineDepth.U
-  io.dbus.resp.ready := inFlight > 0.U && io.resp.ready
+  when(io.flush) {
+    ls_head_ptr := 0.U
+    ls_tail_ptr := 0.U
+  }.otherwise {
+    when(io.ls_enq.fire) {
+      ls_slots(ls_tail_phys) := io.ls_enq.bits
+      ls_tail_ptr := (ls_tail_ptr + 1.U)(ptrWidth - 1, 0)
+    }
+    when(do_issue && io.dbus.req.ready) {
+      ls_head_ptr := (ls_head_ptr + 1.U)(ptrWidth - 1, 0)
+    }
+  }
+  io.dbus.resp.ready := io.resp.ready
   io.dbus.resp.flush := false.B
   io.dbus.flush := false.B
 
