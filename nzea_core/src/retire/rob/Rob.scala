@@ -59,7 +59,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
   val mem = IO(new RobMemIO(idWidth))
   val io = IO(new Bundle {
     val commit        = Valid(new CommitMsg)
-    val gpr_wr        = Output(new Bundle { val addr = UInt(5.W); val data = UInt(32.W) })
     val accessPorts   = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
     val slotReadRs1   = new RobSlotReadPort(idWidth)
     val slotReadRs2   = new RobSlotReadPort(idWidth)
@@ -140,10 +139,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
   io.rat_rob_write.valid := io.commit.valid
   io.rat_rob_write.bits.rd_index := head_rd_index
   io.rat_rob_write.bits.rob_id   := head_phys
-
-  // Separate muxTree to avoid sharing with commit.bits (which would pull in slots_need_mem/slots_next_pc on critical path)
-  io.gpr_wr.addr := Mux(head_done, muxTree(head_phys, slots_rd_index), 0.U)
-  io.gpr_wr.data := muxTree(head_phys, slots_rd_value)
 
   io.accessPorts.zipWithIndex.foreach { case (p, i) =>
     p.ready := Mux((i == aguPortIndex).B, mem.ls_enq_ready, true.B)
@@ -250,6 +245,7 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
 
   def applyCommit(): Unit = {
     when(io.commit.valid) {
+      slots_is_done(head_ptr(idWidth - 1, 0)) := false.B
       head_ptr := (head_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }
