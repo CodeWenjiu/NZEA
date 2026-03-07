@@ -47,7 +47,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
 
   val do_issue = io.issue && !ls_empty
   val head = ls_slots(ls_head_phys)
-  val isStore = head.lsuOp === LsuOp.SB || head.lsuOp === LsuOp.SH || head.lsuOp === LsuOp.SW
+  val isStore = LsuOp.isStore(head.lsuOp)
 
   io.dbus.req.valid := do_issue
   io.dbus.req.bits.addr := Cat(head.addr(31, 2), 0.U(2.W))
@@ -96,7 +96,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
   val loadData =
     Mux1H(respUser.lsuOp, Seq(lb, lh, lw, lbu, lhu, 0.U(32.W), 0.U(32.W), 0.U(32.W)))
 
-  val isStoreFromResp = respUser.lsuOp === LsuOp.SB.asUInt || respUser.lsuOp === LsuOp.SH.asUInt || respUser.lsuOp === LsuOp.SW.asUInt
+  val isStoreFromResp = LsuOp.isStore(respUser.lsuOp)
   val respFire = io.dbus.resp.valid && io.dbus.resp.ready
 
   io.resp.valid := respFire

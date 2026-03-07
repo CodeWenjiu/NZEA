@@ -15,6 +15,11 @@ object LsuOp extends chisel3.ChiselEnum {
   val SB  = Value((1 << 5).U)
   val SH  = Value((1 << 6).U)
   val SW  = Value((1 << 7).U)
+
+  def isStore(op: LsuOp.Type): Bool = op === SB || op === SH || op === SW
+  def isLoad(op: LsuOp.Type): Bool  = !isStore(op)
+  def isStore(op: UInt): Bool       = op === SB.asUInt || op === SH.asUInt || op === SW.asUInt
+  def isLoad(op: UInt): Bool         = !isStore(op)
 }
 
 /** AGU input: base, imm, lsuOp, storeData, pc; rob_id from IS. */
