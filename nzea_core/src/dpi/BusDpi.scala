@@ -93,6 +93,6 @@ class CommitDpiBridge extends Module {
 
   RawClockedVoidFunctionCall(
     "commit_trace",
-    Some(Seq("next_pc", "gpr_addr", "gpr_data", "mem_count"))
-  )(clock, io.commit_msg.valid, io.commit_msg.bits.next_pc, io.commit_msg.bits.rd_index.pad(32), io.commit_msg.bits.rd_value, io.commit_msg.bits.mem_count)
+    Some(Seq("next_pc", "gpr_addr", "gpr_data", "mem_count", "is_load"))
+  )(clock, io.commit_msg.valid, io.commit_msg.bits.next_pc, io.commit_msg.bits.rd_index.pad(32), io.commit_msg.bits.rd_value, io.commit_msg.bits.mem_count, io.commit_msg.bits.is_load)
 }

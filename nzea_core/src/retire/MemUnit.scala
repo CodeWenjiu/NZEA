@@ -13,7 +13,8 @@ class DbusUserBundle(robIdWidth: Int) extends Bundle {
   val addr2   = UInt(2.W)
 }
 
-/** MemUnit: LsBuffer inside; AGU enqueues; Rob issues; load data formatting. No in-flight management. */
+/** MemUnit: LsBuffer inside; AGU enqueues; Rob issues; load data formatting.
+  * No unaligned support: read always 4-byte aligned, extract byte/half from rdata; assume no unaligned instrs. */
 class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
   private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2
   private val userWidth = width.max(userPayloadWidth)
@@ -49,7 +50,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
   val isStore = head.lsuOp === LsuOp.SB || head.lsuOp === LsuOp.SH || head.lsuOp === LsuOp.SW
 
   io.dbus.req.valid := do_issue
-  io.dbus.req.bits.addr := head.addr
+  io.dbus.req.bits.addr := Cat(head.addr(31, 2), 0.U(2.W))
   io.dbus.req.bits.wdata := head.wdata
   io.dbus.req.bits.wen := isStore
   io.dbus.req.bits.wstrb := head.wstrb

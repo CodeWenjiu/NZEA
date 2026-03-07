@@ -4,12 +4,13 @@ import chisel3._
 import chisel3.util.{Valid, Mux1H}
 import nzea_config.NzeaConfig
 
-/** Commit payload: next_pc, rd_index, rd_value, mem_count (0 or 1). Use Valid(CommitMsg) for Rob->Commit. */
+/** Commit payload: next_pc, rd_index, rd_value, mem_count (0 or 1), is_load. Use Valid(CommitMsg) for Rob->Commit. */
 class CommitMsg extends Bundle {
   val next_pc   = UInt(32.W)
   val rd_index  = UInt(5.W)
   val rd_value  = UInt(32.W)
   val mem_count = UInt(32.W)  // 0 or 1, from need_mem, for diff/trace
+  val is_load   = Bool()      // true if mem op is load, false if store (don't care when mem_count=0)
 }
 
 /** Commit: receives Rob commit via Valid (only when head is Done); commits and writes GPR. */

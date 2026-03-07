@@ -113,10 +113,12 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
 
   val head_is_done   = muxTree(head_phys, slots_is_done)
   val head_need_mem  = muxTree(head_phys, slots_need_mem)
+  val head_mem_lsuOp = muxTree(head_phys, slots_mem_lsuOp)
   val head_next_pc   = muxTree(head_phys, slots_next_pc)
   val head_rd_index  = muxTree(head_phys, slots_rd_index)
   val head_rd_value  = muxTree(head_phys, slots_rd_value)
   val head_flush     = muxTree(head_phys, slots_flush)
+  val head_is_load   = head_mem_lsuOp =/= LsuOp.SB && head_mem_lsuOp =/= LsuOp.SH && head_mem_lsuOp =/= LsuOp.SW
 
   // -------- Enq --------
 
@@ -135,6 +137,7 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
   io.commit.bits.rd_index  := head_rd_index
   io.commit.bits.rd_value  := head_rd_value
   io.commit.bits.mem_count := Mux(head_need_mem, 1.U(32.W), 0.U(32.W))
+  io.commit.bits.is_load   := head_is_load
 
   io.rat_rob_write.valid := io.commit.valid
   io.rat_rob_write.bits.rd_index := head_rd_index
