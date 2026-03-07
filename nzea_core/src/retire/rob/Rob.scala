@@ -120,7 +120,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
   val head_rd_index  = MuxTree(head_phys, slots_rd_index)
   val head_rd_value  = MuxTree(head_phys, slots_rd_value)
   val head_flush     = MuxTree(head_phys, slots_flush)
-  val head_is_store  = LsuOp.isStore(head_mem_lsuOp)
   val head_is_load   = LsuOp.isLoad(head_mem_lsuOp)
 
   // -------- Enq --------
@@ -187,7 +186,8 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
     }
   }.otherwise {
     when(safe_offset >= count) {
-      safe_ptr := head_phys
+      // No might_flush in [head, tail): allow all mem ops. Point past tail so safe_offset=count.
+      safe_ptr := tail_phys
     }.elsewhen(safe_slot.valid && !safe_slot.might_flush && safe_ptr_before_tail) {
       safe_ptr := (safe_ptr + 1.U)(idWidth - 1, 0)
     }

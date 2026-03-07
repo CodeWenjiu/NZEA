@@ -104,8 +104,9 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val pc      = io.in.bits.pc
   val rob_id  = io.rob_enq.rob_id
   val can_dispatch = io.in.valid && !stall
+  val can_enq = can_dispatch && io.in.ready
 
-  io.rob_enq.req.valid := can_dispatch
+  io.rob_enq.req.valid := can_enq
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
 
