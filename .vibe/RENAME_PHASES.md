@@ -16,38 +16,39 @@
 
 ---
 
-## Phase 2: IDU 中的 Rename 逻辑
+## Phase 2: IDU 中的 Rename 逻辑 ✓
 
-- [ ] IDU 实例化 RMT、FreeList（working + checkpoint 各一份）
-- [ ] Rename：查 RMT 得 p_rs1/p_rs2，从 FreeList pop 得 p_rd，记录 old_p_rd
-- [ ] IDUOut 增加 p_rs1, p_rs2, p_rd, old_p_rd
-- [ ] 分支 dispatch 时做 checkpoint 快照
-- [ ] 增加 commit 输入：old_p_rd 用于 FreeList push
-- [ ] 保持原有 rs1_index/rs2_index 输出（兼容过渡）
-
----
-
-## Phase 3: PRF 与 ISU 读路径
-
-- [ ] Core 实例化 PRF，连接 ISU 读端口、EXU 写端口
-- [ ] ISU 接收 p_rs1/p_rs2，从 PRF 读数据
-- [ ] ISU 用 PRF_Ready 判断 stall，移除 GPR/RAT/slot 读逻辑
-- [ ] ROB enq 增加 p_rd, old_p_rd 传递
-- [ ] 分配时 PRF_Ready[p_rd] := false
+- [x] IDU 实例化 RMT、FreeList（内置 checkpoint）
+- [x] Rename：查 RMT 得 p_rs1/p_rs2，从 FreeList pop 得 p_rd，记录 old_p_rd
+- [x] IDUOut 增加 p_rs1, p_rs2, p_rd, old_p_rd
+- [x] 分支 dispatch 时做 checkpoint 快照
+- [x] 增加 commit 输入：old_p_rd 用于 FreeList push
+- [x] 保持原有 rs1_index/rs2_index 输出（兼容过渡）
+- [x] RobEnqPayload/CommitMsg 增加 old_p_rd，ROB 存储并输出
 
 ---
 
-## Phase 4: ROB、Commit 与写回
+## Phase 3: PRF 与 ISU 读路径 ✓
 
-- [ ] ROB 每 entry 存储 p_rd, old_p_rd
-- [ ] FU 完成时写 PRF(p_rd) 并置 PRF_Ready[p_rd] := true
-- [ ] Commit 时把 old_p_rd 送回 IDU 做 FreeList push
-- [ ] CommitMsg.rd_value 从 PRF 或 ROB 读（可保留 ROB 冗余简化）
-- [ ] 移除 ISU 中的 GPR 写
+- [x] Core 实例化 PRF，连接 ISU 读端口、Rob prf_write
+- [x] ISU 接收 p_rs1/p_rs2，从 PRF 读数据
+- [x] ISU 用 PRF_Ready 判断 stall，移除 GPR/slot 读逻辑
+- [x] ROB enq 传递 p_rd, old_p_rd
+- [x] 分配时 PRF clearReady[p_rd]
 
 ---
 
-## Phase 5: Flush 恢复
+## Phase 4: ROB、Commit 与写回 ✓
 
-- [ ] do_flush 时：RMT_working := RMT_checkpoint，FreeList_working := FreeList_checkpoint
-- [ ] 确保 flush 信号正确传递到 IDU
+- [x] ROB 每 entry 存储 p_rd, old_p_rd
+- [x] FU 完成时写 PRF(p_rd) 并置 PRF_Ready[p_rd] := true
+- [x] Commit 时把 old_p_rd 送回 IDU 做 FreeList push
+- [x] CommitMsg.rd_value 从 ROB 读（保留 ROB 冗余）
+- [x] 移除 ISU 中的 RAT 和 rat_rob_write
+
+---
+
+## Phase 5: Flush 恢复 ✓
+
+- [x] do_flush 时：RMT_working := RMT_checkpoint，FreeList_working := FreeList_checkpoint
+- [x] 确保 flush 信号正确传递到 IDU（Rob.do_flush 直连 IDU.flush，与流水线传播双路保证）

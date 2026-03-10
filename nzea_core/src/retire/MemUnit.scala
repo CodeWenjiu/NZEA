@@ -4,36 +4,39 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, Mux1H, Valid}
 import nzea_core.backend.LsuOp
 import nzea_core.CoreBusReadWrite
+import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.{RobMemReq, RobMemResp}
 
-/** Dbus user payload: rob_id + lsuOp + addr2, passthrough req->resp for load result selection. */
-class DbusUserBundle(robIdWidth: Int) extends Bundle {
+/** Dbus user payload: rob_id + lsuOp + addr2 + p_rd, passthrough req->resp for load PRF write. */
+class DbusUserBundle(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val rob_id  = UInt(robIdWidth.W)
   val lsuOp   = UInt(LsuOp.getWidth.W)
   val addr2   = UInt(2.W)
+  val p_rd    = UInt(prfAddrWidth.W)
 }
 
-/** MemUnit: LsBuffer inside; AGU enqueues; Rob issues; load data formatting.
+/** MemUnit: LsBuffer inside; AGU enqueues; Rob issues; load data formatting; PRF write for loads.
   * No unaligned support: read always 4-byte aligned, extract byte/half from rdata; assume no unaligned instrs. */
-class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
-  private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2
+class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) extends Module {
+  private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2 + prfAddrWidth
   private val userWidth = width.max(userPayloadWidth)
   private val dbusType = new CoreBusReadWrite(width, width, userWidth)
 
-  private val userBundleType = new DbusUserBundle(robIdWidth)
+  private val userBundleType = new DbusUserBundle(robIdWidth, prfAddrWidth)
 
   val io = IO(new Bundle {
-    val ls_enq      = Flipped(Decoupled(new RobMemReq(robIdWidth)))
+    val ls_enq      = Flipped(Decoupled(new RobMemReq(robIdWidth, prfAddrWidth)))
     val issue       = Input(Bool())
     val issue_rob_id = Output(Valid(UInt(robIdWidth.W)))
     val flush       = Input(Bool())
     val resp        = Decoupled(new RobMemResp(robIdWidth))
     val dbus        = dbusType.cloneType
+    val prf_write   = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
   })
 
   // LS buffer: FIFO for mem ops, flush clears instantly
   private val ptrWidth = chisel3.util.log2Ceil(lsBufferDepth.max(2)) + 1
-  val ls_slots   = Reg(Vec(lsBufferDepth, new RobMemReq(robIdWidth)))
+  val ls_slots   = Reg(Vec(lsBufferDepth, new RobMemReq(robIdWidth, prfAddrWidth)))
   val ls_head_ptr = RegInit(0.U(ptrWidth.W))
   val ls_tail_ptr = RegInit(0.U(ptrWidth.W))
   val ls_head_phys = ls_head_ptr(ptrWidth - 2, 0)
@@ -58,6 +61,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
   userReq.rob_id := head.rob_id
   userReq.lsuOp := head.lsuOp.asUInt
   userReq.addr2 := head.addr(1, 0)
+  userReq.p_rd := head.p_rd
   io.dbus.req.bits.user := userReq.asUInt
 
   when(io.flush) {
@@ -97,9 +101,15 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int) extends Module {
     Mux1H(respUser.lsuOp, Seq(lb, lh, lw, lbu, lhu, 0.U(32.W), 0.U(32.W), 0.U(32.W)))
 
   val isStoreFromResp = LsuOp.isStore(respUser.lsuOp)
+  val isLoadFromResp = LsuOp.isLoad(respUser.lsuOp)
   val respFire = io.dbus.resp.valid && io.dbus.resp.ready
 
   io.resp.valid := respFire
   io.resp.bits.rob_id := respUser.rob_id
   io.resp.bits.data := Mux(isStoreFromResp, 0.U(32.W), loadData)
+
+  io.prf_write.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U
+  io.prf_write.bits.addr := respUser.p_rd
+  io.prf_write.bits.data := loadData
+  io.prf_write.bits.setReady := true.B
 }

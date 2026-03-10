@@ -22,22 +22,23 @@ object LsuOp extends chisel3.ChiselEnum {
   def isLoad(op: UInt): Bool         = !isStore(op)
 }
 
-/** AGU input: base, imm, lsuOp, storeData, pc; rob_id from IS. */
-class AguInput(robIdWidth: Int) extends Bundle {
+/** AGU input: base, imm, lsuOp, storeData, pc; rob_id, p_rd from IS. p_rd for load completion. */
+class AguInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val base      = UInt(32.W)
   val imm       = UInt(32.W)
   val lsuOp     = LsuOp()
   val storeData = UInt(32.W)
   val pc        = UInt(32.W)
   val rob_id    = UInt(robIdWidth.W)
+  val p_rd      = UInt(prfAddrWidth.W)
 }
 
 /** AGU: computes addr; writes need_mem to Rob; enqueues mem data to Rob's LS_Queue. */
-class AGU(robIdWidth: Int) extends Module {
+class AGU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in         = Flipped(new PipeIO(new AguInput(robIdWidth)))
+    val in         = Flipped(new PipeIO(new AguInput(robIdWidth, prfAddrWidth)))
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val ls_enq     = chisel3.util.Decoupled(new RobMemReq(robIdWidth))
+    val ls_enq     = chisel3.util.Decoupled(new RobMemReq(robIdWidth, prfAddrWidth))
   })
 
   val addr      = io.in.bits.base + io.in.bits.imm
@@ -64,4 +65,5 @@ class AGU(robIdWidth: Int) extends Module {
   io.ls_enq.bits.wdata  := wdata
   io.ls_enq.bits.wstrb  := wstrb
   io.ls_enq.bits.lsuOp  := io.in.bits.lsuOp
+  io.ls_enq.bits.p_rd   := io.in.bits.p_rd
 }

@@ -1,0 +1,9 @@
+[package]
+name = "wave_tracker"
+version = "0.1.0"
+edition = "2024"
+description = "Parse FST/VCD waveforms for nzea RTL debugging"
+
+[dependencies]
+wellen = "0.20.2"
+clap = { version = "4", features = ["derive"] }

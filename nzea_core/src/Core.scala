@@ -4,25 +4,29 @@ import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_config.NzeaConfig
 
-/** Core module: Rob in Core; FUs write to Rob; Rob sends mem_req to MemUnit; Commit receives Rob commit and commits. */
+/** Core module: Rob in Core; FUs write to Rob and PRF (in ISU); Rob sends mem_req to MemUnit; Commit receives Rob commit and commits. */
 class Core(implicit config: NzeaConfig) extends Module {
   private val addrWidth  = config.width
   private val robDepth   = config.robDepth
   private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
+  private val prfAddrWidth = config.prfAddrWidth
 
   val ifu = Module(new frontend.IFU)
   val idu = Module(new frontend.IDU(addrWidth))
-  val isu = Module(new frontend.ISU(addrWidth))
-  val exu = Module(new backend.EXU(robIdWidth))
-  val rob = nzea_core.retire.rob.Rob(robDepth, exu.fuOutputs, aguPortIndex = 3)
-  val commit = Module(new retire.Commit)
+  val exu = Module(new backend.EXU(robIdWidth, prfAddrWidth))
   private val lsBufferDepth = (robDepth / 2).max(1)
-  val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth))
+  val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
+
+  val prfWriteSources = Seq.tabulate(exu.io.prf_write.size)(exu.io.prf_write(_)) :+ memUnit.io.prf_write
+  val isu = Module(new frontend.ISU(addrWidth, prfWriteSources.size))
+
+  val rob = nzea_core.retire.rob.Rob(robDepth, exu.fuOutputs, aguPortIndex = 3, prfAddrWidth = prfAddrWidth)
+  val commit = Module(new retire.Commit)
 
   val io = IO(new Bundle {
     val ibus       = chiselTypeOf(ifu.io.bus)
     val dbus       = chiselTypeOf(memUnit.io.dbus)
-    val commit_msg = Output(Valid(new retire.CommitMsg))
+    val commit_msg = Output(Valid(new retire.CommitMsg(prfAddrWidth)))
   })
 
   PipelineConnect(ifu.io.out, idu.io.in)
@@ -35,10 +39,16 @@ class Core(implicit config: NzeaConfig) extends Module {
   rob.enq <> isu.io.rob_enq
   memUnit.io.ls_enq <> exu.io.agu_ls_enq
   rob.io.commit <> commit.io.rob_commit
-  rob.io.slotReadRs1 <> isu.io.rob_slot_rs1
-  rob.io.slotReadRs2 <> isu.io.rob_slot_rs2
-  isu.io.rob_commit := rob.io.commit
-  isu.io.rat_rob_write := rob.io.rat_rob_write
+  rob.io.slotReadRs1.rob_id := 0.U
+  rob.io.slotReadRs2.rob_id := 0.U
+
+  isu.io.prf_write := VecInit(prfWriteSources)
+
+  idu.io.commit.valid := rob.io.commit.valid
+  idu.io.commit.bits.rd_index := rob.io.commit.bits.rd_index
+  idu.io.commit.bits.p_rd := rob.io.commit.bits.p_rd
+  idu.io.commit.bits.old_p_rd := rob.io.commit.bits.old_p_rd
+  idu.io.flush := rob.io.do_flush
   memUnit.io.issue := rob.mem.issue
   rob.mem.issue_rob_id := memUnit.io.issue_rob_id
   rob.mem.ls_enq_ready := memUnit.io.ls_enq.ready

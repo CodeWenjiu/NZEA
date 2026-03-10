@@ -18,19 +18,22 @@ class RobEntry extends Bundle {
 }
 
 
-/** Payload for Rob enq: rd_index, might_flush (branch/trap). next_pc written by EX stage. */
-class RobEnqPayload extends Bundle {
+/** Payload for Rob enq: rd_index, might_flush (branch/trap), p_rd, old_p_rd (for rename). next_pc written by EX stage. */
+class RobEnqPayload(prfAddrWidth: Int) extends Bundle {
   val rd_index    = UInt(5.W)
   val might_flush = Bool()
+  val p_rd       = UInt(prfAddrWidth.W)
+  val old_p_rd   = UInt(prfAddrWidth.W)
 }
 
-/** MemUnit request / LS_Queue entry: rob_id, addr, wdata, wstrb, lsuOp. */
-class RobMemReq(idWidth: Int) extends Bundle {
+/** MemUnit request / LS_Queue entry: rob_id, addr, wdata, wstrb, lsuOp, p_rd (for load PRF write). */
+class RobMemReq(idWidth: Int, prfAddrWidth: Int) extends Bundle {
   val rob_id = UInt(idWidth.W)
   val addr   = UInt(32.W)
   val wdata  = UInt(32.W)
   val wstrb  = UInt(4.W)
   val lsuOp  = LsuOp()
+  val p_rd   = UInt(prfAddrWidth.W)
 }
 
 /** MemUnit response: rob_id, data (load result; store ignores). */
@@ -77,8 +80,8 @@ class RobAccessIO(idWidth: Int) extends Bundle {
 }
 
 /** ROB enq IO: req (consumer side), rob_id (from Rob). Use Flipped for producer (e.g. ISU). */
-class RobEnqIO(idWidth: Int) extends Bundle {
-  val req    = Flipped(Decoupled(new RobEnqPayload))
+class RobEnqIO(idWidth: Int, prfAddrWidth: Int) extends Bundle {
+  val req    = Flipped(Decoupled(new RobEnqPayload(prfAddrWidth)))
   val rob_id = Output(UInt(idWidth.W))
 }
 

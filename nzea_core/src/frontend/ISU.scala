@@ -5,92 +5,68 @@ import chisel3.util.{Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.retire.rob.{RobEnqIO, RobSlotRead, RobSlotReadPort}
-import nzea_core.retire.CommitMsg
+import nzea_core.retire.rob.RobEnqIO
 
-/** ISU: Issue Unit. Holds GPR and RAT; dispatches to ALU/BRU/AGU/SYSU.
+/** PRF write port: addr, data, setReady. Shared by all FU completions. */
+class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
+  val addr     = UInt(prfAddrWidth.W)
+  val data     = UInt(32.W)
+  val setReady = Bool()
+}
+
+/** ISU: Issue Unit. Physical reg file + operand read; dispatches to ALU/BRU/AGU/SYSU.
   *
   * Data flow:
-  * - GPR: written on rob_commit (rd_index, rd_value).
-  * - RAT: dispatch sets busy; commit clears busy; flush clears all.
-  * - Operand read: !busy→GPR; busy+is_done→slot.rd_value; busy+!is_done→stall.
+  * - PRF: regs + ready; write from FU completion (prf_write); clear when instr arrives at ISU (p_rd).
+  * - prf_write: Vec of size numPrfWritePorts, auto-sized when connecting FUs.
+  * - Operand read: PRF(p_rs1), PRF(p_rs2); stall when !ready.
   * - Dispatch: can_dispatch when !stall and rob_enq ready and FU ready.
   */
-class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
-  private val robDepth   = config.robDepth
-  private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
+class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) extends Module {
+  private val robDepth     = config.robDepth
+  private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
+  private val prfAddrWidth = config.prfAddrWidth
+  private val prfDepth     = config.prfDepth
 
   // -------- IO --------
 
   val io = IO(new Bundle {
-    val in             = Flipped(new PipeIO(new IDUOut(addrWidth)))
-    val rob_enq        = Flipped(new RobEnqIO(robIdWidth))
-    val rob_slot_rs1   = Flipped(new RobSlotReadPort(robIdWidth))
-    val rob_slot_rs2   = Flipped(new RobSlotReadPort(robIdWidth))
-    val rob_commit     = Input(Valid(new CommitMsg))
-    val rat_rob_write  = Input(Valid(new Bundle { val rd_index = UInt(5.W); val rob_id = UInt(robIdWidth.W) }))
-    val alu            = new PipeIO(new AluInput(robIdWidth))
-    val bru            = new PipeIO(new BruInput(robIdWidth))
-    val agu            = new PipeIO(new AguInput(robIdWidth))
-    val sysu           = new PipeIO(new SysuInput(robIdWidth))
+    val in             = Flipped(new PipeIO(new IDUOut(addrWidth, prfAddrWidth)))
+    val rob_enq        = Flipped(new RobEnqIO(robIdWidth, prfAddrWidth))
+    val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
+    val alu            = new PipeIO(new AluInput(robIdWidth, prfAddrWidth))
+    val bru            = new PipeIO(new BruInput(robIdWidth, prfAddrWidth))
+    val agu            = new PipeIO(new AguInput(robIdWidth, prfAddrWidth))
+    val sysu           = new PipeIO(new SysuInput(robIdWidth, prfAddrWidth))
   })
 
   val outs   = Seq(io.alu, io.bru, io.agu, io.sysu)
   val fuTypes = Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU)
 
-  // -------- GPR --------
+  // -------- Physical Register File (inline) --------
 
-  val gpr = RegInit(VecInit(Seq.fill(32)(0.U(32.W))))
-  when(io.rob_commit.valid && io.rob_commit.bits.rd_index =/= 0.U) {
-    gpr(io.rob_commit.bits.rd_index) := io.rob_commit.bits.rd_value
-  }
+  val prf_regs  = RegInit(VecInit(Seq.fill(prfDepth)(0.U(32.W))))
+  val prf_ready = RegInit(VecInit(Seq.tabulate(prfDepth)(i => (i < 32).B)))
 
-  // -------- RAT --------
-
-  val ratTable_rob_id = RegInit(VecInit(Seq.fill(32)(0.U(robIdWidth.W))))
-  val ratTable_busy   = RegInit(VecInit(Seq.fill(32)(false.B)))
-  val dispatch_fire   = outs.map(_.fire).reduce(_ || _)
-
-  when(io.in.flush) {
-    for (i <- 0 until 32) { ratTable_busy(i) := false.B }
-  }.otherwise {
-    when(io.rat_rob_write.valid && io.rat_rob_write.bits.rd_index =/= 0.U) {
-      val idx = io.rat_rob_write.bits.rd_index
-      when(ratTable_rob_id(idx) === io.rat_rob_write.bits.rob_id) {
-        ratTable_busy(idx) := false.B
+  for (i <- 0 until numPrfWritePorts) {
+    when(io.prf_write(i).valid) {
+      prf_regs(io.prf_write(i).bits.addr) := io.prf_write(i).bits.data
+      when(io.prf_write(i).bits.setReady) {
+        prf_ready(io.prf_write(i).bits.addr) := true.B
       }
     }
-    when(dispatch_fire && io.in.bits.rd_index =/= 0.U) {
-      ratTable_rob_id(io.in.bits.rd_index) := io.rob_enq.rob_id
-      ratTable_busy(io.in.bits.rd_index)   := true.B
-    }
+  }
+  when(io.in.valid && io.in.bits.p_rd =/= 0.U) {
+    prf_ready(io.in.bits.p_rd) := false.B
   }
 
-  // -------- Operand Read --------
-
-  def readOperand(index: UInt, rat: RatEntry, slot: RobSlotRead): (UInt, Bool) = {
-    val fromGpr   = Mux(index === 0.U, 0.U(32.W), gpr(index))
-    val fromSlot  = slot.rd_value
-    val needStall = rat.busy && !slot.is_done
-    val value    = Mux(!rat.busy, fromGpr, fromSlot)
-    (value, needStall)
-  }
-
-  val rs1_index = io.in.bits.rs1_index
-  val rs2_index = io.in.bits.rs2_index
-  val rs1_rat = Wire(new RatEntry(robIdWidth))
-  rs1_rat.rob_id := ratTable_rob_id(rs1_index)
-  rs1_rat.busy   := ratTable_busy(rs1_index)
-  val rs2_rat = Wire(new RatEntry(robIdWidth))
-  rs2_rat.rob_id := ratTable_rob_id(rs2_index)
-  rs2_rat.busy   := ratTable_busy(rs2_index)
-
-  io.rob_slot_rs1.rob_id := rs1_rat.rob_id
-  io.rob_slot_rs2.rob_id := rs2_rat.rob_id
-
-  val (rs1_val, rs1_stall) = readOperand(rs1_index, rs1_rat, io.rob_slot_rs1.slot)
-  val (rs2_val, rs2_stall) = readOperand(rs2_index, rs2_rat, io.rob_slot_rs2.slot)
-  val stall = io.in.valid && (rs1_stall || rs2_stall)
+  val rs1_addr = io.in.bits.p_rs1
+  val rs2_addr = io.in.bits.p_rs2
+  val rs1_val  = Mux(rs1_addr === 0.U, 0.U(32.W), prf_regs(rs1_addr))
+  val rs2_val  = Mux(rs2_addr === 0.U, 0.U(32.W), prf_regs(rs2_addr))
+  val rs1_ready = prf_ready(rs1_addr)
+  val rs2_ready = prf_ready(rs2_addr)
+  val stall    = io.in.valid && (!rs1_ready || !rs2_ready)
 
   // -------- Flush --------
 
@@ -109,6 +85,8 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.rob_enq.req.valid := can_enq
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
+  io.rob_enq.req.bits.p_rd := io.in.bits.p_rd
+  io.rob_enq.req.bits.old_p_rd := io.in.bits.old_p_rd
 
   // -------- FU Outputs --------
 
@@ -129,6 +107,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.alu.bits.aluOp  := aluOp
   io.alu.bits.pc     := pc
   io.alu.bits.rob_id := rob_id
+  io.alu.bits.p_rd   := io.in.bits.p_rd
 
   io.bru.valid := can_dispatch && (fu_type === FuType.BRU)
   val (bruOp, _) = BruOp.safe(FuDecode.take(io.in.bits.fu_op, BruOp.getWidth))
@@ -139,6 +118,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.bru.bits.rs2          := rs2_val
   io.bru.bits.bruOp        := bruOp
   io.bru.bits.rob_id       := rob_id
+  io.bru.bits.p_rd         := io.in.bits.p_rd
 
   io.agu.valid := can_dispatch && (fu_type === FuType.LSU)
   val (lsuOp, _) = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
@@ -148,10 +128,12 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.agu.bits.storeData := rs2_val
   io.agu.bits.pc        := pc
   io.agu.bits.rob_id    := rob_id
+  io.agu.bits.p_rd      := io.in.bits.p_rd
 
   io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
   io.sysu.bits.rob_id := rob_id
   io.sysu.bits.pc     := pc
+  io.sysu.bits.p_rd   := io.in.bits.p_rd
 
   // -------- Back-pressure --------
 

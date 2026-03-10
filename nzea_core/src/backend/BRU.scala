@@ -3,6 +3,7 @@ package nzea_core.backend
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
+import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
@@ -17,9 +18,8 @@ object BruOp extends chisel3.ChiselEnum {
   val BGEU = Value((1 << 7).U)
 }
 
-/** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; rob_id from IS.
-  * JALR (bruOp(1)) => target = rs1+offset else target = pc+offset. No C ext, so &~1 omitted. robIdWidth from upper level. */
-class BruInput(robIdWidth: Int) extends Bundle {
+/** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; rob_id, p_rd from IS. */
+class BruInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val pc           = UInt(32.W)
   val pred_next_pc = UInt(32.W)
   val offset       = UInt(32.W)
@@ -27,13 +27,15 @@ class BruInput(robIdWidth: Int) extends Bundle {
   val rs2          = UInt(32.W)
   val bruOp        = BruOp()
   val rob_id       = UInt(robIdWidth.W)
+  val p_rd         = UInt(prfAddrWidth.W)
 }
 
-/** BRU: combinational; writes result to Rob via rob_access. */
-class BRU(robIdWidth: Int) extends Module {
+/** BRU: combinational; writes result to Rob (commit) and PRF (direct). */
+class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in         = Flipped(new PipeIO(new BruInput(robIdWidth)))
+    val in         = Flipped(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+    val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
   })
 
   val b = io.in.bits
@@ -60,4 +62,9 @@ class BRU(robIdWidth: Int) extends Module {
   io.rob_access.bits := u.bits
   io.in.ready := true.B
   io.in.flush := io.rob_access.flush
+
+  io.prf_write.valid := u.valid && b.p_rd =/= 0.U
+  io.prf_write.bits.addr := b.p_rd
+  io.prf_write.bits.data := rd_value
+  io.prf_write.bits.setReady := true.B
 }

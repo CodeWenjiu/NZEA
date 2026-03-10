@@ -13,4 +13,5 @@ case class NzeaConfig(
 ) {
   val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Sim)
   val effectiveOutDir: String = outDir.getOrElse(platform.outDir)
+  val prfAddrWidth: Int = Iterator.from(0).find(i => (1 << i) >= prfDepth).getOrElse(6)
 }

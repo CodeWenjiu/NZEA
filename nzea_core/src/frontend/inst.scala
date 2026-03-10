@@ -103,7 +103,7 @@ case class RVInst(
     fu: Fu.Type,
     gprWr: Boolean = true,
     rs1Rd: Boolean = true,
-    rs2Rd: Boolean = false
+    rs2Rd: Boolean = true
 ) extends DecodePattern {
   def bitPat: BitPat = BitPat(bitPatStr)
 }
@@ -147,91 +147,106 @@ object RiscvInsts {
     "JALR",
     "b" + n(12) + n(5) + "000" + n(5) + "1100111",
     Some(ImmType.I),
-    Fu.BRU(BruOp.JALR, BruSrc.Rs1Imm)
+    Fu.BRU(BruOp.JALR, BruSrc.Rs1Imm),
+    rs2Rd = false
   )
   val LB = RVInst(
     "LB",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0000011",
     Some(ImmType.I),
-    Fu.LSU(LsuOp.LB, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.LB, LsuSrc.Rs1Imm),
+    rs2Rd = false
   )
   val LH = RVInst(
     "LH",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "0000011",
     Some(ImmType.I),
-    Fu.LSU(LsuOp.LH, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.LH, LsuSrc.Rs1Imm),
+    rs2Rd = false
   )
   val LW = RVInst(
     "LW",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0000011",
     Some(ImmType.I),
-    Fu.LSU(LsuOp.LW, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.LW, LsuSrc.Rs1Imm),
+    rs2Rd = false
   )
   val LBU = RVInst(
     "LBU",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "0000011",
     Some(ImmType.I),
-    Fu.LSU(LsuOp.LBU, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.LBU, LsuSrc.Rs1Imm),
+    rs2Rd = false
   )
   val LHU = RVInst(
     "LHU",
     "b" + n(7) + n(5) + n(5) + "101" + n(5) + "0000011",
     Some(ImmType.I),
-    Fu.LSU(LsuOp.LHU, LsuSrc.Rs1Imm)
+    Fu.LSU(LsuOp.LHU, LsuSrc.Rs1Imm),
+    rs2Rd = false
   )
   val ADDI = RVInst(
     "ADDI",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Add, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Add, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val SLTI = RVInst(
     "SLTI",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Slt, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Slt, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val SLTIU = RVInst(
     "SLTIU",
     "b" + n(7) + n(5) + n(5) + "011" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Sltu, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Sltu, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val XORI = RVInst(
     "XORI",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Xor, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Xor, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val ORI = RVInst(
     "ORI",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Or, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Or, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val ANDI = RVInst(
     "ANDI",
     "b" + n(7) + n(5) + n(5) + "111" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.And, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.And, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val SLLI = RVInst(
     "SLLI",
     "b0000000" + n(5) + n(5) + "001" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Sll, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Sll, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val SRLI = RVInst(
     "SRLI",
     "b0000000" + n(5) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Srl, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Srl, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val SRAI = RVInst(
     "SRAI",
     "b0100000" + n(5) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
-    Fu.ALU(AluOp.Sra, AluSrc.Rs1Imm)
+    Fu.ALU(AluOp.Sra, AluSrc.Rs1Imm),
+    rs2Rd = false
   )
   val ECALL = RVInst(
     "ECALL",
@@ -274,169 +289,153 @@ object RiscvInsts {
     "b" + n(12) + n(5) + "101" + n(5) + "1110011",
     Some(ImmType.I),
     Fu.SYSU,
-    rs1Rd = false
+    rs1Rd = false,
+    rs2Rd = false
   )
   val CSRRSI = RVInst(
     "CSRRSI",
     "b" + n(12) + n(5) + "110" + n(5) + "1110011",
     Some(ImmType.I),
     Fu.SYSU,
-    rs1Rd = false
+    rs1Rd = false,
+    rs2Rd = false
   )
   val CSRRCI = RVInst(
     "CSRRCI",
     "b" + n(12) + n(5) + "111" + n(5) + "1110011",
     Some(ImmType.I),
     Fu.SYSU,
-    rs1Rd = false
+    rs1Rd = false,
+    rs2Rd = false
   )
 
-  // S-type
+  // S-type: rs1=base, rs2=data; no rd
   val SB = RVInst(
     "SB",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0100011",
     Some(ImmType.S),
     Fu.LSU(LsuOp.SB, LsuSrc.Rs1Imm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
   val SH = RVInst(
     "SH",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "0100011",
     Some(ImmType.S),
     Fu.LSU(LsuOp.SH, LsuSrc.Rs1Imm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
   val SW = RVInst(
     "SW",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0100011",
     Some(ImmType.S),
     Fu.LSU(LsuOp.SW, LsuSrc.Rs1Imm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
 
-  // B-type
+  // B-type: rs1, rs2 for compare; no rd
   val BEQ = RVInst(
     "BEQ",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BEQ, BruSrc.PcImm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
   val BNE = RVInst(
     "BNE",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BNE, BruSrc.PcImm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
   val BLT = RVInst(
     "BLT",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BLT, BruSrc.PcImm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
   val BGE = RVInst(
     "BGE",
     "b" + n(7) + n(5) + n(5) + "101" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BGE, BruSrc.PcImm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
   val BLTU = RVInst(
     "BLTU",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BLTU, BruSrc.PcImm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
   val BGEU = RVInst(
     "BGEU",
     "b" + n(7) + n(5) + n(5) + "111" + n(5) + "1100011",
     Some(ImmType.B),
     Fu.BRU(BruOp.BGEU, BruSrc.PcImm),
-    gprWr = false,
-    rs2Rd = true
+    gprWr = false
   )
 
-  // R-type
+  // R-type: rs1, rs2
   val ADD = RVInst(
     "ADD",
     "b0000000" + n(5) + n(5) + "000" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Add, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Add, AluSrc.Rs1Rs2)
   )
   val SUB = RVInst(
     "SUB",
     "b0100000" + n(5) + n(5) + "000" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sub, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Sub, AluSrc.Rs1Rs2)
   )
   val SLL = RVInst(
     "SLL",
     "b0000000" + n(5) + n(5) + "001" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sll, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Sll, AluSrc.Rs1Rs2)
   )
   val SLT = RVInst(
     "SLT",
     "b0000000" + n(5) + n(5) + "010" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Slt, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Slt, AluSrc.Rs1Rs2)
   )
   val SLTU = RVInst(
     "SLTU",
     "b0000000" + n(5) + n(5) + "011" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sltu, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Sltu, AluSrc.Rs1Rs2)
   )
   val XOR = RVInst(
     "XOR",
     "b0000000" + n(5) + n(5) + "100" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Xor, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Xor, AluSrc.Rs1Rs2)
   )
   val SRL = RVInst(
     "SRL",
     "b0000000" + n(5) + n(5) + "101" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Srl, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Srl, AluSrc.Rs1Rs2)
   )
   val SRA = RVInst(
     "SRA",
     "b0100000" + n(5) + n(5) + "101" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Sra, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Sra, AluSrc.Rs1Rs2)
   )
   val OR = RVInst(
     "OR",
     "b0000000" + n(5) + n(5) + "110" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.Or, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.Or, AluSrc.Rs1Rs2)
   )
   val AND = RVInst(
     "AND",
     "b0000000" + n(5) + n(5) + "111" + n(5) + "0110011",
     None,
-    Fu.ALU(AluOp.And, AluSrc.Rs1Rs2),
-    rs2Rd = true
+    Fu.ALU(AluOp.And, AluSrc.Rs1Rs2)
   )
 
   val FENCE = RVInst(

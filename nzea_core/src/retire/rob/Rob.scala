@@ -11,8 +11,8 @@ import nzea_core.retire.CommitMsg
 /** Companion object: entryStateUpdate helper and apply for wiring. */
 object Rob {
   /** Create Rob and wire fuOutputs; call from parent (e.g. Core) so connection context is correct. */
-  def apply(depth: Int, fuOutputs: Seq[RobAccessIO], aguPortIndex: Int = 3): Rob = {
-    val r = Module(new Rob(depth, fuOutputs.size, aguPortIndex))
+  def apply(depth: Int, fuOutputs: Seq[RobAccessIO], aguPortIndex: Int = 3, prfAddrWidth: Int = 6): Rob = {
+    val r = Module(new Rob(depth, fuOutputs.size, aguPortIndex, prfAddrWidth))
     (r.io.accessPorts zip fuOutputs).foreach { case (p, fu) =>
       p.valid := fu.valid
       p.bits := fu.bits
@@ -54,7 +54,7 @@ object Rob {
   * - Commit: head done → output CommitMsg, advance head.
   * - Flush: on branch mispredict, clear all.
   */
-class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module {
+class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: Int = 6) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
   require(numAccessPorts >= 1, "Rob numAccessPorts must >= 1")
   require(aguPortIndex >= 0 && aguPortIndex < numAccessPorts, "aguPortIndex must be valid")
@@ -64,14 +64,14 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
 
   // -------- IO --------
 
-  val enq = IO(new RobEnqIO(idWidth))
+  val enq = IO(new RobEnqIO(idWidth, prfAddrWidth))
   val mem = IO(new RobMemIO(idWidth))
   val io = IO(new Bundle {
-    val commit        = Valid(new CommitMsg)
+    val commit        = Valid(new CommitMsg(prfAddrWidth))
     val accessPorts   = Vec(numAccessPorts, Flipped(new RobAccessIO(idWidth)))
     val slotReadRs1   = new RobSlotReadPort(idWidth)
     val slotReadRs2   = new RobSlotReadPort(idWidth)
-    val rat_rob_write = Output(Valid(new Bundle { val rd_index = UInt(5.W); val rob_id = UInt(idWidth.W) }))
+    val do_flush      = Output(Bool())  // for IDU RMT/FreeList restore
   })
 
   // -------- Pointers --------
@@ -95,6 +95,10 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
   val slots_flush       = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val slots_mem_lsuOp   = RegInit(VecInit(Seq.fill(depth)(LsuOp.LB)))
   val slots_might_flush = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val slots_p_rd       = Reg(Vec(depth, UInt(prfAddrWidth.W)))
+  val slots_old_p_rd   = Reg(Vec(depth, UInt(prfAddrWidth.W)))
+
+  // PRF write: FU writes directly to PRF on completion; ROB only tracks for commit ordering.
 
   // -------- Slot Read --------
 
@@ -119,6 +123,8 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
   val head_next_pc   = MuxTree(head_phys, slots_next_pc)
   val head_rd_index  = MuxTree(head_phys, slots_rd_index)
   val head_rd_value  = MuxTree(head_phys, slots_rd_value)
+  val head_p_rd      = MuxTree(head_phys, slots_p_rd)
+  val head_old_p_rd = MuxTree(head_phys, slots_old_p_rd)
   val head_flush     = MuxTree(head_phys, slots_flush)
   val head_is_load   = LsuOp.isLoad(head_mem_lsuOp)
 
@@ -136,12 +142,12 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
   io.commit.bits.next_pc   := head_next_pc
   io.commit.bits.rd_index  := head_rd_index
   io.commit.bits.rd_value  := head_rd_value
+  io.commit.bits.p_rd      := head_p_rd
+  io.commit.bits.old_p_rd  := head_old_p_rd
   io.commit.bits.mem_count := Mux(head_need_mem, 1.U(32.W), 0.U(32.W))
   io.commit.bits.is_load   := head_is_load
 
-  io.rat_rob_write.valid := io.commit.valid
-  io.rat_rob_write.bits.rd_index := head_rd_index
-  io.rat_rob_write.bits.rob_id   := head_phys
+  io.do_flush := do_flush
 
   // -------- FU Access --------
 
@@ -183,6 +189,8 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
       slots_flush(i)       := false.B
       slots_might_flush(i) := false.B
       slots_mem_lsuOp(i)   := LsuOp.LB
+      slots_p_rd(i)         := 0.U
+      slots_old_p_rd(i)     := 0.U
     }
   }.otherwise {
     when(safe_offset >= count) {
@@ -202,6 +210,8 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3) extends Module
       val idx = tail_phys
       slots_rd_index(idx)    := enq.req.bits.rd_index
       slots_might_flush(idx) := enq.req.bits.might_flush
+      slots_p_rd(idx)        := enq.req.bits.p_rd
+      slots_old_p_rd(idx)    := enq.req.bits.old_p_rd
       slots_flush(idx)       := false.B
       tail_ptr := (tail_ptr + 1.U)(ptrWidth - 1, 0)
     }
