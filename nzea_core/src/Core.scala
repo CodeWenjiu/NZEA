@@ -39,16 +39,15 @@ class Core(implicit config: NzeaConfig) extends Module {
   rob.enq <> isu.io.rob_enq
   memUnit.io.ls_enq <> exu.io.agu_ls_enq
   rob.io.commit <> commit.io.rob_commit
+  commit.io.do_flush := rob.io.do_flush
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U
 
   isu.io.prf_write := VecInit(prfWriteSources)
 
-  idu.io.commit.valid := rob.io.commit.valid
-  idu.io.commit.bits.rd_index := rob.io.commit.bits.rd_index
-  idu.io.commit.bits.p_rd := rob.io.commit.bits.p_rd
-  idu.io.commit.bits.old_p_rd := rob.io.commit.bits.old_p_rd
+  idu.io.commit := commit.io.idu_commit
   idu.io.flush := rob.io.do_flush
+  idu.io.restore_rmt := commit.io.restore_rmt
   memUnit.io.issue := rob.mem.issue
   rob.mem.issue_rob_id := memUnit.io.issue_rob_id
   rob.mem.ls_enq_ready := memUnit.io.ls_enq.ready

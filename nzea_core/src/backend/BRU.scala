@@ -66,5 +66,4 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.prf_write.valid := u.valid && b.p_rd =/= 0.U
   io.prf_write.bits.addr := b.p_rd
   io.prf_write.bits.data := rd_value
-  io.prf_write.bits.setReady := true.B
 }

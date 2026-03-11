@@ -1,15 +1,15 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.{Cat, Fill, Mux1H, Valid}
+import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, Valid}
 import nzea_core.PipeIO
 import nzea_core.backend.FuOpWidth
-import nzea_core.rename.{FreeList, RMT}
+import nzea_core.retire.IDUCommit
 import nzea_config.NzeaConfig
 
 // -------- IDU stage output --------
 
-/** IDU decode result: pc, pred_next_pc, imm, rs1/rs2/rd indices, physical regs (p_rs1, p_rs2, p_rd, old_p_rd), fu_type, fu_op, fu_src. */
+/** IDU decode result: pc, pred_next_pc, imm, rs1/rs2/rd indices, physical regs, fu_type, fu_op, fu_src. */
 class IDUOut(width: Int, prfAddrWidth: Int) extends Bundle {
   val pc           = UInt(width.W)
   val pred_next_pc = UInt(width.W)
@@ -31,12 +31,14 @@ class IDUOut(width: Int, prfAddrWidth: Int) extends Bundle {
 class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val prfDepth     = config.prfDepth
   private val prfAddrWidth = chisel3.util.log2Ceil(prfDepth)
+  private val freeStart    = 32
 
   val io = IO(new Bundle {
-    val in     = Flipped(new PipeIO(new IFUOut(addrWidth)))
-    val out    = new PipeIO(new IDUOut(addrWidth, prfAddrWidth))
-    val commit = Input(Valid(new Bundle { val rd_index = UInt(5.W); val p_rd = UInt(prfAddrWidth.W); val old_p_rd = UInt(prfAddrWidth.W) }))
-    val flush  = Input(Bool())  // direct from Rob do_flush, for RMT/FreeList restore
+    val in          = Flipped(new PipeIO(new IFUOut(addrWidth)))
+    val out         = new PipeIO(new IDUOut(addrWidth, prfAddrWidth))
+    val commit      = Input(Valid(new IDUCommit(prfAddrWidth)))
+    val flush       = Input(Bool())
+    val restore_rmt = Input(Vec(31, UInt(prfAddrWidth.W)))
   })
 
   io.in.flush := io.out.flush || io.flush
@@ -52,7 +54,6 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val rs1Rd        = decoded(5).asBool
   val rs2Rd        = decoded(6).asBool
 
-  // All three reg indices must go through IDU mux: only pass when explicitly needed (gprWr/rs1Rd/rs2Rd), else 0
   val rs1_index = Mux(rs1Rd, io.in.bits.inst(19, 15), 0.U(5.W))
   val rs2_index = Mux(rs2Rd, io.in.bits.inst(24, 20), 0.U(5.W))
   val rd_index  = Mux(gprWr, io.in.bits.inst(11, 7), 0.U(5.W))
@@ -63,56 +64,60 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val immB = Cat(Fill(19, inst(31)), inst(31), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W))
   val immU = Cat(inst(31, 12), 0.U(12.W))
   val immJ = Cat(Fill(11, inst(31)), inst(31), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W))
-
   val imm = Mux1H(immType.asUInt, Seq(immI, immS, immB, immU, immJ))
 
-  // -------- RMT & FreeList (Rename) --------
-  // RMT receives muxed indices: rs1/rs2/rd only when needed, else 0 -> maps to PR0
+  // restore_free from restore_rmt: free(pr) = (pr >= 32) && (pr not in restore_rmt)
+  val restore_free = VecInit((0 until prfDepth).map { pr =>
+    val inRmt = (0 until 31).map(i => io.restore_rmt(i) === pr.U).reduce(_ || _)
+    pr.U >= 32.U && !inRmt
+  })
 
-  val rmt      = Module(new RMT(prfDepth))
-  val freeList = Module(new FreeList(prfDepth))
+  // -------- FreeList bitmap (inline) --------
+  val free = RegInit(VecInit(
+    Seq.tabulate(32)(_ => false.B) ++ Seq.tabulate(prfDepth - 32)(_ => true.B)
+  ))
+  when(io.flush) {
+    for (i <- 0 until prfDepth) { free(i) := restore_free(i) }
+  }.otherwise {
+    when(io.commit.valid && io.commit.bits.rd_index =/= 0.U &&
+      io.commit.bits.old_p_rd =/= io.commit.bits.p_rd && io.commit.bits.old_p_rd =/= 0.U) {
+      free(io.commit.bits.old_p_rd) := true.B
+    }
+  }
 
-  rmt.io.read(0).ar := rs1_index
-  rmt.io.read(1).ar := rs2_index
-  rmt.io.read(2).ar := rd_index
-  val p_rs1    = rmt.io.read(0).pr
-  val p_rs2    = rmt.io.read(1).pr
-  val old_p_rd = rmt.io.read(2).pr
+  val freeSlice  = VecInit((freeStart until prfDepth).map(i => free(i)))
+  val freeBits   = Cat(freeSlice.reverse)
+  val encIdx     = PriorityEncoder(freeBits)
+  val firstFreeIdx = freeStart.U + encIdx
+  val prValid    = freeBits.orR
 
-  val needAlloc    = rd_index =/= 0.U && fuType =/= FuType.SYSU
-  val canOutput    = io.out.ready && io.in.valid
-  val renameStall  = needAlloc && !freeList.io.pr.valid
-  val canAlloc     = canOutput && !renameStall && needAlloc
+  val needAlloc   = rd_index =/= 0.U && fuType =/= FuType.SYSU
+  val renameStall = needAlloc && !prValid
+  val canAlloc    = io.out.fire && !renameStall && needAlloc
 
-  freeList.io.pr.ready := canAlloc
-  // Main FreeList: push on commit when !flush.
-  // Do NOT push when old_p_rd == p_rd: we're reusing the same PR, not freeing it.
-  freeList.io.push.valid := io.commit.valid && io.commit.bits.rd_index =/= 0.U && !io.flush &&
-    io.commit.bits.old_p_rd =/= io.commit.bits.p_rd
-  freeList.io.push.bits  := io.commit.bits.old_p_rd
+  when(!io.flush && canAlloc) {
+    free(firstFreeIdx) := false.B
+  }
 
-  val p_rd = Mux(canAlloc, freeList.io.pr.bits, 0.U(prfAddrWidth.W))
+  // -------- RMT (inline) --------
+  val rmt = RegInit(VecInit(Seq.tabulate(31)(i => (i + 1).U(prfAddrWidth.W))))
+  when(io.flush) {
+    for (i <- 0 until 31) { rmt(i) := io.restore_rmt(i) }
+  }.elsewhen(canAlloc) {
+    rmt(rd_index - 1.U) := firstFreeIdx
+  }
+
+  def readPr(ar: UInt): UInt = Mux(ar === 0.U, 0.U(prfAddrWidth.W), rmt(ar - 1.U))
+  val p_rs1    = readPr(rs1_index)
+  val p_rs2    = readPr(rs2_index)
+  val old_p_rd = readPr(rd_index)
+
+  val p_rd         = Mux(canAlloc, firstFreeIdx, 0.U(prfAddrWidth.W))
   val old_p_rd_out = Mux(needAlloc, old_p_rd, 0.U(prfAddrWidth.W))
-
-  rmt.io.write.valid := canAlloc
-  rmt.io.write.bits.ar := rd_index
-  rmt.io.write.bits.pr := p_rd
-
-  // Checkpoint: updated on commit (independent of branch), restored on flush
-  rmt.io.commit.valid := io.commit.valid
-  rmt.io.commit.bits.rd_index := io.commit.bits.rd_index
-  rmt.io.commit.bits.p_rd := io.commit.bits.p_rd
-  rmt.io.commit.bits.old_p_rd := io.commit.bits.old_p_rd
-  rmt.io.flush := io.in.flush
-
-  freeList.io.commit.valid := io.commit.valid && io.commit.bits.rd_index =/= 0.U &&
-    io.commit.bits.old_p_rd =/= io.commit.bits.p_rd
-  freeList.io.commit.bits := io.commit.bits.old_p_rd
-  freeList.io.flush := io.in.flush
 
   // -------- Output --------
 
-  io.out.valid := io.in.valid
+  io.out.valid := io.in.valid && !renameStall
   io.out.bits.pc           := io.in.bits.pc
   io.out.bits.pred_next_pc := io.in.bits.pred_next_pc
   io.out.bits.imm          := imm
@@ -125,6 +130,6 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.out.bits.old_p_rd     := old_p_rd_out
   io.out.bits.fu_type      := fuType
   io.out.bits.fu_op        := fuOp
-  io.out.bits.fu_src       := fuSrc
+  io.out.bits.fu_src      := fuSrc
   io.in.ready              := io.out.ready && !renameStall
 }

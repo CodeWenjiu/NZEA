@@ -7,11 +7,10 @@ import nzea_config.NzeaConfig
 import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
 import nzea_core.retire.rob.RobEnqIO
 
-/** PRF write port: addr, data, setReady. Shared by all FU completions. */
+/** PRF write port: addr, data. Shared by all FU completions. */
 class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
-  val addr     = UInt(prfAddrWidth.W)
-  val data     = UInt(32.W)
-  val setReady = Bool()
+  val addr = UInt(prfAddrWidth.W)
+  val data = UInt(32.W)
 }
 
 /** ISU: Issue Unit. Physical reg file + operand read; dispatches to ALU/BRU/AGU/SYSU.
@@ -51,12 +50,10 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   for (i <- 0 until numPrfWritePorts) {
     when(io.prf_write(i).valid) {
       prf_regs(io.prf_write(i).bits.addr) := io.prf_write(i).bits.data
-      when(io.prf_write(i).bits.setReady) {
-        prf_ready(io.prf_write(i).bits.addr) := true.B
-      }
+      prf_ready(io.prf_write(i).bits.addr) := true.B
     }
   }
-  when(io.in.valid && io.in.bits.p_rd =/= 0.U) {
+  when(io.in.fire && io.in.bits.p_rd =/= 0.U) {
     prf_ready(io.in.bits.p_rd) := false.B
   }
 

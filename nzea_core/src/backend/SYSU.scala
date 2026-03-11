@@ -30,5 +30,4 @@ class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.prf_write.valid := u.valid && io.in.bits.p_rd =/= 0.U
   io.prf_write.bits.addr := io.in.bits.p_rd
   io.prf_write.bits.data := 0.U(32.W)
-  io.prf_write.bits.setReady := true.B
 }

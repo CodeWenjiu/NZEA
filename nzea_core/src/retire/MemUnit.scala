@@ -111,5 +111,4 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   io.prf_write.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U
   io.prf_write.bits.addr := respUser.p_rd
   io.prf_write.bits.data := loadData
-  io.prf_write.bits.setReady := true.B
 }
