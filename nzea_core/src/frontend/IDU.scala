@@ -1,7 +1,8 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.{Cat, Fill, Mux1H, PriorityEncoder, Valid}
+import chisel3.util.{Cat, Fill, Mux1H, Valid}
+import nzea_core.PriorityEncoderTree
 import nzea_core.PipeIO
 import nzea_core.backend.FuOpWidth
 import nzea_core.retire.IDUCommit
@@ -86,7 +87,7 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val freeSlice   = VecInit((allocStart until prfDepth).map(i => free(i)))
   val freeBits    = Cat(freeSlice.reverse)
-  val encIdx      = PriorityEncoder(freeBits)
+  val encIdx      = PriorityEncoderTree(freeBits)
   val firstFreeIdx = allocStart.U + encIdx
   val prValid    = freeBits.orR
 
