@@ -31,7 +31,7 @@ class IDUOut(width: Int, prfAddrWidth: Int) extends Bundle {
 class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val prfDepth     = config.prfDepth
   private val prfAddrWidth = chisel3.util.log2Ceil(prfDepth)
-  private val freeStart    = 32
+  private val allocStart   = 1  // PR0 reserved for x0
 
   val io = IO(new Bundle {
     val in          = Flipped(new PipeIO(new IFUOut(addrWidth)))
@@ -66,10 +66,10 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val immJ = Cat(Fill(11, inst(31)), inst(31), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W))
   val imm = Mux1H(immType.asUInt, Seq(immI, immS, immB, immU, immJ))
 
-  // restore_free from restore_rmt: free(pr) = (pr >= 32) && (pr not in restore_rmt)
+  // restore_free from restore_rmt: free(pr) = (pr not in restore_rmt)
   val restore_free = VecInit((0 until prfDepth).map { pr =>
     val inRmt = (0 until 31).map(i => io.restore_rmt(i) === pr.U).reduce(_ || _)
-    pr.U >= 32.U && !inRmt
+    !inRmt
   })
 
   // -------- FreeList bitmap (inline) --------
@@ -85,13 +85,13 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     }
   }
 
-  val freeSlice  = VecInit((freeStart until prfDepth).map(i => free(i)))
-  val freeBits   = Cat(freeSlice.reverse)
-  val encIdx     = PriorityEncoder(freeBits)
-  val firstFreeIdx = freeStart.U + encIdx
+  val freeSlice   = VecInit((allocStart until prfDepth).map(i => free(i)))
+  val freeBits    = Cat(freeSlice.reverse)
+  val encIdx      = PriorityEncoder(freeBits)
+  val firstFreeIdx = allocStart.U + encIdx
   val prValid    = freeBits.orR
 
-  val needAlloc   = rd_index =/= 0.U && fuType =/= FuType.SYSU
+  val needAlloc   = rd_index =/= 0.U
   val renameStall = needAlloc && !prValid
   val canAlloc    = io.out.fire && !renameStall && needAlloc
 
