@@ -27,7 +27,6 @@ object Rob {
     rob_id: UInt,
     is_done: Bool,
     need_mem: Bool,
-    rd_value: UInt,
     flush: Bool = false.B,
     next_pc: UInt = 0.U,
     mem_lsuOp: nzea_core.backend.LsuOp.Type = nzea_core.backend.LsuOp.LB
@@ -37,7 +36,6 @@ object Rob {
     w.bits.rob_id := rob_id
     w.bits.is_done := is_done
     w.bits.need_mem := need_mem
-    w.bits.rd_value := rd_value
     w.bits.flush := flush
     w.bits.next_pc := next_pc
     w.bits.mem_lsuOp := mem_lsuOp
@@ -49,8 +47,8 @@ object Rob {
 
 /** Rob: depth-entry circular buffer. rob_id = stable slot index.
   * - Enq: ISU dispatches, writes rd_index, might_flush.
-  * - FU updates: ALU/BRU/SYSU write is_done, rd_value; AGU writes need_mem, mem_lsuOp.
-  * - Mem: MemUnit holds LsBuffer; Rob issues by rob_id; MemUnit resp writes load rd_value.
+  * - FU updates: ALU/BRU/SYSU write is_done; AGU writes need_mem, mem_lsuOp.
+  * - Mem: MemUnit holds LsBuffer; Rob issues by rob_id. rd_value from PRF(p_rd) at commit.
   * - Commit: head done → output CommitMsg, advance head.
   * - Flush: on branch mispredict, clear all.
   */
@@ -90,7 +88,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
   val slots_rd_index    = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
   val slots_is_done     = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val slots_need_mem    = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_rd_value    = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
   val slots_next_pc     = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
   val slots_flush       = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val slots_mem_lsuOp   = RegInit(VecInit(Seq.fill(depth)(LsuOp.LB)))
@@ -109,7 +106,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
     s.valid       := slotValid(idx)
     s.is_done     := MuxTree(idx, slots_is_done)
     s.need_mem    := MuxTree(idx, slots_need_mem)
-    s.rd_value    := MuxTree(idx, slots_rd_value)
     s.mem_lsuOp   := MuxTree(idx, slots_mem_lsuOp)
     s.might_flush := MuxTree(idx, slots_might_flush)
     s
@@ -122,7 +118,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
   val head_mem_lsuOp = MuxTree(head_phys, slots_mem_lsuOp)
   val head_next_pc   = MuxTree(head_phys, slots_next_pc)
   val head_rd_index  = MuxTree(head_phys, slots_rd_index)
-  val head_rd_value  = MuxTree(head_phys, slots_rd_value)
   val head_p_rd      = MuxTree(head_phys, slots_p_rd)
   val head_old_p_rd = MuxTree(head_phys, slots_old_p_rd)
   val head_flush     = MuxTree(head_phys, slots_flush)
@@ -141,7 +136,7 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
   io.commit.valid := head_done
   io.commit.bits.next_pc   := head_next_pc
   io.commit.bits.rd_index  := head_rd_index
-  io.commit.bits.rd_value  := head_rd_value
+  io.commit.bits.rd_value  := 0.U  // commit reads from PRF(p_rd) via Commit module
   io.commit.bits.p_rd      := head_p_rd
   io.commit.bits.old_p_rd  := head_old_p_rd
   io.commit.bits.mem_count := Mux(head_need_mem, 1.U(32.W), 0.U(32.W))
@@ -184,7 +179,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
       slots_rd_index(i)    := 0.U
       slots_is_done(i)     := false.B
       slots_need_mem(i)    := false.B
-      slots_rd_value(i)    := 0.U
       slots_next_pc(i)     := 0.U
       slots_flush(i)       := false.B
       slots_might_flush(i) := false.B
@@ -224,7 +218,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
         slots_is_done(idx) := p.bits.is_done
         slots_need_mem(idx) := p.bits.need_mem
         slots_next_pc(idx) := p.bits.next_pc
-        when(p.bits.is_done) { slots_rd_value(idx) := p.bits.rd_value }
         when(p.bits.need_mem) { slots_mem_lsuOp(idx) := p.bits.mem_lsuOp }
         when(p.bits.flush) {
           slots_flush(idx) := true.B
@@ -239,9 +232,6 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
     when(mem.resp.fire) {
       val idx = mem.resp.bits.rob_id
       slots_is_done(idx) := true.B
-      when(LsuOp.isLoad(slots_mem_lsuOp(idx))) {
-        slots_rd_value(idx) := mem.resp.bits.data
-      }
     }
   }
 

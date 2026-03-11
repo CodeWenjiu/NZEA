@@ -55,9 +55,7 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val is_taken   = is_jmp || branchTaken
   val next_pc    = Mux(is_taken, target, b.pc + 4.U)
   val mispredict = b.pred_next_pc =/= next_pc
-  val rd_value   = b.pc + 4.U
-
-  val u = Rob.entryStateUpdate(io.in.valid, b.rob_id, is_done = true.B, need_mem = false.B, rd_value, mispredict, next_pc)(robIdWidth)
+  val u = Rob.entryStateUpdate(io.in.valid, b.rob_id, is_done = true.B, need_mem = false.B, flush = mispredict, next_pc = next_pc)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := true.B
@@ -65,5 +63,5 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   io.prf_write.valid := u.valid && b.p_rd =/= 0.U
   io.prf_write.bits.addr := b.p_rd
-  io.prf_write.bits.data := rd_value
+  io.prf_write.bits.data := b.pc + 4.U
 }

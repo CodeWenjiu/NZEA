@@ -33,6 +33,8 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     val in             = Flipped(new PipeIO(new IDUOut(addrWidth, prfAddrWidth)))
     val rob_enq        = Flipped(new RobEnqIO(robIdWidth, prfAddrWidth))
     val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
+    val prf_read_addr  = Input(UInt(prfAddrWidth.W))
+    val prf_read_data  = Output(UInt(32.W))
     val alu            = new PipeIO(new AluInput(robIdWidth, prfAddrWidth))
     val bru            = new PipeIO(new BruInput(robIdWidth, prfAddrWidth))
     val agu            = new PipeIO(new AguInput(robIdWidth, prfAddrWidth))
@@ -56,6 +58,8 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   when(io.in.fire && io.in.bits.p_rd =/= 0.U) {
     prf_ready(io.in.bits.p_rd) := false.B
   }
+
+  io.prf_read_data := Mux(io.prf_read_addr === 0.U, 0.U(32.W), prf_regs(io.prf_read_addr))
 
   val rs1_addr = io.in.bits.p_rs1
   val rs2_addr = io.in.bits.p_rs2

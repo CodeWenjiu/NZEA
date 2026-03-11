@@ -43,13 +43,12 @@ class RobMemResp(idWidth: Int) extends Bundle {
 }
 
 /** Unified Rob slot read: all fields any consumer may need.
-  * ISU: valid, is_done, rd_value. Mem data in LS_Queue.
+  * ISU: valid, is_done. Mem data in LS_Queue. rd_value from PRF(p_rd) at commit.
   */
 class RobSlotRead extends Bundle {
   val valid       = Bool()
   val is_done     = Bool()
   val need_mem    = Bool()
-  val rd_value    = UInt(32.W)
   val mem_lsuOp   = LsuOp()
   val might_flush = Bool()
 }
@@ -60,14 +59,15 @@ class RobSlotReadPort(idWidth: Int) extends Bundle {
   val slot   = Output(new RobSlotRead)
 }
 
-/** FU output to Rob: state update for an entry. Mem data (addr,wdata,wstrb) goes to LS_Queue. */
+/** FU output to Rob: state update for an entry. Mem data (addr,wdata,wstrb) goes to LS_Queue.
+  * rd_value not stored in Rob; commit reads from PRF(p_rd).
+  */
 class RobEntryStateUpdate(idWidth: Int) extends Bundle {
-  val rob_id   = UInt(idWidth.W)
-  val is_done  = Bool()
-  val need_mem = Bool()
-  val rd_value = UInt(32.W)
-  val flush    = Bool()
-  val next_pc  = UInt(32.W)
+  val rob_id    = UInt(idWidth.W)
+  val is_done   = Bool()
+  val need_mem  = Bool()
+  val flush     = Bool()
+  val next_pc   = UInt(32.W)
   val mem_lsuOp = LsuOp()
 }
 

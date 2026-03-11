@@ -30,6 +30,7 @@ class Commit(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val rob_commit   = Flipped(Valid(new CommitMsg(prfAddrWidth)))
+    val prf_rd_value = Input(UInt(32.W))
     val do_flush     = Input(Bool())
     val commit_msg   = Output(Valid(new CommitMsg(prfAddrWidth)))
     val redirect_pc  = Output(UInt(32.W))
@@ -42,6 +43,7 @@ class Commit(implicit config: NzeaConfig) extends Module {
 
   io.commit_msg.valid := any_commit
   io.commit_msg.bits := c
+  io.commit_msg.bits.rd_value := io.prf_rd_value
   io.redirect_pc := c.next_pc
 
   io.idu_commit.valid := any_commit

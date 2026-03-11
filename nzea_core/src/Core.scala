@@ -40,6 +40,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   memUnit.io.ls_enq <> exu.io.agu_ls_enq
   rob.io.commit <> commit.io.rob_commit
   commit.io.do_flush := rob.io.do_flush
+  isu.io.prf_read_addr := commit.io.rob_commit.bits.p_rd
+  commit.io.prf_rd_value := isu.io.prf_read_data
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U
 

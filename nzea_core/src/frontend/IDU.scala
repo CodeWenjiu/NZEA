@@ -9,18 +9,16 @@ import nzea_config.NzeaConfig
 
 // -------- IDU stage output --------
 
-/** IDU decode result: pc, pred_next_pc, imm, rs1/rs2/rd indices, physical regs, fu_type, fu_op, fu_src. */
+/** IDU decode result: pc, pred_next_pc, imm, rd_index, physical regs, fu_type, fu_op, fu_src. */
 class IDUOut(width: Int, prfAddrWidth: Int) extends Bundle {
   val pc           = UInt(width.W)
-  val pred_next_pc = UInt(width.W)
   val imm          = UInt(32.W)
-  val rs1_index    = UInt(5.W)
-  val rs2_index    = UInt(5.W)
   val rd_index     = UInt(5.W)
+  val pred_next_pc = UInt(width.W)
   val p_rs1        = UInt(prfAddrWidth.W)
   val p_rs2        = UInt(prfAddrWidth.W)
-  val p_rd         = UInt(prfAddrWidth.W)
   val old_p_rd     = UInt(prfAddrWidth.W)
+  val p_rd         = UInt(prfAddrWidth.W)
   val fu_type      = FuType()
   val fu_op        = UInt(FuOpWidth.Width.W)
   val fu_src       = UInt(FuSrcWidth.Width.W)
@@ -121,8 +119,6 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.out.bits.pc           := io.in.bits.pc
   io.out.bits.pred_next_pc := io.in.bits.pred_next_pc
   io.out.bits.imm          := imm
-  io.out.bits.rs1_index    := rs1_index
-  io.out.bits.rs2_index    := rs2_index
   io.out.bits.rd_index     := rd_index
   io.out.bits.p_rs1        := p_rs1
   io.out.bits.p_rs2        := p_rs2
