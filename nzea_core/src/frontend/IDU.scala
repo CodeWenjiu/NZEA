@@ -73,15 +73,27 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val flush_d1 = RegNext(io.flush, false.B)
   // -------- FreeList bitmap (inline) --------
+  // Commit->free delayed 1 cycle: store pending, apply next cycle. Breaks ROB->IDU critical path.
+  val pending_free_valid = RegInit(false.B)
+  val pending_free_addr  = Reg(UInt(prfAddrWidth.W))
+
   val free = RegInit(VecInit(
     Seq.tabulate(32)(_ => false.B) ++ Seq.tabulate(prfDepth - 32)(_ => true.B)
   ))
-  when(flush_d1) {
+  when(io.flush) {
+    pending_free_valid := false.B
+  }.elsewhen(flush_d1) {
     for (i <- 0 until prfDepth) { free(i) := restore_free(i) }
   }.otherwise {
-    when(io.commit.valid && io.commit.bits.rd_index =/= 0.U &&
+    when(pending_free_valid) {
+      free(pending_free_addr) := true.B
+    }
+    when(io.commit.valid && !io.flush && io.commit.bits.rd_index =/= 0.U &&
       io.commit.bits.old_p_rd =/= io.commit.bits.p_rd && io.commit.bits.old_p_rd =/= 0.U) {
-      free(io.commit.bits.old_p_rd) := true.B
+      pending_free_addr  := io.commit.bits.old_p_rd
+      pending_free_valid := true.B
+    }.elsewhen(pending_free_valid) {
+      pending_free_valid := false.B
     }
   }
 

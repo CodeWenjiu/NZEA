@@ -44,29 +44,48 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   val outs   = Seq(io.alu, io.bru, io.agu, io.sysu)
   val fuTypes = Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU)
 
-  // -------- Physical Register File (inline) --------
+  // -------- Physical Register File (banked for timing) --------
+  // 4 banks of 16 entries: addr[5:4]=bank, addr[3:0]=index within bank
+  private val numBanks  = 4
+  private val bankDepth = 16
+  require(prfDepth == numBanks * bankDepth, s"prfDepth=$prfDepth must equal numBanks*bankDepth")
 
-  val prf_regs  = RegInit(VecInit(Seq.fill(prfDepth)(0.U(32.W))))
-  val prf_ready = RegInit(VecInit(Seq.tabulate(prfDepth)(i => (i < 32).B)))
+  val bank_regs  = RegInit(VecInit(Seq.tabulate(numBanks)(_ => VecInit(Seq.fill(bankDepth)(0.U(32.W))))))
+  val bank_ready = RegInit(VecInit(Seq.tabulate(numBanks)(b =>
+    VecInit(Seq.tabulate(bankDepth)(i => (b * bankDepth + i) < 32).map(_.B))
+  )))
 
   for (i <- 0 until numPrfWritePorts) {
     when(io.prf_write(i).valid) {
-      prf_regs(io.prf_write(i).bits.addr) := io.prf_write(i).bits.data
-      prf_ready(io.prf_write(i).bits.addr) := true.B
+      val addr = io.prf_write(i).bits.addr
+      val bank = addr(prfAddrWidth - 1, prfAddrWidth - 2)
+      val idx  = addr(prfAddrWidth - 3, 0)
+      bank_regs(bank)(idx)  := io.prf_write(i).bits.data
+      bank_ready(bank)(idx) := true.B
     }
   }
   when(io.in.fire && io.in.bits.p_rd =/= 0.U) {
-    prf_ready(io.in.bits.p_rd) := false.B
+    val p_rd  = io.in.bits.p_rd
+    val bank  = p_rd(prfAddrWidth - 1, prfAddrWidth - 2)
+    val idx   = p_rd(prfAddrWidth - 3, 0)
+    bank_ready(bank)(idx) := false.B
   }
 
-  io.prf_read_data := Mux(io.prf_read_addr === 0.U, 0.U(32.W), prf_regs(io.prf_read_addr))
+  def readPrf(addr: UInt): (UInt, Bool) = {
+    val bankSel = (0 until numBanks).map(b => addr(prfAddrWidth - 1, prfAddrWidth - 2) === b.U)
+    val idx     = addr(prfAddrWidth - 3, 0)
+    val data    = Mux(addr === 0.U, 0.U(32.W), Mux1H(bankSel, (0 until numBanks).map(b => bank_regs(b)(idx))))
+    val ready   = Mux(addr === 0.U, true.B, Mux1H(bankSel, (0 until numBanks).map(b => bank_ready(b)(idx))))
+    (data, ready)
+  }
+
+  val (prf_read_val, _) = readPrf(io.prf_read_addr)
+  io.prf_read_data := prf_read_val
 
   val rs1_addr = io.in.bits.p_rs1
   val rs2_addr = io.in.bits.p_rs2
-  val rs1_val  = Mux(rs1_addr === 0.U, 0.U(32.W), prf_regs(rs1_addr))
-  val rs2_val  = Mux(rs2_addr === 0.U, 0.U(32.W), prf_regs(rs2_addr))
-  val rs1_ready = prf_ready(rs1_addr)
-  val rs2_ready = prf_ready(rs2_addr)
+  val (rs1_val, rs1_ready) = readPrf(rs1_addr)
+  val (rs2_val, rs2_ready) = readPrf(rs2_addr)
   val stall    = io.in.valid && (!rs1_ready || !rs2_ready)
 
   // -------- Flush --------
