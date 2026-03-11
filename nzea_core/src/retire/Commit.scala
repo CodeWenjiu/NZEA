@@ -51,13 +51,11 @@ class Commit(implicit config: NzeaConfig) extends Module {
   io.idu_commit.bits.p_rd := c.p_rd
   io.idu_commit.bits.old_p_rd := c.old_p_rd
 
-  // AMT: 31 entries for AR1~AR31, updated on commit
+  // AMT: 31 entries for AR1~AR31, updated on commit.
+  // restore_rmt = amt (registered output only), breaks rob->commit combinational path.
   val amt = RegInit(VecInit(Seq.tabulate(31)(i => (i + 1).U(prfAddrWidth.W))))
   when(any_commit && c.rd_index =/= 0.U) {
     amt(c.rd_index - 1.U) := c.p_rd
   }
-  for (i <- 0 until 31) { io.restore_rmt(i) := amt(i) }
-  when(any_commit && c.rd_index =/= 0.U) {
-    io.restore_rmt(c.rd_index - 1.U) := c.p_rd
-  }
+  io.restore_rmt := amt
 }

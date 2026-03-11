@@ -55,7 +55,7 @@ hierarchy -check -top $DESIGN
 # Top's ibus_resp_*, dbus_resp_* are primary inputs; logic preserved
 
 synth -top $DESIGN -run :fine
-share -aggressive
+share
 onehot
 muxpack
 opt_demorgan

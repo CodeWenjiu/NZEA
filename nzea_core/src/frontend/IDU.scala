@@ -70,11 +70,12 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     !inRmt
   })
 
+  val flush_d1 = RegNext(io.flush, false.B)
   // -------- FreeList bitmap (inline) --------
   val free = RegInit(VecInit(
     Seq.tabulate(32)(_ => false.B) ++ Seq.tabulate(prfDepth - 32)(_ => true.B)
   ))
-  when(io.flush) {
+  when(flush_d1) {
     for (i <- 0 until prfDepth) { free(i) := restore_free(i) }
   }.otherwise {
     when(io.commit.valid && io.commit.bits.rd_index =/= 0.U &&
@@ -98,8 +99,9 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   }
 
   // -------- RMT (inline) --------
+  // RMT flush delayed 1 cycle so restore_rmt (Commit AMT) has settled; no new instr reaches IDU in that cycle.
   val rmt = RegInit(VecInit(Seq.tabulate(31)(i => (i + 1).U(prfAddrWidth.W))))
-  when(io.flush) {
+  when(flush_d1) {
     for (i <- 0 until 31) { rmt(i) := io.restore_rmt(i) }
   }.elsewhen(canAlloc) {
     rmt(rd_index - 1.U) := firstFreeIdx
