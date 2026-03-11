@@ -57,7 +57,7 @@ class ALU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
 
   val next_pc = io.in.bits.pc + 4.U
-  val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, need_mem = false.B, next_pc = next_pc)(robIdWidth)
+  val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := true.B

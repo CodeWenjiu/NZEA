@@ -4,24 +4,34 @@ import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.backend.LsuOp
 
+// -------- Mem type for ROB slot (set at ISU dispatch) --------
+
+object RobMemType extends chisel3.ChiselEnum {
+  val None  = Value(0.U(2.W))
+  val Load  = Value(1.U(2.W))
+  val Store = Value(2.U(2.W))
+
+  def needMem(t: RobMemType.Type): Bool = t =/= None
+  def isLoad(t: RobMemType.Type): Bool  = t === Load
+}
+
 // -------- Bundles --------
 
 /** One entry in the Rob. Mem addr/wdata/wstrb in MemUnit LsBuffer. */
 class RobEntry extends Bundle {
-  val rd_index   = UInt(5.W)
-  val is_done    = Bool()
-  val need_mem   = Bool()
-  val rd_value   = UInt(32.W)
-  val next_pc    = UInt(32.W)
-  val flush      = Bool()
-  val mem_lsuOp  = LsuOp()
+  val rd_index  = UInt(5.W)
+  val is_done   = Bool()
+  val mem_type  = RobMemType()
+  val rd_value  = UInt(32.W)
+  val next_pc   = UInt(32.W)
+  val flush     = Bool()
 }
 
-
-/** Payload for Rob enq: rd_index, might_flush (branch/trap), p_rd, old_p_rd (for rename). next_pc written by EX stage. */
+/** Payload for Rob enq: rd_index, might_flush (branch/trap), mem_type (Load/Store/None), p_rd, old_p_rd. */
 class RobEnqPayload(prfAddrWidth: Int) extends Bundle {
   val rd_index    = UInt(5.W)
   val might_flush = Bool()
+  val mem_type   = RobMemType()
   val p_rd       = UInt(prfAddrWidth.W)
   val old_p_rd   = UInt(prfAddrWidth.W)
 }
@@ -48,8 +58,7 @@ class RobMemResp(idWidth: Int) extends Bundle {
 class RobSlotRead extends Bundle {
   val valid       = Bool()
   val is_done     = Bool()
-  val need_mem    = Bool()
-  val mem_lsuOp   = LsuOp()
+  val mem_type    = RobMemType()
   val might_flush = Bool()
 }
 
@@ -61,14 +70,13 @@ class RobSlotReadPort(idWidth: Int) extends Bundle {
 
 /** FU output to Rob: state update for an entry. Mem data (addr,wdata,wstrb) goes to LS_Queue.
   * rd_value not stored in Rob; commit reads from PRF(p_rd).
+  * mem_type set at enq (ISU), not updated by FU.
   */
 class RobEntryStateUpdate(idWidth: Int) extends Bundle {
-  val rob_id    = UInt(idWidth.W)
-  val is_done   = Bool()
-  val need_mem  = Bool()
-  val flush     = Bool()
-  val next_pc   = UInt(32.W)
-  val mem_lsuOp = LsuOp()
+  val rob_id  = UInt(idWidth.W)
+  val is_done = Bool()
+  val flush   = Bool()
+  val next_pc = UInt(32.W)
 }
 
 /** FU output to Rob: valid/bits from FU, ready/flush from Rob. */

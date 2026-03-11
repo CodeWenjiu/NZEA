@@ -3,8 +3,8 @@ package nzea_core.retire.rob
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.MuxTree
-import nzea_core.backend.LsuOp
 import nzea_core.retire.CommitMsg
+import nzea_core.retire.rob.RobMemType
 
 // -------- Companion --------
 
@@ -26,19 +26,15 @@ object Rob {
     valid: Bool,
     rob_id: UInt,
     is_done: Bool,
-    need_mem: Bool,
     flush: Bool = false.B,
-    next_pc: UInt = 0.U,
-    mem_lsuOp: nzea_core.backend.LsuOp.Type = nzea_core.backend.LsuOp.LB
+    next_pc: UInt = 0.U
   )(idWidth: Int): chisel3.util.Valid[RobEntryStateUpdate] = {
     val w = Wire(chisel3.util.Valid(new RobEntryStateUpdate(idWidth)))
     w.valid := valid
     w.bits.rob_id := rob_id
     w.bits.is_done := is_done
-    w.bits.need_mem := need_mem
     w.bits.flush := flush
     w.bits.next_pc := next_pc
-    w.bits.mem_lsuOp := mem_lsuOp
     w
   }
 }
@@ -47,7 +43,7 @@ object Rob {
 
 /** Rob: depth-entry circular buffer. rob_id = stable slot index.
   * - Enq: ISU dispatches, writes rd_index, might_flush.
-  * - FU updates: ALU/BRU/SYSU write is_done; AGU writes need_mem, mem_lsuOp.
+  * - FU updates: ALU/BRU/SYSU write is_done; AGU writes next_pc. mem_type set at enq (ISU).
   * - Mem: MemUnit holds LsBuffer; Rob issues by rob_id. rd_value from PRF(p_rd) at commit.
   * - Commit: head done → output CommitMsg, advance head.
   * - Flush: on branch mispredict, clear all.
@@ -87,10 +83,9 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
 
   val slots_rd_index    = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
   val slots_is_done     = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_need_mem    = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val slots_mem_type    = RegInit(VecInit(Seq.fill(depth)(RobMemType.None)))
   val slots_next_pc     = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
   val slots_flush       = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_mem_lsuOp   = RegInit(VecInit(Seq.fill(depth)(LsuOp.LB)))
   val slots_might_flush = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val slots_p_rd       = Reg(Vec(depth, UInt(prfAddrWidth.W)))
   val slots_old_p_rd   = Reg(Vec(depth, UInt(prfAddrWidth.W)))
@@ -105,8 +100,7 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
     val s = Wire(new RobSlotRead)
     s.valid       := slotValid(idx)
     s.is_done     := MuxTree(idx, slots_is_done)
-    s.need_mem    := MuxTree(idx, slots_need_mem)
-    s.mem_lsuOp   := MuxTree(idx, slots_mem_lsuOp)
+    s.mem_type    := MuxTree(idx, slots_mem_type)
     s.might_flush := MuxTree(idx, slots_might_flush)
     s
   }
@@ -114,14 +108,14 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
   // -------- Head Fields (for commit) --------
 
   val head_is_done   = MuxTree(head_phys, slots_is_done)
-  val head_need_mem  = MuxTree(head_phys, slots_need_mem)
-  val head_mem_lsuOp = MuxTree(head_phys, slots_mem_lsuOp)
+  val head_mem_type  = MuxTree(head_phys, slots_mem_type)
+  val head_need_mem  = RobMemType.needMem(head_mem_type)
+  val head_is_load   = RobMemType.isLoad(head_mem_type)
   val head_next_pc   = MuxTree(head_phys, slots_next_pc)
   val head_rd_index  = MuxTree(head_phys, slots_rd_index)
   val head_p_rd      = MuxTree(head_phys, slots_p_rd)
   val head_old_p_rd = MuxTree(head_phys, slots_old_p_rd)
   val head_flush     = MuxTree(head_phys, slots_flush)
-  val head_is_load   = LsuOp.isLoad(head_mem_lsuOp)
 
   // -------- Enq --------
 
@@ -178,11 +172,10 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
     for (i <- 0 until depth) {
       slots_rd_index(i)    := 0.U
       slots_is_done(i)     := false.B
-      slots_need_mem(i)    := false.B
+      slots_mem_type(i)    := RobMemType.None
       slots_next_pc(i)     := 0.U
       slots_flush(i)       := false.B
       slots_might_flush(i) := false.B
-      slots_mem_lsuOp(i)   := LsuOp.LB
       slots_p_rd(i)         := 0.U
       slots_old_p_rd(i)     := 0.U
     }
@@ -204,6 +197,7 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
       val idx = tail_phys
       slots_rd_index(idx)    := enq.req.bits.rd_index
       slots_might_flush(idx) := enq.req.bits.might_flush
+      slots_mem_type(idx)    := enq.req.bits.mem_type
       slots_p_rd(idx)        := enq.req.bits.p_rd
       slots_old_p_rd(idx)    := enq.req.bits.old_p_rd
       slots_flush(idx)       := false.B
@@ -216,9 +210,7 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
       when(p.valid) {
         val idx = p.bits.rob_id
         slots_is_done(idx) := p.bits.is_done
-        slots_need_mem(idx) := p.bits.need_mem
         slots_next_pc(idx) := p.bits.next_pc
-        when(p.bits.need_mem) { slots_mem_lsuOp(idx) := p.bits.mem_lsuOp }
         when(p.bits.flush) {
           slots_flush(idx) := true.B
         }.elsewhen(p.bits.is_done) {

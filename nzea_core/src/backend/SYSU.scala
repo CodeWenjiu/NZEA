@@ -21,7 +21,7 @@ class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
   })
   val next_pc = io.in.bits.pc + 4.U
-  val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, need_mem = false.B, next_pc = next_pc)(robIdWidth)
+  val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := true.B

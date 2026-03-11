@@ -52,8 +52,8 @@ class AGU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   val next_pc = io.in.bits.pc + 4.U
   val u = Rob.entryStateUpdate(
-    io.in.valid, io.in.bits.rob_id, false.B, true.B,
-    next_pc = next_pc, mem_lsuOp = io.in.bits.lsuOp)(robIdWidth)
+    io.in.valid, io.in.bits.rob_id, false.B,
+    next_pc = next_pc)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
   io.in.ready := io.rob_access.ready

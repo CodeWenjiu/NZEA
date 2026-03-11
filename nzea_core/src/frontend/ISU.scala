@@ -5,7 +5,7 @@ import chisel3.util.{Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput}
-import nzea_core.retire.rob.RobEnqIO
+import nzea_core.retire.rob.{RobEnqIO, RobMemType}
 
 /** PRF write port: addr, data. Shared by all FU completions. */
 class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
@@ -86,6 +86,12 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   io.rob_enq.req.valid := can_enq
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
+  val (lsuOp, _) = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
+  io.rob_enq.req.bits.mem_type := Mux(
+    fu_type === FuType.LSU,
+    Mux(LsuOp.isLoad(lsuOp), RobMemType.Load, RobMemType.Store),
+    RobMemType.None
+  )
   io.rob_enq.req.bits.p_rd := io.in.bits.p_rd
   io.rob_enq.req.bits.old_p_rd := io.in.bits.old_p_rd
 
@@ -122,7 +128,6 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   io.bru.bits.p_rd         := io.in.bits.p_rd
 
   io.agu.valid := can_dispatch && (fu_type === FuType.LSU)
-  val (lsuOp, _) = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
   io.agu.bits.base      := rs1_val
   io.agu.bits.imm       := imm
   io.agu.bits.lsuOp     := lsuOp
