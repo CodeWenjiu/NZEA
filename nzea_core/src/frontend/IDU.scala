@@ -71,9 +71,9 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     !inRmt
   })
 
-  val flush_d1 = RegNext(io.flush, false.B)
   // -------- FreeList bitmap (inline) --------
   // Commit->free delayed 1 cycle: store pending, apply next cycle. Breaks ROB->IDU critical path.
+  // Flush from ROB is already delayed 1 cycle; restore_rmt (AMT) settled when flush arrives.
   val pending_free_valid = RegInit(false.B)
   val pending_free_addr  = Reg(UInt(prfAddrWidth.W))
 
@@ -81,9 +81,8 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     Seq.tabulate(32)(_ => false.B) ++ Seq.tabulate(prfDepth - 32)(_ => true.B)
   ))
   when(io.flush) {
-    pending_free_valid := false.B
-  }.elsewhen(flush_d1) {
     for (i <- 0 until prfDepth) { free(i) := restore_free(i) }
+    pending_free_valid := false.B
   }.otherwise {
     when(pending_free_valid) {
       free(pending_free_addr) := true.B
@@ -112,9 +111,8 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   }
 
   // -------- RMT (inline) --------
-  // RMT flush delayed 1 cycle so restore_rmt (Commit AMT) has settled; no new instr reaches IDU in that cycle.
   val rmt = RegInit(VecInit(Seq.tabulate(31)(i => (i + 1).U(prfAddrWidth.W))))
-  when(flush_d1) {
+  when(io.flush) {
     for (i <- 0 until 31) { rmt(i) := io.restore_rmt(i) }
   }.elsewhen(canAlloc) {
     rmt(rd_index - 1.U) := firstFreeIdx

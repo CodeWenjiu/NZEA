@@ -124,10 +124,11 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
 
   // -------- Commit --------
 
-  val head_done = !empty && head_is_done
-  val do_flush  = io.commit.valid && head_flush
+  val head_done     = !empty && head_is_done
+  val do_flush_raw  = io.commit.valid && head_flush
+  val do_flush      = RegNext(do_flush_raw, false.B)  // delay 1 cycle to break ROB->IDU/IFU critical path
 
-  io.commit.valid := head_done
+  io.commit.valid := head_done && !do_flush  // suppress commit when flush is active (next-cycle flush)
   io.commit.bits.next_pc   := head_next_pc
   io.commit.bits.rd_index  := head_rd_index
   io.commit.bits.rd_value  := 0.U  // commit reads from PRF(p_rd) via Commit module

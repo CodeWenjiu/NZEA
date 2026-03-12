@@ -49,7 +49,7 @@ class IFU(implicit config: NzeaConfig) extends Module {
   io.bus.req.bits.user := userReq.asUInt
 
   when(io.out.flush) { pc := io.redirect_pc }
-    .elsewhen(io.bus.req.fire) { pc := pc + 4.U }
+    .elsewhen(io.bus.req.fire) { pc := pred_next_pc }
 
   io.out.valid := io.bus.resp.valid && !io.out.flush
   val userResp = io.bus.resp.bits.user.asTypeOf(userBundleType)

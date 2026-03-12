@@ -44,7 +44,7 @@ class Commit(implicit config: NzeaConfig) extends Module {
   io.commit_msg.valid := any_commit
   io.commit_msg.bits := c
   io.commit_msg.bits.rd_value := io.prf_rd_value
-  io.redirect_pc := c.next_pc
+  io.redirect_pc := RegNext(c.next_pc)
 
   io.idu_commit.valid := any_commit
   io.idu_commit.bits.rd_index := c.rd_index
