@@ -18,7 +18,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
 
   val prfWriteSources = Seq.tabulate(exu.io.prf_write.size)(exu.io.prf_write(_)) :+ memUnit.io.prf_write
-  val isu = Module(new frontend.ISU(addrWidth, prfWriteSources.size))
+  val isu = Module(new frontend.ISU(addrWidth, prfWriteSources.size, prfWriteSources.size - 1))  // exclude MemUnit from bypass
 
   val rob = nzea_core.retire.rob.Rob(robDepth, exu.fuOutputs, aguPortIndex = 3, prfAddrWidth = prfAddrWidth)
   val commit = Module(new retire.Commit)

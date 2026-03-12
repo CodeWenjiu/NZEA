@@ -18,14 +18,18 @@ class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
   * Data flow:
   * - PRF: regs + ready; write from FU completion (prf_write); clear when instr arrives at ISU (p_rd).
   * - prf_write: Vec of size numPrfWritePorts, auto-sized when connecting FUs.
-  * - Operand read: PRF(p_rs1), PRF(p_rs2); stall when !ready.
+  * - Operand read: PRF(p_rs1), PRF(p_rs2) with bypass. If prf_write matches addr this cycle, use it
+  *   directly (ready=true). MemUnit (last port) excluded from bypass to avoid timing bottleneck.
   * - Dispatch: can_dispatch when !stall and rob_enq ready and FU ready.
+  *
+  * @param numBypassPorts ports 0..numBypassPorts-1 participate in bypass; -1 = all.
   */
-class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) extends Module {
-  private val robDepth     = config.robDepth
-  private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
-  private val prfAddrWidth = config.prfAddrWidth
-  private val prfDepth     = config.prfDepth
+class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int = -1)(implicit config: NzeaConfig) extends Module {
+  private val robDepth       = config.robDepth
+  private val robIdWidth     = chisel3.util.log2Ceil(robDepth.max(2))
+  private val prfAddrWidth   = config.prfAddrWidth
+  private val prfDepth       = config.prfDepth
+  private val bypassPortEnd  = if (numBypassPorts < 0) numPrfWritePorts else numBypassPorts
 
   // -------- IO --------
 
@@ -79,13 +83,26 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     (data, ready)
   }
 
+  /** Read operand with bypass: if any prf_write[0..bypassPortEnd) matches addr this cycle, use it (ready=true).
+    * MemUnit (last port) excluded to avoid load-data→bypass timing path. Cascade Mux; no one-hot assumption. */
+  def readPrfWithBypass(addr: UInt): (UInt, Bool) = {
+    val (prfData, prfReady) = readPrf(addr)
+    val (bypassData, bypassHit) = (0 until bypassPortEnd).foldLeft((prfData, false.B)) { case ((d, h), i) =>
+      val sel = io.prf_write(i).valid && io.prf_write(i).bits.addr === addr
+      (Mux(sel, io.prf_write(i).bits.data, d), h || sel)
+    }
+    val data  = Mux(addr === 0.U, 0.U(32.W), bypassData)
+    val ready = (addr === 0.U) || bypassHit || prfReady
+    (data, ready)
+  }
+
   val (prf_read_val, _) = readPrf(io.prf_read_addr)
   io.prf_read_data := prf_read_val
 
   val rs1_addr = io.in.bits.p_rs1
   val rs2_addr = io.in.bits.p_rs2
-  val (rs1_val, rs1_ready) = readPrf(rs1_addr)
-  val (rs2_val, rs2_ready) = readPrf(rs2_addr)
+  val (rs1_val, rs1_ready) = readPrfWithBypass(rs1_addr)
+  val (rs2_val, rs2_ready) = readPrfWithBypass(rs2_addr)
   val stall    = io.in.valid && (!rs1_ready || !rs2_ready)
 
   // -------- Flush --------
