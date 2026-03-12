@@ -1,6 +1,7 @@
 package nzea_core.frontend.bp
 
 import chisel3._
+import firrtl.ir.ReadUnderWrite
 
 /** Branch History Table: 2-bit saturating counter for branch direction.
   * Direct-mapped, no tag. Index from PC[indexBits+1:2].
@@ -25,7 +26,7 @@ class BHT(size: Int) extends Module {
   private val index        = io.pc(indexBits + 1, 2)
   private val update_index = io.update_pc(indexBits + 1, 2)
 
-  val mem = SyncReadMem(size, UInt(2.W))
+  val mem = SyncReadMem(size, UInt(2.W), SyncReadMem.WriteFirst)
 
   // Port 1: read-only for prediction
   val pred_val = mem.read(index, true.B)
