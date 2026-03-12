@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.PipeIO
 import nzea_core.frontend.PrfWriteBundle
+import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{RobAccessIO, RobMemReq}
 
 /** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
@@ -33,6 +34,8 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val agu_rob_access  = new RobAccessIO(robIdWidth)
     val agu_ls_enq      = Decoupled(new RobMemReq(robIdWidth, prfAddrWidth))
     val prf_write       = Output(Vec(prfWriteSources.size, Valid(new PrfWriteBundle(prfAddrWidth))))
+
+    val bru_bp_update = Output(Valid(new BpUpdate))
   })
 
   io.alu_in <> alu.io.in
@@ -47,6 +50,7 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.agu_ls_enq <> agu.io.ls_enq
 
   io.prf_write := VecInit(prfWriteSources)
+  io.bru_bp_update := bru.io.bp_update
 
   /** All FU outputs for Rob; order matches accessPorts. */
   def fuOutputs: Seq[RobAccessIO] = Seq(

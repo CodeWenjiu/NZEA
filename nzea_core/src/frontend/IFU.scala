@@ -1,8 +1,9 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.Decoupled
+import chisel3.util.{Decoupled, Valid}
 import nzea_core.PipeIO
+import nzea_core.frontend.bp.{BHT, BTB, BpUpdate}
 import nzea_core.CoreBusReadOnly
 import nzea_config.NzeaConfig
 
@@ -37,9 +38,24 @@ class IFU(implicit config: NzeaConfig) extends Module {
     val bus = busType.cloneType
     val out = new PipeIO(new IFUOut(addrWidth))
     val redirect_pc = Input(UInt(addrWidth.W))
+    val bp_update   = Input(Valid(new BpUpdate))
   })
+
   val pc = RegInit(pcReset)
-  val pred_next_pc = pc + 4.U
+  val bht = Module(new BHT(config.bhtSize))
+  val btb = Module(new BTB(config.btbSize))
+
+  bht.io.pc := pc
+  bht.io.update := io.bp_update.valid
+  bht.io.update_pc := io.bp_update.bits.pc
+  bht.io.update_taken := io.bp_update.bits.taken
+
+  btb.io.pc := pc
+  btb.io.update := io.bp_update.valid && io.bp_update.bits.taken
+  btb.io.update_pc := io.bp_update.bits.pc
+  btb.io.update_target := io.bp_update.bits.target
+
+  val pred_next_pc = Mux(bht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U)
 
   io.bus.req.valid := io.out.ready
   io.bus.req.bits.addr := pc

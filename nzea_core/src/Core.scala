@@ -61,4 +61,5 @@ class Core(implicit config: NzeaConfig) extends Module {
   io.commit_msg := commit.io.commit_msg
   ifu.io.redirect_pc := commit.io.redirect_pc
   ifu.io.out.flush := rob.io.do_flush  // flush propagates to IFU for pc redirect
+  ifu.io.bp_update := exu.io.bru_bp_update
 }

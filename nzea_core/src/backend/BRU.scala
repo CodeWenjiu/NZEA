@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
 import nzea_core.frontend.PrfWriteBundle
+import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.Rob
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
@@ -30,12 +31,14 @@ class BruInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd         = UInt(prfAddrWidth.W)
 }
 
-/** BRU: combinational; writes result to Rob (commit) and PRF (direct). */
+/** BRU: combinational; writes result to Rob (commit) and PRF (direct).
+  * Outputs BHT/BTB update for branch prediction. */
 class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
     val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+    val bp_update = Output(Valid(new BpUpdate))
   })
 
   val b = io.in.bits
@@ -64,4 +67,9 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.prf_write.valid := u.valid && b.p_rd =/= 0.U
   io.prf_write.bits.addr := b.p_rd
   io.prf_write.bits.data := b.pc + 4.U
+
+  io.bp_update.valid := io.in.fire
+  io.bp_update.bits.pc := b.pc
+  io.bp_update.bits.taken := is_taken
+  io.bp_update.bits.target := next_pc
 }

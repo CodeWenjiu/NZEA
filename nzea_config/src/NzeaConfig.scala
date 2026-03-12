@@ -9,7 +9,9 @@ case class NzeaConfig(
   @arg(doc = "Platform: sim (default, Core+DPI), yosys (Core with exposed IO)") synthPlatform: String = "sim",
   @arg(doc = "Default PC (reset value)") defaultPc: Long = 0x8000_0000L,
   @arg(doc = "Rob depth (number of in-flight entries)") robDepth: Int = 8,
-  @arg(doc = "Physical register file depth (for rename)") prfDepth: Int = 64
+  @arg(doc = "Physical register file depth (for rename)") prfDepth: Int = 64,
+  @arg(doc = "BHT size (power of 2)") bhtSize: Int = 64,
+  @arg(doc = "BTB size (power of 2)") btbSize: Int = 16
 ) {
   val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Sim)
   val effectiveOutDir: String = outDir.getOrElse(platform.outDir)
