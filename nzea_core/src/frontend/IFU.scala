@@ -45,13 +45,15 @@ class IFU(implicit config: NzeaConfig) extends Module {
   val bht = Module(new BHT(config.bhtSize))
   val btb = Module(new BTB(config.btbSize))
 
-  val pred_next_pc = Mux(bht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U)
+  val pred_next_pc = Mux(RegNext(io.out.flush, false.B), pc + 4.U,
+    Mux(bht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U))
   bht.io.pc := pred_next_pc
   bht.io.update := io.bp_update.valid
   bht.io.update_pc := io.bp_update.bits.pc
   bht.io.update_taken := io.bp_update.bits.taken
 
-  btb.io.pc := pc
+  btb.io.read_addr  := pred_next_pc
+  btb.io.pc_for_tag := pc
   btb.io.update := io.bp_update.valid && io.bp_update.bits.taken
   btb.io.update_pc := io.bp_update.bits.pc
   btb.io.update_target := io.bp_update.bits.target
