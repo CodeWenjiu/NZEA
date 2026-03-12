@@ -31,14 +31,15 @@ class BruInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd         = UInt(prfAddrWidth.W)
 }
 
-/** BRU stage-1 payload: resolved next_pc, flush (mispredict), is_taken; for ROB and IFU. */
+/** BRU stage-1 payload: resolved next_pc, flush (mispredict), is_taken; pc_plus_4 for JAL/JALR; for ROB and IFU. */
 class BruS1Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val rob_id   = UInt(robIdWidth.W)
-  val p_rd     = UInt(prfAddrWidth.W)
-  val pc       = UInt(32.W)
-  val next_pc  = UInt(32.W)
-  val flush    = Bool()
-  val is_taken = Bool()
+  val rob_id    = UInt(robIdWidth.W)
+  val p_rd      = UInt(prfAddrWidth.W)
+  val pc        = UInt(32.W)
+  val next_pc   = UInt(32.W)
+  val pc_plus_4 = UInt(32.W)
+  val flush     = Bool()
+  val is_taken  = Bool()
 }
 
 /** BRU Stage 0: computes target, is_taken, flush (mispredict). Outputs PipeIO(BruS1Out). */
@@ -67,12 +68,13 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val mispredict = b.pred_next_pc =/= next_pc
 
   io.out.valid := io.in.valid
-  io.out.bits.rob_id   := b.rob_id
-  io.out.bits.p_rd     := b.p_rd
-  io.out.bits.pc       := b.pc
-  io.out.bits.next_pc  := next_pc
-  io.out.bits.flush    := mispredict
-  io.out.bits.is_taken := is_taken
+  io.out.bits.rob_id    := b.rob_id
+  io.out.bits.p_rd      := b.p_rd
+  io.out.bits.pc        := b.pc
+  io.out.bits.next_pc   := next_pc
+  io.out.bits.pc_plus_4 := b.pc + 4.U
+  io.out.bits.flush     := mispredict
+  io.out.bits.is_taken  := is_taken
   io.in.ready := io.out.ready
   io.in.flush := io.out.flush
 }
@@ -100,7 +102,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   io.prf_write.valid := u.valid && b.p_rd =/= 0.U
   io.prf_write.bits.addr := b.p_rd
-  io.prf_write.bits.data := b.pc + 4.U
+  io.prf_write.bits.data := b.pc_plus_4
 
   io.bp_update.valid := io.in.valid
   io.bp_update.bits.pc := b.pc
