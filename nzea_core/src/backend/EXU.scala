@@ -51,12 +51,4 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   io.prf_write := VecInit(prfWriteSources)
   io.bru_bp_update := bru.io.bp_update
-
-  /** All FU outputs for Rob; order matches accessPorts. */
-  def fuOutputs: Seq[RobAccessIO] = Seq(
-    io.alu_rob_access,
-    io.bru_rob_access,
-    io.sysu_rob_access,
-    io.agu_rob_access
-  )
 }

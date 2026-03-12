@@ -93,11 +93,10 @@ class RobEnqIO(idWidth: Int, prfAddrWidth: Int) extends Bundle {
   val rob_id = Output(UInt(idWidth.W))
 }
 
-/** Rob–MemUnit: Rob issues mem request; MemUnit provides issue_rob_id, ls_enq_ready, resp. */
+/** Rob–MemUnit: Rob issues mem request; MemUnit provides issue_rob_id, resp. AGU stalls internally when LS queue full. */
 class RobMemIO(idWidth: Int) extends Bundle {
   val issue        = Output(Bool())
   val issue_rob_id = Input(Valid(UInt(idWidth.W)))
-  val ls_enq_ready = Input(Bool())
   val flush        = Output(Bool())
   val resp         = Flipped(Decoupled(new RobMemResp(idWidth)))
 }

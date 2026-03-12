@@ -54,9 +54,10 @@ class AGU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val u = Rob.entryStateUpdate(
     io.in.valid, io.in.bits.rob_id, false.B,
     next_pc = next_pc)(robIdWidth)
-  io.rob_access.valid := u.valid
+  // Stall internally when LS queue is full: only update ROB when we can also enqueue to MemUnit.
+  io.rob_access.valid := u.valid && io.ls_enq.ready
   io.rob_access.bits := u.bits
-  io.in.ready := io.rob_access.ready
+  io.in.ready := io.rob_access.ready && io.ls_enq.ready
   io.in.flush := io.rob_access.flush
 
   io.ls_enq.valid := io.rob_access.valid && io.rob_access.ready

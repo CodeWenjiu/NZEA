@@ -20,7 +20,12 @@ class Core(implicit config: NzeaConfig) extends Module {
   val prfWriteSources = Seq.tabulate(exu.io.prf_write.size)(exu.io.prf_write(_)) :+ memUnit.io.prf_write
   val isu = Module(new frontend.ISU(addrWidth, prfWriteSources.size, prfWriteSources.size - 1))  // exclude MemUnit from bypass
 
-  val rob = nzea_core.retire.rob.Rob(robDepth, exu.fuOutputs, aguPortIndex = 3, prfAddrWidth = prfAddrWidth)
+  val robBuilder = nzea_core.retire.rob.Rob.builder(robDepth, prfAddrWidth = prfAddrWidth)
+  exu.io.alu_rob_access  <> robBuilder.addPort()
+  exu.io.bru_rob_access   <> robBuilder.addPort()
+  exu.io.sysu_rob_access <> robBuilder.addPort()
+  exu.io.agu_rob_access  <> robBuilder.addPort()
+  val rob = robBuilder.build()
   val commit = Module(new retire.Commit)
 
   val io = IO(new Bundle {
@@ -52,7 +57,6 @@ class Core(implicit config: NzeaConfig) extends Module {
   idu.io.restore_rmt := commit.io.restore_rmt
   memUnit.io.issue := rob.mem.issue
   rob.mem.issue_rob_id := memUnit.io.issue_rob_id
-  rob.mem.ls_enq_ready := memUnit.io.ls_enq.ready
   memUnit.io.flush := rob.mem.flush
   rob.mem.resp <> memUnit.io.resp
 

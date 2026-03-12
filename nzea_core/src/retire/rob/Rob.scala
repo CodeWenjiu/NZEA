@@ -1,5 +1,7 @@
 package nzea_core.retire.rob
 
+import scala.collection.mutable
+
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.MuxTree
@@ -8,18 +10,33 @@ import nzea_core.retire.rob.RobMemType
 
 // -------- Companion --------
 
-/** Companion object: entryStateUpdate helper and apply for wiring. */
+/** Companion object: Builder for Rob, entryStateUpdate helper. */
 object Rob {
-  /** Create Rob and wire fuOutputs; call from parent (e.g. Core) so connection context is correct. */
-  def apply(depth: Int, fuOutputs: Seq[RobAccessIO], aguPortIndex: Int = 3, prfAddrWidth: Int = 6): Rob = {
-    val r = Module(new Rob(depth, fuOutputs.size, aguPortIndex, prfAddrWidth))
-    (r.io.accessPorts zip fuOutputs).foreach { case (p, fu) =>
-      p.valid := fu.valid
-      p.bits := fu.bits
-      fu.ready := p.ready
-      fu.flush := p.flush
+  /** Builder: addPort() returns a port to connect; build() creates Rob. Port order = addPort order. */
+  def builder(depth: Int, prfAddrWidth: Int = 6): Rob.Builder =
+    new Rob.Builder(depth, prfAddrWidth)
+
+  class Builder(depth: Int, prfAddrWidth: Int) {
+    private val idWidth = chisel3.util.log2Ceil(depth.max(2))
+    private val ports = mutable.ArrayBuffer[RobAccessIO]()
+
+    /** Add an access port; returns Flipped(RobAccessIO) for fu <> addPort(). */
+    def addPort(): RobAccessIO = {
+      val port = Wire(Flipped(new RobAccessIO(idWidth)))
+      ports += port
+      port
     }
-    r
+
+    def build(): Rob = {
+      val r = Module(new Rob(depth, ports.size, prfAddrWidth))
+      (r.io.accessPorts zip ports).foreach { case (p, port) =>
+        p.valid := port.valid
+        p.bits := port.bits
+        port.ready := p.ready
+        port.flush := p.flush
+      }
+      r
+    }
   }
 
   def entryStateUpdate(
@@ -48,10 +65,9 @@ object Rob {
   * - Commit: head done → output CommitMsg, advance head.
   * - Flush: on branch mispredict, clear all.
   */
-class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: Int = 6) extends Module {
+class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
   require(numAccessPorts >= 1, "Rob numAccessPorts must >= 1")
-  require(aguPortIndex >= 0 && aguPortIndex < numAccessPorts, "aguPortIndex must be valid")
 
   private val idWidth  = chisel3.util.log2Ceil(depth.max(2))
   private val ptrWidth = idWidth + 1  // MSB = wrap bit for empty/full
@@ -141,8 +157,8 @@ class Rob(depth: Int, numAccessPorts: Int, aguPortIndex: Int = 3, prfAddrWidth: 
 
   // -------- FU Access --------
 
-  io.accessPorts.zipWithIndex.foreach { case (p, i) =>
-    p.ready := Mux((i == aguPortIndex).B, mem.ls_enq_ready, true.B)
+  io.accessPorts.foreach { p =>
+    p.ready := true.B
     p.flush := do_flush
   }
 
