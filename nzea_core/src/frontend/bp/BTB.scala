@@ -37,7 +37,7 @@ class BTB(size: Int) extends Module {
   val entry = mem.read(index, true.B)
   val tag_match = entry.tag === tag
   io.pred_hit    := tag_match
-  io.pred_target := Mux(tag_match, entry.target, 0.U)
+  io.pred_target := entry.target
 
   when(io.update) {
     val wdata = Wire(new BTBEntry(tagBits))
