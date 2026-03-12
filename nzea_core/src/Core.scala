@@ -17,8 +17,12 @@ class Core(implicit config: NzeaConfig) extends Module {
   private val lsBufferDepth = (robDepth / 2).max(1)
   val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
 
-  val prfWriteSources = Seq.tabulate(exu.io.prf_write.size)(exu.io.prf_write(_)) :+ memUnit.io.prf_write
-  val isu = Module(new frontend.ISU(addrWidth, prfWriteSources.size, prfWriteSources.size - 1))  // exclude MemUnit from bypass
+  val isuBuilder = frontend.ISU.builder(addrWidth)
+  exu.io.alu_prf_write  <> isuBuilder.addPrfWriteBypass()
+  exu.io.bru_prf_write  <> isuBuilder.addPrfWriteBypass()
+  exu.io.sysu_prf_write <> isuBuilder.addPrfWriteBypass()
+  memUnit.io.prf_write  <> isuBuilder.addPrfWrite()
+  val isu = isuBuilder.build()
 
   val robBuilder = nzea_core.retire.rob.Rob.builder(robDepth, prfAddrWidth = prfAddrWidth)
   exu.io.alu_rob_access  <> robBuilder.addPort()
@@ -50,7 +54,6 @@ class Core(implicit config: NzeaConfig) extends Module {
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U
 
-  isu.io.prf_write := VecInit(prfWriteSources)
 
   idu.io.commit := commit.io.idu_commit
   idu.io.flush := rob.io.do_flush

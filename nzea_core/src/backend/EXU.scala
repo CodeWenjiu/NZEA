@@ -12,15 +12,12 @@ object FuOpWidth {
   val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth, LsuOp.getWidth).max
 }
 
-/** EXU: 4 FU input buses; FUs write to Rob (commit) and PRF (direct); AGU enqueues to LS_Queue.
-  * prf_write ports auto-generated from FUs that complete (ALU, BRU, SYSU). */
+/** EXU: 4 FU input buses; FUs write to Rob (commit) and PRF (direct); AGU enqueues to LS_Queue. */
 class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val alu  = Module(new ALU(robIdWidth, prfAddrWidth))
   val bru  = Module(new BRU(robIdWidth, prfAddrWidth))
   val agu  = Module(new AGU(robIdWidth, prfAddrWidth))
   val sysu = Module(new SYSU(robIdWidth, prfAddrWidth))
-
-  val prfWriteSources = Seq(alu.io.prf_write, bru.io.prf_write, sysu.io.prf_write)
 
   val io = IO(new Bundle {
     val alu_in  = Flipped(new PipeIO(new AluInput(robIdWidth, prfAddrWidth)))
@@ -33,7 +30,10 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val sysu_rob_access = new RobAccessIO(robIdWidth)
     val agu_rob_access  = new RobAccessIO(robIdWidth)
     val agu_ls_enq      = Decoupled(new RobMemReq(robIdWidth, prfAddrWidth))
-    val prf_write       = Output(Vec(prfWriteSources.size, Valid(new PrfWriteBundle(prfAddrWidth))))
+
+    val alu_prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+    val bru_prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+    val sysu_prf_write = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
 
     val bru_bp_update = Output(Valid(new BpUpdate))
   })
@@ -49,6 +49,8 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.agu_rob_access <> agu.io.rob_access
   io.agu_ls_enq <> agu.io.ls_enq
 
-  io.prf_write := VecInit(prfWriteSources)
+  io.alu_prf_write  := alu.io.prf_write
+  io.bru_prf_write  := bru.io.prf_write
+  io.sysu_prf_write := sysu.io.prf_write
   io.bru_bp_update := bru.io.bp_update
 }

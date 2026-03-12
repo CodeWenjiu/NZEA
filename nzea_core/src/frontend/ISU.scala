@@ -1,5 +1,7 @@
 package nzea_core.frontend
 
+import scala.collection.mutable
+
 import chisel3._
 import chisel3.util.{Mux1H, MuxLookup, Valid}
 import nzea_core.PipeIO
@@ -13,23 +15,54 @@ class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
   val data = UInt(32.W)
 }
 
+/** ISU builder: addPrfWriteBypass() for EXU FUs, addPrfWrite() for MemUnit. */
+object ISU {
+  def builder(addrWidth: Int)(implicit config: NzeaConfig): ISU.Builder = new ISU.Builder(addrWidth)
+
+  class Builder(addrWidth: Int)(implicit config: NzeaConfig) {
+    private val prfAddrWidth = config.prfAddrWidth
+    private val bypassPorts  = mutable.ArrayBuffer[Valid[PrfWriteBundle]]()
+    private val ports        = mutable.ArrayBuffer[Valid[PrfWriteBundle]]()
+
+    /** Add PRF write port that participates in operand bypass (EXU FUs). */
+    def addPrfWriteBypass(): Valid[PrfWriteBundle] = {
+      val port = Wire(Flipped(Valid(new PrfWriteBundle(prfAddrWidth))))
+      bypassPorts += port
+      port
+    }
+
+    /** Add PRF write port (no bypass, e.g. MemUnit load result). */
+    def addPrfWrite(): Valid[PrfWriteBundle] = {
+      val port = Wire(Flipped(Valid(new PrfWriteBundle(prfAddrWidth))))
+      ports += port
+      port
+    }
+
+    def build(): ISU = {
+      val allPorts = bypassPorts ++ ports
+      val isu = Module(new ISU(addrWidth, allPorts.size, bypassPorts.size))
+      (isu.io.prf_write zip allPorts).foreach { case (p, port) =>
+        p.valid := port.valid
+        p.bits := port.bits
+      }
+      isu
+    }
+  }
+}
+
 /** ISU: Issue Unit. Physical reg file + operand read; dispatches to ALU/BRU/AGU/SYSU.
   *
   * Data flow:
   * - PRF: regs + ready; write from FU completion (prf_write); clear when instr arrives at ISU (p_rd).
-  * - prf_write: Vec of size numPrfWritePorts, auto-sized when connecting FUs.
-  * - Operand read: PRF(p_rs1), PRF(p_rs2) with bypass. If prf_write matches addr this cycle, use it
-  *   directly (ready=true). MemUnit (last port) excluded from bypass to avoid timing bottleneck.
+  * - prf_write: bypass ports first, then no-bypass; bypass used for operand read.
   * - Dispatch: can_dispatch when !stall and rob_enq ready and FU ready.
-  *
-  * @param numBypassPorts ports 0..numBypassPorts-1 participate in bypass; -1 = all.
   */
-class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int = -1)(implicit config: NzeaConfig) extends Module {
+class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit config: NzeaConfig) extends Module {
   private val robDepth       = config.robDepth
   private val robIdWidth     = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth   = config.prfAddrWidth
   private val prfDepth       = config.prfDepth
-  private val bypassPortEnd  = if (numBypassPorts < 0) numPrfWritePorts else numBypassPorts
+  private val bypassPortEnd  = numBypassPorts
 
   // -------- IO --------
 
