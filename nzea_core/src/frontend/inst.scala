@@ -1,7 +1,7 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.BitPat
+import chisel3.util.{BitPat, Mux1H, MuxCase}
 import chisel3.util.experimental.decode.{
   DecodeField,
   DecodePattern,
@@ -10,7 +10,7 @@ import chisel3.util.experimental.decode.{
   decoder
 }
 import nzea_core.backend.FuOpWidth
-import nzea_core.backend.{AluOp, BruOp, LsuOp}
+import nzea_core.backend.{AluOp, BruOp, LsuOp, SysuOp}
 // -------- Instruction pattern & decode fields (ImmType, Fu = op+src per FU, RVInst, RiscvInsts) --------
 
 /** One-hot encoding for Mux1H; better timing than binary. */
@@ -20,6 +20,7 @@ object ImmType extends chisel3.ChiselEnum {
   val B = Value((1 << 2).U)
   val U = Value((1 << 3).U)
   val J = Value((1 << 4).U)
+  val Z = Value((1 << 5).U)  // zero-extend inst[19:15] for CSR zimm
 }
 
 /** Function unit type for routing (ALU/BRU/LSU/SYSU). */
@@ -28,6 +29,49 @@ object FuType extends chisel3.ChiselEnum {
   val BRU  = Value
   val LSU  = Value
   val SYSU = Value
+}
+
+/** CSR type: None = no mapping (for blocking/bypass); others = machine-mode CSRs. */
+object CsrType extends chisel3.ChiselEnum {
+  val None     = Value
+  val Mstatus  = Value
+  val Mtvec    = Value
+  val Mepc     = Value
+  val Mcause   = Value
+  val Mscratch = Value
+
+  val MSTATUS_ADDR  = 0x300
+  val MTVEC_ADDR    = 0x305
+  val MSCRATCH_ADDR = 0x340
+  val MEPC_ADDR     = 0x341
+  val MCAUSE_ADDR   = 0x342
+
+  def fromAddr(addr: UInt): CsrType.Type = {
+    val a = addr(11, 0)
+    MuxCase(CsrType.None, Seq(
+      (a === MSTATUS_ADDR.U)  -> CsrType.Mstatus,
+      (a === MTVEC_ADDR.U)    -> CsrType.Mtvec,
+      (a === MSCRATCH_ADDR.U) -> CsrType.Mscratch,
+      (a === MEPC_ADDR.U)     -> CsrType.Mepc,
+      (a === MCAUSE_ADDR.U)   -> CsrType.Mcause
+    ))
+  }
+
+  /** Convert CsrType to (imm, valid) for DPI commit_trace. imm = CSR addr (12-bit), valid = csr_type =/= None. */
+  def toImmValid(csrType: CsrType.Type): (UInt, Bool) = {
+    val valid = csrType =/= CsrType.None
+    val imm = Mux1H(
+      Seq(
+        csrType === CsrType.Mstatus,
+        csrType === CsrType.Mtvec,
+        csrType === CsrType.Mepc,
+        csrType === CsrType.Mcause,
+        csrType === CsrType.Mscratch
+      ),
+      Seq(MSTATUS_ADDR.U, MTVEC_ADDR.U, MEPC_ADDR.U, MCAUSE_ADDR.U, MSCRATCH_ADDR.U)
+    )
+    (imm, valid)
+  }
 }
 
 /** ALU operand source for opA/opB; one-hot (Rs1Rs2, Rs1Imm, ImmZero, PcImm). */
@@ -57,25 +101,25 @@ object Fu {
   case class ALU(op: AluOp.Type, src: AluSrc.Type) extends Type
   case class BRU(op: BruOp.Type, src: BruSrc.Type) extends Type
   case class LSU(op: LsuOp.Type, src: LsuSrc.Type) extends Type
-  case object SYSU extends Type
+  case class SYSU(op: SysuOp.Type) extends Type
 
   def fuTypeOf(fu: Fu.Type): FuType.Type = fu match {
     case ALU(_, _) => FuType.ALU
     case BRU(_, _) => FuType.BRU
     case LSU(_, _) => FuType.LSU
-    case SYSU      => FuType.SYSU
+    case SYSU(_)   => FuType.SYSU
   }
   def opLitValue(fu: Fu.Type): BigInt = fu match {
     case ALU(op, _) => op.litValue
     case BRU(op, _) => op.litValue
     case LSU(op, _) => op.litValue
-    case _          => BigInt(0)
+    case SYSU(op)   => op.litValue
   }
   def srcLitValue(fu: Fu.Type): BigInt = fu match {
     case ALU(_, s) => s.litValue
     case BRU(_, s) => s.litValue
     case LSU(_, s) => s.litValue
-    case SYSU      => BigInt(0)
+    case SYSU(_)   => BigInt(0)
   }
 }
 
@@ -252,7 +296,7 @@ object RiscvInsts {
     "ECALL",
     "b00000000000000000000000001110011",
     Some(ImmType.I),
-    Fu.SYSU,
+    Fu.SYSU(SysuOp.ECALL),
     gprWr = false,
     rs1Rd = false,
     rs2Rd = false
@@ -261,7 +305,7 @@ object RiscvInsts {
     "EBREAK",
     "b00000000000100000000000001110011",
     Some(ImmType.I),
-    Fu.SYSU,
+    Fu.SYSU(SysuOp.EBREAK),
     gprWr = false,
     rs1Rd = false,
     rs2Rd = false
@@ -270,41 +314,41 @@ object RiscvInsts {
     "CSRRW",
     "b" + n(12) + n(5) + "001" + n(5) + "1110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU(SysuOp.CSRRW)
   )
   val CSRRS = RVInst(
     "CSRRS",
     "b" + n(12) + n(5) + "010" + n(5) + "1110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU(SysuOp.CSRRS)
   )
   val CSRRC = RVInst(
     "CSRRC",
     "b" + n(12) + n(5) + "011" + n(5) + "1110011",
     Some(ImmType.I),
-    Fu.SYSU
+    Fu.SYSU(SysuOp.CSRRC)
   )
   val CSRRWI = RVInst(
     "CSRRWI",
     "b" + n(12) + n(5) + "101" + n(5) + "1110011",
-    Some(ImmType.I),
-    Fu.SYSU,
+    Some(ImmType.Z),
+    Fu.SYSU(SysuOp.CSRRWI),
     rs1Rd = false,
     rs2Rd = false
   )
   val CSRRSI = RVInst(
     "CSRRSI",
     "b" + n(12) + n(5) + "110" + n(5) + "1110011",
-    Some(ImmType.I),
-    Fu.SYSU,
+    Some(ImmType.Z),
+    Fu.SYSU(SysuOp.CSRRSI),
     rs1Rd = false,
     rs2Rd = false
   )
   val CSRRCI = RVInst(
     "CSRRCI",
     "b" + n(12) + n(5) + "111" + n(5) + "1110011",
-    Some(ImmType.I),
-    Fu.SYSU,
+    Some(ImmType.Z),
+    Fu.SYSU(SysuOp.CSRRCI),
     rs1Rd = false,
     rs2Rd = false
   )
@@ -442,7 +486,7 @@ object RiscvInsts {
     "FENCE",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0001111",
     None,
-    Fu.SYSU,
+    Fu.SYSU(SysuOp.FENCE),
     gprWr = false,
     rs1Rd = false,
     rs2Rd = false

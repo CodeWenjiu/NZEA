@@ -89,11 +89,12 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
 class CommitDpiBridge(implicit config: NzeaConfig) extends Module {
   val io = IO(new Bundle {
-    val commit_msg = Input(Valid(new retire.CommitMsg(config.prfAddrWidth)))
+    val commit_msg = Input(Valid(new retire.CommitMsg))
   })
 
+  val (csr_imm, csr_valid) = nzea_core.frontend.CsrType.toImmValid(io.commit_msg.bits.csr_type)
   RawClockedVoidFunctionCall(
     "commit_trace",
-    Some(Seq("next_pc", "gpr_addr", "gpr_data", "mem_count", "is_load"))
-  )(clock, io.commit_msg.valid, io.commit_msg.bits.next_pc, io.commit_msg.bits.rd_index.pad(32), io.commit_msg.bits.rd_value, io.commit_msg.bits.mem_count, io.commit_msg.bits.is_load)
+    Some(Seq("next_pc", "csr_valid", "csr_addr", "csr_data", "gpr_addr", "gpr_data", "mem_count", "is_load"))
+  )(clock, io.commit_msg.valid, io.commit_msg.bits.next_pc, csr_valid, csr_imm.pad(32), io.commit_msg.bits.csr_data, io.commit_msg.bits.rd_index.pad(32), io.commit_msg.bits.rd_value, io.commit_msg.bits.mem_count, io.commit_msg.bits.is_load)
 }

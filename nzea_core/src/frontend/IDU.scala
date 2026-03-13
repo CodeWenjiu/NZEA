@@ -1,28 +1,31 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.{Cat, Fill, Mux1H, Valid}
+import chisel3.util.{Cat, Fill, Mux1H, MuxCase, Valid}
 import nzea_core.PriorityEncoderTree
 import nzea_core.PipeIO
-import nzea_core.backend.FuOpWidth
+import nzea_core.backend.{FuOpWidth, SysuOp}
+import nzea_core.frontend.FuDecode
 import nzea_core.retire.IDUCommit
 import nzea_config.NzeaConfig
 
 // -------- IDU stage output --------
 
-/** IDU decode result: pc, pred_next_pc, imm, rd_index, physical regs, fu_type, fu_op, fu_src. */
+/** IDU decode result: pc, pred_next_pc, imm, rd_index, physical regs, fu_type, fu_op, fu_src, csr_addr, csr_will_write. */
 class IDUOut(width: Int, prfAddrWidth: Int) extends Bundle {
-  val pc           = UInt(width.W)
-  val imm          = UInt(32.W)
-  val rd_index     = UInt(5.W)
-  val pred_next_pc = UInt(width.W)
-  val p_rs1        = UInt(prfAddrWidth.W)
-  val p_rs2        = UInt(prfAddrWidth.W)
-  val old_p_rd     = UInt(prfAddrWidth.W)
-  val p_rd         = UInt(prfAddrWidth.W)
-  val fu_type      = FuType()
-  val fu_op        = UInt(FuOpWidth.Width.W)
-  val fu_src       = UInt(FuSrcWidth.Width.W)
+  val pc            = UInt(width.W)
+  val imm           = UInt(32.W)
+  val rd_index      = UInt(5.W)
+  val pred_next_pc  = UInt(width.W)
+  val p_rs1         = UInt(prfAddrWidth.W)
+  val p_rs2         = UInt(prfAddrWidth.W)
+  val old_p_rd      = UInt(prfAddrWidth.W)
+  val p_rd          = UInt(prfAddrWidth.W)
+  val fu_type       = FuType()
+  val fu_op         = UInt(FuOpWidth.Width.W)
+  val fu_src        = UInt(FuSrcWidth.Width.W)
+  val csr_addr      = UInt(12.W)
+  val csr_will_write = Bool()
 }
 
 // -------- IDU module --------
@@ -63,7 +66,8 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val immB = Cat(Fill(19, inst(31)), inst(31), inst(7), inst(30, 25), inst(11, 8), 0.U(1.W))
   val immU = Cat(inst(31, 12), 0.U(12.W))
   val immJ = Cat(Fill(11, inst(31)), inst(31), inst(19, 12), inst(20), inst(30, 21), 0.U(1.W))
-  val imm = Mux1H(immType.asUInt, Seq(immI, immS, immB, immU, immJ))
+  val immZ = Cat(0.U(27.W), inst(19, 15))  // zimm for CSR
+  val imm = Mux1H(immType.asUInt, Seq(immI, immS, immB, immU, immJ, immZ))
 
   // restore_free from restore_rmt: free(pr) = (pr not in restore_rmt)
   val restore_free = VecInit((0 until prfDepth).map { pr =>
@@ -139,6 +143,18 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.out.bits.old_p_rd     := old_p_rd_out
   io.out.bits.fu_type      := fuType
   io.out.bits.fu_op        := fuOp
-  io.out.bits.fu_src      := fuSrc
+  io.out.bits.fu_src       := fuSrc
+  io.out.bits.csr_addr     := io.in.bits.inst(31, 20)
+  // csr_will_write: decode-time; CSRRS/CSRRC use rs1_index=0 (x0), CSRRSI/CSRRCI use zimm=0; same 5 bits inst[19:15]
+  val csr_rs1_or_zimm = io.in.bits.inst(19, 15)
+  val (sysuOp, _) = SysuOp.safe(FuDecode.take(fuOp, SysuOp.getWidth))
+  io.out.bits.csr_will_write := MuxCase(false.B, Seq(
+    (sysuOp === SysuOp.CSRRW)  -> true.B,
+    (sysuOp === SysuOp.CSRRWI) -> true.B,
+    (sysuOp === SysuOp.CSRRS)  -> (csr_rs1_or_zimm =/= 0.U),
+    (sysuOp === SysuOp.CSRRC)  -> (csr_rs1_or_zimm =/= 0.U),
+    (sysuOp === SysuOp.CSRRSI) -> (csr_rs1_or_zimm =/= 0.U),
+    (sysuOp === SysuOp.CSRRCI) -> (csr_rs1_or_zimm =/= 0.U)
+  ))
   io.in.ready              := io.out.ready && !renameStall
 }

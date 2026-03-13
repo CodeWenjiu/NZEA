@@ -3,13 +3,13 @@ package nzea_core.backend
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.PipeIO
-import nzea_core.frontend.PrfWriteBundle
+import nzea_core.frontend.{CsrWriteBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{RobAccessIO, RobMemReq}
 
 /** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
 object FuOpWidth {
-  val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth, LsuOp.getWidth).max
+  val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth, LsuOp.getWidth, SysuOp.getWidth).max
 }
 
 /** EXU: 4 FU input buses; FUs write to Rob (commit) and PRF (direct); AGU enqueues to LS_Queue. */
@@ -34,6 +34,7 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val alu_prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
     val bru_prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
     val sysu_prf_write = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+    val csr_write      = Output(Valid(new CsrWriteBundle))
 
     val bru_bp_update = Output(Valid(new BpUpdate))
   })
@@ -52,5 +53,6 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.alu_prf_write  := alu.io.prf_write
   io.bru_prf_write  := bru.io.prf_write
   io.sysu_prf_write := sysu.io.prf_write
+  io.csr_write      := sysu.io.csr_write
   io.bru_bp_update := bru.io.bp_update
 }

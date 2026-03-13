@@ -6,9 +6,9 @@ import nzea_config.NzeaConfig
 
 /** Core module: Rob in Core; FUs write to Rob and PRF (in ISU); Rob sends mem_req to MemUnit; Commit receives Rob commit and commits. */
 class Core(implicit config: NzeaConfig) extends Module {
-  private val addrWidth  = config.width
-  private val robDepth   = config.robDepth
-  private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
+  private val addrWidth    = config.width
+  private val robDepth     = config.robDepth
+  private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth = config.prfAddrWidth
 
   val ifu = Module(new frontend.IFU)
@@ -23,6 +23,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   exu.io.sysu_prf_write <> isuBuilder.addPrfWriteBypass()
   memUnit.io.prf_write  <> isuBuilder.addPrfWrite()
   val isu = isuBuilder.build()
+  isu.io.csr_write := exu.io.csr_write
 
   val robBuilder = nzea_core.retire.rob.Rob.builder(robDepth, prfAddrWidth = prfAddrWidth)
   exu.io.alu_rob_access  <> robBuilder.addPort()
@@ -35,7 +36,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   val io = IO(new Bundle {
     val ibus       = chiselTypeOf(ifu.io.bus)
     val dbus       = chiselTypeOf(memUnit.io.dbus)
-    val commit_msg = Output(Valid(new retire.CommitMsg(prfAddrWidth)))
+    val commit_msg = Output(Valid(new retire.CommitMsg))
   })
 
   PipelineConnect(ifu.io.out, idu.io.in)
@@ -49,7 +50,9 @@ class Core(implicit config: NzeaConfig) extends Module {
   memUnit.io.ls_enq <> exu.io.agu_ls_enq
   rob.io.commit <> commit.io.rob_commit
   commit.io.do_flush := rob.io.do_flush
-  isu.io.prf_read_addr := commit.io.rob_commit.bits.p_rd
+  isu.io.prf_read_addr := commit.io.prf_read_addr
+  isu.io.commit_rob_id := commit.io.commit_rob_id
+  isu.io.commit_valid   := commit.io.commit_valid
   commit.io.prf_rd_value := isu.io.prf_read_data
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U

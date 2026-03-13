@@ -3,6 +3,7 @@ package nzea_core.retire.rob
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.backend.LsuOp
+import nzea_core.frontend.CsrType
 
 // -------- Mem type for ROB slot (set at ISU dispatch) --------
 
@@ -71,12 +72,15 @@ class RobSlotReadPort(idWidth: Int) extends Bundle {
 /** FU output to Rob: state update for an entry. Mem data (addr,wdata,wstrb) goes to LS_Queue.
   * rd_value not stored in Rob; commit reads from PRF(p_rd).
   * mem_type set at enq (ISU), not updated by FU.
+  * csr_type/csr_data: when SYSU writes CSR, set at completion; CsrType.None otherwise.
   */
 class RobEntryStateUpdate(idWidth: Int) extends Bundle {
-  val rob_id  = UInt(idWidth.W)
-  val is_done = Bool()
-  val flush   = Bool()
-  val next_pc = UInt(32.W)
+  val rob_id    = UInt(idWidth.W)
+  val is_done   = Bool()
+  val flush     = Bool()
+  val next_pc   = UInt(32.W)
+  val csr_type  = CsrType()
+  val csr_data  = UInt(32.W)
 }
 
 /** FU output to Rob: valid/bits from FU, ready/flush from Rob. */

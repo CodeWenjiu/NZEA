@@ -6,12 +6,12 @@ init:
     @mill mill.bsp.BSP/install
 
 # Generate Verilog (default: build/sim for simulation). Use --synthPlatform yosys for synthesis
-run *ARGS:
+dump *ARGS:
     @mill nzea_cli.run {{ ARGS }}
 
 # Synth only: build/synth/synth_stat.txt (area), synth_check.txt
 synth:
-    @just run --synthPlatform yosys
+    @just dump --synthPlatform yosys
     @nu scripts/synth.nu
 
 # Synth + STA: area + timing. Requires nix develop (iEDA, PDK_PATH)
