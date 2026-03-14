@@ -101,13 +101,21 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
     VecInit(Seq.tabulate(bankDepth)(i => (b * bankDepth + i) < 32).map(_.B))
   )))
 
-  for (i <- 0 until numPrfWritePorts) {
-    when(io.prf_write(i).valid) {
-      val addr = io.prf_write(i).bits.addr
-      val bank = addr(prfAddrWidth - 1, prfAddrWidth - 2)
-      val idx  = addr(prfAddrWidth - 3, 0)
-      bank_regs(bank)(idx)  := io.prf_write(i).bits.data
-      bank_ready(bank)(idx) := true.B
+  // PRF write: one-hot selection per (bank, idx) for flatter combinational path.
+  // Invariant: at most one port writes to each entry per cycle (distinct p_rd per in-flight instr).
+  for (bank <- 0 until numBanks) {
+    for (idx <- 0 until bankDepth) {
+      val writeSel = (0 until numPrfWritePorts).map { i =>
+        io.prf_write(i).valid &&
+        io.prf_write(i).bits.addr(prfAddrWidth - 1, prfAddrWidth - 2) === bank.U &&
+        io.prf_write(i).bits.addr(prfAddrWidth - 3, 0) === idx.U
+      }
+      val anyWrite = writeSel.reduce(_ || _)
+      val writeData = Mux1H(writeSel, (0 until numPrfWritePorts).map(i => io.prf_write(i).bits.data))
+      when(anyWrite) {
+        bank_regs(bank)(idx) := writeData
+        bank_ready(bank)(idx) := true.B
+      }
     }
   }
   when(io.in.fire && io.in.bits.p_rd =/= 0.U) {
@@ -126,14 +134,13 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
   }
 
   /** Read operand with bypass: if any prf_write[0..bypassPortEnd) matches addr this cycle, use it (ready=true).
-    * MemUnit (last port) excluded to avoid load-data→bypass timing path. Cascade Mux; no one-hot assumption. */
+    * MemUnit (last port) excluded to avoid load-data→bypass timing path. One-hot mux for flatter timing. */
   def readPrfWithBypass(addr: UInt): (UInt, Bool) = {
     val (prfData, prfReady) = readPrf(addr)
-    val (bypassData, bypassHit) = (0 until bypassPortEnd).foldLeft((prfData, false.B)) { case ((d, h), i) =>
-      val sel = io.prf_write(i).valid && io.prf_write(i).bits.addr === addr
-      (Mux(sel, io.prf_write(i).bits.data, d), h || sel)
-    }
-    val data  = Mux(addr === 0.U, 0.U(32.W), bypassData)
+    val bypassSel = (0 until bypassPortEnd).map(i => io.prf_write(i).valid && io.prf_write(i).bits.addr === addr)
+    val bypassHit = bypassSel.reduce(_ || _)
+    val bypassData = Mux1H(bypassSel, (0 until bypassPortEnd).map(i => io.prf_write(i).bits.data))
+    val data  = Mux(addr === 0.U, 0.U(32.W), Mux(bypassHit, bypassData, prfData))
     val ready = (addr === 0.U) || bypassHit || prfReady
     (data, ready)
   }
