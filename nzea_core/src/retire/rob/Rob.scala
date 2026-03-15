@@ -145,11 +145,6 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
 
   // -------- FU Access --------
 
-  io.accessPorts.foreach { p =>
-    p.ready := true.B
-    p.flush := do_flush
-  }
-
   io.slotReadRs1.slot := readSlot(io.slotReadRs1.rob_id)
   io.slotReadRs2.slot := readSlot(io.slotReadRs2.rob_id)
 

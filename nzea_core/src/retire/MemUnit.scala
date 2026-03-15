@@ -5,6 +5,7 @@ import chisel3.util.{Cat, Decoupled, Mux1H, Valid}
 import nzea_core.backend.LsuOp
 import nzea_core.CoreBusReadWrite
 import nzea_core.frontend.PrfWriteBundle
+import nzea_core.PipeIO
 import nzea_core.retire.rob.{RobMemReq, RobMemResp}
 
 /** Dbus user payload: rob_id + lsuOp + addr2 + p_rd, passthrough req->resp for load PRF write. */
@@ -31,7 +32,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
     val flush       = Input(Bool())
     val resp        = Decoupled(new RobMemResp(robIdWidth))
     val dbus        = dbusType.cloneType
-    val prf_write   = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+    val prf_write   = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
   // LS buffer: FIFO for mem ops, flush clears instantly
@@ -108,7 +109,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   io.resp.bits.rob_id := respUser.rob_id
   io.resp.bits.data := Mux(isStoreFromResp, 0.U(32.W), loadData)
 
-  io.prf_write.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U
+  io.prf_write.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U && !io.prf_write.flush
   io.prf_write.bits.addr := respUser.p_rd
   io.prf_write.bits.data := loadData
 }

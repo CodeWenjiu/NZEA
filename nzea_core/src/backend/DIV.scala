@@ -2,7 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Cat, Enum, Mux1H, Valid}
-import nzea_core.PipeIO
+import nzea_core.PipeIOConsumer
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
@@ -26,9 +26,9 @@ class DivInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 
 /** Common IO bundle for DIV/NullDIV so EXU can use if/else without losing type. */
 class DivIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
+  val in         = new PipeIOConsumer(new DivInput(robIdWidth, prfAddrWidth))
   val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-  val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+  val prf_write  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 
 /** Common interface for DIV/NullDIV so EXU can use if/else without losing .io type. */
@@ -75,10 +75,9 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
 
   val fire = io.in.valid && io.in.ready
 
-  io.in.ready := (state === sIdle) && !io.rob_access.flush
-  io.in.flush := io.rob_access.flush
+  io.in.ready := (state === sIdle) && !io.prf_write.flush && io.prf_write.ready
 
-  when(io.rob_access.flush) {
+  when(io.prf_write.flush) {
     state := sIdle
   }.elsewhen(state === sIdle) {
     when(fire) {
@@ -122,7 +121,7 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
       state := sDone
     }
   }.elsewhen(state === sDone) {
-    state := sIdle
+    when(io.prf_write.ready) { state := sIdle }
   }
 
   val doneValid = state === sDone
@@ -141,7 +140,6 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
 class NullDIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
   val io = IO(new DivIO(robIdWidth, prfAddrWidth))
   io.in.ready := true.B
-  io.in.flush := io.rob_access.flush
   io.rob_access.valid := false.B
   io.rob_access.bits := DontCare
   io.prf_write.valid := false.B

@@ -11,6 +11,16 @@ class PipeIO[T <: Data](gen: T) extends DecoupledIO(gen) {
   val flush = Input(Bool())
 }
 
+/** PipeIO consumer side: valid/bits/flush are Input, ready is Output.
+  * Used by FUs so flush flows from pipe (pipeOut.flush) to FU (io.in.flush).
+  */
+class PipeIOConsumer[T <: Data](gen: T) extends Bundle {
+  val valid = Input(Bool())
+  val bits  = Input(gen)
+  val ready = Output(Bool())
+  val flush = Input(Bool())
+}
+
 object PipeIO {
   def apply[T <: Data](gen: T): PipeIO[T] = new PipeIO(gen)
 }

@@ -28,9 +28,8 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
 
   val io = IO(new Bundle {
     val issuePorts   = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth))
-    val flush        = Input(Bool())
     val rob_access   = Vec(numRobPorts, new RobAccessIO(robIdWidth))
-    val prf_write    = Vec(numExuPrfPorts, Output(Valid(new PrfWriteBundle(prfAddrWidth))))
+    val prf_write    = Vec(numExuPrfPorts, new PipeIO(new PrfWriteBundle(prfAddrWidth)))
     val agu_ls_enq   = Decoupled(new RobMemReq(robIdWidth, prfAddrWidth))
     val csr_write    = Output(Valid(new CsrWriteBundle))
     val bru_bp_update = Output(Valid(new BpUpdate))
@@ -41,29 +40,31 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
     cfg.name match {
       case "ALU" =>
         val pipeOut = Wire(new PipeIO(new AluInput(robIdWidth, prfAddrWidth)))
-        pipeOut.flush := io.flush
+        pipeOut.flush := alu.io.prf_write.flush
         pipeOut.ready := alu.io.in.ready
         PipelineConnect(io.issuePorts.alu, pipeOut)
         alu.io.in.valid := pipeOut.valid
         alu.io.in.bits  := pipeOut.bits
+        alu.io.in.flush := pipeOut.flush
       case "BRU" =>
         val pipeOut = Wire(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
-        pipeOut.flush := io.flush
+        pipeOut.flush := bru.io.prf_write.flush
         pipeOut.ready := bru.io.in.ready
         PipelineConnect(io.issuePorts.bru, pipeOut)
         bru.io.in.valid := pipeOut.valid
         bru.io.in.bits  := pipeOut.bits
       case "AGU" =>
         val pipeOut = Wire(new PipeIO(new AguInput(robIdWidth, prfAddrWidth)))
-        pipeOut.flush := io.flush
+        pipeOut.flush := alu.io.prf_write.flush
         pipeOut.ready := agu.io.in.ready
         PipelineConnect(io.issuePorts.agu, pipeOut)
         agu.io.in.valid := pipeOut.valid
         agu.io.in.bits  := pipeOut.bits
+        agu.io.in.flush := pipeOut.flush
       case "MUL" =>
         mul.foreach { m =>
           val pipeOut = Wire(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
-          pipeOut.flush := io.flush
+          pipeOut.flush := m.io.prf_write.flush
           pipeOut.ready := m.io.in.ready
           PipelineConnect(io.issuePorts.mul.get, pipeOut)
           m.io.in.valid := pipeOut.valid
@@ -72,19 +73,21 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
       case "DIV" =>
         div.foreach { dm =>
           val pipeOut = Wire(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
-          pipeOut.flush := io.flush
+          pipeOut.flush := dm.io.prf_write.flush
           pipeOut.ready := dm.io.in.ready
           PipelineConnect(io.issuePorts.div.get, pipeOut)
           dm.io.in.valid := pipeOut.valid
           dm.io.in.bits  := pipeOut.bits
+          dm.io.in.flush := pipeOut.flush
         }
       case "SYSU" =>
         val pipeOut = Wire(new PipeIO(new SysuInput(robIdWidth, prfAddrWidth)))
-        pipeOut.flush := io.flush
+        pipeOut.flush := sysu.io.prf_write.flush
         pipeOut.ready := sysu.io.in.ready
         PipelineConnect(io.issuePorts.sysu, pipeOut)
         sysu.io.in.valid := pipeOut.valid
         sysu.io.in.bits  := pipeOut.bits
+        sysu.io.in.flush := pipeOut.flush
       case _ =>
     }
   }
@@ -106,14 +109,14 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
 
   FuConfig.exuPrfWritePorts(config).zipWithIndex.foreach { case (cfg, i) =>
     cfg.name match {
-      case "ALU"  => io.prf_write(i) := alu.io.prf_write
-      case "BRU"  => io.prf_write(i) := bru.io.prf_write
-      case "SYSU" => io.prf_write(i) := sysu.io.prf_write
-      case "MUL"  => mul.foreach(m => io.prf_write(i) := m.io.prf_write)
-      case "DIV"  => div.foreach(dm => io.prf_write(i) := dm.io.prf_write)
+      case "ALU"  => io.prf_write(i) <> alu.io.prf_write
+      case "BRU"  => io.prf_write(i) <> bru.io.prf_write
+      case "SYSU" => io.prf_write(i) <> sysu.io.prf_write
+      case "MUL"  => mul.foreach(m => io.prf_write(i) <> m.io.prf_write)
+      case "DIV"  => div.foreach(dm => io.prf_write(i) <> dm.io.prf_write)
     }
   }
 
-  def prfWritePorts: Seq[Valid[PrfWriteBundle]] = io.prf_write.toSeq
+  def prfWritePorts: Seq[PipeIO[PrfWriteBundle]] = io.prf_write.toSeq
   def robAccessPorts: Seq[RobAccessIO] = io.rob_access.toSeq
 }

@@ -167,8 +167,9 @@ class MULStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new MulS2Out(robIdWidth, prfAddrWidth)))
+    val flush      = Input(Bool())
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+    val prf_write  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
   val b = io.in.bits
@@ -186,15 +187,15 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.prf_write.valid := u.valid && b.p_rd =/= 0.U
   io.prf_write.bits.addr := b.p_rd
   io.prf_write.bits.data := result
-  io.in.ready := io.rob_access.ready
-  io.in.flush := io.rob_access.flush
+  io.in.ready := io.prf_write.ready
+  io.in.flush := io.flush
 }
 
 /** Common IO bundle for MUL/NullMUL so EXU can use if/else without losing type. */
 class MulIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val in         = Flipped(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
   val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-  val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+  val prf_write  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 
 /** Common interface for MUL/NullMUL so EXU can use if/else without losing .io type. */
@@ -211,10 +212,15 @@ class MUL(robIdWidth: Int, prfAddrWidth: Int) extends Module with MulLike {
   val s2 = Module(new MULStage2(robIdWidth, prfAddrWidth))
 
   io.in <> s0.io.in
+  io.in.flush := io.prf_write.flush
+  s2.io.flush := io.prf_write.flush
   PipelineConnect(s0.io.out, s1.io.in)
   PipelineConnect(s1.io.out, s2.io.in)
   io.rob_access <> s2.io.rob_access
-  io.prf_write := s2.io.prf_write
+  io.prf_write.valid := s2.io.prf_write.valid
+  io.prf_write.bits := s2.io.prf_write.bits
+  s2.io.prf_write.ready := io.prf_write.ready
+  s2.io.prf_write.flush := io.prf_write.flush
   def mulIo = io
 }
 
@@ -222,7 +228,7 @@ class MUL(robIdWidth: Int, prfAddrWidth: Int) extends Module with MulLike {
 class NullMUL(robIdWidth: Int, prfAddrWidth: Int) extends Module with MulLike {
   val io = IO(new MulIO(robIdWidth, prfAddrWidth))
   io.in.ready := true.B
-  io.in.flush := io.rob_access.flush
+  io.in.flush := io.prf_write.flush
   io.rob_access.valid := false.B
   io.rob_access.bits := DontCare
   io.prf_write.valid := false.B

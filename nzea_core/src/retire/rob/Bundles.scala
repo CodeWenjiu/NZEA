@@ -83,12 +83,10 @@ class RobEntryStateUpdate(idWidth: Int) extends Bundle {
   val csr_data  = UInt(32.W)
 }
 
-/** FU output to Rob: valid/bits from FU, ready/flush from Rob. */
+/** FU output to Rob: valid/bits from FU. Flush comes from WBU via EXU. */
 class RobAccessIO(idWidth: Int) extends Bundle {
   val valid = Output(Bool())
   val bits  = Output(new RobEntryStateUpdate(idWidth))
-  val ready = Input(Bool())
-  val flush = Input(Bool())
 }
 
 /** ROB enq IO: req (consumer side), rob_id (from Rob). Use Flipped for producer (e.g. ISU). */

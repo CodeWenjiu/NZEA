@@ -2,7 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{MuxCase, Valid}
-import nzea_core.PipeIO
+import nzea_core.{PipeIO, PipeIOConsumer}
 import nzea_core.frontend.{CsrType, CsrWriteBundle, PrfWriteBundle}
 import nzea_core.retire.rob.Rob
 
@@ -34,9 +34,9 @@ class SysuInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 /** SYSU FU: CSR read/write, ECALL/EBREAK/FENCE; writes result to Rob and PRF. */
 class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in         = Flipped(new PipeIO(new SysuInput(robIdWidth, prfAddrWidth)))
+    val in         = new PipeIOConsumer(new SysuInput(robIdWidth, prfAddrWidth))
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+    val prf_write  = new PipeIO(new PrfWriteBundle(prfAddrWidth))
     val csr_write  = Output(Valid(new CsrWriteBundle))
   })
   val next_pc = io.in.bits.pc + 4.U
@@ -71,8 +71,7 @@ class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   )(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
-  io.in.ready := true.B
-  io.in.flush := io.rob_access.flush
+  io.in.ready := io.prf_write.ready
 
   io.csr_write.valid := u.valid && do_csr_write
   io.csr_write.bits.csr_type := io.in.bits.csr_type

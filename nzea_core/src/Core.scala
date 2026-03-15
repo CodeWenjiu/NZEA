@@ -17,14 +17,21 @@ class Core(implicit config: NzeaConfig) extends Module {
   private val lsBufferDepth = (robDepth / 2).max(1)
   val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
 
+  val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
+  val commit = Module(new retire.Commit)
+  val wbu = Module(new retire.WBU(prfAddrWidth))
   val isu = frontend.ISU(addrWidth)
   val fuPrfWrites = exu.prfWritePorts :+ memUnit.io.prf_write
-  (fuPrfWrites zip isu.io.prf_write).foreach { case (fu, port) => port <> fu }
+  (fuPrfWrites zip wbu.io.in).foreach { case (fu, port) => port <> fu }
+  (wbu.io.out zip isu.io.prf_write).foreach { case (w, p) => p <> w }
+  (fuPrfWrites zip isu.io.bypass_level1).foreach { case (fu, port) =>
+    port.valid := fu.valid
+    port.bits := fu.bits
+  }
+  commit.io.do_flush := rob.io.do_flush
+  wbu.io.flush := commit.io.do_flush
   isu.io.csr_write := exu.io.csr_write
-
-  val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
   (exu.robAccessPorts zip rob.io.accessPorts).foreach { case (fu, port) => port <> fu }
-  val commit = Module(new retire.Commit)
 
   val io = IO(new Bundle {
     val ibus       = chiselTypeOf(ifu.io.bus)
@@ -34,13 +41,11 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   PipelineConnect(ifu.io.out, idu.io.in)
   PipelineConnect(idu.io.out, isu.io.in)
-  exu.io.flush := rob.io.do_flush
   (isu.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
   memUnit.io.ls_enq <> exu.io.agu_ls_enq
   rob.io.commit <> commit.io.rob_commit
-  commit.io.do_flush := rob.io.do_flush
   isu.io.prf_read_addr := commit.io.prf_read_addr
   isu.io.commit_rob_id := commit.io.commit_rob_id
   isu.io.commit_valid   := commit.io.commit_valid
