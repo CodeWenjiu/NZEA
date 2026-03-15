@@ -35,18 +35,17 @@ private object FuTypePortName {
 /** ISU factory: config-driven, port count derived from FuConfig. */
 object ISU {
   def apply(addrWidth: Int)(implicit config: NzeaConfig): ISU =
-    Module(new ISU(addrWidth, FuConfig.numPrfWritePorts, FuConfig.numBypassPorts))
+    Module(new ISU(addrWidth, FuConfig.numPrfWritePorts))
 }
 
 /** ISU: Issue Unit. Per-port payload types; operand extraction (e.g. ALU opA/opB) done in ISU before pipeline reg.
   * Mask-based routing selects port; only selected port gets valid.
   */
-class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit config: NzeaConfig) extends Module {
+class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) extends Module {
   private val robDepth       = config.robDepth
   private val robIdWidth     = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth    = config.prfAddrWidth
   private val prfDepth        = config.prfDepth
-  private val bypassPortEnd  = numBypassPorts
   private val numIssuePorts   = FuConfig.numIssuePorts
   private val issuePortConfigs = FuConfig.issuePorts
 
@@ -114,9 +113,10 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
 
   def readPrfWithBypass(addr: UInt): (UInt, Bool) = {
     val (prfData, prfReady) = readPrf(addr)
-    val bypassSel = (0 until bypassPortEnd).map(i => io.prf_write(i).valid && io.prf_write(i).bits.addr === addr)
-    val bypassHit = bypassSel.reduce((a, b) => a || b)
-    val bypassData = Mux1H(bypassSel, (0 until bypassPortEnd).map(i => io.prf_write(i).bits.data))
+    val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex.filter(_._1.hasBypass)
+    val bypassSel = bypassPorts.map { case (_, i) => io.prf_write(i).valid && io.prf_write(i).bits.addr === addr }
+    val bypassHit = if (bypassPorts.isEmpty) false.B else bypassSel.reduce((a, b) => a || b)
+    val bypassData = if (bypassPorts.isEmpty) 0.U(32.W) else Mux1H(bypassSel, bypassPorts.map { case (_, i) => io.prf_write(i).bits.data })
     val data  = Mux(addr === 0.U, 0.U(32.W), Mux(bypassHit, bypassData, prfData))
     val ready = (addr === 0.U) || bypassHit || prfReady
     (data, ready)

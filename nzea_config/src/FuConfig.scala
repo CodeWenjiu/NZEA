@@ -12,7 +12,7 @@ case class FuConfig(
 
 object FuConfig {
   /** PRF write port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], MemUnit.
-    * Ports with hasBypass=true participate in operand bypass; MemUnit has false.
+    * Ports with hasBypass=true participate in operand bypass.
     */
   def prfWritePorts(implicit config: NzeaConfig): Seq[FuConfig] = {
     val exuBypass = Seq(
@@ -25,6 +25,14 @@ object FuConfig {
     exuBypass :+ FuConfig("MemUnit", hasPrfWrite = true, hasBypass = false)
   }
 
+  /** PRF write ports provided by EXU (excludes MemUnit). Used for EXU io size. */
+  def exuPrfWritePorts(implicit config: NzeaConfig): Seq[FuConfig] =
+    prfWritePorts.filter(_.name != "MemUnit")
+
+  /** Number of PRF write ports EXU provides (excludes MemUnit). */
+  def numExuPrfWritePorts(implicit config: NzeaConfig): Int =
+    exuPrfWritePorts.size
+
   /** Rob access port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], AGU.
     * 4 ports when hasM is false, 6 when hasM is true. */
   def robAccessPorts(implicit config: NzeaConfig): Seq[FuConfig] = {
@@ -36,10 +44,6 @@ object FuConfig {
       Seq(FuConfig("MUL", hasRobAccess = true), FuConfig("DIV", hasRobAccess = true))
     ).getOrElse(Seq.empty) :+ FuConfig("AGU", hasRobAccess = true)
   }
-
-  /** Number of PRF write ports that participate in bypass (EXU FUs). */
-  def numBypassPorts(implicit config: NzeaConfig): Int =
-    prfWritePorts.count(_.hasBypass)
 
   /** Total number of PRF write ports. */
   def numPrfWritePorts(implicit config: NzeaConfig): Int =

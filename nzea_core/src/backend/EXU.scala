@@ -17,7 +17,7 @@ object FuOpWidth {
 class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val hasM          = config.isaConfig.hasM
   private val numRobPorts    = FuConfig.numRobAccessPorts
-  private val numPrfBypass   = FuConfig.numBypassPorts
+  private val numExuPrfPorts = FuConfig.numExuPrfWritePorts
 
   val alu  = Module(new ALU(robIdWidth, prfAddrWidth))
   val bru  = Module(new BRU(robIdWidth, prfAddrWidth))
@@ -30,7 +30,7 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
     val issuePorts   = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth))
     val flush        = Input(Bool())
     val rob_access   = Vec(numRobPorts, new RobAccessIO(robIdWidth))
-    val prf_write    = Vec(numPrfBypass, Output(Valid(new PrfWriteBundle(prfAddrWidth))))
+    val prf_write    = Vec(numExuPrfPorts, Output(Valid(new PrfWriteBundle(prfAddrWidth))))
     val agu_ls_enq   = Decoupled(new RobMemReq(robIdWidth, prfAddrWidth))
     val csr_write    = Output(Valid(new CsrWriteBundle))
     val bru_bp_update = Output(Valid(new BpUpdate))
@@ -104,7 +104,7 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
     }
   }
 
-  FuConfig.prfWritePorts(config).filter(_.hasBypass).zipWithIndex.foreach { case (cfg, i) =>
+  FuConfig.exuPrfWritePorts(config).zipWithIndex.foreach { case (cfg, i) =>
     cfg.name match {
       case "ALU"  => io.prf_write(i) := alu.io.prf_write
       case "BRU"  => io.prf_write(i) := bru.io.prf_write
