@@ -24,15 +24,23 @@ class DivInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd   = UInt(prfAddrWidth.W)
 }
 
+/** Common IO bundle for DIV/NullDIV so EXU can use if/else without losing type. */
+class DivIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
+  val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
+  val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+  val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
+}
+
+/** Common interface for DIV/NullDIV so EXU can use if/else without losing .io type. */
+trait DivLike extends Module {
+  def divIo: DivIO
+}
+
 /** Multi-cycle Radix-2 Restoring Divider. FSM: IDLE -> CALC (32 iter) -> DONE.
   * RQ[63:32]=remainder, RQ[31:0]=quotient. Each cycle: shift RQ left; if rem>=div then rem-=div, quo|=1.
   */
-class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module {
-  val io = IO(new Bundle {
-    val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
-    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
-  })
+class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
+  val io = IO(new DivIO(robIdWidth, prfAddrWidth))
 
   val sIdle :: sCalc :: sDone :: Nil = chisel3.util.Enum(3)
   val state = RegInit(sIdle)
@@ -126,19 +134,17 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.prf_write.valid := doneValid && pRdReg =/= 0.U
   io.prf_write.bits.addr := pRdReg
   io.prf_write.bits.data := resultReg
+  def divIo = io
 }
 
 /** Null DIV: same interface as DIV but does nothing. Used when isaConfig.hasM is false. */
-class NullDIV(robIdWidth: Int, prfAddrWidth: Int) extends Module {
-  val io = IO(new Bundle {
-    val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
-    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val prf_write  = Output(Valid(new PrfWriteBundle(prfAddrWidth)))
-  })
+class NullDIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
+  val io = IO(new DivIO(robIdWidth, prfAddrWidth))
   io.in.ready := true.B
   io.in.flush := io.rob_access.flush
   io.rob_access.valid := false.B
   io.rob_access.bits := DontCare
   io.prf_write.valid := false.B
   io.prf_write.bits := DontCare
+  def divIo = io
 }

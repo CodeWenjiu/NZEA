@@ -1,13 +1,12 @@
 package nzea_core.frontend
 
-import scala.collection.mutable
-
 import chisel3._
-import chisel3.util.{Mux1H, MuxCase, MuxLookup, Valid, switch, is}
+import chisel3.util.{Mux1H, MuxLookup, PriorityEncoder, Valid, switch, is}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
-import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, DivInput, DivOp, LsuOp, MulInput, MulOp, SysuInput, SysuOp}
+import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.{RobEnqIO, RobMemType}
+import nzea_config.FuConfig
 
 /** PRF write port: addr, data. Shared by all FU completions. */
 class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
@@ -21,54 +20,43 @@ class CsrWriteBundle extends Bundle {
   val data     = UInt(32.W)
 }
 
-/** ISU builder: addPrfWriteBypass() for EXU FUs, addPrfWrite() for MemUnit. */
-object ISU {
-  def builder(addrWidth: Int)(implicit config: NzeaConfig): ISU.Builder = new ISU.Builder(addrWidth)
-
-  class Builder(addrWidth: Int)(implicit config: NzeaConfig) {
-    private val prfAddrWidth = config.prfAddrWidth
-    private val bypassPorts  = mutable.ArrayBuffer[Valid[PrfWriteBundle]]()
-    private val ports        = mutable.ArrayBuffer[Valid[PrfWriteBundle]]()
-
-    /** Add PRF write port that participates in operand bypass (EXU FUs). */
-    def addPrfWriteBypass(): Valid[PrfWriteBundle] = {
-      val port = Wire(Flipped(Valid(new PrfWriteBundle(prfAddrWidth))))
-      bypassPorts += port
-      port
-    }
-
-    /** Add PRF write port (no bypass, e.g. MemUnit load result). */
-    def addPrfWrite(): Valid[PrfWriteBundle] = {
-      val port = Wire(Flipped(Valid(new PrfWriteBundle(prfAddrWidth))))
-      ports += port
-      port
-    }
-
-    def build(): ISU = {
-      val allPorts = bypassPorts ++ ports
-      val isu = Module(new ISU(addrWidth, allPorts.size, bypassPorts.size))
-      (isu.io.prf_write zip allPorts).foreach { case (p, port) =>
-        p.valid := port.valid
-        p.bits := port.bits
-      }
-      isu
-    }
+/** FuType to port name: LSU (decode) maps to AGU (port). */
+private object FuTypePortName {
+  def portName(fuType: FuType.Type): String = fuType match {
+    case FuType.ALU  => "ALU"
+    case FuType.BRU  => "BRU"
+    case FuType.LSU  => "AGU"
+    case FuType.MUL  => "MUL"
+    case FuType.DIV  => "DIV"
+    case FuType.SYSU => "SYSU"
   }
 }
 
-/** ISU: Issue Unit. Physical reg file + operand read; dispatches to ALU/BRU/AGU/SYSU.
-  *
-  * Data flow:
-  * - PRF: regs + ready; write from FU completion (prf_write); clear when instr arrives at ISU (p_rd).
-  * - prf_write: bypass ports first, then no-bypass; bypass used for operand read.
-  * - Dispatch: can_dispatch when !stall and rob_enq ready and FU ready.
+/** ISU factory: config-driven, port count derived from FuConfig. */
+object ISU {
+  def apply(addrWidth: Int)(implicit config: NzeaConfig): ISU =
+    Module(new ISU(addrWidth, FuConfig.numPrfWritePorts, FuConfig.numBypassPorts))
+}
+
+/** ISU: Issue Unit. Per-port payload types; operand extraction (e.g. ALU opA/opB) done in ISU before pipeline reg.
+  * Mask-based routing selects port; only selected port gets valid.
   */
 class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit config: NzeaConfig) extends Module {
   private val robDepth       = config.robDepth
   private val robIdWidth     = chisel3.util.log2Ceil(robDepth.max(2))
-  private val prfAddrWidth   = config.prfAddrWidth
-  private val prfDepth       = config.prfDepth
+  private val prfAddrWidth    = config.prfAddrWidth
+  private val prfDepth        = config.prfDepth
   private val bypassPortEnd  = numBypassPorts
+  private val numIssuePorts   = FuConfig.numIssuePorts
+  private val issuePortConfigs = FuConfig.issuePorts
+
+  // -------- Elaboration-time: capability mask (FuType -> port bitmask) --------
+  private val fuTypeToPortMask: Seq[(UInt, UInt)] = FuType.all.map { fuType =>
+    val portName = FuTypePortName.portName(fuType)
+    val supportedIndices = issuePortConfigs.zipWithIndex.filter(_._1.name == portName).map(_._2)
+    val maskValue = supportedIndices.foldLeft(0)((acc, idx) => acc | (1 << idx))
+    (fuType.asUInt, maskValue.U(numIssuePorts.W))
+  }
 
   // -------- IO --------
 
@@ -81,20 +69,10 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
     val csr_write      = Input(Valid(new CsrWriteBundle))
     val commit_rob_id  = Input(UInt(robIdWidth.W))
     val commit_valid   = Input(Bool())
-    val alu            = new PipeIO(new AluInput(robIdWidth, prfAddrWidth))
-    val bru            = new PipeIO(new BruInput(robIdWidth, prfAddrWidth))
-    val agu            = new PipeIO(new AguInput(robIdWidth, prfAddrWidth))
-    val mul            = new PipeIO(new MulInput(robIdWidth, prfAddrWidth))
-    val div            = new PipeIO(new DivInput(robIdWidth, prfAddrWidth))
-    val sysu           = new PipeIO(new SysuInput(robIdWidth, prfAddrWidth))
+    val issuePorts     = new IssuePortsBundle(robIdWidth, prfAddrWidth)
   })
 
-  private val hasM = config.isaConfig.hasM
-  val outs   = if (hasM) Seq(io.alu, io.bru, io.agu, io.mul, io.div, io.sysu) else Seq(io.alu, io.bru, io.agu, io.sysu)
-  val fuTypes = if (hasM) Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.MUL, FuType.DIV, FuType.SYSU) else Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU)
-
   // -------- Physical Register File (banked for timing) --------
-  // 4 banks of 16 entries: addr[5:4]=bank, addr[3:0]=index within bank
   private val numBanks  = 4
   private val bankDepth = 16
   require(prfDepth == numBanks * bankDepth, s"prfDepth=$prfDepth must equal numBanks*bankDepth")
@@ -104,8 +82,6 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
     VecInit(Seq.tabulate(bankDepth)(i => (b * bankDepth + i) < 32).map(_.B))
   )))
 
-  // PRF write: one-hot selection per (bank, idx) for flatter combinational path.
-  // Invariant: at most one port writes to each entry per cycle (distinct p_rd per in-flight instr).
   for (bank <- 0 until numBanks) {
     for (idx <- 0 until bankDepth) {
       val writeSel = (0 until numPrfWritePorts).map { i =>
@@ -113,7 +89,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
         io.prf_write(i).bits.addr(prfAddrWidth - 1, prfAddrWidth - 2) === bank.U &&
         io.prf_write(i).bits.addr(prfAddrWidth - 3, 0) === idx.U
       }
-      val anyWrite = writeSel.reduce(_ || _)
+      val anyWrite = writeSel.reduce((a, b) => a || b)
       val writeData = Mux1H(writeSel, (0 until numPrfWritePorts).map(i => io.prf_write(i).bits.data))
       when(anyWrite) {
         bank_regs(bank)(idx) := writeData
@@ -136,12 +112,10 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
     (data, ready)
   }
 
-  /** Read operand with bypass: if any prf_write[0..bypassPortEnd) matches addr this cycle, use it (ready=true).
-    * MemUnit (last port) excluded to avoid load-data→bypass timing path. One-hot mux for flatter timing. */
   def readPrfWithBypass(addr: UInt): (UInt, Bool) = {
     val (prfData, prfReady) = readPrf(addr)
     val bypassSel = (0 until bypassPortEnd).map(i => io.prf_write(i).valid && io.prf_write(i).bits.addr === addr)
-    val bypassHit = bypassSel.reduce(_ || _)
+    val bypassHit = bypassSel.reduce((a, b) => a || b)
     val bypassData = Mux1H(bypassSel, (0 until bypassPortEnd).map(i => io.prf_write(i).bits.data))
     val data  = Mux(addr === 0.U, 0.U(32.W), Mux(bypassHit, bypassData, prfData))
     val ready = (addr === 0.U) || bypassHit || prfReady
@@ -151,7 +125,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
   val (prf_read_val, _) = readPrf(io.prf_read_addr)
   io.prf_read_data := prf_read_val
 
-  // -------- CSR registers (mstatus, mtvec, mepc, mcause, mscratch) --------
+  // -------- CSR registers --------
   val csr_mstatus  = RegInit(0x1800.U(32.W))
   val csr_mtvec    = RegInit(0.U(32.W))
   val csr_mepc     = RegInit(0.U(32.W))
@@ -195,21 +169,17 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
   val stall    = io.in.valid && (!rs1_ready || !rs2_ready)
 
   // -------- Flush --------
-
-  io.in.flush := outs.map(_.flush).reduce(_ || _)
+  io.in.flush := io.issuePorts.orderedPorts.map(_.flush).reduce(_ || _)
 
   // -------- Dispatch --------
+  val fu_type       = io.in.bits.fu_type
+  val fu_src        = io.in.bits.fu_src
+  val fu_op         = io.in.bits.fu_op
+  val imm           = io.in.bits.imm
+  val pc            = io.in.bits.pc
+  val rob_id        = io.rob_enq.rob_id
+  val can_dispatch  = io.in.valid && !stall
 
-  val fu_type = io.in.bits.fu_type
-  val fu_src  = io.in.bits.fu_src
-  val imm     = io.in.bits.imm
-  val pc      = io.in.bits.pc
-  val rob_id  = io.rob_enq.rob_id
-  val can_dispatch = io.in.valid && !stall
-  val can_enq = can_dispatch && io.in.ready
-
-  // CSR write hazard: when SYSU writes CSR, store rob_id; stall until that instr commits.
-  // will_csr_write from ID decode (csr_will_write), no rs1_val dependency.
   val will_csr_write = csr_type_sysu =/= CsrType.None && io.in.bits.csr_will_write
   val pending_csr_write_rob_id = RegInit(0.U(robIdWidth.W))
   val pending_csr_write_valid  = RegInit(false.B)
@@ -217,16 +187,23 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
     pending_csr_write_valid := false.B
   }.elsewhen(io.commit_valid && pending_csr_write_valid && io.commit_rob_id === pending_csr_write_rob_id) {
     pending_csr_write_valid := false.B
-  }.elsewhen(can_enq && fu_type === FuType.SYSU && will_csr_write) {
+  }.elsewhen(can_dispatch && io.in.ready && fu_type === FuType.SYSU && will_csr_write) {
     pending_csr_write_valid := true.B
     pending_csr_write_rob_id := rob_id
   }
   val csr_write_pending_stall = pending_csr_write_valid
 
-  io.rob_enq.req.valid := can_enq
+  // -------- Mask-based routing --------
+  val valid_port_mask     = MuxLookup(fu_type.asUInt, 0.U(numIssuePorts.W))(fuTypeToPortMask)
+  val current_ports_ready = VecInit(io.issuePorts.orderedPorts.map(_.ready)).asUInt
+  val available_and_ready = valid_port_mask & current_ports_ready
+  val can_issue = can_dispatch && !csr_write_pending_stall && io.rob_enq.req.ready && (available_and_ready =/= 0.U)
+  val selected_port_index = PriorityEncoder(available_and_ready)
+
+  io.rob_enq.req.valid := can_issue
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
-  val (lsuOp, _) = LsuOp.safe(FuDecode.take(io.in.bits.fu_op, LsuOp.getWidth))
+  val (lsuOp, _) = LsuOp.safe(FuDecode.take(fu_op, LsuOp.getWidth))
   io.rob_enq.req.bits.mem_type := Mux(
     fu_type === FuType.LSU,
     Mux(LsuOp.isLoad(lsuOp), RobMemType.Load, RobMemType.Store),
@@ -235,9 +212,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
   io.rob_enq.req.bits.p_rd := io.in.bits.p_rd
   io.rob_enq.req.bits.old_p_rd := io.in.bits.old_p_rd
 
-  // -------- FU Outputs --------
-
-  io.alu.valid := can_dispatch && (fu_type === FuType.ALU)
+  // -------- Per-port payloads (operand extraction in ISU, before pipeline reg) --------
   val (aluSrc, _) = AluSrc.safe(FuDecode.take(fu_src, AluSrc.getWidth))
   val aluOpA = MuxLookup(aluSrc.asUInt, rs1_val)(Seq(
     AluSrc.ImmZero.asUInt -> imm,
@@ -248,64 +223,82 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
     AluSrc.ImmZero.asUInt -> 0.U(32.W),
     AluSrc.PcImm.asUInt   -> imm
   ))
-  val aluOp = AluOp.safe(FuDecode.take(io.in.bits.fu_op, AluOp.getWidth))._1
-  io.alu.bits.opA    := aluOpA
-  io.alu.bits.opB    := aluOpB
-  io.alu.bits.aluOp  := aluOp
-  io.alu.bits.pc     := pc
-  io.alu.bits.rob_id := rob_id
-  io.alu.bits.p_rd   := io.in.bits.p_rd
+  val (aluOp, _) = AluOp.safe(FuDecode.take(fu_op, AluOp.getWidth))
+  val (bruOp, _) = BruOp.safe(FuDecode.take(fu_op, BruOp.getWidth))
+  val (lsuOpDec, _) = LsuOp.safe(FuDecode.take(fu_op, LsuOp.getWidth))
+  val (mulOp, _) = MulOp.safe(FuDecode.take(fu_op, MulOp.getWidth))
+  val (divOp, _) = DivOp.safe(FuDecode.take(fu_op, DivOp.getWidth))
+  val (sysuOp, _) = SysuOp.safe(FuDecode.take(fu_op, SysuOp.getWidth))
 
-  io.bru.valid := can_dispatch && (fu_type === FuType.BRU)
-  val (bruOp, _) = BruOp.safe(FuDecode.take(io.in.bits.fu_op, BruOp.getWidth))
-  io.bru.bits.pc           := pc
-  io.bru.bits.pred_next_pc := io.in.bits.pred_next_pc
-  io.bru.bits.offset       := imm
-  io.bru.bits.rs1          := rs1_val
-  io.bru.bits.rs2          := rs2_val
-  io.bru.bits.bruOp        := bruOp
-  io.bru.bits.rob_id       := rob_id
-  io.bru.bits.p_rd         := io.in.bits.p_rd
-
-  io.agu.valid := can_dispatch && (fu_type === FuType.LSU)
-  io.agu.bits.base      := rs1_val
-  io.agu.bits.imm       := imm
-  io.agu.bits.lsuOp     := lsuOp
-  io.agu.bits.storeData := rs2_val
-  io.agu.bits.pc        := pc
-  io.agu.bits.rob_id    := rob_id
-  io.agu.bits.p_rd      := io.in.bits.p_rd
-
-  io.mul.valid := hasM.B && can_dispatch && (fu_type === FuType.MUL)
-  val (mulOp, _) = MulOp.safe(FuDecode.take(io.in.bits.fu_op, MulOp.getWidth))
-  io.mul.bits.opA    := rs1_val
-  io.mul.bits.opB    := rs2_val
-  io.mul.bits.mulOp  := mulOp
-  io.mul.bits.pc     := pc
-  io.mul.bits.rob_id := rob_id
-  io.mul.bits.p_rd   := io.in.bits.p_rd
-
-  io.div.valid := hasM.B && can_dispatch && (fu_type === FuType.DIV)
-  val (divOp, _) = DivOp.safe(FuDecode.take(io.in.bits.fu_op, DivOp.getWidth))
-  io.div.bits.opA    := rs1_val
-  io.div.bits.opB    := rs2_val
-  io.div.bits.divOp  := divOp
-  io.div.bits.pc     := pc
-  io.div.bits.rob_id := rob_id
-  io.div.bits.p_rd   := io.in.bits.p_rd
-
-  io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
-  io.sysu.bits.rob_id    := rob_id
-  io.sysu.bits.pc        := pc
-  io.sysu.bits.p_rd      := io.in.bits.p_rd
-  io.sysu.bits.csr_type   := csr_type_sysu
-  io.sysu.bits.csr_rdata  := csr_rdata
-  io.sysu.bits.rs1_val    := rs1_val
-  val (sysuOp, _) = SysuOp.safe(FuDecode.take(io.in.bits.fu_op, SysuOp.getWidth))
-  io.sysu.bits.sysuOp     := sysuOp
-  io.sysu.bits.imm        := io.in.bits.imm
+  // -------- Assign per-port valid and bits --------
+  issuePortConfigs.zipWithIndex.foreach { case (cfg, i) =>
+    val sel = selected_port_index === i.U
+    cfg.name match {
+      case "ALU" =>
+        io.issuePorts.alu.valid := can_issue && sel
+        io.issuePorts.alu.bits.opA   := aluOpA
+        io.issuePorts.alu.bits.opB   := aluOpB
+        io.issuePorts.alu.bits.aluOp  := aluOp
+        io.issuePorts.alu.bits.pc     := pc
+        io.issuePorts.alu.bits.rob_id := rob_id
+        io.issuePorts.alu.bits.p_rd   := io.in.bits.p_rd
+      case "BRU" =>
+        io.issuePorts.bru.valid := can_issue && sel
+        io.issuePorts.bru.bits.pc           := pc
+        io.issuePorts.bru.bits.pred_next_pc := io.in.bits.pred_next_pc
+        io.issuePorts.bru.bits.offset       := imm
+        io.issuePorts.bru.bits.rs1          := rs1_val
+        io.issuePorts.bru.bits.rs2          := rs2_val
+        io.issuePorts.bru.bits.bruOp        := bruOp
+        io.issuePorts.bru.bits.rob_id       := rob_id
+        io.issuePorts.bru.bits.p_rd         := io.in.bits.p_rd
+      case "AGU" =>
+        io.issuePorts.agu.valid := can_issue && sel
+        io.issuePorts.agu.bits.base      := rs1_val
+        io.issuePorts.agu.bits.imm       := imm
+        io.issuePorts.agu.bits.lsuOp     := lsuOpDec
+        io.issuePorts.agu.bits.storeData := rs2_val
+        io.issuePorts.agu.bits.pc        := pc
+        io.issuePorts.agu.bits.rob_id    := rob_id
+        io.issuePorts.agu.bits.p_rd      := io.in.bits.p_rd
+      case "MUL" =>
+        io.issuePorts.mul.get.valid := can_issue && sel
+        io.issuePorts.mul.get.bits.opA    := rs1_val
+        io.issuePorts.mul.get.bits.opB    := rs2_val
+        io.issuePorts.mul.get.bits.mulOp  := mulOp
+        io.issuePorts.mul.get.bits.pc     := pc
+        io.issuePorts.mul.get.bits.rob_id := rob_id
+        io.issuePorts.mul.get.bits.p_rd   := io.in.bits.p_rd
+      case "DIV" =>
+        io.issuePorts.div.get.valid := can_issue && sel
+        io.issuePorts.div.get.bits.opA    := rs1_val
+        io.issuePorts.div.get.bits.opB    := rs2_val
+        io.issuePorts.div.get.bits.divOp  := divOp
+        io.issuePorts.div.get.bits.pc     := pc
+        io.issuePorts.div.get.bits.rob_id := rob_id
+        io.issuePorts.div.get.bits.p_rd   := io.in.bits.p_rd
+      case "SYSU" =>
+        io.issuePorts.sysu.valid := can_issue && sel
+        io.issuePorts.sysu.bits.rob_id    := rob_id
+        io.issuePorts.sysu.bits.pc        := pc
+        io.issuePorts.sysu.bits.p_rd      := io.in.bits.p_rd
+        io.issuePorts.sysu.bits.csr_type  := csr_type_sysu
+        io.issuePorts.sysu.bits.csr_rdata := csr_rdata
+        io.issuePorts.sysu.bits.rs1_val   := rs1_val
+        io.issuePorts.sysu.bits.sysuOp    := sysuOp
+        io.issuePorts.sysu.bits.imm       := imm
+      case _ =>
+    }
+  }
+  io.issuePorts.sysu.bits.rob_id    := rob_id
+  io.issuePorts.sysu.bits.pc        := pc
+  io.issuePorts.sysu.bits.p_rd      := io.in.bits.p_rd
+  io.issuePorts.sysu.bits.csr_type  := csr_type_sysu
+  io.issuePorts.sysu.bits.csr_rdata := csr_rdata
+  io.issuePorts.sysu.bits.rs1_val   := rs1_val
+  io.issuePorts.sysu.bits.sysuOp    := sysuOp
+  io.issuePorts.sysu.bits.imm       := imm
 
   // -------- Back-pressure --------
-
-  io.in.ready := !stall && !csr_write_pending_stall && io.rob_enq.req.ready && Mux1H(fuTypes.map(_ === fu_type), outs.map(_.ready))
+  io.in.ready := !stall && !csr_write_pending_stall && io.rob_enq.req.ready && can_issue
 }

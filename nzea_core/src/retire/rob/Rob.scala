@@ -1,44 +1,20 @@
 package nzea_core.retire.rob
 
-import scala.collection.mutable
-
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.MuxTree
+import nzea_config.{FuConfig, NzeaConfig}
 import nzea_core.frontend.CsrType
 import nzea_core.retire.RobCommitPayload
 import nzea_core.retire.rob.RobMemType
 
 // -------- Companion --------
 
-/** Companion object: Builder for Rob, entryStateUpdate helper. */
+/** Companion object: Rob factory and entryStateUpdate helper. */
 object Rob {
-  /** Builder: addPort() returns a port to connect; build() creates Rob. Port order = addPort order. */
-  def builder(depth: Int, prfAddrWidth: Int = 6): Rob.Builder =
-    new Rob.Builder(depth, prfAddrWidth)
-
-  class Builder(depth: Int, prfAddrWidth: Int) {
-    private val idWidth = chisel3.util.log2Ceil(depth.max(2))
-    private val ports = mutable.ArrayBuffer[RobAccessIO]()
-
-    /** Add an access port; returns Flipped(RobAccessIO) for fu <> addPort(). */
-    def addPort(): RobAccessIO = {
-      val port = Wire(Flipped(new RobAccessIO(idWidth)))
-      ports += port
-      port
-    }
-
-    def build(): Rob = {
-      val r = Module(new Rob(depth, ports.size, prfAddrWidth))
-      (r.io.accessPorts zip ports).foreach { case (p, port) =>
-        p.valid := port.valid
-        p.bits := port.bits
-        port.ready := p.ready
-        port.flush := p.flush
-      }
-      r
-    }
-  }
+  /** Config-driven factory: port count derived from FuConfig.robAccessPorts. */
+  def apply(depth: Int, prfAddrWidth: Int = 6)(implicit config: NzeaConfig): Rob =
+    Module(new Rob(depth, FuConfig.numRobAccessPorts, prfAddrWidth))
 
   def entryStateUpdate(
     valid: Bool,

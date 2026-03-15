@@ -17,24 +17,13 @@ class Core(implicit config: NzeaConfig) extends Module {
   private val lsBufferDepth = (robDepth / 2).max(1)
   val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
 
-  val isuBuilder = frontend.ISU.builder(addrWidth)
-  exu.io.alu_prf_write  <> isuBuilder.addPrfWriteBypass()
-  exu.io.bru_prf_write  <> isuBuilder.addPrfWriteBypass()
-  exu.io.sysu_prf_write <> isuBuilder.addPrfWriteBypass()
-  exu.io.mul_prf_write  <> isuBuilder.addPrfWriteBypass()
-  exu.io.div_prf_write  <> isuBuilder.addPrfWriteBypass()
-  memUnit.io.prf_write  <> isuBuilder.addPrfWrite()
-  val isu = isuBuilder.build()
+  val isu = frontend.ISU(addrWidth)
+  val fuPrfWrites = exu.prfWritePorts :+ memUnit.io.prf_write
+  (fuPrfWrites zip isu.io.prf_write).foreach { case (fu, port) => port <> fu }
   isu.io.csr_write := exu.io.csr_write
 
-  val robBuilder = nzea_core.retire.rob.Rob.builder(robDepth, prfAddrWidth = prfAddrWidth)
-  exu.io.alu_rob_access  <> robBuilder.addPort()
-  exu.io.bru_rob_access  <> robBuilder.addPort()
-  exu.io.sysu_rob_access <> robBuilder.addPort()
-  exu.io.mul_rob_access  <> robBuilder.addPort()
-  exu.io.div_rob_access  <> robBuilder.addPort()
-  exu.io.agu_rob_access  <> robBuilder.addPort()
-  val rob = robBuilder.build()
+  val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
+  (exu.robAccessPorts zip rob.io.accessPorts).foreach { case (fu, port) => port <> fu }
   val commit = Module(new retire.Commit)
 
   val io = IO(new Bundle {
@@ -45,12 +34,8 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   PipelineConnect(ifu.io.out, idu.io.in)
   PipelineConnect(idu.io.out, isu.io.in)
-  PipelineConnect(isu.io.alu, exu.io.alu_in)
-  PipelineConnect(isu.io.bru, exu.io.bru_in)
-  PipelineConnect(isu.io.agu, exu.io.agu_in)
-  PipelineConnect(isu.io.mul, exu.io.mul_in)
-  PipelineConnect(isu.io.div, exu.io.div_in)
-  PipelineConnect(isu.io.sysu, exu.io.sysu_in)
+  exu.io.flush := rob.io.do_flush
+  (isu.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
   memUnit.io.ls_enq <> exu.io.agu_ls_enq
