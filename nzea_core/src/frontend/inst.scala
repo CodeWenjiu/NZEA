@@ -10,7 +10,8 @@ import chisel3.util.experimental.decode.{
   decoder
 }
 import nzea_core.backend.FuOpWidth
-import nzea_core.backend.{AluOp, BruOp, LsuOp, SysuOp}
+import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
+import nzea_config.NzeaConfig
 // -------- Instruction pattern & decode fields (ImmType, Fu = op+src per FU, RVInst, RiscvInsts) --------
 
 /** One-hot encoding for Mux1H; better timing than binary. */
@@ -23,11 +24,13 @@ object ImmType extends chisel3.ChiselEnum {
   val Z = Value((1 << 5).U)  // zero-extend inst[19:15] for CSR zimm
 }
 
-/** Function unit type for routing (ALU/BRU/LSU/SYSU). */
+/** Function unit type for routing (ALU/BRU/LSU/MUL/DIV/SYSU). */
 object FuType extends chisel3.ChiselEnum {
   val ALU  = Value
   val BRU  = Value
   val LSU  = Value
+  val MUL  = Value
+  val DIV  = Value
   val SYSU = Value
 }
 
@@ -101,24 +104,32 @@ object Fu {
   case class ALU(op: AluOp.Type, src: AluSrc.Type) extends Type
   case class BRU(op: BruOp.Type, src: BruSrc.Type) extends Type
   case class LSU(op: LsuOp.Type, src: LsuSrc.Type) extends Type
+  case class MUL(op: MulOp.Type) extends Type
+  case class DIV(op: DivOp.Type) extends Type
   case class SYSU(op: SysuOp.Type) extends Type
 
   def fuTypeOf(fu: Fu.Type): FuType.Type = fu match {
     case ALU(_, _) => FuType.ALU
     case BRU(_, _) => FuType.BRU
     case LSU(_, _) => FuType.LSU
+    case MUL(_)    => FuType.MUL
+    case DIV(_)    => FuType.DIV
     case SYSU(_)   => FuType.SYSU
   }
   def opLitValue(fu: Fu.Type): BigInt = fu match {
     case ALU(op, _) => op.litValue
     case BRU(op, _) => op.litValue
     case LSU(op, _) => op.litValue
+    case MUL(op)    => op.litValue
+    case DIV(op)    => op.litValue
     case SYSU(op)   => op.litValue
   }
   def srcLitValue(fu: Fu.Type): BigInt = fu match {
     case ALU(_, s) => s.litValue
     case BRU(_, s) => s.litValue
     case LSU(_, s) => s.litValue
+    case MUL(_)    => BigInt(0)
+    case DIV(_)    => BigInt(0)
     case SYSU(_)   => BigInt(0)
   }
 }
@@ -482,6 +493,56 @@ object RiscvInsts {
     Fu.ALU(AluOp.And, AluSrc.Rs1Rs2)
   )
 
+  // M extension: funct7=0000001
+  val MUL = RVInst(
+    "MUL",
+    "b0000001" + n(5) + n(5) + "000" + n(5) + "0110011",
+    None,
+    Fu.MUL(MulOp.Mul)
+  )
+  val MULH = RVInst(
+    "MULH",
+    "b0000001" + n(5) + n(5) + "001" + n(5) + "0110011",
+    None,
+    Fu.MUL(MulOp.Mulh)
+  )
+  val MULHSU = RVInst(
+    "MULHSU",
+    "b0000001" + n(5) + n(5) + "010" + n(5) + "0110011",
+    None,
+    Fu.MUL(MulOp.Mulhsu)
+  )
+  val MULHU = RVInst(
+    "MULHU",
+    "b0000001" + n(5) + n(5) + "011" + n(5) + "0110011",
+    None,
+    Fu.MUL(MulOp.Mulhu)
+  )
+  val DIV = RVInst(
+    "DIV",
+    "b0000001" + n(5) + n(5) + "100" + n(5) + "0110011",
+    None,
+    Fu.DIV(DivOp.Div)
+  )
+  val DIVU = RVInst(
+    "DIVU",
+    "b0000001" + n(5) + n(5) + "101" + n(5) + "0110011",
+    None,
+    Fu.DIV(DivOp.Divu)
+  )
+  val REM = RVInst(
+    "REM",
+    "b0000001" + n(5) + n(5) + "110" + n(5) + "0110011",
+    None,
+    Fu.DIV(DivOp.Rem)
+  )
+  val REMU = RVInst(
+    "REMU",
+    "b0000001" + n(5) + n(5) + "111" + n(5) + "0110011",
+    None,
+    Fu.DIV(DivOp.Remu)
+  )
+
   val FENCE = RVInst(
     "FENCE",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0001111",
@@ -492,7 +553,7 @@ object RiscvInsts {
     rs2Rd = false
   )
 
-  val all: Seq[RVInst] = Seq(
+  private val base: Seq[RVInst] = Seq(
     LUI,
     AUIPC,
     JAL,
@@ -540,6 +601,11 @@ object RiscvInsts {
     CSRRSI,
     CSRRCI
   )
+
+  private val m: Seq[RVInst] = Seq(MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU)
+
+  /** All instructions for decode; M extension included only when isaConfig.hasM. */
+  def all(implicit config: NzeaConfig): Seq[RVInst] = base ++ (if (config.isaConfig.hasM) m else Seq.empty)
 }
 
 // -------- DecodeField helpers --------

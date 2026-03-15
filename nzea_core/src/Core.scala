@@ -21,14 +21,18 @@ class Core(implicit config: NzeaConfig) extends Module {
   exu.io.alu_prf_write  <> isuBuilder.addPrfWriteBypass()
   exu.io.bru_prf_write  <> isuBuilder.addPrfWriteBypass()
   exu.io.sysu_prf_write <> isuBuilder.addPrfWriteBypass()
+  exu.io.mul_prf_write  <> isuBuilder.addPrfWriteBypass()
+  exu.io.div_prf_write  <> isuBuilder.addPrfWriteBypass()
   memUnit.io.prf_write  <> isuBuilder.addPrfWrite()
   val isu = isuBuilder.build()
   isu.io.csr_write := exu.io.csr_write
 
   val robBuilder = nzea_core.retire.rob.Rob.builder(robDepth, prfAddrWidth = prfAddrWidth)
   exu.io.alu_rob_access  <> robBuilder.addPort()
-  exu.io.bru_rob_access   <> robBuilder.addPort()
+  exu.io.bru_rob_access  <> robBuilder.addPort()
   exu.io.sysu_rob_access <> robBuilder.addPort()
+  exu.io.mul_rob_access  <> robBuilder.addPort()
+  exu.io.div_rob_access  <> robBuilder.addPort()
   exu.io.agu_rob_access  <> robBuilder.addPort()
   val rob = robBuilder.build()
   val commit = Module(new retire.Commit)
@@ -44,6 +48,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   PipelineConnect(isu.io.alu, exu.io.alu_in)
   PipelineConnect(isu.io.bru, exu.io.bru_in)
   PipelineConnect(isu.io.agu, exu.io.agu_in)
+  PipelineConnect(isu.io.mul, exu.io.mul_in)
+  PipelineConnect(isu.io.div, exu.io.div_in)
   PipelineConnect(isu.io.sysu, exu.io.sysu_in)
 
   rob.enq <> isu.io.rob_enq

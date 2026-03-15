@@ -6,7 +6,7 @@ import chisel3._
 import chisel3.util.{Mux1H, MuxCase, MuxLookup, Valid, switch, is}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
-import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, LsuOp, SysuInput, SysuOp}
+import nzea_core.backend.{AluInput, AluOp, AguInput, BruInput, BruOp, DivInput, DivOp, LsuOp, MulInput, MulOp, SysuInput, SysuOp}
 import nzea_core.retire.rob.{RobEnqIO, RobMemType}
 
 /** PRF write port: addr, data. Shared by all FU completions. */
@@ -84,11 +84,14 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
     val alu            = new PipeIO(new AluInput(robIdWidth, prfAddrWidth))
     val bru            = new PipeIO(new BruInput(robIdWidth, prfAddrWidth))
     val agu            = new PipeIO(new AguInput(robIdWidth, prfAddrWidth))
+    val mul            = new PipeIO(new MulInput(robIdWidth, prfAddrWidth))
+    val div            = new PipeIO(new DivInput(robIdWidth, prfAddrWidth))
     val sysu           = new PipeIO(new SysuInput(robIdWidth, prfAddrWidth))
   })
 
-  val outs   = Seq(io.alu, io.bru, io.agu, io.sysu)
-  val fuTypes = Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU)
+  private val hasM = config.isaConfig.hasM
+  val outs   = if (hasM) Seq(io.alu, io.bru, io.agu, io.mul, io.div, io.sysu) else Seq(io.alu, io.bru, io.agu, io.sysu)
+  val fuTypes = if (hasM) Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.MUL, FuType.DIV, FuType.SYSU) else Seq(FuType.ALU, FuType.BRU, FuType.LSU, FuType.SYSU)
 
   // -------- Physical Register File (banked for timing) --------
   // 4 banks of 16 entries: addr[5:4]=bank, addr[3:0]=index within bank
@@ -272,6 +275,24 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int, numBypassPorts: Int)(implicit c
   io.agu.bits.pc        := pc
   io.agu.bits.rob_id    := rob_id
   io.agu.bits.p_rd      := io.in.bits.p_rd
+
+  io.mul.valid := hasM.B && can_dispatch && (fu_type === FuType.MUL)
+  val (mulOp, _) = MulOp.safe(FuDecode.take(io.in.bits.fu_op, MulOp.getWidth))
+  io.mul.bits.opA    := rs1_val
+  io.mul.bits.opB    := rs2_val
+  io.mul.bits.mulOp  := mulOp
+  io.mul.bits.pc     := pc
+  io.mul.bits.rob_id := rob_id
+  io.mul.bits.p_rd   := io.in.bits.p_rd
+
+  io.div.valid := hasM.B && can_dispatch && (fu_type === FuType.DIV)
+  val (divOp, _) = DivOp.safe(FuDecode.take(io.in.bits.fu_op, DivOp.getWidth))
+  io.div.bits.opA    := rs1_val
+  io.div.bits.opB    := rs2_val
+  io.div.bits.divOp  := divOp
+  io.div.bits.pc     := pc
+  io.div.bits.rob_id := rob_id
+  io.div.bits.p_rd   := io.in.bits.p_rd
 
   io.sysu.valid := can_dispatch && (fu_type === FuType.SYSU)
   io.sysu.bits.rob_id    := rob_id

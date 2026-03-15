@@ -6,7 +6,7 @@ import nzea_config.NzeaConfig
 
 object Elaborate {
   def elaborate(implicit config: NzeaConfig): Unit = {
-    println(s"Generating NzeaCore (width: ${config.width}, Debug: ${config.debug}, platform: ${config.synthPlatform})")
+    println(s"Generating NzeaCore (isa: ${config.isa}, Debug: ${config.debug}, platform: ${config.synthPlatform})")
     println(s"Output: ${config.effectiveOutDir}")
 
     lazy val topModule = new Top

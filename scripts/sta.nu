@@ -1,13 +1,14 @@
 #!/usr/bin/env nu
 # iEDA STA: requires synth first, PDK_PATH (from flake), iEDA in PATH
-# Outputs: build/synth/Top.rpt (timing), build/synth/sta.log
+# Outputs: build/yosys/<isa>/synth/Top.rpt (timing), build/yosys/<isa>/synth/sta.log
 
 def main [
+  --isa: string = "riscv32i"
   synth_dir?: string
   design?: string
   pdk?: string
 ] {
-  let synth_dir = $synth_dir | default "build/synth"
+  let synth_dir = $synth_dir | default $"build/yosys/($isa)/synth"
   let design = $design | default "Top"
   let pdk = $pdk | default "icsprout55"
 
@@ -16,7 +17,7 @@ def main [
   let sdc_file = $script_dir | path join "default.sdc"
 
   if not ($netlist_v | path exists) {
-    print -e $"Error: ($netlist_v) not found. Run: just synth"
+    print -e $"Error: ($netlist_v) not found. Run: just synth --isa ($isa)"
     exit 1
   }
 
