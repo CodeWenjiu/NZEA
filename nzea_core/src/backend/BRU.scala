@@ -2,7 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_core.{PipeIOConsumer, PipeIO, PipelineConnect}
+import nzea_core.{PipeIO, PipelineConnect}
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.Rob
@@ -85,7 +85,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val in         = Flipped(new PipeIO(new BruS1Out(robIdWidth, prfAddrWidth)))
     val flush      = Input(Bool())
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val prf_write  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
     val bp_update  = Output(Valid(new BpUpdate))
   })
 
@@ -101,16 +101,16 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.rob_access.valid := u.valid
   io.rob_access.bits  := u.bits
 
-  io.prf_write.valid := u.valid && b.p_rd =/= 0.U
-  io.prf_write.bits.addr := b.p_rd
-  io.prf_write.bits.data := b.pc_plus_4
+  io.out.valid := u.valid && b.p_rd =/= 0.U
+  io.out.bits.addr := b.p_rd
+  io.out.bits.data := b.pc_plus_4
 
   io.bp_update.valid := io.in.valid
   io.bp_update.bits.pc := b.pc
   io.bp_update.bits.taken := b.is_taken
   io.bp_update.bits.target := b.next_pc
 
-  io.in.ready := io.prf_write.ready
+  io.in.ready := io.out.ready
   io.in.flush := io.flush
 }
 
@@ -119,7 +119,7 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val prf_write  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
     val bp_update  = Output(Valid(new BpUpdate))
   })
 
@@ -127,13 +127,13 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val s1 = Module(new BRUStage1(robIdWidth, prfAddrWidth))
 
   io.in <> s0.io.in
-  io.in.flush := io.prf_write.flush
-  s1.io.flush := io.prf_write.flush
+  io.in.flush := io.out.flush
+  s1.io.flush := io.out.flush
   PipelineConnect(s0.io.out, s1.io.in)
   io.rob_access <> s1.io.rob_access
-  io.prf_write.valid := s1.io.prf_write.valid
-  io.prf_write.bits := s1.io.prf_write.bits
-  s1.io.prf_write.ready := io.prf_write.ready
-  s1.io.prf_write.flush := io.prf_write.flush
+  io.out.valid := s1.io.out.valid
+  io.out.bits := s1.io.out.bits
+  s1.io.out.ready := io.out.ready
+  s1.io.out.flush := io.out.flush
   io.bp_update := s1.io.bp_update
 }

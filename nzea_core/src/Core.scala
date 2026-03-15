@@ -21,10 +21,10 @@ class Core(implicit config: NzeaConfig) extends Module {
   val commit = Module(new retire.Commit)
   val wbu = Module(new retire.WBU(prfAddrWidth))
   val isu = frontend.ISU(addrWidth)
-  val fuPrfWrites = exu.prfWritePorts :+ memUnit.io.prf_write
-  (fuPrfWrites zip wbu.io.in).foreach { case (fu, port) => port <> fu }
+  val fuOuts = exu.outPorts :+ memUnit.io.out
+  (fuOuts zip wbu.io.in).foreach { case (fu, port) => port <> fu }
   (wbu.io.out zip isu.io.prf_write).foreach { case (w, p) => p <> w }
-  (fuPrfWrites zip isu.io.bypass_level1).foreach { case (fu, port) =>
+  (fuOuts zip isu.io.bypass_level1).foreach { case (fu, port) =>
     port.valid := fu.valid
     port.bits := fu.bits
   }

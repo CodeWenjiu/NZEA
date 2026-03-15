@@ -2,7 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Cat, Enum, Mux1H, Valid}
-import nzea_core.PipeIOConsumer
+import nzea_core.PipeIO
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
@@ -26,9 +26,9 @@ class DivInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 
 /** Common IO bundle for DIV/NullDIV so EXU can use if/else without losing type. */
 class DivIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val in         = new PipeIOConsumer(new DivInput(robIdWidth, prfAddrWidth))
+  val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
   val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-  val prf_write  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+  val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 
 /** Common interface for DIV/NullDIV so EXU can use if/else without losing .io type. */
@@ -75,9 +75,9 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
 
   val fire = io.in.valid && io.in.ready
 
-  io.in.ready := (state === sIdle) && !io.prf_write.flush && io.prf_write.ready
+  io.in.ready := (state === sIdle) && !io.out.flush && io.out.ready
 
-  when(io.prf_write.flush) {
+  when(io.out.flush) {
     state := sIdle
   }.elsewhen(state === sIdle) {
     when(fire) {
@@ -121,7 +121,7 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
       state := sDone
     }
   }.elsewhen(state === sDone) {
-    when(io.prf_write.ready) { state := sIdle }
+    when(io.out.ready) { state := sIdle }
   }
 
   val doneValid = state === sDone
@@ -130,9 +130,10 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
 
-  io.prf_write.valid := doneValid && pRdReg =/= 0.U
-  io.prf_write.bits.addr := pRdReg
-  io.prf_write.bits.data := resultReg
+  io.out.valid := doneValid && pRdReg =/= 0.U
+  io.out.bits.addr := pRdReg
+  io.out.bits.data := resultReg
+  io.in.flush := io.out.flush
   def divIo = io
 }
 
@@ -142,7 +143,7 @@ class NullDIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
   io.in.ready := true.B
   io.rob_access.valid := false.B
   io.rob_access.bits := DontCare
-  io.prf_write.valid := false.B
-  io.prf_write.bits := DontCare
+  io.out.valid := false.B
+  io.out.bits := DontCare
   def divIo = io
 }

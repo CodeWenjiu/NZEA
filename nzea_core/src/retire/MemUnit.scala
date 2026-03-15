@@ -26,13 +26,13 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   private val userBundleType = new DbusUserBundle(robIdWidth, prfAddrWidth)
 
   val io = IO(new Bundle {
-    val ls_enq      = Flipped(Decoupled(new RobMemReq(robIdWidth, prfAddrWidth)))
+    val ls_enq      = Flipped(new PipeIO(new RobMemReq(robIdWidth, prfAddrWidth)))
     val issue       = Input(Bool())
     val issue_rob_id = Output(Valid(UInt(robIdWidth.W)))
     val flush       = Input(Bool())
     val resp        = Decoupled(new RobMemResp(robIdWidth))
     val dbus        = dbusType.cloneType
-    val prf_write   = new PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out   = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
   // LS buffer: FIFO for mem ops, flush clears instantly
@@ -46,6 +46,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   val ls_full  = (ls_tail_phys === ls_head_phys) && (ls_tail_ptr(ptrWidth - 1) =/= ls_head_ptr(ptrWidth - 1))
 
   io.ls_enq.ready := !ls_full && !io.flush
+  io.ls_enq.flush := io.flush
   io.issue_rob_id.valid := !ls_empty
   io.issue_rob_id.bits := ls_slots(ls_head_phys).rob_id
 
@@ -109,7 +110,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   io.resp.bits.rob_id := respUser.rob_id
   io.resp.bits.data := Mux(isStoreFromResp, 0.U(32.W), loadData)
 
-  io.prf_write.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U && !io.prf_write.flush
-  io.prf_write.bits.addr := respUser.p_rd
-  io.prf_write.bits.data := loadData
+  io.out.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U && !io.out.flush
+  io.out.bits.addr := respUser.p_rd
+  io.out.bits.data := loadData
 }

@@ -2,7 +2,7 @@ package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_core.{PipeIO, PipeIOConsumer}
+import nzea_core.PipeIO
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
@@ -33,9 +33,9 @@ class AluInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 /** ALU FU: combinational; writes result to Rob (commit) and PRF (direct). */
 class ALU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in         = new PipeIOConsumer(new AluInput(robIdWidth, prfAddrWidth))
+    val in         = Flipped(new PipeIO(new AluInput(robIdWidth, prfAddrWidth)))
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val prf_write  = new PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out  = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
   val opA   = io.in.bits.opA
@@ -60,9 +60,10 @@ class ALU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val u = Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)
   io.rob_access.valid := u.valid
   io.rob_access.bits := u.bits
-  io.in.ready := io.prf_write.ready
+  io.in.ready := io.out.ready
 
-  io.prf_write.valid := u.valid && io.in.bits.p_rd =/= 0.U
-  io.prf_write.bits.addr := io.in.bits.p_rd
-  io.prf_write.bits.data := result
+  io.out.valid := u.valid && io.in.bits.p_rd =/= 0.U
+  io.out.bits.addr := io.in.bits.p_rd
+  io.out.bits.data := result
+  io.in.flush := io.out.flush
 }
