@@ -24,9 +24,9 @@ class MulInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd   = UInt(prfAddrWidth.W)
 }
 
-/** Stage 1 output: 17 partial products + passthrough. */
+/** Stage 1 output: 18 partial products (17 Booth + 1 compensation) + passthrough. */
 class MulS1Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val pp     = Vec(17, UInt(64.W))
+  val pp     = Vec(18, UInt(64.W))
   val mulOp  = MulOp()
   val rob_id = UInt(robIdWidth.W)
   val p_rd   = UInt(prfAddrWidth.W)
@@ -44,12 +44,12 @@ class MulS2Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 }
 
 /** Radix-4 Booth encoding: 3 bits (b2,b1,b0) -> 0, ±A, ±2A.
-  * Output is 34-bit (for ±2A max), neg flag for sign extension in 64-bit PP.
+  * a34: 34-bit multiplicand (sign-extended for signed mul). Returns (raw_34, is_neg).
+  * For neg: returns ~value only; +1 is deferred to compensation vector (avoids 17 adders in Stage 0).
   */
 object BoothRadix4 {
-  def encode(b: UInt, a: UInt): (UInt, Bool) = {
-    val a34 = Cat(0.U(2.W), a)
-    val a2  = Cat(0.U(1.W), a, 0.U(1.W))
+  def encode(b: UInt, a34: UInt): (UInt, Bool) = {
+    val a2  = (a34 << 1.U)(33, 0)
     val neg = (b === "b100".U) || (b === "b101".U) || (b === "b110".U)
     val sel = MuxCase(0.U(3.W), Seq(
       (b === "b001".U || b === "b010".U) -> 1.U,
@@ -58,7 +58,7 @@ object BoothRadix4 {
       (b === "b101".U || b === "b110".U) -> 4.U
     ))
     val posVal = Mux(sel === 1.U, a34, Mux(sel === 2.U, a2, 0.U(34.W)))
-    val negVal = Mux(sel === 3.U, (~a2).asUInt + 1.U, Mux(sel === 4.U, (~a34).asUInt + 1.U, 0.U(34.W)))
+    val negVal = Mux(sel === 3.U, (~a2).asUInt, Mux(sel === 4.U, (~a34).asUInt, 0.U(34.W)))
     val raw = Mux(neg, negVal, posVal)
     (raw, neg && (sel =/= 0.U))
   }
@@ -77,7 +77,7 @@ object WallaceTree {
     (sum, Cat(carry(62, 0), 0.U(1.W)))
   }
   def reduce(pp: Seq[UInt]): (UInt, UInt) = {
-    require(pp.size == 17)
+    require(pp.nonEmpty)
     val w = 64
     var rows = pp.toVector
     while (rows.size > 2) {
@@ -116,17 +116,22 @@ class MULStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val bSigned = (b.mulOp === MulOp.Mulh)
   val aExt = Mux(aSigned, Cat(Fill(32, b.opA(31)), b.opA), Cat(0.U(32.W), b.opA))
   val bExt = Mux(bSigned, Cat(Fill(32, b.opB(31)), b.opB), Cat(0.U(32.W), b.opB))
+  val a34 = aExt(33, 0)
   val b34 = bExt(33, 0)
 
-  val pp = Wire(Vec(17, UInt(64.W)))
+  val pp = Wire(Vec(18, UInt(64.W)))
+  val negFlags = Wire(Vec(17, Bool()))
   val zeroProduct = (b.opA === 0.U) || (b.opB === 0.U)
   for (i <- 0 until 17) {
     val b2 = if (i < 16) b34(2*i + 1) else b34(33)
     val b1 = b34(2*i)
     val b0 = if (i == 0) 0.U else b34(2*i - 1)
-    val (raw, neg) = BoothRadix4.encode(Cat(b2, b1, b0), b.opA)
+    val (raw, neg) = BoothRadix4.encode(Cat(b2, b1, b0), a34)
     pp(i) := Mux(zeroProduct, 0.U, Cat(Fill(30, neg), raw) << (2 * i))
+    negFlags(i) := neg
   }
+  val compensation = (0 until 17).map(i => Mux(negFlags(i), 1.U(64.W) << (2 * i), 0.U(64.W))).reduce(_ | _)
+  pp(17) := Mux(zeroProduct, 0.U, compensation)
 
   io.out.valid := io.in.valid
   io.out.bits.pp := pp
