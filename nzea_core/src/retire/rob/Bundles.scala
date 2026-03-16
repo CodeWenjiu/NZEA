@@ -47,6 +47,21 @@ class RobMemReq(idWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd   = UInt(prfAddrWidth.W)
 }
 
+/** LS_Queue allocation: at dispatch, request ls_id. Bits: rob_id, p_rd, lsuOp (written to slot at alloc). */
+class LsAllocReq(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
+  val rob_id = UInt(robIdWidth.W)
+  val p_rd   = UInt(prfAddrWidth.W)
+  val lsuOp  = UInt(LsuOp.getWidth.W)
+}
+
+/** LS_Queue write: AGU writes addr/wdata/wstrb to slot[lsq_id] and sets data_ready. */
+class LsWriteReq(lsqIdWidth: Int) extends Bundle {
+  val lsq_id = UInt(lsqIdWidth.W)
+  val addr   = UInt(32.W)
+  val wdata  = UInt(32.W)
+  val wstrb  = UInt(4.W)
+}
+
 /** MemUnit response: rob_id, data (load result; store ignores). */
 class RobMemResp(idWidth: Int) extends Bundle {
   val rob_id = UInt(idWidth.W)

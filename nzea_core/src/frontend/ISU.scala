@@ -5,7 +5,7 @@ import chisel3.util.{Mux1H, MuxLookup, PriorityEncoder, Valid, switch, is}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
-import nzea_core.retire.rob.{RobEnqIO, RobMemType}
+import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocReq}
 import nzea_config.FuConfig
 
 /** PRF write port: addr, data. Shared by all FU completions. */
@@ -59,9 +59,17 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
 
   // -------- IO --------
 
+  private val lsqIdWidth = chisel3.util.log2Ceil((robDepth / 2).max(1).max(2))
+
   val io = IO(new Bundle {
     val in             = Flipped(new PipeIO(new IDUOut(addrWidth, prfAddrWidth)))
     val rob_enq        = Flipped(new RobEnqIO(robIdWidth, prfAddrWidth))
+    val ls_alloc       = new Bundle {
+      val valid  = Output(Bool())
+      val ready  = Input(Bool())
+      val bits   = Output(new LsAllocReq(robIdWidth, prfAddrWidth))
+      val lsq_id = Input(UInt(lsqIdWidth.W))
+    }
     val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1  = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val prf_read_addr  = Input(UInt(prfAddrWidth.W))
@@ -69,7 +77,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     val csr_write      = Input(Valid(new CsrWriteBundle))
     val commit_rob_id  = Input(UInt(robIdWidth.W))
     val commit_valid   = Input(Bool())
-    val issuePorts     = new IssuePortsBundle(robIdWidth, prfAddrWidth)
+    val issuePorts     = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
   })
 
   // -------- Physical Register File (banked for timing) --------
@@ -205,14 +213,19 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   // -------- Mask-based routing --------
   val valid_port_mask     = MuxLookup(fu_type.asUInt, 0.U(numIssuePorts.W))(fuTypeToPortMask)
   val current_ports_ready = VecInit(io.issuePorts.orderedPorts.map(_.ready)).asUInt
+  val lsu_can_alloc       = Mux(fu_type === FuType.LSU, io.ls_alloc.ready, true.B)
   val available_and_ready = valid_port_mask & current_ports_ready
-  val can_issue = can_dispatch && !csr_write_pending_stall && io.rob_enq.req.ready && (available_and_ready =/= 0.U)
+  val can_issue = can_dispatch && !csr_write_pending_stall && io.rob_enq.req.ready && lsu_can_alloc && (available_and_ready =/= 0.U)
   val selected_port_index = PriorityEncoder(available_and_ready)
 
+  val (lsuOp, _) = LsuOp.safe(FuDecode.take(fu_op, LsuOp.getWidth))
   io.rob_enq.req.valid := can_issue
+  io.ls_alloc.valid := can_issue && (fu_type === FuType.LSU)
+  io.ls_alloc.bits.rob_id := rob_id
+  io.ls_alloc.bits.p_rd := io.in.bits.p_rd
+  io.ls_alloc.bits.lsuOp := lsuOp.asUInt
   io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
   io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
-  val (lsuOp, _) = LsuOp.safe(FuDecode.take(fu_op, LsuOp.getWidth))
   io.rob_enq.req.bits.mem_type := Mux(
     fu_type === FuType.LSU,
     Mux(LsuOp.isLoad(lsuOp), RobMemType.Load, RobMemType.Store),
@@ -234,7 +247,6 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   ))
   val (aluOp, _) = AluOp.safe(FuDecode.take(fu_op, AluOp.getWidth))
   val (bruOp, _) = BruOp.safe(FuDecode.take(fu_op, BruOp.getWidth))
-  val (lsuOpDec, _) = LsuOp.safe(FuDecode.take(fu_op, LsuOp.getWidth))
   val (mulOp, _) = MulOp.safe(FuDecode.take(fu_op, MulOp.getWidth))
   val (divOp, _) = DivOp.safe(FuDecode.take(fu_op, DivOp.getWidth))
   val (sysuOp, _) = SysuOp.safe(FuDecode.take(fu_op, SysuOp.getWidth))
@@ -265,11 +277,12 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
         io.issuePorts.agu.valid := can_issue && sel
         io.issuePorts.agu.bits.base      := rs1_val
         io.issuePorts.agu.bits.imm       := imm
-        io.issuePorts.agu.bits.lsuOp     := lsuOpDec
+        io.issuePorts.agu.bits.lsuOp     := lsuOp
         io.issuePorts.agu.bits.storeData := rs2_val
         io.issuePorts.agu.bits.pc        := pc
         io.issuePorts.agu.bits.rob_id    := rob_id
         io.issuePorts.agu.bits.p_rd      := io.in.bits.p_rd
+        io.issuePorts.agu.bits.lsq_id    := io.ls_alloc.lsq_id
       case "MUL" =>
         io.issuePorts.mul.get.valid := can_issue && sel
         io.issuePorts.mul.get.bits.opA    := rs1_val

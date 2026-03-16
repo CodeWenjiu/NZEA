@@ -1,12 +1,11 @@
-package nzea_core.retire
+package nzea_core.backend
 
 import chisel3._
 import chisel3.util.{Cat, Decoupled, Mux1H, Valid}
-import nzea_core.backend.LsuOp
 import nzea_core.CoreBusReadWrite
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.PipeIO
-import nzea_core.retire.rob.{RobMemReq, RobMemResp}
+import nzea_core.retire.rob.{LsAllocReq, LsWriteReq, RobMemResp}
 
 /** Dbus user payload: rob_id + lsuOp + addr2 + p_rd, passthrough req->resp for load PRF write. */
 class DbusUserBundle(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
@@ -16,42 +15,63 @@ class DbusUserBundle(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd    = UInt(prfAddrWidth.W)
 }
 
-/** MemUnit: LsBuffer inside; AGU enqueues; Rob issues; load data formatting; PRF write for loads.
-  * No unaligned support: read always 4-byte aligned, extract byte/half from rdata; assume no unaligned instrs. */
+/** LS_Queue slot: alloc writes rob_id/p_rd/lsuOp; AGU writes addr/wdata/wstrb and sets data_ready. */
+class LsqSlot(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
+  val valid     = Bool()
+  val data_ready = Bool()
+  val rob_id    = UInt(robIdWidth.W)
+  val p_rd      = UInt(prfAddrWidth.W)
+  val lsuOp     = UInt(LsuOp.getWidth.W)
+  val addr      = UInt(32.W)
+  val wdata     = UInt(32.W)
+  val wstrb     = UInt(4.W)
+}
+
+/** MemUnit: LS_Queue with ls_alloc at dispatch, ls_write from AGU. Issue only when head.data_ready.
+  * No unaligned support: read always 4-byte aligned, extract byte/half from rdata. */
 class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) extends Module {
+  private val lsqIdWidth = chisel3.util.log2Ceil(lsBufferDepth.max(2))
   private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2 + prfAddrWidth
   private val userWidth = width.max(userPayloadWidth)
   private val dbusType = new CoreBusReadWrite(width, width, userWidth)
-
   private val userBundleType = new DbusUserBundle(robIdWidth, prfAddrWidth)
 
   val io = IO(new Bundle {
-    val ls_enq      = Flipped(new PipeIO(new RobMemReq(robIdWidth, prfAddrWidth)))
-    val issue       = Input(Bool())
-    val issue_rob_id = Output(Valid(UInt(robIdWidth.W)))
-    val flush       = Input(Bool())
-    val resp        = Decoupled(new RobMemResp(robIdWidth))
-    val dbus        = dbusType.cloneType
-    val out   = new PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val ls_alloc      = new Bundle {
+      val valid  = Input(Bool())
+      val ready  = Output(Bool())
+      val bits   = Input(new LsAllocReq(robIdWidth, prfAddrWidth))
+      val lsq_id = Output(UInt(lsqIdWidth.W))
+    }
+    val ls_write      = Flipped(new PipeIO(new LsWriteReq(lsqIdWidth)))
+    val issue         = Input(Bool())
+    val issue_rob_id  = Output(Valid(UInt(robIdWidth.W)))
+    val resp          = Decoupled(new RobMemResp(robIdWidth))
+    val dbus          = dbusType.cloneType
+    val out           = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
-  // LS buffer: FIFO for mem ops, flush clears instantly
-  private val ptrWidth = chisel3.util.log2Ceil(lsBufferDepth.max(2)) + 1
-  val ls_slots   = Reg(Vec(lsBufferDepth, new RobMemReq(robIdWidth, prfAddrWidth)))
+  // LS_Queue: circular buffer, allocate at tail, issue from head
+  private val ptrWidth = lsqIdWidth + 1
+  val ls_slots = Reg(Vec(lsBufferDepth, new LsqSlot(robIdWidth, prfAddrWidth)))
   val ls_head_ptr = RegInit(0.U(ptrWidth.W))
   val ls_tail_ptr = RegInit(0.U(ptrWidth.W))
-  val ls_head_phys = ls_head_ptr(ptrWidth - 2, 0)
-  val ls_tail_phys = ls_tail_ptr(ptrWidth - 2, 0)
+  val ls_head_phys = ls_head_ptr(lsqIdWidth - 1, 0)
+  val ls_tail_phys = ls_tail_ptr(lsqIdWidth - 1, 0)
   val ls_empty = ls_head_ptr === ls_tail_ptr
-  val ls_full  = (ls_tail_phys === ls_head_phys) && (ls_tail_ptr(ptrWidth - 1) =/= ls_head_ptr(ptrWidth - 1))
+  val ls_full  = (ls_tail_phys === ls_head_phys) && (ls_tail_ptr(lsqIdWidth) =/= ls_head_ptr(lsqIdWidth))
 
-  io.ls_enq.ready := !ls_full && !io.flush
-  io.ls_enq.flush := io.flush
-  io.issue_rob_id.valid := !ls_empty
-  io.issue_rob_id.bits := ls_slots(ls_head_phys).rob_id
+  io.ls_alloc.ready := !ls_full && !io.out.flush
+  io.ls_alloc.lsq_id := ls_tail_phys
+  io.ls_write.ready := true.B
+  io.ls_write.flush := io.out.flush
 
-  val do_issue = io.issue && !ls_empty
   val head = ls_slots(ls_head_phys)
+  val head_ready = head.valid && head.data_ready
+  io.issue_rob_id.valid := !ls_empty && head_ready
+  io.issue_rob_id.bits := head.rob_id
+
+  val do_issue = io.issue && !ls_empty && head_ready
   val isStore = LsuOp.isStore(head.lsuOp)
 
   io.dbus.req.valid := do_issue
@@ -61,20 +81,37 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   io.dbus.req.bits.wstrb := head.wstrb
   val userReq = Wire(userBundleType)
   userReq.rob_id := head.rob_id
-  userReq.lsuOp := head.lsuOp.asUInt
+  userReq.lsuOp := head.lsuOp
   userReq.addr2 := head.addr(1, 0)
   userReq.p_rd := head.p_rd
   io.dbus.req.bits.user := userReq.asUInt
 
-  when(io.flush) {
+  when(io.out.flush) {
     ls_head_ptr := 0.U
     ls_tail_ptr := 0.U
+    for (i <- 0 until lsBufferDepth) {
+      ls_slots(i).valid := false.B
+      ls_slots(i).data_ready := false.B
+    }
   }.otherwise {
-    when(io.ls_enq.fire) {
-      ls_slots(ls_tail_phys) := io.ls_enq.bits
+    when(io.ls_alloc.valid && io.ls_alloc.ready) {
+      ls_slots(ls_tail_phys).valid := true.B
+      ls_slots(ls_tail_phys).data_ready := false.B
+      ls_slots(ls_tail_phys).rob_id := io.ls_alloc.bits.rob_id
+      ls_slots(ls_tail_phys).p_rd := io.ls_alloc.bits.p_rd
+      ls_slots(ls_tail_phys).lsuOp := io.ls_alloc.bits.lsuOp
       ls_tail_ptr := (ls_tail_ptr + 1.U)(ptrWidth - 1, 0)
     }
+    when(io.ls_write.fire) {
+      val id = io.ls_write.bits.lsq_id
+      ls_slots(id).addr := io.ls_write.bits.addr
+      ls_slots(id).wdata := io.ls_write.bits.wdata
+      ls_slots(id).wstrb := io.ls_write.bits.wstrb
+      ls_slots(id).data_ready := true.B
+    }
     when(do_issue && io.dbus.req.ready) {
+      ls_slots(ls_head_phys).valid := false.B
+      ls_slots(ls_head_phys).data_ready := false.B
       ls_head_ptr := (ls_head_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }

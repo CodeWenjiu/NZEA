@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Valid}
 import nzea_core.{PipelineConnect, PipeIO}
 import nzea_core.frontend.{CsrWriteBundle, IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
-import nzea_core.retire.rob.{RobAccessIO, RobMemReq}
+import nzea_core.retire.rob.{RobAccessIO, LsWriteReq}
 import nzea_config.{FuConfig, NzeaConfig}
 
 /** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
@@ -14,24 +14,24 @@ object FuOpWidth {
 }
 
 /** EXU: receives per-port payloads from ISU (already extracted); direct connect to FUs. */
-class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) extends Module {
+class EXU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val hasM          = config.isaConfig.hasM
-  private val numRobPorts    = FuConfig.numRobAccessPorts
+  private val numRobPorts   = FuConfig.numRobAccessPorts
   private val numExuPrfPorts = FuConfig.numExuPrfWritePorts
 
   val alu  = Module(new ALU(robIdWidth, prfAddrWidth))
   val bru  = Module(new BRU(robIdWidth, prfAddrWidth))
-  val agu  = Module(new AGU(robIdWidth, prfAddrWidth))
+  val agu  = Module(new AGU(robIdWidth, prfAddrWidth, lsqIdWidth))
   val sysu = Module(new SYSU(robIdWidth, prfAddrWidth))
   val mul  = Option.when(hasM)(Module(new MUL(robIdWidth, prfAddrWidth)))
   val div  = Option.when(hasM)(Module(new DIV(robIdWidth, prfAddrWidth)))
 
   val io = IO(new Bundle {
-    val issuePorts   = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth))
-    val rob_access   = Vec(numRobPorts, new RobAccessIO(robIdWidth))
-    val out    = Vec(numExuPrfPorts, new PipeIO(new PrfWriteBundle(prfAddrWidth)))
-    val agu_ls_enq   = new PipeIO(new RobMemReq(robIdWidth, prfAddrWidth))
-    val csr_write    = Output(Valid(new CsrWriteBundle))
+    val issuePorts    = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth))
+    val rob_access    = Vec(numRobPorts, new RobAccessIO(robIdWidth))
+    val out           = Vec(numExuPrfPorts, new PipeIO(new PrfWriteBundle(prfAddrWidth)))
+    val agu_ls_write  = new PipeIO(new LsWriteReq(lsqIdWidth))
+    val csr_write     = Output(Valid(new CsrWriteBundle))
     val bru_bp_update = Output(Valid(new BpUpdate))
   })
 
@@ -53,8 +53,8 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
         bru.io.in.valid := pipeOut.valid
         bru.io.in.bits  := pipeOut.bits
       case "AGU" =>
-        val pipeOut = Wire(new PipeIO(new AguInput(robIdWidth, prfAddrWidth)))
-        pipeOut.flush := agu.io.in.flush
+        val pipeOut = Wire(new PipeIO(new AguInput(robIdWidth, prfAddrWidth, lsqIdWidth)))
+        pipeOut.flush := io.agu_ls_write.flush
         pipeOut.ready := agu.io.in.ready
         PipelineConnect(io.issuePorts.agu, pipeOut)
         agu.io.in.valid := pipeOut.valid
@@ -88,7 +88,10 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: NzeaConfig) exten
     }
   }
 
-  io.agu_ls_enq <> agu.io.ls_enq
+  io.agu_ls_write.valid := agu.io.ls_write.valid
+  io.agu_ls_write.bits := agu.io.ls_write.bits
+  agu.io.ls_write.ready := io.agu_ls_write.ready
+  agu.io.ls_write.flush := io.agu_ls_write.flush
   io.csr_write := sysu.io.csr_write
   io.bru_bp_update := bru.io.bp_update
 

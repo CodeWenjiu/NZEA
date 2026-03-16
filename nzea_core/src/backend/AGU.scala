@@ -3,7 +3,7 @@ package nzea_core.backend
 import chisel3._
 import chisel3.util.Mux1H
 import nzea_core.PipeIO
-import nzea_core.retire.rob.{Rob, RobMemReq}
+import nzea_core.retire.rob.{Rob, LsWriteReq}
 
 /** LsuOp: one-hot (LB, LH, LW, LBU, LHU, SB, SH, SW). Kept for decode/AGU. */
 object LsuOp extends chisel3.ChiselEnum {
@@ -22,8 +22,8 @@ object LsuOp extends chisel3.ChiselEnum {
   def isLoad(op: UInt): Bool         = !isStore(op)
 }
 
-/** AGU input: base, imm, lsuOp, storeData, pc; rob_id, p_rd from IS. p_rd for load completion. */
-class AguInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
+/** AGU input: base, imm, lsuOp, storeData, pc; rob_id, p_rd, lsq_id from IS. */
+class AguInput(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int = 4) extends Bundle {
   val base      = UInt(32.W)
   val imm       = UInt(32.W)
   val lsuOp     = LsuOp()
@@ -31,14 +31,15 @@ class AguInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val pc        = UInt(32.W)
   val rob_id    = UInt(robIdWidth.W)
   val p_rd      = UInt(prfAddrWidth.W)
+  val lsq_id    = UInt(lsqIdWidth.W)
 }
 
-/** AGU: computes addr; writes need_mem to Rob; enqueues mem data to Rob's LS_Queue. */
-class AGU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
+/** AGU: computes addr; writes to Rob; writes addr/wdata/wstrb to LS_Queue[lsq_id] via ls_write. */
+class AGU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in         = Flipped(new PipeIO(new AguInput(robIdWidth, prfAddrWidth)))
+    val in         = Flipped(new PipeIO(new AguInput(robIdWidth, prfAddrWidth, lsqIdWidth)))
     val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
-    val ls_enq     = new PipeIO(new RobMemReq(robIdWidth, prfAddrWidth))
+    val ls_write   = new PipeIO(new LsWriteReq(lsqIdWidth))
   })
 
   val addr      = io.in.bits.base + io.in.bits.imm
@@ -54,17 +55,15 @@ class AGU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val u = Rob.entryStateUpdate(
     io.in.valid, io.in.bits.rob_id, false.B,
     next_pc = next_pc)(robIdWidth)
-  // Stall internally when LS queue is full: only update ROB when we can also enqueue to MemUnit.
-  io.rob_access.valid := u.valid && io.ls_enq.ready
-  io.rob_access.bits := u.bits
-  io.in.ready := io.ls_enq.ready
 
-  io.ls_enq.valid := io.rob_access.valid
-  io.ls_enq.bits.rob_id := io.in.bits.rob_id
-  io.ls_enq.bits.addr   := addr
-  io.ls_enq.bits.wdata  := wdata
-  io.ls_enq.bits.wstrb  := wstrb
-  io.ls_enq.bits.lsuOp  := io.in.bits.lsuOp
-  io.ls_enq.bits.p_rd   := io.in.bits.p_rd
-  io.in.flush := io.ls_enq.flush
+  io.rob_access.valid := u.valid
+  io.rob_access.bits := u.bits
+  io.in.ready := true.B
+
+  io.ls_write.valid := io.in.valid
+  io.ls_write.bits.lsq_id := io.in.bits.lsq_id
+  io.ls_write.bits.addr   := addr
+  io.ls_write.bits.wdata  := wdata
+  io.ls_write.bits.wstrb  := wstrb
+  io.in.flush := io.ls_write.flush
 }

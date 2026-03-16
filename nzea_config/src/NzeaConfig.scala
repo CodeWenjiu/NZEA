@@ -16,6 +16,9 @@ case class NzeaConfig(
   val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Sim)
   val effectiveOutDir: String = outDir.getOrElse(s"${platform.outDir}/${isa}")
   val prfAddrWidth: Int = Iterator.from(0).find(i => (1 << i) >= prfDepth).getOrElse(6)
+  /** LS_Queue depth (for MemUnit); typically robDepth/2. */
+  val effectiveLsBufferDepth: Int = (robDepth / 2).max(1)
+  val lsqIdWidth: Int = Iterator.from(0).find(i => (1 << i) >= effectiveLsBufferDepth).getOrElse(1)
   /** Parsed ISA config for Chisel to match extensions (e.g. isaConfig.hasM). */
   val isaConfig: IsaConfig = IsaConfig.parse(isa)
   /** Data/address width derived from ISA (e.g. riscv32 -> 32, riscv64 -> 64). */

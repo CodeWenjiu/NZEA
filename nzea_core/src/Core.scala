@@ -10,12 +10,13 @@ class Core(implicit config: NzeaConfig) extends Module {
   private val robDepth     = config.robDepth
   private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth = config.prfAddrWidth
+  private val lsBufferDepth = config.effectiveLsBufferDepth
+  private val lsqIdWidth   = config.lsqIdWidth
 
   val ifu = Module(new frontend.IFU)
   val idu = Module(new frontend.IDU(addrWidth))
-  val exu = Module(new backend.EXU(robIdWidth, prfAddrWidth))
-  private val lsBufferDepth = (robDepth / 2).max(1)
-  val memUnit = Module(new retire.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
+  val exu = Module(new backend.EXU(robIdWidth, prfAddrWidth, lsqIdWidth))
+  val memUnit = Module(new backend.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
 
   val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
   val commit = Module(new retire.Commit)
@@ -44,7 +45,11 @@ class Core(implicit config: NzeaConfig) extends Module {
   (isu.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
-  memUnit.io.ls_enq <> exu.io.agu_ls_enq
+  memUnit.io.ls_alloc.valid := isu.io.ls_alloc.valid
+  memUnit.io.ls_alloc.bits := isu.io.ls_alloc.bits
+  isu.io.ls_alloc.ready := memUnit.io.ls_alloc.ready
+  isu.io.ls_alloc.lsq_id := memUnit.io.ls_alloc.lsq_id
+  memUnit.io.ls_write <> exu.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
   isu.io.prf_read_addr := commit.io.prf_read_addr
   isu.io.commit_rob_id := commit.io.commit_rob_id
@@ -59,7 +64,6 @@ class Core(implicit config: NzeaConfig) extends Module {
   idu.io.restore_rmt := commit.io.restore_rmt
   memUnit.io.issue := rob.mem.issue
   rob.mem.issue_rob_id := memUnit.io.issue_rob_id
-  memUnit.io.flush := rob.mem.flush
   rob.mem.resp <> memUnit.io.resp
 
   io.ibus       <> ifu.io.bus
