@@ -26,49 +26,25 @@ class CsrWriteBundle extends Bundle {
   val data     = UInt(32.W)
 }
 
-/** FuType to port name: LSU (decode) maps to AGU (port). */
-private object FuTypePortName {
-  def portName(fuType: FuType.Type): String = fuType match {
-    case FuType.ALU  => "ALU"
-    case FuType.BRU  => "BRU"
-    case FuType.LSU  => "AGU"
-    case FuType.MUL  => "MUL"
-    case FuType.DIV  => "DIV"
-    case FuType.SYSU => "SYSU"
-  }
-}
-
 /** ISU factory: config-driven, port count derived from FuConfig. */
 object ISU {
   def apply(addrWidth: Int)(implicit config: NzeaConfig): ISU =
     Module(new ISU(addrWidth, FuConfig.numPrfWritePorts))
 }
 
-/** ISU: Issue Unit. Per-port payload types; operand extraction (e.g. ALU opA/opB) done in ISU before pipeline reg.
-  * Mask-based routing selects port; only selected port gets valid.
+/** ISU: Issue Unit. Outputs unified IssueQueueEntry to IssueQueue (no per-port dispatch).
+  * Operand extraction and bypass are done in IssueQueue at dispatch time.
   */
 class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) extends Module {
   private val robDepth       = config.robDepth
   private val robIdWidth     = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth    = config.prfAddrWidth
   private val prfDepth        = config.prfDepth
-  private val numIssuePorts   = FuConfig.numIssuePorts
-  private val issuePortConfigs = FuConfig.issuePorts
-
-  // -------- Elaboration-time: capability mask (FuType -> port bitmask) --------
-  private val fuTypeToPortMask: Seq[(UInt, UInt)] = FuType.all.map { fuType =>
-    val portName = FuTypePortName.portName(fuType)
-    val supportedIndices = issuePortConfigs.zipWithIndex.filter(_._1.name == portName).map(_._2)
-    val maskValue = supportedIndices.foldLeft(0)((acc, idx) => acc | (1 << idx))
-    (fuType.asUInt, maskValue.U(numIssuePorts.W))
-  }
-
-  // -------- IO --------
-
-  private val lsqIdWidth = chisel3.util.log2Ceil((robDepth / 2).max(1).max(2))
+  private val lsqIdWidth      = chisel3.util.log2Ceil((robDepth / 2).max(1).max(2))
 
   val io = IO(new Bundle {
     val in             = Flipped(new PipeIO(new IDUOut(addrWidth, prfAddrWidth)))
+    val out            = new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
     val rob_enq        = Flipped(new RobEnqIO(robIdWidth, prfAddrWidth))
     val ls_alloc       = Flipped(new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth))
     val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
@@ -77,7 +53,6 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     val csr_write      = Input(Valid(new CsrWriteBundle))
     val commit_rob_id  = Input(UInt(robIdWidth.W))
     val commit_valid   = Input(Bool())
-    val issuePorts     = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
   })
 
   // -------- Physical Register File (banked for timing) --------
@@ -183,19 +158,19 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   val rs2_addr = io.in.bits.p_rs2
   val (rs1_val, rs1_ready) = readPrfWithBypass(rs1_addr)
   val (rs2_val, rs2_ready) = readPrfWithBypass(rs2_addr)
-  val stall    = io.in.valid && (!rs1_ready || !rs2_ready)
+  // No operand-based stall: IQ bypass persist handles operands becoming ready after enqueue.
 
   // -------- Flush --------
-  io.in.flush := io.issuePorts.orderedPorts.map(_.flush).reduce(_ || _)
+  io.in.flush := io.out.flush
 
-  // -------- Dispatch --------
+  // -------- Unified output to IssueQueue --------
   val fu_type       = io.in.bits.fu_type
   val fu_src        = io.in.bits.fu_src
   val fu_op         = io.in.bits.fu_op
   val imm           = io.in.bits.imm
   val pc            = io.in.bits.pc
   val rob_id        = io.rob_enq.rob_id
-  val can_dispatch  = io.in.valid && !stall
+  val can_dispatch  = io.in.valid
 
   val will_csr_write = csr_type_sysu =/= CsrType.None && io.in.bits.csr_will_write
   val pending_csr_write_rob_id = RegInit(0.U(robIdWidth.W))
@@ -204,23 +179,18 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     pending_csr_write_valid := false.B
   }.elsewhen(io.commit_valid && pending_csr_write_valid && io.commit_rob_id === pending_csr_write_rob_id) {
     pending_csr_write_valid := false.B
-  }.elsewhen(can_dispatch && io.in.ready && fu_type === FuType.SYSU && will_csr_write) {
+  }.elsewhen(can_dispatch && io.out.fire && fu_type === FuType.SYSU && will_csr_write) {
     pending_csr_write_valid := true.B
     pending_csr_write_rob_id := rob_id
   }
   val csr_write_pending_stall = pending_csr_write_valid
 
-  // -------- Mask-based routing --------
-  val valid_port_mask     = MuxLookup(fu_type.asUInt, 0.U(numIssuePorts.W))(fuTypeToPortMask)
-  val current_ports_ready = VecInit(io.issuePorts.orderedPorts.map(_.ready)).asUInt
-  val lsu_can_alloc       = Mux(fu_type === FuType.LSU, io.ls_alloc.ready, true.B)
-  val available_and_ready = valid_port_mask & current_ports_ready
-  val can_issue = can_dispatch && !csr_write_pending_stall && io.rob_enq.req.ready && lsu_can_alloc && (available_and_ready =/= 0.U)
-  val selected_port_index = PriorityEncoder(available_and_ready)
+  val lsu_can_alloc = Mux(fu_type === FuType.LSU, io.ls_alloc.ready, true.B)
+  val can_push = can_dispatch && !csr_write_pending_stall && io.rob_enq.req.ready && lsu_can_alloc
 
   val (lsuOp, _) = LsuOp.safe(FuDecode.take(fu_op, LsuOp.getWidth))
-  io.rob_enq.req.valid := can_issue
-  io.ls_alloc.valid := can_issue && (fu_type === FuType.LSU)
+  io.rob_enq.req.valid := can_push && io.out.ready
+  io.ls_alloc.valid := can_push && io.out.ready && (fu_type === FuType.LSU)
   io.ls_alloc.bits.rob_id := rob_id
   io.ls_alloc.bits.p_rd := io.in.bits.p_rd
   io.ls_alloc.bits.lsuOp := lsuOp.asUInt
@@ -234,93 +204,34 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   io.rob_enq.req.bits.p_rd := io.in.bits.p_rd
   io.rob_enq.req.bits.old_p_rd := io.in.bits.old_p_rd
 
-  // -------- Per-port payloads (operand extraction in ISU, before pipeline reg) --------
-  val (aluSrc, _) = AluSrc.safe(FuDecode.take(fu_src, AluSrc.getWidth))
-  val aluOpA = MuxLookup(aluSrc.asUInt, rs1_val)(Seq(
-    AluSrc.ImmZero.asUInt -> imm,
-    AluSrc.PcImm.asUInt   -> pc
-  ))
-  val aluOpB = MuxLookup(aluSrc.asUInt, rs2_val)(Seq(
-    AluSrc.Rs1Imm.asUInt  -> imm,
-    AluSrc.ImmZero.asUInt -> 0.U(32.W),
-    AluSrc.PcImm.asUInt   -> imm
-  ))
-  val (aluOp, _) = AluOp.safe(FuDecode.take(fu_op, AluOp.getWidth))
-  val (bruOp, _) = BruOp.safe(FuDecode.take(fu_op, BruOp.getWidth))
-  val (mulOp, _) = MulOp.safe(FuDecode.take(fu_op, MulOp.getWidth))
-  val (divOp, _) = DivOp.safe(FuDecode.take(fu_op, DivOp.getWidth))
-  val (sysuOp, _) = SysuOp.safe(FuDecode.take(fu_op, SysuOp.getWidth))
+  // -------- Output unified IssueQueueEntry (bypass-applied rs1/rs2 and ready) --------
+  io.out.valid := can_push
+  io.out.bits.fu_type        := fu_type
+  io.out.bits.rs1_val        := rs1_val
+  io.out.bits.rs2_val        := rs2_val
+  io.out.bits.rs1_ready      := rs1_ready
+  io.out.bits.rs2_ready      := rs2_ready
+  io.out.bits.p_rs1          := io.in.bits.p_rs1
+  io.out.bits.p_rs2          := io.in.bits.p_rs2
+  io.out.bits.imm            := imm
+  io.out.bits.pc             := pc
+  io.out.bits.pred_next_pc   := io.in.bits.pred_next_pc
+  io.out.bits.fu_op          := fu_op
+  io.out.bits.fu_src         := fu_src
+  io.out.bits.csr_addr       := io.in.bits.csr_addr
+  io.out.bits.csr_rdata      := csr_rdata
+  io.out.bits.csr_will_write := io.in.bits.csr_will_write
+  io.out.bits.rob_id         := rob_id
+  io.out.bits.p_rd           := io.in.bits.p_rd
+  io.out.bits.old_p_rd       := io.in.bits.old_p_rd
+  io.out.bits.rd_index       := io.in.bits.rd_index
+  io.out.bits.lsq_id         := Mux(fu_type === FuType.LSU, io.ls_alloc.lsq_id, 0.U(lsqIdWidth.W))
+  io.out.bits.might_flush    := (fu_type === FuType.BRU)
+  io.out.bits.mem_type       := Mux(
+    fu_type === FuType.LSU,
+    Mux(LsuOp.isLoad(lsuOp), RobMemType.Load, RobMemType.Store),
+    RobMemType.None
+  )
 
-  // -------- Assign per-port valid and bits --------
-  issuePortConfigs.zipWithIndex.foreach { case (cfg, i) =>
-    val sel = selected_port_index === i.U
-    cfg.name match {
-      case "ALU" =>
-        io.issuePorts.alu.valid := can_issue && sel
-        io.issuePorts.alu.bits.opA   := aluOpA
-        io.issuePorts.alu.bits.opB   := aluOpB
-        io.issuePorts.alu.bits.aluOp  := aluOp
-        io.issuePorts.alu.bits.pc     := pc
-        io.issuePorts.alu.bits.rob_id := rob_id
-        io.issuePorts.alu.bits.p_rd   := io.in.bits.p_rd
-      case "BRU" =>
-        io.issuePorts.bru.valid := can_issue && sel
-        io.issuePorts.bru.bits.pc           := pc
-        io.issuePorts.bru.bits.pred_next_pc := io.in.bits.pred_next_pc
-        io.issuePorts.bru.bits.offset       := imm
-        io.issuePorts.bru.bits.rs1          := rs1_val
-        io.issuePorts.bru.bits.rs2          := rs2_val
-        io.issuePorts.bru.bits.bruOp        := bruOp
-        io.issuePorts.bru.bits.rob_id       := rob_id
-        io.issuePorts.bru.bits.p_rd         := io.in.bits.p_rd
-      case "AGU" =>
-        io.issuePorts.agu.valid := can_issue && sel
-        io.issuePorts.agu.bits.base      := rs1_val
-        io.issuePorts.agu.bits.imm       := imm
-        io.issuePorts.agu.bits.lsuOp     := lsuOp
-        io.issuePorts.agu.bits.storeData := rs2_val
-        io.issuePorts.agu.bits.pc        := pc
-        io.issuePorts.agu.bits.rob_id    := rob_id
-        io.issuePorts.agu.bits.p_rd      := io.in.bits.p_rd
-        io.issuePorts.agu.bits.lsq_id    := io.ls_alloc.lsq_id
-      case "MUL" =>
-        io.issuePorts.mul.get.valid := can_issue && sel
-        io.issuePorts.mul.get.bits.opA    := rs1_val
-        io.issuePorts.mul.get.bits.opB    := rs2_val
-        io.issuePorts.mul.get.bits.mulOp  := mulOp
-        io.issuePorts.mul.get.bits.pc     := pc
-        io.issuePorts.mul.get.bits.rob_id := rob_id
-        io.issuePorts.mul.get.bits.p_rd   := io.in.bits.p_rd
-      case "DIV" =>
-        io.issuePorts.div.get.valid := can_issue && sel
-        io.issuePorts.div.get.bits.opA    := rs1_val
-        io.issuePorts.div.get.bits.opB    := rs2_val
-        io.issuePorts.div.get.bits.divOp  := divOp
-        io.issuePorts.div.get.bits.pc     := pc
-        io.issuePorts.div.get.bits.rob_id := rob_id
-        io.issuePorts.div.get.bits.p_rd   := io.in.bits.p_rd
-      case "SYSU" =>
-        io.issuePorts.sysu.valid := can_issue && sel
-        io.issuePorts.sysu.bits.rob_id    := rob_id
-        io.issuePorts.sysu.bits.pc        := pc
-        io.issuePorts.sysu.bits.p_rd      := io.in.bits.p_rd
-        io.issuePorts.sysu.bits.csr_type  := csr_type_sysu
-        io.issuePorts.sysu.bits.csr_rdata := csr_rdata
-        io.issuePorts.sysu.bits.rs1_val   := rs1_val
-        io.issuePorts.sysu.bits.sysuOp    := sysuOp
-        io.issuePorts.sysu.bits.imm       := imm
-      case _ =>
-    }
-  }
-  io.issuePorts.sysu.bits.rob_id    := rob_id
-  io.issuePorts.sysu.bits.pc        := pc
-  io.issuePorts.sysu.bits.p_rd      := io.in.bits.p_rd
-  io.issuePorts.sysu.bits.csr_type  := csr_type_sysu
-  io.issuePorts.sysu.bits.csr_rdata := csr_rdata
-  io.issuePorts.sysu.bits.rs1_val   := rs1_val
-  io.issuePorts.sysu.bits.sysuOp    := sysuOp
-  io.issuePorts.sysu.bits.imm       := imm
-
-  // -------- Back-pressure --------
-  io.in.ready := !stall && !csr_write_pending_stall && io.rob_enq.req.ready && can_issue
+  io.in.ready := !csr_write_pending_stall && io.rob_enq.req.ready && lsu_can_alloc && io.out.ready
 }

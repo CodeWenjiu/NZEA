@@ -9,6 +9,7 @@ case class NzeaConfig(
   @arg(doc = "ISA for compilation (e.g. riscv32i)") isa: String = "riscv32i",
   @arg(doc = "Default PC (reset value)") defaultPc: Long = 0x8000_0000L,
   @arg(doc = "Rob depth (number of in-flight entries)") robDepth: Int = 16,
+  @arg(doc = "Issue queue depth (entries between ISU and EXU)") issueQueueDepth: Int = 8,
   @arg(doc = "Physical register file depth (for rename)") prfDepth: Int = 64,
   @arg(doc = "BHT size (power of 2)") bhtSize: Int = 64,
   @arg(doc = "BTB size (power of 2)") btbSize: Int = 16
@@ -19,6 +20,8 @@ case class NzeaConfig(
   /** LS_Queue depth (for MemUnit); typically robDepth/2. */
   val effectiveLsBufferDepth: Int = (robDepth / 2).max(1)
   val lsqIdWidth: Int = Iterator.from(0).find(i => (1 << i) >= effectiveLsBufferDepth).getOrElse(1)
+  val iqDepth: Int = issueQueueDepth.max(1)
+  val iqIdWidth: Int = Iterator.from(0).find(i => (1 << i) >= iqDepth).getOrElse(1)
   /** Parsed ISA config for Chisel to match extensions (e.g. isaConfig.hasM). */
   val isaConfig: IsaConfig = IsaConfig.parse(isa)
   /** Data/address width derived from ISA (e.g. riscv32 -> 32, riscv64 -> 64). */

@@ -22,7 +22,9 @@ object FuConfig {
     ) ++ Option.when(config.isaConfig.hasM)(
       Seq(FuConfig("MUL", hasPrfWrite = true, hasBypass = true), FuConfig("DIV", hasPrfWrite = true, hasBypass = true))
     ).getOrElse(Seq.empty)
-    exuBypass :+ FuConfig("MemUnit", hasPrfWrite = true, hasBypass = false)
+    // MemUnit (load) must have hasBypass=true so IQ's combinational bypass sees load write-back.
+    // Otherwise IQ entry stays rs1_ready=false despite PRF ready -> deadlock (PRF-IQ mismatch).
+    exuBypass :+ FuConfig("MemUnit", hasPrfWrite = true, hasBypass = true)
   }
 
   /** PRF write ports provided by EXU (excludes MemUnit). Used for EXU io size. */

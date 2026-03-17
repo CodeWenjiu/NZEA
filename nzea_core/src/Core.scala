@@ -22,10 +22,16 @@ class Core(implicit config: NzeaConfig) extends Module {
   val commit = Module(new retire.Commit)
   val wbu = Module(new retire.WBU(prfAddrWidth))
   val isu = frontend.ISU(addrWidth)
+  val iq = Module(new frontend.IssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth, nzea_config.FuConfig.numPrfWritePorts))
   val fuOuts = exu.outPorts :+ memUnit.io.out
   (fuOuts zip wbu.io.in).foreach { case (fu, port) => port <> fu }
   (wbu.io.out zip isu.io.prf_write).foreach { case (w, p) => p <> w }
+  (wbu.io.out zip iq.io.prf_write).foreach { case (w, p) => p <> w }
   (fuOuts zip isu.io.bypass_level1).foreach { case (fu, port) =>
+    port.valid := fu.valid
+    port.bits := fu.bits
+  }
+  (fuOuts zip iq.io.bypass_level1).foreach { case (fu, port) =>
     port.valid := fu.valid
     port.bits := fu.bits
   }
@@ -42,7 +48,13 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   PipelineConnect(ifu.io.out, idu.io.in)
   PipelineConnect(idu.io.out, isu.io.in)
-  (isu.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
+  // ISU -> IQ: direct connect (IQ is already a queue; PipelineConnect would add redundant delay and stale rs1/rs2_ready)
+  iq.io.in.valid := isu.io.out.valid
+  iq.io.in.bits := isu.io.out.bits
+  isu.io.out.ready := iq.io.in.ready
+  isu.io.out.flush := iq.io.flush
+  iq.io.flush := commit.io.do_flush
+  (iq.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
   memUnit.io.ls_alloc <> isu.io.ls_alloc
