@@ -84,7 +84,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new BruS1Out(robIdWidth, prfAddrWidth)))
     val flush      = Input(Bool())
-    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+    val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
     val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
     val bp_update  = Output(Valid(new BpUpdate))
   })
@@ -115,7 +115,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
-    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+    val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
     val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
     val bp_update  = Output(Valid(new BpUpdate))
   })

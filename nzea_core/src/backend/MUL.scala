@@ -168,7 +168,7 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new MulS2Out(robIdWidth, prfAddrWidth)))
     val flush      = Input(Bool())
-    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+    val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
     val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
@@ -193,7 +193,7 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 /** Common IO bundle for MUL/NullMUL so EXU can use if/else without losing type. */
 class MulIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val in         = Flipped(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
-  val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+  val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
   val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 

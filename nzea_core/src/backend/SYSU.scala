@@ -35,7 +35,7 @@ class SysuInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new SysuInput(robIdWidth, prfAddrWidth)))
-    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+    val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
     val out  = new PipeIO(new PrfWriteBundle(prfAddrWidth))
     val csr_write  = Output(Valid(new CsrWriteBundle))
   })

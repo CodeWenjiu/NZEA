@@ -48,10 +48,9 @@ class Core(implicit config: NzeaConfig) extends Module {
   memUnit.io.ls_alloc <> isu.io.ls_alloc
   memUnit.io.ls_write <> exu.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
-  isu.io.prf_read_addr := commit.io.prf_read_addr
+  isu.io.prf_read <> commit.io.prf_read
   isu.io.commit_rob_id := commit.io.commit_rob_id
   isu.io.commit_valid   := commit.io.commit_valid
-  commit.io.prf_rd_value := isu.io.prf_read_data
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U
 

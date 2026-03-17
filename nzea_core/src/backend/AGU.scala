@@ -1,7 +1,7 @@
 package nzea_core.backend
 
 import chisel3._
-import chisel3.util.Mux1H
+import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
 import nzea_core.retire.rob.{Rob, LsWriteReq}
 
@@ -38,7 +38,7 @@ class AguInput(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int = 4) extends 
 class AGU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new AguInput(robIdWidth, prfAddrWidth, lsqIdWidth)))
-    val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+    val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
     val ls_write   = new PipeIO(new LsWriteReq(lsqIdWidth))
   })
 

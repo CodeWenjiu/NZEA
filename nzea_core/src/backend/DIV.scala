@@ -27,7 +27,7 @@ class DivInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 /** Common IO bundle for DIV/NullDIV so EXU can use if/else without losing type. */
 class DivIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
-  val rob_access = new nzea_core.retire.rob.RobAccessIO(robIdWidth)
+  val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
   val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 

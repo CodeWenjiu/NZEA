@@ -5,7 +5,7 @@ import chisel3.util.{Cat, Decoupled, Mux1H, Valid}
 import nzea_core.CoreBusReadWrite
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.PipeIO
-import nzea_core.retire.rob.{LsAllocIO, LsAllocReq, LsWriteReq, Rob, RobAccessIO}
+import nzea_core.retire.rob.{LsAllocIO, LsAllocReq, LsWriteReq, Rob, RobEntryStateUpdate}
 
 /** Dbus user payload: rob_id + lsuOp + addr2 + p_rd, passthrough req->resp for load PRF write. */
 class DbusUserBundle(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
@@ -41,7 +41,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
     val ls_write      = Flipped(new PipeIO(new LsWriteReq(lsqIdWidth)))
     val issue         = Input(Bool())
     val issue_rob_id  = Output(Valid(UInt(robIdWidth.W)))
-    val rob_access    = new RobAccessIO(robIdWidth)
+    val rob_access    = Output(Valid(new RobEntryStateUpdate(robIdWidth)))
     val dbus          = dbusType.cloneType
     val out           = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })

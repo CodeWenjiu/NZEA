@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Valid}
 import nzea_core.{PipelineConnect, PipeIO}
 import nzea_core.frontend.{CsrWriteBundle, IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
-import nzea_core.retire.rob.{RobAccessIO, LsWriteReq}
+import nzea_core.retire.rob.{RobEntryStateUpdate, LsWriteReq}
 import nzea_config.{FuConfig, NzeaConfig}
 
 /** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
@@ -28,7 +28,7 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: 
 
   val io = IO(new Bundle {
     val issuePorts    = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth))
-    val rob_access    = Vec(numRobPorts, new RobAccessIO(robIdWidth))
+    val rob_access    = Vec(numRobPorts, Output(Valid(new RobEntryStateUpdate(robIdWidth))))
     val out           = Vec(numExuPrfPorts, new PipeIO(new PrfWriteBundle(prfAddrWidth)))
     val agu_ls_write  = new PipeIO(new LsWriteReq(lsqIdWidth))
     val csr_write     = Output(Valid(new CsrWriteBundle))
@@ -117,5 +117,5 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: 
   }
 
   def outPorts: Seq[PipeIO[PrfWriteBundle]] = io.out.toSeq
-  def robAccessPorts: Seq[RobAccessIO] = io.rob_access.toSeq
+  def robAccessPorts: Seq[Valid[RobEntryStateUpdate]] = io.rob_access.toSeq
 }

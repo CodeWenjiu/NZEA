@@ -28,13 +28,20 @@ class RobEntry extends Bundle {
   val flush     = Bool()
 }
 
-/** Payload for Rob enq: rd_index, might_flush (branch/trap), mem_type (Load/Store/None), p_rd, old_p_rd. */
+/** Rob enq payload: rd_index, might_flush, mem_type, p_rd, old_p_rd. Pure data; no valid/ready.
+  * rob_id is separate (Output from Rob) because Decoupled bits are producer-only. */
 class RobEnqPayload(prfAddrWidth: Int) extends Bundle {
   val rd_index    = UInt(5.W)
   val might_flush = Bool()
   val mem_type   = RobMemType()
   val p_rd       = UInt(prfAddrWidth.W)
   val old_p_rd   = UInt(prfAddrWidth.W)
+}
+
+/** Rob enq connection: req (Decoupled) + rob_id (from Rob). Module adds Decoupled at req. */
+class RobEnqIO(idWidth: Int, prfAddrWidth: Int) extends Bundle {
+  val req    = Flipped(Decoupled(new RobEnqPayload(prfAddrWidth)))
+  val rob_id = Output(UInt(idWidth.W))
 }
 
 /** MemUnit request / LS_Queue entry: rob_id, addr, wdata, wstrb, lsuOp, p_rd (for load PRF write). */
@@ -100,23 +107,14 @@ class RobEntryStateUpdate(idWidth: Int) extends Bundle {
   val csr_data  = UInt(32.W)
 }
 
-/** FU output to Rob: Valid[RobEntryStateUpdate]. Use io.rob_access <> Rob.entryStateUpdate(...) to connect. */
-class RobAccessIO(idWidth: Int) extends Valid(new RobEntryStateUpdate(idWidth))
-
-/** ROB enq IO: req (consumer side), rob_id (from Rob). Use Flipped for producer (e.g. ISU). */
-class RobEnqIO(idWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val req    = Flipped(Decoupled(new RobEnqPayload(prfAddrWidth)))
-  val rob_id = Output(UInt(idWidth.W))
-}
-
 /** Rob–MemUnit: Rob issues mem request; MemUnit provides issue_rob_id, mem_access (is_done). */
 class RobMemIO(idWidth: Int) extends Bundle {
   val issue        = Output(Bool())
   val issue_rob_id = Input(Valid(UInt(idWidth.W)))
   val flush        = Output(Bool())
-  val mem_access   = Flipped(new RobAccessIO(idWidth))
+  val mem_access   = Flipped(Valid(new RobEntryStateUpdate(idWidth)))
 }
 
 class RobAccessPortsIO(idWidth: Int, numPorts: Int) extends Bundle {
-  val accessPorts = Vec(numPorts, Flipped(new RobAccessIO(idWidth)))
+  val accessPorts = Vec(numPorts, Flipped(Valid(new RobEntryStateUpdate(idWidth))))
 }

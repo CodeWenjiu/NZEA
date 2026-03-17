@@ -1,7 +1,7 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.{Mux1H, MuxLookup, PriorityEncoder, Valid, switch, is}
+import chisel3.util.{Decoupled, Mux1H, MuxLookup, PriorityEncoder, Valid, switch, is}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
@@ -12,6 +12,12 @@ import nzea_config.FuConfig
 class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
   val addr = UInt(prfAddrWidth.W)
   val data = UInt(32.W)
+}
+
+/** PRF read: Commit drives addr, ISU returns data. Use Flipped on ISU side. */
+class PrfReadIO(prfAddrWidth: Int) extends Bundle {
+  val addr = Output(UInt(prfAddrWidth.W))
+  val data = Input(UInt(32.W))
 }
 
 /** CSR write from SYSU: csr_type, data. */
@@ -67,8 +73,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     val ls_alloc       = Flipped(new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth))
     val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1  = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
-    val prf_read_addr  = Input(UInt(prfAddrWidth.W))
-    val prf_read_data  = Output(UInt(32.W))
+    val prf_read       = Flipped(new PrfReadIO(prfAddrWidth))
     val csr_write      = Input(Valid(new CsrWriteBundle))
     val commit_rob_id  = Input(UInt(robIdWidth.W))
     val commit_valid   = Input(Bool())
@@ -131,11 +136,11 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     (data, ready)
   }
 
-  val (prf_read_val, _) = readPrf(io.prf_read_addr)
-  val commitWbBypassSel = (0 until numPrfWritePorts).map(i => io.prf_write(i).valid && io.prf_write(i).bits.addr === io.prf_read_addr)
+  val (prf_read_val, _) = readPrf(io.prf_read.addr)
+  val commitWbBypassSel = (0 until numPrfWritePorts).map(i => io.prf_write(i).valid && io.prf_write(i).bits.addr === io.prf_read.addr)
   val commitWbBypassHit = commitWbBypassSel.reduce((a, b) => a || b)
   val commitWbBypassData = Mux1H(commitWbBypassSel, (0 until numPrfWritePorts).map(i => io.prf_write(i).bits.data))
-  io.prf_read_data := Mux(io.prf_read_addr === 0.U, 0.U(32.W), Mux(commitWbBypassHit, commitWbBypassData, prf_read_val))
+  io.prf_read.data := Mux(io.prf_read.addr === 0.U, 0.U(32.W), Mux(commitWbBypassHit, commitWbBypassData, prf_read_val))
 
   // -------- CSR registers --------
   val csr_mstatus  = RegInit(0x1800.U(32.W))
