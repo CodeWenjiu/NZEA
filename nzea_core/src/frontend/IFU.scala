@@ -79,5 +79,4 @@ class IFU(implicit config: NzeaConfig) extends Module {
   io.out.bits.inst := io.bus.resp.bits.data
   io.bus.resp.ready := io.out.ready || io.out.flush
   io.bus.resp.flush := io.out.flush
-  io.bus.flush := io.out.flush
 }

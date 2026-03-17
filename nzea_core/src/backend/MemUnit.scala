@@ -111,8 +111,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
     }
   }
   io.dbus.resp.ready := !io.out.flush
-  io.dbus.resp.flush := false.B
-  io.dbus.flush := false.B
+  io.dbus.resp.flush := io.out.flush
 
   val rdata = io.dbus.resp.bits.data
   val respUser = io.dbus.resp.bits.user.asTypeOf(userBundleType)

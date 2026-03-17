@@ -9,7 +9,7 @@ class DbusMemBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   val io = IO(new Bundle {
     val bus = Flipped(new CoreBusReadWrite(addrWidth, dataWidth, userWidth))
   })
-  val flush = io.bus.flush
+  val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
   val req = io.bus.req.bits

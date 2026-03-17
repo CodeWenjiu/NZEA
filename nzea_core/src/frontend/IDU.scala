@@ -39,11 +39,10 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
     val in          = Flipped(new PipeIO(new IFUOut(addrWidth)))
     val out         = new PipeIO(new IDUOut(addrWidth, prfAddrWidth))
     val commit      = Input(Valid(new IDUCommit(prfAddrWidth)))
-    val flush       = Input(Bool())
     val restore_rmt = Input(Vec(31, UInt(prfAddrWidth.W)))
   })
 
-  io.in.flush := io.out.flush || io.flush
+  io.in.flush := io.out.flush
 
   // -------- Decode --------
 
@@ -84,14 +83,14 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val free = RegInit(VecInit(
     Seq.tabulate(32)(_ => false.B) ++ Seq.tabulate(prfDepth - 32)(_ => true.B)
   ))
-  when(io.flush) {
+  when(io.out.flush) {
     for (i <- 0 until prfDepth) { free(i) := restore_free(i) }
     pending_free_valid := false.B
   }.otherwise {
     when(pending_free_valid) {
       free(pending_free_addr) := true.B
     }
-    when(io.commit.valid && !io.flush && io.commit.bits.rd_index =/= 0.U &&
+    when(io.commit.valid && !io.out.flush && io.commit.bits.rd_index =/= 0.U &&
       io.commit.bits.old_p_rd =/= io.commit.bits.p_rd && io.commit.bits.old_p_rd =/= 0.U) {
       pending_free_addr  := io.commit.bits.old_p_rd
       pending_free_valid := true.B
@@ -110,13 +109,13 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   val renameStall = needAlloc && !prValid
   val canAlloc    = io.out.fire && !renameStall && needAlloc
 
-  when(!io.flush && canAlloc) {
+  when(!io.out.flush && canAlloc) {
     free(firstFreeIdx) := false.B
   }
 
   // -------- RMT (inline) --------
   val rmt = RegInit(VecInit(Seq.tabulate(31)(i => (i + 1).U(prfAddrWidth.W))))
-  when(io.flush) {
+  when(io.out.flush) {
     for (i <- 0 until 31) { rmt(i) := io.restore_rmt(i) }
   }.elsewhen(canAlloc) {
     rmt(rd_index - 1.U) := firstFreeIdx

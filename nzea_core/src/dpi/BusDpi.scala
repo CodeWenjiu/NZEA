@@ -7,12 +7,12 @@ import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFu
 import nzea_core._
 
 /** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect.
-  * Flush clears in-flight; req.flush/resp.flush propagated from bus.flush. */
+  * Flush clears in-flight; req.flush/resp.flush from bus.resp.flush. */
 class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
   val io = IO(new Bundle {
     val bus = Flipped(new CoreBusReadOnly(addrWidth, dataWidth, userWidth))
   })
-  val flush = io.bus.flush
+  val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
   val respType = new CoreResp(dataWidth, userWidth)
@@ -43,7 +43,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   val io = IO(new Bundle {
     val bus = Flipped(new CoreBusReadWrite(addrWidth, dataWidth, userWidth))
   })
-  val flush = io.bus.flush
+  val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
   val req = io.bus.req.bits

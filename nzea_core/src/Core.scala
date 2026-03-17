@@ -57,7 +57,6 @@ class Core(implicit config: NzeaConfig) extends Module {
 
 
   idu.io.commit := commit.io.idu_commit
-  idu.io.flush := rob.io.do_flush
   idu.io.restore_rmt := commit.io.restore_rmt
   memUnit.io.issue := rob.mem.issue
   rob.mem.issue_rob_id := memUnit.io.issue_rob_id
