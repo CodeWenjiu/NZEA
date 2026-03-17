@@ -52,12 +52,10 @@ class AGU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Module {
   val wdata = storeData << (addr2 * 8.U)
 
   val next_pc = io.in.bits.pc + 4.U
-  val u = Rob.entryStateUpdate(
+  io.rob_access <> Rob.entryStateUpdate(
     io.in.valid, io.in.bits.rob_id, false.B,
     next_pc = next_pc)(robIdWidth)
 
-  io.rob_access.valid := u.valid
-  io.rob_access.bits := u.bits
   io.in.ready := true.B
 
   io.ls_write.valid := io.in.valid

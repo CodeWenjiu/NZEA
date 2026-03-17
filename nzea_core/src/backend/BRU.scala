@@ -90,7 +90,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   })
 
   val b = io.in.bits
-  val u = Rob.entryStateUpdate(
+  io.rob_access <> Rob.entryStateUpdate(
     io.in.valid,
     b.rob_id,
     is_done = true.B,
@@ -98,10 +98,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     next_pc = b.next_pc
   )(robIdWidth)
 
-  io.rob_access.valid := u.valid
-  io.rob_access.bits  := u.bits
-
-  io.out.valid := u.valid && b.p_rd =/= 0.U
+  io.out.valid := io.in.valid && b.p_rd =/= 0.U
   io.out.bits.addr := b.p_rd
   io.out.bits.data := b.pc_plus_4
 

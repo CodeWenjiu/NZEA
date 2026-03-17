@@ -45,10 +45,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   (isu.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
-  memUnit.io.ls_alloc.valid := isu.io.ls_alloc.valid
-  memUnit.io.ls_alloc.bits := isu.io.ls_alloc.bits
-  isu.io.ls_alloc.ready := memUnit.io.ls_alloc.ready
-  isu.io.ls_alloc.lsq_id := memUnit.io.ls_alloc.lsq_id
+  memUnit.io.ls_alloc <> isu.io.ls_alloc
   memUnit.io.ls_write <> exu.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
   isu.io.prf_read_addr := commit.io.prf_read_addr
@@ -64,7 +61,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   idu.io.restore_rmt := commit.io.restore_rmt
   memUnit.io.issue := rob.mem.issue
   rob.mem.issue_rob_id := memUnit.io.issue_rob_id
-  rob.mem.resp <> memUnit.io.resp
+  rob.mem.mem_access <> memUnit.io.rob_access
 
   io.ibus       <> ifu.io.bus
   io.dbus       <> memUnit.io.dbus

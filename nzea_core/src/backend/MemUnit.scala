@@ -5,7 +5,7 @@ import chisel3.util.{Cat, Decoupled, Mux1H, Valid}
 import nzea_core.CoreBusReadWrite
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.PipeIO
-import nzea_core.retire.rob.{LsAllocReq, LsWriteReq, RobMemResp}
+import nzea_core.retire.rob.{LsAllocIO, LsAllocReq, LsWriteReq, Rob, RobAccessIO}
 
 /** Dbus user payload: rob_id + lsuOp + addr2 + p_rd, passthrough req->resp for load PRF write. */
 class DbusUserBundle(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
@@ -37,16 +37,11 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   private val userBundleType = new DbusUserBundle(robIdWidth, prfAddrWidth)
 
   val io = IO(new Bundle {
-    val ls_alloc      = new Bundle {
-      val valid  = Input(Bool())
-      val ready  = Output(Bool())
-      val bits   = Input(new LsAllocReq(robIdWidth, prfAddrWidth))
-      val lsq_id = Output(UInt(lsqIdWidth.W))
-    }
+    val ls_alloc      = new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth)
     val ls_write      = Flipped(new PipeIO(new LsWriteReq(lsqIdWidth)))
     val issue         = Input(Bool())
     val issue_rob_id  = Output(Valid(UInt(robIdWidth.W)))
-    val resp          = Decoupled(new RobMemResp(robIdWidth))
+    val rob_access    = new RobAccessIO(robIdWidth)
     val dbus          = dbusType.cloneType
     val out           = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
@@ -115,7 +110,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
       ls_head_ptr := (ls_head_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }
-  io.dbus.resp.ready := io.resp.ready
+  io.dbus.resp.ready := !io.out.flush
   io.dbus.resp.flush := false.B
   io.dbus.flush := false.B
 
@@ -143,9 +138,7 @@ class MemUnit(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int
   val isLoadFromResp = LsuOp.isLoad(respUser.lsuOp)
   val respFire = io.dbus.resp.valid && io.dbus.resp.ready
 
-  io.resp.valid := respFire
-  io.resp.bits.rob_id := respUser.rob_id
-  io.resp.bits.data := Mux(isStoreFromResp, 0.U(32.W), loadData)
+  io.rob_access <> Rob.entryStateUpdate(respFire, respUser.rob_id, is_done = true.B)(robIdWidth)
 
   io.out.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U && !io.out.flush
   io.out.bits.addr := respUser.p_rd

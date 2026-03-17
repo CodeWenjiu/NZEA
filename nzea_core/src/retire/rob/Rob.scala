@@ -161,7 +161,6 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
 
   mem.issue := !do_flush && ls_head_in_safe
   mem.flush := do_flush
-  mem.resp.ready := !do_flush
 
   // -------- Slot Updates --------
 
@@ -190,7 +189,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
     }
     slotUpdateEnq()
     slotUpdateFu()
-    slotUpdateMem()
+    slotUpdateMemAccess()
     slotUpdateCommit()
   }
 
@@ -224,10 +223,13 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
     }
   }
 
-  def slotUpdateMem(): Unit = {
-    when(mem.resp.fire) {
-      val idx = mem.resp.bits.rob_id
-      slots_is_done(idx) := true.B
+  def slotUpdateMemAccess(): Unit = {
+    when(mem.mem_access.valid) {
+      val idx = mem.mem_access.bits.rob_id
+      slots_is_done(idx) := mem.mem_access.bits.is_done
+      when(mem.mem_access.bits.is_done) {
+        slots_might_flush(idx) := false.B
+      }
     }
   }
 

@@ -69,8 +69,7 @@ class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     csr_type = Mux(do_csr_write, io.in.bits.csr_type, CsrType.None),
     csr_data = Mux(do_csr_write, csr_wdata, 0.U)
   )(robIdWidth)
-  io.rob_access.valid := u.valid
-  io.rob_access.bits := u.bits
+  io.rob_access <> u
   io.in.ready := io.out.ready
 
   io.csr_write.valid := u.valid && do_csr_write

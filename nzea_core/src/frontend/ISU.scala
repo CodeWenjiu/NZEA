@@ -5,7 +5,7 @@ import chisel3.util.{Mux1H, MuxLookup, PriorityEncoder, Valid, switch, is}
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
-import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocReq}
+import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocIO, LsAllocReq}
 import nzea_config.FuConfig
 
 /** PRF write port: addr, data. Shared by all FU completions. */
@@ -64,12 +64,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   val io = IO(new Bundle {
     val in             = Flipped(new PipeIO(new IDUOut(addrWidth, prfAddrWidth)))
     val rob_enq        = Flipped(new RobEnqIO(robIdWidth, prfAddrWidth))
-    val ls_alloc       = new Bundle {
-      val valid  = Output(Bool())
-      val ready  = Input(Bool())
-      val bits   = Output(new LsAllocReq(robIdWidth, prfAddrWidth))
-      val lsq_id = Input(UInt(lsqIdWidth.W))
-    }
+    val ls_alloc       = Flipped(new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth))
     val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1  = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val prf_read_addr  = Input(UInt(prfAddrWidth.W))

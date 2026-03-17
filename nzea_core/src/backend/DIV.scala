@@ -127,8 +127,7 @@ class DIV(robIdWidth: Int, prfAddrWidth: Int) extends Module with DivLike {
   val doneValid = state === sDone
   val nextPc = pcReg + 4.U
   val u = Rob.entryStateUpdate(doneValid, robIdReg, is_done = true.B, next_pc = nextPc)(robIdWidth)
-  io.rob_access.valid := u.valid
-  io.rob_access.bits := u.bits
+  io.rob_access <> u
 
   io.out.valid := doneValid && pRdReg =/= 0.U
   io.out.bits.addr := pRdReg

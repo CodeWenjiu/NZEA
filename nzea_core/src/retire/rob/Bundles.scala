@@ -54,18 +54,20 @@ class LsAllocReq(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val lsuOp  = UInt(LsuOp.getWidth.W)
 }
 
+/** LS_Queue alloc IO: producer (ISU) drives valid/bits, consumer (MemUnit) drives ready/lsq_id. Use Flipped for producer. */
+class LsAllocIO(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Bundle {
+  val valid  = Input(Bool())
+  val ready  = Output(Bool())
+  val bits   = Input(new LsAllocReq(robIdWidth, prfAddrWidth))
+  val lsq_id = Output(UInt(lsqIdWidth.W))
+}
+
 /** LS_Queue write: AGU writes addr/wdata/wstrb to slot[lsq_id] and sets data_ready. */
 class LsWriteReq(lsqIdWidth: Int) extends Bundle {
   val lsq_id = UInt(lsqIdWidth.W)
   val addr   = UInt(32.W)
   val wdata  = UInt(32.W)
   val wstrb  = UInt(4.W)
-}
-
-/** MemUnit response: rob_id, data (load result; store ignores). */
-class RobMemResp(idWidth: Int) extends Bundle {
-  val rob_id = UInt(idWidth.W)
-  val data   = UInt(32.W)
 }
 
 /** Unified Rob slot read: all fields any consumer may need.
@@ -98,11 +100,8 @@ class RobEntryStateUpdate(idWidth: Int) extends Bundle {
   val csr_data  = UInt(32.W)
 }
 
-/** FU output to Rob: valid/bits from FU. Flush comes from WBU via EXU. */
-class RobAccessIO(idWidth: Int) extends Bundle {
-  val valid = Output(Bool())
-  val bits  = Output(new RobEntryStateUpdate(idWidth))
-}
+/** FU output to Rob: Valid[RobEntryStateUpdate]. Use io.rob_access <> Rob.entryStateUpdate(...) to connect. */
+class RobAccessIO(idWidth: Int) extends Valid(new RobEntryStateUpdate(idWidth))
 
 /** ROB enq IO: req (consumer side), rob_id (from Rob). Use Flipped for producer (e.g. ISU). */
 class RobEnqIO(idWidth: Int, prfAddrWidth: Int) extends Bundle {
@@ -110,12 +109,12 @@ class RobEnqIO(idWidth: Int, prfAddrWidth: Int) extends Bundle {
   val rob_id = Output(UInt(idWidth.W))
 }
 
-/** Rob–MemUnit: Rob issues mem request; MemUnit provides issue_rob_id, resp. AGU stalls internally when LS queue full. */
+/** Rob–MemUnit: Rob issues mem request; MemUnit provides issue_rob_id, mem_access (is_done). */
 class RobMemIO(idWidth: Int) extends Bundle {
   val issue        = Output(Bool())
   val issue_rob_id = Input(Valid(UInt(idWidth.W)))
   val flush        = Output(Bool())
-  val resp         = Flipped(Decoupled(new RobMemResp(idWidth)))
+  val mem_access   = Flipped(new RobAccessIO(idWidth))
 }
 
 class RobAccessPortsIO(idWidth: Int, numPorts: Int) extends Bundle {
