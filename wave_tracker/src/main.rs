@@ -1066,8 +1066,12 @@ fn deadlock_tail(
 
         let mut entries_blocked = Vec::new();
         let mut any_can_issue = false;
+        let mut num_valid = 0u32;
         for entry in 0..8 {
             let valid = get_val(&format!("iq.valids_{}", entry), &vals).map_or(false, |v| v == "1");
+            if valid {
+                num_valid += 1;
+            }
             if !valid {
                 continue;
             }
@@ -1080,16 +1084,32 @@ fn deadlock_tail(
                 entries_blocked.push((entry, !r1, !r2));
             }
         }
+        // When count>0 but valids=0 (RTL bug: count/valids desync), we cannot issue (no valid slot).
+        // Use entries data to show what *would* be blocked if they were valid.
+        let valids_desync = count > 0 && num_valid == 0;
+        if valids_desync {
+            for entry in 0..8 {
+                let r1 = get_val(&format!("iq.entries_{}_rs1_ready", entry), &vals).map_or(false, |v| v == "1");
+                let r2 = get_val(&format!("iq.entries_{}_rs2_ready", entry), &vals).map_or(false, |v| v == "1");
+                let can = r1 && r2;
+                if can {
+                    any_can_issue = true; // operands ready, but RTL can't issue (valids=0)
+                } else {
+                    entries_blocked.push((entry, !r1, !r2));
+                }
+            }
+        }
 
-        let blocked = count > 0 && !any_can_issue;
+        let blocked = count > 0 && (!any_can_issue || valids_desync);
         if blocked {
             all_blocked_at = Some(t);
         }
 
         let mark = if blocked { " *** ALL BLOCKED" } else { "" };
+        let desync_note = if valids_desync { " [count/valids DESYNC - using entries]" } else { "" };
         println!(
-            "t={:5} count={} full={} in_v={} in_r={}{}",
-            t, count, full, in_valid, in_ready, mark
+            "t={:5} count={} full={} in_v={} in_r={}{}{}",
+            t, count, full, in_valid, in_ready, mark, desync_note
         );
         for (entry, r1_miss, r2_miss) in &entries_blocked {
             let ft = get_val(&format!("iq.entries_{}_fu_type", entry), &vals);
@@ -1584,7 +1604,7 @@ fn trace_rob_id_timeline(
             || (name.contains("io_issuePorts_") && (name.contains("valid") || name.contains("rob_id")))
             || (name.contains("iq.valids_"))
             || (name.contains("rob.enq_req_valid") || name.contains("rob.enq_req_ready"))
-            || (name.contains("iq.io_in_valid"))
+            || (name.contains("iq.io_in_valid") || name.contains("iq.io_in_ready"))
         {
             sigs.push((name, var.signal_ref()));
         }

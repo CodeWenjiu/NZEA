@@ -59,3 +59,37 @@ t=113 DISPATCH: ROB_ENQ=true IQ_IN=true LS_ALLOC=false (valid=false ready=true) 
 - `--enq-match 0111,100101`：查找 rob_id=7 且 p_rd=PR37 的入队时刻
 - `--dispatch-lsq 0111,100101`：检查 ROB+IQ+LSQ 是否同步分配，并输出 IQ entry 的 fu_type/lsq_id
 - `--deadlock-tail N`：输出最后 N 周期的 IQ 状态（含 rob_id）
+
+---
+
+## 2026-03: count/valids 不同步死锁（Tag-Only IQ 重构后）
+
+### 现象
+
+执行到 `lw ra, 0xc(sp)` 后死锁。`--deadlock-tail 50` 显示：
+- `count=8`，`full=false`（或 full 信号未 dump）
+- `valids_0..7` 全为 0
+- `in_valid=1`，`in_ready=0`（无法入队）
+
+### 根因
+
+**IQ 的 count 与 valids 不同步**：count 由 `count := count + enqFire - deqFire` 独立维护，与 valids 的更新可能分叉。当出现 `count=8` 但 `valids=0` 时：
+- `full = count >= 8` → 无法入队
+- `anyCanIssue = canIssue.orR`，而 `canIssue(i)` 依赖 `valids(i)` → 无有效条目可发射
+- 无法 deq，count 无法减少，形成死锁
+
+### 修复
+
+将 count 改为由 valids 推导，保证与 valids 一致：
+
+```scala
+// 原：val count = RegInit(0.U(...)); when(flush){count:=0}.otherwise{count:=count+enq-deq}
+// 现：
+val count = PopCount(valids.asUInt)
+```
+
+### wave_tracker 增强
+
+当检测到 `count>0` 且 `valids` 全 0 时，`--deadlock-tail` 会：
+- 标记 `[count/valids DESYNC - using entries]`
+- 用 entries 数据推断阻塞条目（因 valids 不可信）

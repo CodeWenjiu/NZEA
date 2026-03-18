@@ -45,7 +45,7 @@ class Commit(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val rob_commit     = Flipped(Valid(new RobCommitPayload(robIdWidth, prfAddrWidth)))
-    val prf_read       = new nzea_core.frontend.PrfReadIO(prfAddrWidth)
+    val commit_prf_read = new nzea_core.frontend.PrfReadIO(prfAddrWidth)
     val do_flush       = Input(Bool())
     val commit_msg     = Output(Valid(new CommitMsg))
     val redirect_pc    = Output(UInt(32.W))
@@ -61,7 +61,7 @@ class Commit(implicit config: NzeaConfig) extends Module {
   io.commit_msg.valid := any_commit
   io.commit_msg.bits.next_pc   := c.next_pc
   io.commit_msg.bits.rd_index  := c.rd_index
-  io.commit_msg.bits.rd_value  := io.prf_read.data
+  io.commit_msg.bits.rd_value  := io.commit_prf_read.data
   io.commit_msg.bits.mem_count := c.mem_count
   io.commit_msg.bits.is_load   := c.is_load
   io.commit_msg.bits.csr_type  := c.csr_type
@@ -73,7 +73,7 @@ class Commit(implicit config: NzeaConfig) extends Module {
   io.idu_commit.bits.p_rd := c.p_rd
   io.idu_commit.bits.old_p_rd := c.old_p_rd
 
-  io.prf_read.addr := c.p_rd
+  io.commit_prf_read.addr := c.p_rd
   io.commit_rob_id := c.rob_id
   io.commit_valid  := any_commit
 

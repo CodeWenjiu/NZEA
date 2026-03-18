@@ -49,7 +49,8 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     val ls_alloc       = Flipped(new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth))
     val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1  = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
-    val prf_read       = Flipped(new PrfReadIO(prfAddrWidth))
+    val commit_prf_read = Flipped(new PrfReadIO(prfAddrWidth))
+    val iq_prf_read    = Flipped(Vec(2, new PrfReadIO(prfAddrWidth)))
     val csr_write      = Input(Valid(new CsrWriteBundle))
     val commit_rob_id  = Input(UInt(robIdWidth.W))
     val commit_valid   = Input(Bool())
@@ -111,11 +112,16 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     (data, ready)
   }
 
-  val (prf_read_val, _) = readPrf(io.prf_read.addr)
-  val commitWbBypassSel = (0 until numPrfWritePorts).map(i => io.prf_write(i).valid && io.prf_write(i).bits.addr === io.prf_read.addr)
+  val (prf_read_val, _) = readPrf(io.commit_prf_read.addr)
+  val commitWbBypassSel = (0 until numPrfWritePorts).map(i => io.prf_write(i).valid && io.prf_write(i).bits.addr === io.commit_prf_read.addr)
   val commitWbBypassHit = commitWbBypassSel.reduce((a, b) => a || b)
   val commitWbBypassData = Mux1H(commitWbBypassSel, (0 until numPrfWritePorts).map(i => io.prf_write(i).bits.data))
-  io.prf_read.data := Mux(io.prf_read.addr === 0.U, 0.U(32.W), Mux(commitWbBypassHit, commitWbBypassData, prf_read_val))
+  io.commit_prf_read.data := Mux(io.commit_prf_read.addr === 0.U, 0.U(32.W), Mux(commitWbBypassHit, commitWbBypassData, prf_read_val))
+
+  val (iq_rs1_data, _) = readPrfWithBypass(io.iq_prf_read(0).addr)
+  val (iq_rs2_data, _) = readPrfWithBypass(io.iq_prf_read(1).addr)
+  io.iq_prf_read(0).data := iq_rs1_data
+  io.iq_prf_read(1).data := iq_rs2_data
 
   // -------- CSR registers --------
   val csr_mstatus  = RegInit(0x1800.U(32.W))
@@ -154,11 +160,9 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   )
   val csr_rdata = readCsr(csr_type_sysu)
 
-  val rs1_addr = io.in.bits.p_rs1
-  val rs2_addr = io.in.bits.p_rs2
-  val (rs1_val, rs1_ready) = readPrfWithBypass(rs1_addr)
-  val (rs2_val, rs2_ready) = readPrfWithBypass(rs2_addr)
-  // No operand-based stall: IQ bypass persist handles operands becoming ready after enqueue.
+  val (_, rs1_ready) = readPrfWithBypass(io.in.bits.p_rs1)
+  val (_, rs2_ready) = readPrfWithBypass(io.in.bits.p_rs2)
+  // IQ stores only tags+ready; operand values read from PRF+bypass at dispatch.
 
   // -------- Flush --------
   io.in.flush := io.out.flush
@@ -204,11 +208,9 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   io.rob_enq.req.bits.p_rd := io.in.bits.p_rd
   io.rob_enq.req.bits.old_p_rd := io.in.bits.old_p_rd
 
-  // -------- Output unified IssueQueueEntry (bypass-applied rs1/rs2 and ready) --------
+  // -------- Output IssueQueueEntry (tags + ready only; no source data) --------
   io.out.valid := can_push
   io.out.bits.fu_type        := fu_type
-  io.out.bits.rs1_val        := rs1_val
-  io.out.bits.rs2_val        := rs2_val
   io.out.bits.rs1_ready      := rs1_ready
   io.out.bits.rs2_ready      := rs2_ready
   io.out.bits.p_rs1          := io.in.bits.p_rs1

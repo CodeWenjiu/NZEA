@@ -1,18 +1,15 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.{Mux1H, MuxLookup, PriorityEncoder, Valid}
+import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
 import nzea_core.PipeIO
 import nzea_core.backend.{AluOp, BruOp, DivOp, FuOpWidth, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.RobMemType
 import nzea_config.{FuConfig, NzeaConfig}
 
-/** Unified issue queue entry: all source data + FuType + ready bits (bypass-applied).
-  * Bypass is applied combinationally when reading for dispatch. */
+/** Issue queue entry: FuType + operand tags (paddr) + ready. No source data; values read via bypass net at dispatch. */
 class IssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Bundle {
   val fu_type        = FuType()
-  val rs1_val        = UInt(32.W)
-  val rs2_val        = UInt(32.W)
   val rs1_ready      = Bool()
   val rs2_ready      = Bool()
   val p_rs1          = UInt(prfAddrWidth.W)
@@ -60,51 +57,22 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val issuePorts    = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
+    // Operand read: IQ outputs addr, receives data from PRF+bypass net (in ISU). Length-2 Seq for rs1/rs2.
+    val prf_read = Vec(2, new PrfReadIO(prfAddrWidth))
   })
 
   // -------- Queue storage --------
   val entries = Reg(Vec(depth, new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   val valids  = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val count   = RegInit(0.U((iqIdWidth + 1).W))
+  // Derive count from valids to avoid desync (was: count=8 but valids=0 -> deadlock)
+  val count   = PopCount(valids.asUInt)
   val full    = count >= depth.U
   val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex.filter(_._1.hasBypass)
-
-  // -------- Combinational bypass: for each entry, compute effective rs1/rs2 and ready (same logic as readPrfWithBypass) --------
-  def bypassed(e: IssueQueueEntry): (UInt, UInt, Bool, Bool) = {
-    val level1SelRs1 = bypassPorts.map { case (_, i) => io.bypass_level1(i).valid && io.bypass_level1(i).bits.addr === e.p_rs1 }
-    val level2SelRs1 = bypassPorts.map { case (_, i) => io.prf_write(i).valid && io.prf_write(i).bits.addr === e.p_rs1 }
-    val bypassSelRs1 = level1SelRs1 ++ level2SelRs1
-    val bypassHitRs1 = if (bypassPorts.isEmpty) false.B else bypassSelRs1.reduce((a: Bool, b: Bool) => a || b)
-    val bypassDataRs1 = if (bypassPorts.isEmpty) 0.U(32.W) else Mux1H(
-      bypassSelRs1,
-      bypassPorts.map { case (_, i) => io.bypass_level1(i).bits.data } ++ bypassPorts.map { case (_, i) => io.prf_write(i).bits.data }
-    )
-    val rs1_val   = Mux(e.p_rs1 === 0.U, 0.U(32.W), Mux(bypassHitRs1, bypassDataRs1, e.rs1_val))
-    val rs1_ready = (e.p_rs1 === 0.U) || bypassHitRs1 || e.rs1_ready
-
-    val level1SelRs2 = bypassPorts.map { case (_, i) => io.bypass_level1(i).valid && io.bypass_level1(i).bits.addr === e.p_rs2 }
-    val level2SelRs2 = bypassPorts.map { case (_, i) => io.prf_write(i).valid && io.prf_write(i).bits.addr === e.p_rs2 }
-    val bypassSelRs2 = level1SelRs2 ++ level2SelRs2
-    val bypassHitRs2 = if (bypassPorts.isEmpty) false.B else bypassSelRs2.reduce((a: Bool, b: Bool) => a || b)
-    val bypassDataRs2 = if (bypassPorts.isEmpty) 0.U(32.W) else Mux1H(
-      bypassSelRs2,
-      bypassPorts.map { case (_, i) => io.bypass_level1(i).bits.data } ++ bypassPorts.map { case (_, i) => io.prf_write(i).bits.data }
-    )
-    val rs2_val   = Mux(e.p_rs2 === 0.U, 0.U(32.W), Mux(bypassHitRs2, bypassDataRs2, e.rs2_val))
-    val rs2_ready = (e.p_rs2 === 0.U) || bypassHitRs2 || e.rs2_ready
-    (rs1_val, rs2_val, rs1_ready, rs2_ready)
-  }
-
-  val bypassedEntries = (0 until depth).map { i => bypassed(entries(i)) }
 
   // -------- Enqueue: write to first invalid slot --------
   val firstInvalid = PriorityEncoder(VecInit((0 until depth).map(i => !valids(i))).asUInt)
   io.in.ready := !full && !io.flush
   val enqFire = !io.flush && io.in.fire
-  when(enqFire) {
-    entries(firstInvalid) := io.in.bits
-    valids(firstInvalid) := true.B
-  }
 
   // -------- Bypass persist: when FU/WB writes, update matching IQ entries (rs1/rs2) so we never miss the bypass window --------
   // Include entry being enqueued this cycle (enqFire && firstInvalid===i), else we miss bypass when producer
@@ -118,14 +86,8 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
       when(!io.flush && wvalid && entryValid) {
         val p_rs1 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs1, entries(i).p_rs1)
         val p_rs2 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs2, entries(i).p_rs2)
-        when(p_rs1 === waddr && p_rs1 =/= 0.U) {
-          entries(i).rs1_val := wdata
-          entries(i).rs1_ready := true.B
-        }
-        when(p_rs2 === waddr && p_rs2 =/= 0.U) {
-          entries(i).rs2_val := wdata
-          entries(i).rs2_ready := true.B
-        }
+        when(p_rs1 === waddr && p_rs1 =/= 0.U) { entries(i).rs1_ready := true.B }
+        when(p_rs2 === waddr && p_rs2 =/= 0.U) { entries(i).rs2_ready := true.B }
       }
     }
   }
@@ -135,50 +97,61 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
     for (i <- 0 until depth) { valids(i) := false.B }
   }
 
-  // -------- Dispatch: scan head-to-tail (index 0 to depth-1), first ready --------
+  // -------- Dispatch: only slots valid from prev cycle can issue. Operand ready = slot.rs*_ready OR bypass net has write.
+  // No same-cycle bypass: instr must stay in IQ at least 1 cycle before issue.
   val fuReady = VecInit(io.issuePorts.orderedPorts.map(_.ready))
   val canIssue = Wire(Vec(depth, Bool()))
   for (i <- 0 until depth) {
-    val (_, _, r1, r2) = bypassedEntries(i)
-    val ft = entries(i).fu_type
-    val portIdx = MuxLookup(ft.asUInt, 0.U)(fuTypeToPortIdx)
-    canIssue(i) := valids(i) && r1 && r2 && fuReady(portIdx)
+    val entry = entries(i)
+    val rs1BypassHit = bypassPorts.map { case (_, j) =>
+      (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs1) ||
+      (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs1)
+    }.foldLeft(false.B)(_ || _)
+    val rs2BypassHit = bypassPorts.map { case (_, j) =>
+      (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs2) ||
+      (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs2)
+    }.foldLeft(false.B)(_ || _)
+    val actual_rs1_ready = (entry.p_rs1 === 0.U) || entry.rs1_ready || rs1BypassHit
+    val actual_rs2_ready = (entry.p_rs2 === 0.U) || entry.rs2_ready || rs2BypassHit
+    val portIdx = MuxLookup(entry.fu_type.asUInt, 0.U)(fuTypeToPortIdx)
+    canIssue(i) := valids(i) && actual_rs1_ready && actual_rs2_ready && fuReady(portIdx)
   }
   val firstReadyIdx = PriorityEncoder(canIssue.asUInt)
   val anyCanIssue = canIssue.asUInt.orR
-  // Mux1H requires exactly one select bit; canIssue can have multiple 1s when several entries are ready.
-  // Use one-hot from firstReadyIdx to avoid undefined behavior and wrong fu_type routing (e.g. LUI to AGU).
   val selOneHot = VecInit((0 until depth).map(i => (i.U === firstReadyIdx)))
 
-  val (selFuType, _) = FuType.safe(Mux1H(selOneHot, entries.map(_.fu_type.asUInt)))
-  val rs1_val       = Mux1H(selOneHot, bypassedEntries.map(_._1))
-  val rs2_val       = Mux1H(selOneHot, bypassedEntries.map(_._2))
+  val rawEntryFor = entries
+  val sel_p_rs1 = Mux1H(selOneHot, rawEntryFor.map(_.p_rs1))
+  val sel_p_rs2 = Mux1H(selOneHot, rawEntryFor.map(_.p_rs2))
+  io.prf_read(0).addr := sel_p_rs1
+  io.prf_read(1).addr := sel_p_rs2
+  val rs1_val = Mux(sel_p_rs1 === 0.U, 0.U(32.W), io.prf_read(0).data)
+  val rs2_val = Mux(sel_p_rs2 === 0.U, 0.U(32.W), io.prf_read(1).data)
 
+  val (selFuType, _) = FuType.safe(Mux1H(selOneHot, rawEntryFor.map(_.fu_type.asUInt)))
   val e = Wire(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
-  val (eFuType, _)  = FuType.safe(Mux1H(selOneHot, entries.map(_.fu_type.asUInt)))
-  val (eMemType, _) = RobMemType.safe(Mux1H(selOneHot, entries.map(_.mem_type.asUInt)))
+  val (eFuType, _)  = FuType.safe(Mux1H(selOneHot, rawEntryFor.map(_.fu_type.asUInt)))
+  val (eMemType, _) = RobMemType.safe(Mux1H(selOneHot, rawEntryFor.map(_.mem_type.asUInt)))
   e.fu_type   := eFuType
   e.mem_type  := eMemType
-  e.rs1_val   := rs1_val
-  e.rs2_val   := rs2_val
-  e.rs1_ready := Mux1H(selOneHot, bypassedEntries.map(_._3))
-  e.rs2_ready := Mux1H(selOneHot, bypassedEntries.map(_._4))
-  e.p_rs1     := Mux1H(selOneHot, entries.map(_.p_rs1))
-  e.p_rs2     := Mux1H(selOneHot, entries.map(_.p_rs2))
-  e.imm       := Mux1H(selOneHot, entries.map(_.imm))
-  e.pc        := Mux1H(selOneHot, entries.map(_.pc))
-  e.pred_next_pc   := Mux1H(selOneHot, entries.map(_.pred_next_pc))
-  e.fu_op     := Mux1H(selOneHot, entries.map(_.fu_op))
-  e.fu_src    := Mux1H(selOneHot, entries.map(_.fu_src))
-  e.csr_addr  := Mux1H(selOneHot, entries.map(_.csr_addr))
-  e.csr_rdata := Mux1H(selOneHot, entries.map(_.csr_rdata))
-  e.csr_will_write := Mux1H(selOneHot, entries.map(_.csr_will_write))
-  e.rob_id    := Mux1H(selOneHot, entries.map(_.rob_id))
-  e.p_rd      := Mux1H(selOneHot, entries.map(_.p_rd))
-  e.old_p_rd  := Mux1H(selOneHot, entries.map(_.old_p_rd))
-  e.rd_index  := Mux1H(selOneHot, entries.map(_.rd_index))
-  e.lsq_id    := Mux1H(selOneHot, entries.map(_.lsq_id))
-  e.might_flush := Mux1H(selOneHot, entries.map(_.might_flush))
+  e.rs1_ready := true.B
+  e.rs2_ready := true.B
+  e.p_rs1     := sel_p_rs1
+  e.p_rs2     := sel_p_rs2
+  e.imm       := Mux1H(selOneHot, rawEntryFor.map(_.imm))
+  e.pc        := Mux1H(selOneHot, rawEntryFor.map(_.pc))
+  e.pred_next_pc   := Mux1H(selOneHot, rawEntryFor.map(_.pred_next_pc))
+  e.fu_op     := Mux1H(selOneHot, rawEntryFor.map(_.fu_op))
+  e.fu_src    := Mux1H(selOneHot, rawEntryFor.map(_.fu_src))
+  e.csr_addr  := Mux1H(selOneHot, rawEntryFor.map(_.csr_addr))
+  e.csr_rdata := Mux1H(selOneHot, rawEntryFor.map(_.csr_rdata))
+  e.csr_will_write := Mux1H(selOneHot, rawEntryFor.map(_.csr_will_write))
+  e.rob_id    := Mux1H(selOneHot, rawEntryFor.map(_.rob_id))
+  e.p_rd      := Mux1H(selOneHot, rawEntryFor.map(_.p_rd))
+  e.old_p_rd  := Mux1H(selOneHot, rawEntryFor.map(_.old_p_rd))
+  e.rd_index  := Mux1H(selOneHot, rawEntryFor.map(_.rd_index))
+  e.lsq_id    := Mux1H(selOneHot, rawEntryFor.map(_.lsq_id))
+  e.might_flush := Mux1H(selOneHot, rawEntryFor.map(_.might_flush))
 
   val (aluSrc, _) = AluSrc.safe(FuDecode.take(e.fu_src, AluSrc.getWidth))
   val aluOpA = MuxLookup(aluSrc.asUInt, rs1_val)(Seq(
@@ -259,20 +232,16 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   val portIdxForSel   = MuxLookup(selFuType.asUInt, 0.U)(fuTypeToPortIdx)
   val issueFire       = anyCanIssue && orderedPortsFire(portIdxForSel)
   val deqFire         = !io.flush && issueFire
+  // Deq clear FIRST, then enq overwrites when same slot (enq+deq bypass). Order ensures new instr not lost.
   when(deqFire) {
-    // When enq and deq target the same slot, the new instruction overwrites the old;
-    // do not clear valid, else the new instruction is lost. (Bug: 0x80005c9c branch silently disappeared.)
-    when(!(enqFire && firstInvalid === firstReadyIdx)) {
-      valids(firstReadyIdx) := false.B
-    }
+    valids(firstReadyIdx) := false.B
+  }
+  when(enqFire) {
+    entries(firstInvalid) := io.in.bits
+    valids(firstInvalid) := true.B
   }
 
-  // Count: enq+1, deq-1; when both in same cycle, net 0. Avoid separate when blocks (last-wins bug).
-  when(io.flush) {
-    count := 0.U
-  }.otherwise {
-    count := count + enqFire.asUInt - deqFire.asUInt
-  }
+  // count is derived from PopCount(valids), no separate update needed
 
   io.in.flush := io.flush
 }

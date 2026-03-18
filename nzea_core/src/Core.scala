@@ -48,19 +48,19 @@ class Core(implicit config: NzeaConfig) extends Module {
 
   PipelineConnect(ifu.io.out, idu.io.in)
   PipelineConnect(idu.io.out, isu.io.in)
-  // ISU -> IQ: direct connect (IQ is already a queue; PipelineConnect would add redundant delay and stale rs1/rs2_ready)
   iq.io.in.valid := isu.io.out.valid
   iq.io.in.bits := isu.io.out.bits
   isu.io.out.ready := iq.io.in.ready
   isu.io.out.flush := iq.io.flush
   iq.io.flush := commit.io.do_flush
+  iq.io.prf_read <> isu.io.iq_prf_read
   (iq.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
   memUnit.io.ls_alloc <> isu.io.ls_alloc
   memUnit.io.ls_write <> exu.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
-  isu.io.prf_read <> commit.io.prf_read
+  isu.io.commit_prf_read <> commit.io.commit_prf_read
   isu.io.commit_rob_id := commit.io.commit_rob_id
   isu.io.commit_valid   := commit.io.commit_valid
   rob.io.slotReadRs1.rob_id := 0.U
