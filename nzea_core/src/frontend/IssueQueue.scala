@@ -2,7 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
-import nzea_core.PipeIO
+import nzea_core.{PipeIO, PipelineConnect}
 import nzea_core.backend.{AluOp, BruOp, DivOp, FuOpWidth, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.RobMemType
 import nzea_config.{FuConfig, NzeaConfig}
@@ -31,12 +31,10 @@ class IssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) exten
   val mem_type       = RobMemType()
 }
 
-/** Issue Queue: receives unified entries from ISU; combinational bypass; dispatch head-to-tail first-ready. */
-class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
+/** Stage 1: Select slot, push to pipeline reg. Uses pipeline reg ready (not Fu ready) for canIssue. */
+class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
   implicit config: NzeaConfig
 ) extends Module {
-  private val iqIdWidth = chisel3.util.log2Ceil(depth.max(2))
-  private val numIssuePorts = FuConfig.numIssuePorts
   private val issuePortConfigs = FuConfig.issuePorts(config)
   private val fuTypeToPortIdx: Seq[(UInt, UInt)] = FuType.all.zipWithIndex.map { case (ft, i) =>
     val portName = ft match {
@@ -53,35 +51,27 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
 
   val io = IO(new Bundle {
     val in            = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
-    val flush         = Input(Bool())  // global flush (e.g. from Commit)
+    val flush         = Input(Bool())
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
-    val issuePorts    = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
-    // Operand read: IQ outputs addr, receives data from PRF+bypass net (in ISU). Length-2 Seq for rs1/rs2.
-    val prf_read = Vec(2, new PrfReadIO(prfAddrWidth))
+    /** One output per FU; ready comes from PipelineConnect (pipe reg). */
+    val out = Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   })
 
-  // -------- Queue storage --------
   val entries = Reg(Vec(depth, new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   val valids  = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  // Derive count from valids to avoid desync (was: count=8 but valids=0 -> deadlock)
   val count   = PopCount(valids.asUInt)
   val full    = count >= depth.U
   val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex.filter(_._1.hasBypass)
 
-  // -------- Enqueue: write to first invalid slot --------
   val firstInvalid = PriorityEncoder(VecInit((0 until depth).map(i => !valids(i))).asUInt)
   io.in.ready := !full && !io.flush
   val enqFire = !io.flush && io.in.fire
 
-  // -------- Bypass persist: when FU/WB writes, update matching IQ entries (rs1/rs2) so we never miss the bypass window --------
-  // Include entry being enqueued this cycle (enqFire && firstInvalid===i), else we miss bypass when producer
-  // and consumer fire in the same cycle.
   for (i <- 0 until depth) {
     val entryValid = valids(i) || (enqFire && firstInvalid === i.U)
     for (j <- 0 until numPrfWritePorts) {
       val waddr = Mux(io.bypass_level1(j).valid, io.bypass_level1(j).bits.addr, io.prf_write(j).bits.addr)
-      val wdata = Mux(io.bypass_level1(j).valid, io.bypass_level1(j).bits.data, io.prf_write(j).bits.data)
       val wvalid = io.bypass_level1(j).valid || io.prf_write(j).valid
       when(!io.flush && wvalid && entryValid) {
         val p_rs1 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs1, entries(i).p_rs1)
@@ -92,14 +82,12 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
     }
   }
 
-  // -------- Flush --------
   when(io.flush) {
     for (i <- 0 until depth) { valids(i) := false.B }
   }
 
-  // -------- Dispatch: only slots valid from prev cycle can issue. Operand ready = slot.rs*_ready OR bypass net has write.
-  // No same-cycle bypass: instr must stay in IQ at least 1 cycle before issue.
-  val fuReady = VecInit(io.issuePorts.orderedPorts.map(_.ready))
+  // fuReady = pipeline reg input ready (set by PipelineConnect in parent)
+  val fuReady = VecInit(io.out.map(_.ready))
   val canIssue = Wire(Vec(depth, Bool()))
   for (i <- 0 until depth) {
     val entry = entries(i)
@@ -121,14 +109,9 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   val selOneHot = VecInit((0 until depth).map(i => (i.U === firstReadyIdx)))
 
   val rawEntryFor = entries
-  val sel_p_rs1 = Mux1H(selOneHot, rawEntryFor.map(_.p_rs1))
-  val sel_p_rs2 = Mux1H(selOneHot, rawEntryFor.map(_.p_rs2))
-  io.prf_read(0).addr := sel_p_rs1
-  io.prf_read(1).addr := sel_p_rs2
-  val rs1_val = Mux(sel_p_rs1 === 0.U, 0.U(32.W), io.prf_read(0).data)
-  val rs2_val = Mux(sel_p_rs2 === 0.U, 0.U(32.W), io.prf_read(1).data)
-
   val (selFuType, _) = FuType.safe(Mux1H(selOneHot, rawEntryFor.map(_.fu_type.asUInt)))
+  val portIdxForSel = MuxLookup(selFuType.asUInt, 0.U)(fuTypeToPortIdx)
+
   val e = Wire(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
   val (eFuType, _)  = FuType.safe(Mux1H(selOneHot, rawEntryFor.map(_.fu_type.asUInt)))
   val (eMemType, _) = RobMemType.safe(Mux1H(selOneHot, rawEntryFor.map(_.mem_type.asUInt)))
@@ -136,8 +119,8 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   e.mem_type  := eMemType
   e.rs1_ready := true.B
   e.rs2_ready := true.B
-  e.p_rs1     := sel_p_rs1
-  e.p_rs2     := sel_p_rs2
+  e.p_rs1     := Mux1H(selOneHot, rawEntryFor.map(_.p_rs1))
+  e.p_rs2     := Mux1H(selOneHot, rawEntryFor.map(_.p_rs2))
   e.imm       := Mux1H(selOneHot, rawEntryFor.map(_.imm))
   e.pc        := Mux1H(selOneHot, rawEntryFor.map(_.pc))
   e.pred_next_pc   := Mux1H(selOneHot, rawEntryFor.map(_.pred_next_pc))
@@ -153,95 +136,153 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   e.lsq_id    := Mux1H(selOneHot, rawEntryFor.map(_.lsq_id))
   e.might_flush := Mux1H(selOneHot, rawEntryFor.map(_.might_flush))
 
-  val (aluSrc, _) = AluSrc.safe(FuDecode.take(e.fu_src, AluSrc.getWidth))
-  val aluOpA = MuxLookup(aluSrc.asUInt, rs1_val)(Seq(
-    AluSrc.ImmZero.asUInt -> e.imm,
-    AluSrc.PcImm.asUInt   -> e.pc
-  ))
-  val aluOpB = MuxLookup(aluSrc.asUInt, rs2_val)(Seq(
-    AluSrc.Rs1Imm.asUInt  -> e.imm,
-    AluSrc.ImmZero.asUInt -> 0.U(32.W),
-    AluSrc.PcImm.asUInt   -> e.imm
-  ))
-  val (aluOp, _) = AluOp.safe(FuDecode.take(e.fu_op, AluOp.getWidth))
-  val (bruOp, _) = BruOp.safe(FuDecode.take(e.fu_op, BruOp.getWidth))
-  val (mulOp, _) = MulOp.safe(FuDecode.take(e.fu_op, MulOp.getWidth))
-  val (divOp, _) = DivOp.safe(FuDecode.take(e.fu_op, DivOp.getWidth))
-  val (lsuOp, _) = LsuOp.safe(FuDecode.take(e.fu_op, LsuOp.getWidth))
-  val (sysuOp, _) = SysuOp.safe(FuDecode.take(e.fu_op, SysuOp.getWidth))
-  val csr_type_sysu = Mux(e.fu_type === FuType.SYSU, CsrType.fromAddr(e.csr_addr), CsrType.None)
-
-  // Drive issue ports: only the selected port gets valid
-  io.issuePorts.alu.valid := anyCanIssue && (selFuType === FuType.ALU)
-  io.issuePorts.alu.bits.opA := aluOpA
-  io.issuePorts.alu.bits.opB := aluOpB
-  io.issuePorts.alu.bits.aluOp := aluOp
-  io.issuePorts.alu.bits.pc := e.pc
-  io.issuePorts.alu.bits.rob_id := e.rob_id
-  io.issuePorts.alu.bits.p_rd := e.p_rd
-
-  io.issuePorts.bru.valid := anyCanIssue && (selFuType === FuType.BRU)
-  io.issuePorts.bru.bits.pc := e.pc
-  io.issuePorts.bru.bits.pred_next_pc := e.pred_next_pc
-  io.issuePorts.bru.bits.offset := e.imm
-  io.issuePorts.bru.bits.rs1 := rs1_val
-  io.issuePorts.bru.bits.rs2 := rs2_val
-  io.issuePorts.bru.bits.bruOp := bruOp
-  io.issuePorts.bru.bits.rob_id := e.rob_id
-  io.issuePorts.bru.bits.p_rd := e.p_rd
-
-  io.issuePorts.agu.valid := anyCanIssue && (selFuType === FuType.LSU)
-  io.issuePorts.agu.bits.base := rs1_val
-  io.issuePorts.agu.bits.imm := e.imm
-  io.issuePorts.agu.bits.lsuOp := lsuOp
-  io.issuePorts.agu.bits.storeData := rs2_val
-  io.issuePorts.agu.bits.pc := e.pc
-  io.issuePorts.agu.bits.rob_id := e.rob_id
-  io.issuePorts.agu.bits.p_rd := e.p_rd
-  io.issuePorts.agu.bits.lsq_id := e.lsq_id
-
-  if (config.isaConfig.hasM) {
-    io.issuePorts.mul.get.valid := anyCanIssue && (selFuType === FuType.MUL)
-    io.issuePorts.mul.get.bits.opA := rs1_val
-    io.issuePorts.mul.get.bits.opB := rs2_val
-    io.issuePorts.mul.get.bits.mulOp := mulOp
-    io.issuePorts.mul.get.bits.pc := e.pc
-    io.issuePorts.mul.get.bits.rob_id := e.rob_id
-    io.issuePorts.mul.get.bits.p_rd := e.p_rd
-
-    io.issuePorts.div.get.valid := anyCanIssue && (selFuType === FuType.DIV)
-    io.issuePorts.div.get.bits.opA := rs1_val
-    io.issuePorts.div.get.bits.opB := rs2_val
-    io.issuePorts.div.get.bits.divOp := divOp
-    io.issuePorts.div.get.bits.pc := e.pc
-    io.issuePorts.div.get.bits.rob_id := e.rob_id
-    io.issuePorts.div.get.bits.p_rd := e.p_rd
+  for (i <- 0 until FuConfig.numIssuePorts) {
+    io.out(i).valid := anyCanIssue && (portIdxForSel === i.U)
+    io.out(i).bits := e
+    // flush driven by PipelineConnect from consumer
   }
 
-  io.issuePorts.sysu.valid := anyCanIssue && (selFuType === FuType.SYSU)
-  io.issuePorts.sysu.bits.rob_id := e.rob_id
-  io.issuePorts.sysu.bits.pc := e.pc
-  io.issuePorts.sysu.bits.p_rd := e.p_rd
-  io.issuePorts.sysu.bits.csr_type := csr_type_sysu
-  io.issuePorts.sysu.bits.csr_rdata := e.csr_rdata
-  io.issuePorts.sysu.bits.rs1_val := rs1_val
-  io.issuePorts.sysu.bits.sysuOp := sysuOp
-  io.issuePorts.sysu.bits.imm := e.imm
-
-  val orderedPortsFire = VecInit(io.issuePorts.orderedPorts.map(_.fire))
-  val portIdxForSel   = MuxLookup(selFuType.asUInt, 0.U)(fuTypeToPortIdx)
-  val issueFire       = anyCanIssue && orderedPortsFire(portIdxForSel)
-  val deqFire         = !io.flush && issueFire
-  // Deq clear FIRST, then enq overwrites when same slot (enq+deq bypass). Order ensures new instr not lost.
-  when(deqFire) {
-    valids(firstReadyIdx) := false.B
-  }
+  val issueFire = anyCanIssue && io.out(portIdxForSel).ready
+  val deqFire = !io.flush && issueFire
+  when(deqFire) { valids(firstReadyIdx) := false.B }
   when(enqFire) {
     entries(firstInvalid) := io.in.bits
     valids(firstInvalid) := true.B
   }
 
-  // count is derived from PopCount(valids), no separate update needed
-
   io.in.flush := io.flush
+}
+
+/** Stage 2: Per-port independent. If pipe valid, read PRF+bypass and drive FU. No arbitration. */
+class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
+  private val hasM = config.isaConfig.hasM
+  private val numPorts = FuConfig.numIssuePorts
+
+  val io = IO(new Bundle {
+    val in = Flipped(Vec(numPorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
+    val flush = Input(Bool())
+    val prf_read = Vec(numPorts, Vec(2, new PrfReadIO(prfAddrWidth)))
+    val issuePorts = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
+  })
+
+  for (i <- 0 until numPorts) {
+    io.in(i).flush := io.flush
+    io.in(i).ready := io.issuePorts.orderedPorts(i).ready
+  }
+
+  def rs1(i: Int) = Mux(io.in(i).bits.p_rs1 === 0.U, 0.U(32.W), io.prf_read(i)(0).data)
+  def rs2(i: Int) = Mux(io.in(i).bits.p_rs2 === 0.U, 0.U(32.W), io.prf_read(i)(1).data)
+
+  for (i <- 0 until numPorts) {
+    io.prf_read(i)(0).addr := io.in(i).bits.p_rs1
+    io.prf_read(i)(1).addr := io.in(i).bits.p_rs2
+  }
+
+  io.issuePorts.alu.valid := io.in(0).valid
+  val e0 = io.in(0).bits
+  val (aluSrc0, _) = AluSrc.safe(FuDecode.take(e0.fu_src, AluSrc.getWidth))
+  io.issuePorts.alu.bits.opA := MuxLookup(aluSrc0.asUInt, rs1(0))(Seq(
+    AluSrc.ImmZero.asUInt -> e0.imm,
+    AluSrc.PcImm.asUInt   -> e0.pc
+  ))
+  io.issuePorts.alu.bits.opB := MuxLookup(aluSrc0.asUInt, rs2(0))(Seq(
+    AluSrc.Rs1Imm.asUInt  -> e0.imm,
+    AluSrc.ImmZero.asUInt -> 0.U(32.W),
+    AluSrc.PcImm.asUInt   -> e0.imm
+  ))
+  io.issuePorts.alu.bits.aluOp := AluOp.safe(FuDecode.take(e0.fu_op, AluOp.getWidth))._1
+  io.issuePorts.alu.bits.pc := e0.pc
+  io.issuePorts.alu.bits.rob_id := e0.rob_id
+  io.issuePorts.alu.bits.p_rd := e0.p_rd
+
+  io.issuePorts.bru.valid := io.in(1).valid
+  val e1 = io.in(1).bits
+  io.issuePorts.bru.bits.pc := e1.pc
+  io.issuePorts.bru.bits.pred_next_pc := e1.pred_next_pc
+  io.issuePorts.bru.bits.offset := e1.imm
+  io.issuePorts.bru.bits.rs1 := rs1(1)
+  io.issuePorts.bru.bits.rs2 := rs2(1)
+  io.issuePorts.bru.bits.bruOp := BruOp.safe(FuDecode.take(e1.fu_op, BruOp.getWidth))._1
+  io.issuePorts.bru.bits.rob_id := e1.rob_id
+  io.issuePorts.bru.bits.p_rd := e1.p_rd
+
+  io.issuePorts.agu.valid := io.in(2).valid
+  val e2 = io.in(2).bits
+  io.issuePorts.agu.bits.base := rs1(2)
+  io.issuePorts.agu.bits.imm := e2.imm
+  io.issuePorts.agu.bits.lsuOp := LsuOp.safe(FuDecode.take(e2.fu_op, LsuOp.getWidth))._1
+  io.issuePorts.agu.bits.storeData := rs2(2)
+  io.issuePorts.agu.bits.pc := e2.pc
+  io.issuePorts.agu.bits.rob_id := e2.rob_id
+  io.issuePorts.agu.bits.p_rd := e2.p_rd
+  io.issuePorts.agu.bits.lsq_id := e2.lsq_id
+
+  private val sysuPortIdx = numPorts - 1
+  if (hasM) {
+    io.issuePorts.mul.get.valid := io.in(3).valid
+    val e3 = io.in(3).bits
+    io.issuePorts.mul.get.bits.opA := rs1(3)
+    io.issuePorts.mul.get.bits.opB := rs2(3)
+    io.issuePorts.mul.get.bits.mulOp := MulOp.safe(FuDecode.take(e3.fu_op, MulOp.getWidth))._1
+    io.issuePorts.mul.get.bits.pc := e3.pc
+    io.issuePorts.mul.get.bits.rob_id := e3.rob_id
+    io.issuePorts.mul.get.bits.p_rd := e3.p_rd
+
+    io.issuePorts.div.get.valid := io.in(4).valid
+    val e4 = io.in(4).bits
+    io.issuePorts.div.get.bits.opA := rs1(4)
+    io.issuePorts.div.get.bits.opB := rs2(4)
+    io.issuePorts.div.get.bits.divOp := DivOp.safe(FuDecode.take(e4.fu_op, DivOp.getWidth))._1
+    io.issuePorts.div.get.bits.pc := e4.pc
+    io.issuePorts.div.get.bits.rob_id := e4.rob_id
+    io.issuePorts.div.get.bits.p_rd := e4.p_rd
+  }
+
+  io.issuePorts.sysu.valid := io.in(sysuPortIdx).valid
+  val e5 = io.in(sysuPortIdx).bits
+  io.issuePorts.sysu.bits.rob_id := e5.rob_id
+  io.issuePorts.sysu.bits.pc := e5.pc
+  io.issuePorts.sysu.bits.p_rd := e5.p_rd
+  io.issuePorts.sysu.bits.csr_type := Mux(e5.fu_type === FuType.SYSU, CsrType.fromAddr(e5.csr_addr), CsrType.None)
+  io.issuePorts.sysu.bits.csr_rdata := e5.csr_rdata
+  io.issuePorts.sysu.bits.rs1_val := rs1(sysuPortIdx)
+  io.issuePorts.sysu.bits.sysuOp := SysuOp.safe(FuDecode.take(e5.fu_op, SysuOp.getWidth))._1
+  io.issuePorts.sysu.bits.imm := e5.imm
+}
+
+/** Issue Queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs. */
+class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
+  implicit config: NzeaConfig
+) extends Module {
+  val io = IO(new Bundle {
+    val in            = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
+    val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
+    val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
+    val issuePorts    = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
+    val prf_read      = Vec(FuConfig.numIssuePorts, Vec(2, new PrfReadIO(prfAddrWidth)))
+  })
+
+  val flush = io.issuePorts.orderedPorts(0).flush
+
+  val selectStage = Module(new IQSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
+  val readStage   = Module(new IQReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
+
+  selectStage.io.in <> io.in
+  selectStage.io.flush := flush
+  selectStage.io.prf_write := io.prf_write
+  selectStage.io.bypass_level1 := io.bypass_level1
+
+  val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
+  readStage.io.flush := flush
+  for (i <- 0 until FuConfig.numIssuePorts) {
+    readStage.io.in(i).valid := pipeRegOut(i).valid
+    readStage.io.in(i).bits := pipeRegOut(i).bits
+    pipeRegOut(i).ready := readStage.io.in(i).ready
+    pipeRegOut(i).flush := readStage.io.in(i).flush
+    PipelineConnect(selectStage.io.out(i), pipeRegOut(i))
+  }
+  for (i <- 0 until FuConfig.numIssuePorts; j <- 0 until 2) {
+    io.prf_read(i)(j) <> readStage.io.prf_read(i)(j)
+  }
+  io.issuePorts <> readStage.io.issuePorts
 }

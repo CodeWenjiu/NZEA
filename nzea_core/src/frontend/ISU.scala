@@ -50,7 +50,8 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     val prf_write      = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1  = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val commit_prf_read = Flipped(new PrfReadIO(prfAddrWidth))
-    val iq_prf_read    = Flipped(Vec(2, new PrfReadIO(prfAddrWidth)))
+    /** Per-FU PRF read: Vec(numIssuePorts, Vec(2, rs1/rs2)). Enables parallel dispatch. */
+    val iq_prf_read    = Flipped(Vec(FuConfig.numIssuePorts, Vec(2, new PrfReadIO(prfAddrWidth))))
     val csr_write      = Input(Valid(new CsrWriteBundle))
     val commit_rob_id  = Input(UInt(robIdWidth.W))
     val commit_valid   = Input(Bool())
@@ -118,10 +119,12 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   val commitWbBypassData = Mux1H(commitWbBypassSel, (0 until numPrfWritePorts).map(i => io.prf_write(i).bits.data))
   io.commit_prf_read.data := Mux(io.commit_prf_read.addr === 0.U, 0.U(32.W), Mux(commitWbBypassHit, commitWbBypassData, prf_read_val))
 
-  val (iq_rs1_data, _) = readPrfWithBypass(io.iq_prf_read(0).addr)
-  val (iq_rs2_data, _) = readPrfWithBypass(io.iq_prf_read(1).addr)
-  io.iq_prf_read(0).data := iq_rs1_data
-  io.iq_prf_read(1).data := iq_rs2_data
+  for (i <- 0 until FuConfig.numIssuePorts) {
+    val (rs1_data, _) = readPrfWithBypass(io.iq_prf_read(i)(0).addr)
+    val (rs2_data, _) = readPrfWithBypass(io.iq_prf_read(i)(1).addr)
+    io.iq_prf_read(i)(0).data := rs1_data
+    io.iq_prf_read(i)(1).data := rs2_data
+  }
 
   // -------- CSR registers --------
   val csr_mstatus  = RegInit(0x1800.U(32.W))

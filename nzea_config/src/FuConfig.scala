@@ -20,7 +20,7 @@ object FuConfig {
       FuConfig("BRU", hasPrfWrite = true, hasBypass = true),
       FuConfig("SYSU", hasPrfWrite = true, hasBypass = true)
     ) ++ Option.when(config.isaConfig.hasM)(
-      Seq(FuConfig("MUL", hasPrfWrite = true, hasBypass = true), FuConfig("DIV", hasPrfWrite = true, hasBypass = true))
+      Seq(FuConfig("MUL", hasPrfWrite = true, hasBypass = true), FuConfig("DIV", hasPrfWrite = true, hasBypass = false))
     ).getOrElse(Seq.empty)
     // MemUnit (load) must have hasBypass=true so IQ's combinational bypass sees load write-back.
     // Otherwise IQ entry stays rs1_ready=false despite PRF ready -> deadlock (PRF-IQ mismatch).

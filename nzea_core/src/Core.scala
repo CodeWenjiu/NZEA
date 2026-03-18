@@ -51,8 +51,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   iq.io.in.valid := isu.io.out.valid
   iq.io.in.bits := isu.io.out.bits
   isu.io.out.ready := iq.io.in.ready
-  isu.io.out.flush := iq.io.flush
-  iq.io.flush := commit.io.do_flush
+  isu.io.out.flush := iq.io.issuePorts.orderedPorts(0).flush
   iq.io.prf_read <> isu.io.iq_prf_read
   (iq.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
