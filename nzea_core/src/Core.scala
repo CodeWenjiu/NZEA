@@ -16,7 +16,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   val ifu = Module(new frontend.IFU)
   val idu = Module(new frontend.IDU(addrWidth))
   val exu = Module(new backend.EXU(robIdWidth, prfAddrWidth, lsqIdWidth))
-  val memUnit = Module(new backend.MemUnit(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
+  val lsq = Module(new backend.LSQ(robIdWidth, lsBufferDepth, prfAddrWidth))
+  val memUnit = Module(new backend.MemUnit(addrWidth, robIdWidth, prfAddrWidth))
 
   val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
   val commit = Module(new retire.Commit)
@@ -56,8 +57,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   (iq.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
-  memUnit.io.ls_alloc <> isu.io.ls_alloc
-  memUnit.io.ls_write <> exu.io.agu_ls_write
+  lsq.io.ls_alloc <> isu.io.ls_alloc
+  lsq.io.ls_write <> exu.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
   isu.io.commit_prf_read <> commit.io.commit_prf_read
   isu.io.commit_rob_id := commit.io.commit_rob_id
@@ -65,11 +66,14 @@ class Core(implicit config: NzeaConfig) extends Module {
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U
 
-
   idu.io.commit := commit.io.idu_commit
   idu.io.restore_rmt := commit.io.restore_rmt
-  memUnit.io.issue := rob.mem.issue
-  rob.mem.issue_rob_id := memUnit.io.issue_rob_id
+  lsq.io.issue := rob.mem.issue
+  lsq.io.flush := wbu.io.flush
+  rob.mem.issue_rob_id := lsq.io.issue_rob_id
+  memUnit.io.mem_req.valid := lsq.io.mem_req.valid
+  memUnit.io.mem_req.bits := lsq.io.mem_req.bits
+  lsq.io.mem_req_ready := memUnit.io.mem_req_ready
   rob.mem.mem_access <> memUnit.io.rob_access
 
   io.ibus       <> ifu.io.bus
