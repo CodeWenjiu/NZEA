@@ -99,7 +99,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
 
   def readPrfWithBypass(addr: UInt): (UInt, Bool) = {
     val (prfData, prfReady) = readPrf(addr)
-    val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex.filter(_._1.hasBypass)
+    val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex
     val level1Sel = bypassPorts.map { case (_, i) => io.bypass_level1(i).valid && io.bypass_level1(i).bits.addr === addr }
     val level2Sel = bypassPorts.map { case (_, i) => io.prf_write(i).valid && io.prf_write(i).bits.addr === addr }
     val bypassSel = level1Sel ++ level2Sel
