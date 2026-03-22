@@ -3,7 +3,7 @@ package nzea_core.frontend.bp
 import chisel3._
 import firrtl.ir.ReadUnderWrite
 
-/** Branch History Table: 2-bit saturating counter for branch direction.
+/** Pattern History Table: 2-bit saturating counter for branch direction.
   * Direct-mapped, no tag. Index from PC[indexBits+1:2].
   * 2-bit: MSB=1 predict jump, MSB=0 predict no jump. Saturate at 0b00 and 0b11.
   * Uses SyncReadMem (1-cycle read latency). Caller must pass pred_next_pc as pc so
@@ -11,8 +11,8 @@ import firrtl.ir.ReadUnderWrite
   * Update: 1 read port (prediction) + 1 readWrite port (update) for BRAM inference.
   * Accepts only one update at a time; blocks new updates until current completes.
   */
-class BHT(size: Int) extends Module {
-  require(size > 0 && (size & (size - 1)) == 0, "BHT size must be power of 2")
+class PHT(size: Int) extends Module {
+  require(size > 0 && (size & (size - 1)) == 0, "PHT size must be power of 2")
   private val indexBits = chisel3.util.log2Ceil(size)
 
   val io = IO(new Bundle {

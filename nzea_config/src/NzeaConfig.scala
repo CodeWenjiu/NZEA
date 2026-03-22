@@ -11,7 +11,7 @@ case class NzeaConfig(
   @arg(doc = "Rob depth (number of in-flight entries)") robDepth: Int = 16,
   @arg(doc = "Issue queue depth (entries between ISU and EXU)") issueQueueDepth: Int = 8,
   @arg(doc = "Physical register file depth (for rename)") prfDepth: Int = 64,
-  @arg(doc = "BHT size (power of 2)") bhtSize: Int = 64,
+  @arg(doc = "PHT size (power of 2)") phtSize: Int = 64,
   @arg(doc = "BTB size (power of 2)") btbSize: Int = 16
 ) {
   val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Sim)

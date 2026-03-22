@@ -3,7 +3,7 @@ package nzea_core.frontend
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.PipeIO
-import nzea_core.frontend.bp.{BHT, BTB, BpUpdate}
+import nzea_core.frontend.bp.{PHT, BTB, BpUpdate}
 import nzea_core.CoreBusReadOnly
 import nzea_config.NzeaConfig
 
@@ -42,19 +42,19 @@ class IFU(implicit config: NzeaConfig) extends Module {
   })
 
   val pc = RegInit(pcReset)
-  val bht = Module(new BHT(config.bhtSize))
+  val pht = Module(new PHT(config.phtSize))
   val btb = Module(new BTB(config.btbSize))
 
   val pc_update = io.bus.req.fire
 
   val pred_next_pc = Mux(RegNext(io.out.flush, false.B), pc + 4.U,
-    Mux(RegNext(pc_update) && bht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U))
+    Mux(RegNext(pc_update) && pht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U))
   // SyncReadMem has 1-cycle read latency: we must pass pred_next_pc so the result
   // aligns with the fetched PC next cycle.
-  bht.io.pc := pred_next_pc
-  bht.io.update := io.bp_update.valid
-  bht.io.update_pc := io.bp_update.bits.pc
-  bht.io.update_taken := io.bp_update.bits.taken
+  pht.io.pc := pred_next_pc
+  pht.io.update := io.bp_update.valid
+  pht.io.update_pc := io.bp_update.bits.pc
+  pht.io.update_taken := io.bp_update.bits.taken
 
   btb.io.read_addr  := pred_next_pc
   btb.io.pc_for_tag := pc
