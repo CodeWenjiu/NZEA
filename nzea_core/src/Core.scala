@@ -28,15 +28,10 @@ class Core(implicit config: NzeaConfig) extends Module {
   val iq = Module(new frontend.IssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth, FuConfig.numPrfWritePorts))
   val fuOuts = exu.outPorts :+ memUnit.io.out
   (fuOuts zip wbu.io.in).foreach { case (fu, port) => port <> fu }
-  (wbu.io.out zip isu.io.prf_write).foreach { case (w, p) => p <> w }
   (wbu.io.out zip iq.io.prf_write).foreach { case (w, p) => p <> w }
   prf.io.write := wbu.io.out
   prf.io.allocClear.valid := isu.io.in.fire && isu.io.in.bits.p_rd =/= 0.U
   prf.io.allocClear.bits  := isu.io.in.bits.p_rd
-  (fuOuts zip isu.io.bypass_level1).foreach { case (fu, port) =>
-    port.valid := fu.valid
-    port.bits := fu.bits
-  }
   (fuOuts zip iq.io.bypass_level1).foreach { case (fu, port) =>
     port.valid := fu.valid
     port.bits := fu.bits
@@ -59,12 +54,12 @@ class Core(implicit config: NzeaConfig) extends Module {
   isu.io.out.ready := iq.io.in.ready
   isu.io.out.flush := iq.io.issuePorts.orderedPorts(0).flush
 
-  prf.io.read(0).addr := isu.io.in.bits.p_rs1
-  prf.io.read(1).addr := isu.io.in.bits.p_rs2
-  isu.io.prf_enqueue_rs1.data  := prf.io.read(0).data
-  isu.io.prf_enqueue_rs1.ready := prf.io.read(0).ready
-  isu.io.prf_enqueue_rs2.data  := prf.io.read(1).data
-  isu.io.prf_enqueue_rs2.ready := prf.io.read(1).ready
+  prf.io.read(0).addr := iq.io.in.bits.p_rs1
+  prf.io.read(1).addr := iq.io.in.bits.p_rs2
+  iq.io.prf_enqueue_rs1.data  := prf.io.read(0).data
+  iq.io.prf_enqueue_rs1.ready := prf.io.read(0).ready
+  iq.io.prf_enqueue_rs2.data  := prf.io.read(1).data
+  iq.io.prf_enqueue_rs2.ready := prf.io.read(1).ready
 
   prf.io.read(2).addr := commit.io.commit_prf_read.addr
   commit.io.commit_prf_read.data := frontend.PrfBypass.mergeCommitData(
@@ -80,7 +75,7 @@ class Core(implicit config: NzeaConfig) extends Module {
       iq.io.prf_read(i)(j).addr,
       prf.io.read(r).data,
       prf.io.read(r).ready,
-      isu.io.bypass_level1,
+      iq.io.bypass_level1,
       wbu.io.out
     )
     iq.io.prf_read(i)(j).data := d

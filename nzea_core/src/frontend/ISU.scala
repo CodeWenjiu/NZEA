@@ -1,23 +1,20 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.Valid
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocIO}
-import nzea_config.FuConfig
-
-/** ISU factory: config-driven, port count derived from FuConfig. */
+/** ISU factory. */
 object ISU {
   def apply(addrWidth: Int)(implicit config: NzeaConfig): ISU =
-    Module(new ISU(addrWidth, FuConfig.numPrfWritePorts))
+    Module(new ISU(addrWidth))
 }
 
 /** ISU: Issue Unit. Outputs unified IssueQueueEntry to IssueQueue (no per-port dispatch).
-  * PRF storage is [[Prf]]; ISU merges bypass + raw PRF read for enqueue rs1/rs2 ready only.
+  * rs1/rs2 ready are placeholders; [[IssueQueue]] reads PRF + bypass when writing a slot.
   */
-class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) extends Module {
+class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val robDepth     = config.robDepth
   private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth = config.prfAddrWidth
@@ -28,27 +25,7 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     val out             = new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
     val rob_enq         = Flipped(new RobEnqIO(robIdWidth, prfAddrWidth))
     val ls_alloc        = Flipped(new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth))
-    val prf_write       = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
-    val bypass_level1   = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
-    /** Raw PRF read at p_rs1 / p_rs2 (from [[Prf]]); bypass merged here for IssueQueueEntry.ready. */
-    val prf_enqueue_rs1 = Input(new PrfRawRead(prfAddrWidth))
-    val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
   })
-
-  val (_, rs1_ready) = PrfBypass.mergeOperand(
-    io.in.bits.p_rs1,
-    io.prf_enqueue_rs1.data,
-    io.prf_enqueue_rs1.ready,
-    io.bypass_level1,
-    io.prf_write
-  )
-  val (_, rs2_ready) = PrfBypass.mergeOperand(
-    io.in.bits.p_rs2,
-    io.prf_enqueue_rs2.data,
-    io.prf_enqueue_rs2.ready,
-    io.bypass_level1,
-    io.prf_write
-  )
 
   io.in.flush := io.out.flush
 
@@ -81,8 +58,8 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
 
   io.out.valid := can_push
   io.out.bits.fu_type      := fu_type
-  io.out.bits.rs1_ready    := rs1_ready
-  io.out.bits.rs2_ready    := rs2_ready
+  io.out.bits.rs1_ready    := false.B
+  io.out.bits.rs2_ready    := false.B
   io.out.bits.p_rs1        := io.in.bits.p_rs1
   io.out.bits.p_rs2        := io.in.bits.p_rs2
   io.out.bits.imm          := imm

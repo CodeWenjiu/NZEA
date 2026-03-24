@@ -57,6 +57,9 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
     val commit_valid  = Input(Bool())
     /** Read-stage ALU: valid + p_rd only; Select uses for operand readiness (no data). */
     val alu_read_hint = Input(Valid(UInt(prfAddrWidth.W)))
+    /** Raw PRF read at enqueue p_rs1 / p_rs2 (same addrs as [[in]]); used with bypass for slot ready. */
+    val prf_enqueue_rs1 = Input(new PrfRawRead(prfAddrWidth))
+    val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
     /** One output per FU; ready/flush come from PipelineConnect (pipe reg) and consumer. */
     val out = Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   })
@@ -71,13 +74,13 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   val firstInvalid = PriorityEncoder(VecInit((0 until depth).map(i => !valids(i))).asUInt)
   val pending_csr_write_rob_id = RegInit(0.U(robIdWidth.W))
   val pending_csr_write_valid  = RegInit(false.B)
-  val enqFire = !flush && io.in.fire
+  val enqFire = io.in.fire
 
   io.in.ready := !full
   val csr_pending_issue_stall = pending_csr_write_valid
 
   for (i <- 0 until depth) {
-    val entryValid = valids(i) || (enqFire && firstInvalid === i.U)
+    val entryValid = valids(i) || (enqFire && firstInvalid === i.U) // 怪东西，为什么要提前判断entryValid?
     for (j <- 0 until numPrfWritePorts) {
       val waddr = Mux(io.bypass_level1(j).valid, io.bypass_level1(j).bits.addr, io.prf_write(j).bits.addr)
       val wvalid = io.bypass_level1(j).valid || io.prf_write(j).valid
@@ -172,7 +175,24 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
 
   when(deqFire) { valids(firstReadyIdx) := false.B }
   when(enqFire) {
-    entries(firstInvalid) := io.in.bits
+    val enq = io.in.bits
+    entries(firstInvalid) := enq
+    val (_, rs1Merged) = PrfBypass.mergeOperand(
+      enq.p_rs1,
+      io.prf_enqueue_rs1.data,
+      io.prf_enqueue_rs1.ready,
+      io.bypass_level1,
+      io.prf_write
+    )
+    val (_, rs2Merged) = PrfBypass.mergeOperand(
+      enq.p_rs2,
+      io.prf_enqueue_rs2.data,
+      io.prf_enqueue_rs2.ready,
+      io.bypass_level1,
+      io.prf_write
+    )
+    entries(firstInvalid).rs1_ready := rs1Merged
+    entries(firstInvalid).rs2_ready := rs2Merged
     valids(firstInvalid) := true.B
   }
 
@@ -327,6 +347,9 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
     val prf_read      = Vec(FuConfig.numIssuePorts, Vec(2, new PrfReadIO(prfAddrWidth)))
     val csr_rdata     = Input(UInt(32.W))
     val csr_read_addr = Output(UInt(12.W))
+    /** Enqueue PRF read (rs1/rs2); same ports as [[in]].bits p_rs*. */
+    val prf_enqueue_rs1 = Input(new PrfRawRead(prfAddrWidth))
+    val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
   })
 
   val s1 = Module(new IQSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
@@ -338,6 +361,8 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   s1.io.commit_rob_id := io.commit_rob_id
   s1.io.commit_valid  := io.commit_valid
   s1.io.alu_read_hint := s2.io.alu_read_hint
+  s1.io.prf_enqueue_rs1 := io.prf_enqueue_rs1
+  s1.io.prf_enqueue_rs2 := io.prf_enqueue_rs2
 
   val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
   for (i <- 0 until FuConfig.numIssuePorts) {

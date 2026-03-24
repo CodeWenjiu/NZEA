@@ -16,7 +16,7 @@ class PrfReadIO(prfAddrWidth: Int) extends Bundle {
   val data = Input(UInt(32.W))
 }
 
-/** Raw PRF read result (before bypass), for ISU enqueue operand readiness. */
+/** Raw PRF read result (before bypass), for IQ enqueue operand readiness. */
 class PrfRawRead(prfAddrWidth: Int) extends Bundle {
   val data  = UInt(32.W)
   val ready = Bool()
