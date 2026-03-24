@@ -51,13 +51,13 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
 
   val io = IO(new Bundle {
     val in            = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
-    val flush         = Input(Bool())
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
-    /** One output per FU; ready comes from PipelineConnect (pipe reg). */
+    /** One output per FU; ready/flush come from PipelineConnect (pipe reg) and consumer. */
     val out = Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   })
 
+  private val flush = io.out(0).flush
   val entries = Reg(Vec(depth, new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   val valids  = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val count   = PopCount(valids.asUInt)
@@ -65,15 +65,15 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex.filter(_._1.hasBypass)
 
   val firstInvalid = PriorityEncoder(VecInit((0 until depth).map(i => !valids(i))).asUInt)
-  io.in.ready := !full && !io.flush
-  val enqFire = !io.flush && io.in.fire
+  io.in.ready := !full && !flush
+  val enqFire = !flush && io.in.fire
 
   for (i <- 0 until depth) {
     val entryValid = valids(i) || (enqFire && firstInvalid === i.U)
     for (j <- 0 until numPrfWritePorts) {
       val waddr = Mux(io.bypass_level1(j).valid, io.bypass_level1(j).bits.addr, io.prf_write(j).bits.addr)
       val wvalid = io.bypass_level1(j).valid || io.prf_write(j).valid
-      when(!io.flush && wvalid && entryValid) {
+      when(!flush && wvalid && entryValid) {
         val p_rs1 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs1, entries(i).p_rs1)
         val p_rs2 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs2, entries(i).p_rs2)
         when(p_rs1 === waddr && p_rs1 =/= 0.U) { entries(i).rs1_ready := true.B }
@@ -82,7 +82,7 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
     }
   }
 
-  when(io.flush) {
+  when(flush) {
     for (i <- 0 until depth) { valids(i) := false.B }
   }
 
@@ -143,30 +143,31 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   }
 
   val issueFire = anyCanIssue && io.out(portIdxForSel).ready
-  val deqFire = !io.flush && issueFire
+  val deqFire = !flush && issueFire
   when(deqFire) { valids(firstReadyIdx) := false.B }
   when(enqFire) {
     entries(firstInvalid) := io.in.bits
     valids(firstInvalid) := true.B
   }
 
-  io.in.flush := io.flush
+  io.in.flush := flush
 }
 
-/** Stage 2: Per-port independent. If pipe valid, read PRF+bypass and drive FU. No arbitration. */
+/** Stage 2: Per-port independent. If pipe valid, read PRF+bypass and drive FU. No arbitration.
+  * Extracts flush from issuePorts (consumer-driven) and propagates to in.flush. */
 class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val hasM = config.isaConfig.hasM
   private val numPorts = FuConfig.numIssuePorts
 
   val io = IO(new Bundle {
     val in = Flipped(Vec(numPorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
-    val flush = Input(Bool())
     val prf_read = Vec(numPorts, Vec(2, new PrfReadIO(prfAddrWidth)))
     val issuePorts = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
   })
 
+  private val flush = io.issuePorts.orderedPorts(0).flush
   for (i <- 0 until numPorts) {
-    io.in(i).flush := io.flush
+    io.in(i).flush := flush
     io.in(i).ready := io.issuePorts.orderedPorts(i).ready
   }
 
@@ -250,7 +251,8 @@ class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit 
   io.issuePorts.sysu.bits.imm := e5.imm
 }
 
-/** Issue Queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs. */
+/** Issue Queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.
+  * Flush: S2 extracts from issuePorts (consumer); S1 gets it via PipelineConnect from S2 input. */
 class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
   implicit config: NzeaConfig
 ) extends Module {
@@ -262,27 +264,23 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
     val prf_read      = Vec(FuConfig.numIssuePorts, Vec(2, new PrfReadIO(prfAddrWidth)))
   })
 
-  val flush = io.issuePorts.orderedPorts(0).flush
+  val s1 = Module(new IQSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
+  val s2 = Module(new IQReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
 
-  val selectStage = Module(new IQSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
-  val readStage   = Module(new IQReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
-
-  selectStage.io.in <> io.in
-  selectStage.io.flush := flush
-  selectStage.io.prf_write := io.prf_write
-  selectStage.io.bypass_level1 := io.bypass_level1
+  s1.io.in <> io.in
+  s1.io.prf_write := io.prf_write
+  s1.io.bypass_level1 := io.bypass_level1
 
   val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
-  readStage.io.flush := flush
   for (i <- 0 until FuConfig.numIssuePorts) {
-    readStage.io.in(i).valid := pipeRegOut(i).valid
-    readStage.io.in(i).bits := pipeRegOut(i).bits
-    pipeRegOut(i).ready := readStage.io.in(i).ready
-    pipeRegOut(i).flush := readStage.io.in(i).flush
-    PipelineConnect(selectStage.io.out(i), pipeRegOut(i))
+    s2.io.in(i).valid := pipeRegOut(i).valid
+    s2.io.in(i).bits := pipeRegOut(i).bits
+    pipeRegOut(i).ready := s2.io.in(i).ready
+    pipeRegOut(i).flush := s2.io.in(i).flush
+    PipelineConnect(s1.io.out(i), pipeRegOut(i))
   }
   for (i <- 0 until FuConfig.numIssuePorts; j <- 0 until 2) {
-    io.prf_read(i)(j) <> readStage.io.prf_read(i)(j)
+    io.prf_read(i)(j) <> s2.io.prf_read(i)(j)
   }
-  io.issuePorts <> readStage.io.issuePorts
+  io.issuePorts <> s2.io.issuePorts
 }
