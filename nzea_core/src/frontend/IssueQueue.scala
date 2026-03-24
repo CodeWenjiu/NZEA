@@ -171,84 +171,102 @@ class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit 
     io.in(i).ready := io.issuePorts.orderedPorts(i).ready
   }
 
-  def rs1(i: Int) = Mux(io.in(i).bits.p_rs1 === 0.U, 0.U(32.W), io.prf_read(i)(0).data)
-  def rs2(i: Int) = Mux(io.in(i).bits.p_rs2 === 0.U, 0.U(32.W), io.prf_read(i)(1).data)
-
+  private def entry(i: Int) = io.in(i).bits
+  private def rs1(i: Int) = Mux(entry(i).p_rs1 === 0.U, 0.U(32.W), io.prf_read(i)(0).data)
+  private def rs2(i: Int) = Mux(entry(i).p_rs2 === 0.U, 0.U(32.W), io.prf_read(i)(1).data)
   for (i <- 0 until numPorts) {
-    io.prf_read(i)(0).addr := io.in(i).bits.p_rs1
-    io.prf_read(i)(1).addr := io.in(i).bits.p_rs2
+    io.prf_read(i)(0).addr := entry(i).p_rs1
+    io.prf_read(i)(1).addr := entry(i).p_rs2
   }
 
-  io.issuePorts.alu.valid := io.in(0).valid
-  val e0 = io.in(0).bits
-  val (aluSrc0, _) = AluSrc.safe(FuDecode.take(e0.fu_src, AluSrc.getWidth))
-  io.issuePorts.alu.bits.opA := MuxLookup(aluSrc0.asUInt, rs1(0))(Seq(
-    AluSrc.ImmZero.asUInt -> e0.imm,
-    AluSrc.PcImm.asUInt   -> e0.pc
-  ))
-  io.issuePorts.alu.bits.opB := MuxLookup(aluSrc0.asUInt, rs2(0))(Seq(
-    AluSrc.Rs1Imm.asUInt  -> e0.imm,
-    AluSrc.ImmZero.asUInt -> 0.U(32.W),
-    AluSrc.PcImm.asUInt   -> e0.imm
-  ))
-  io.issuePorts.alu.bits.aluOp := AluOp.safe(FuDecode.take(e0.fu_op, AluOp.getWidth))._1
-  io.issuePorts.alu.bits.pc := e0.pc
-  io.issuePorts.alu.bits.rob_id := e0.rob_id
-  io.issuePorts.alu.bits.p_rd := e0.p_rd
+  private def wireAlu(i: Int): Unit = {
+    val e = entry(i)
+    io.issuePorts.alu.valid := io.in(i).valid
+    val (aluSrc0, _) = AluSrc.safe(FuDecode.take(e.fu_src, AluSrc.getWidth))
+    io.issuePorts.alu.bits.opA := MuxLookup(aluSrc0.asUInt, rs1(i))(Seq(
+      AluSrc.ImmZero.asUInt -> e.imm,
+      AluSrc.PcImm.asUInt   -> e.pc
+    ))
+    io.issuePorts.alu.bits.opB := MuxLookup(aluSrc0.asUInt, rs2(i))(Seq(
+      AluSrc.Rs1Imm.asUInt  -> e.imm,
+      AluSrc.ImmZero.asUInt -> 0.U(32.W),
+      AluSrc.PcImm.asUInt   -> e.imm
+    ))
+    io.issuePorts.alu.bits.aluOp := AluOp.safe(FuDecode.take(e.fu_op, AluOp.getWidth))._1
+    io.issuePorts.alu.bits.pc := e.pc
+    io.issuePorts.alu.bits.rob_id := e.rob_id
+    io.issuePorts.alu.bits.p_rd := e.p_rd
+  }
 
-  io.issuePorts.bru.valid := io.in(1).valid
-  val e1 = io.in(1).bits
-  io.issuePorts.bru.bits.pc := e1.pc
-  io.issuePorts.bru.bits.pred_next_pc := e1.pred_next_pc
-  io.issuePorts.bru.bits.offset := e1.imm
-  io.issuePorts.bru.bits.rs1 := rs1(1)
-  io.issuePorts.bru.bits.rs2 := rs2(1)
-  io.issuePorts.bru.bits.bruOp := BruOp.safe(FuDecode.take(e1.fu_op, BruOp.getWidth))._1
-  io.issuePorts.bru.bits.rob_id := e1.rob_id
-  io.issuePorts.bru.bits.p_rd := e1.p_rd
+  private def wireBru(i: Int): Unit = {
+    val e = entry(i)
+    io.issuePorts.bru.valid := io.in(i).valid
+    io.issuePorts.bru.bits.pc := e.pc
+    io.issuePorts.bru.bits.pred_next_pc := e.pred_next_pc
+    io.issuePorts.bru.bits.offset := e.imm
+    io.issuePorts.bru.bits.rs1 := rs1(i)
+    io.issuePorts.bru.bits.rs2 := rs2(i)
+    io.issuePorts.bru.bits.bruOp := BruOp.safe(FuDecode.take(e.fu_op, BruOp.getWidth))._1
+    io.issuePorts.bru.bits.rob_id := e.rob_id
+    io.issuePorts.bru.bits.p_rd := e.p_rd
+  }
 
-  io.issuePorts.agu.valid := io.in(2).valid
-  val e2 = io.in(2).bits
-  io.issuePorts.agu.bits.base := rs1(2)
-  io.issuePorts.agu.bits.imm := e2.imm
-  io.issuePorts.agu.bits.lsuOp := LsuOp.safe(FuDecode.take(e2.fu_op, LsuOp.getWidth))._1
-  io.issuePorts.agu.bits.storeData := rs2(2)
-  io.issuePorts.agu.bits.pc := e2.pc
-  io.issuePorts.agu.bits.rob_id := e2.rob_id
-  io.issuePorts.agu.bits.p_rd := e2.p_rd
-  io.issuePorts.agu.bits.lsq_id := e2.lsq_id
+  private def wireAgu(i: Int): Unit = {
+    val e = entry(i)
+    io.issuePorts.agu.valid := io.in(i).valid
+    io.issuePorts.agu.bits.base := rs1(i)
+    io.issuePorts.agu.bits.imm := e.imm
+    io.issuePorts.agu.bits.lsuOp := LsuOp.safe(FuDecode.take(e.fu_op, LsuOp.getWidth))._1
+    io.issuePorts.agu.bits.storeData := rs2(i)
+    io.issuePorts.agu.bits.pc := e.pc
+    io.issuePorts.agu.bits.rob_id := e.rob_id
+    io.issuePorts.agu.bits.p_rd := e.p_rd
+    io.issuePorts.agu.bits.lsq_id := e.lsq_id
+  }
 
-  private val sysuPortIdx = numPorts - 1
+  private def wireMul(i: Int): Unit = {
+    val e = entry(i)
+    io.issuePorts.mul.get.valid := io.in(i).valid
+    io.issuePorts.mul.get.bits.opA := rs1(i)
+    io.issuePorts.mul.get.bits.opB := rs2(i)
+    io.issuePorts.mul.get.bits.mulOp := MulOp.safe(FuDecode.take(e.fu_op, MulOp.getWidth))._1
+    io.issuePorts.mul.get.bits.pc := e.pc
+    io.issuePorts.mul.get.bits.rob_id := e.rob_id
+    io.issuePorts.mul.get.bits.p_rd := e.p_rd
+  }
+
+  private def wireDiv(i: Int): Unit = {
+    val e = entry(i)
+    io.issuePorts.div.get.valid := io.in(i).valid
+    io.issuePorts.div.get.bits.opA := rs1(i)
+    io.issuePorts.div.get.bits.opB := rs2(i)
+    io.issuePorts.div.get.bits.divOp := DivOp.safe(FuDecode.take(e.fu_op, DivOp.getWidth))._1
+    io.issuePorts.div.get.bits.pc := e.pc
+    io.issuePorts.div.get.bits.rob_id := e.rob_id
+    io.issuePorts.div.get.bits.p_rd := e.p_rd
+  }
+
+  private def wireSysu(i: Int): Unit = {
+    val e = entry(i)
+    io.issuePorts.sysu.valid := io.in(i).valid
+    io.issuePorts.sysu.bits.rob_id := e.rob_id
+    io.issuePorts.sysu.bits.pc := e.pc
+    io.issuePorts.sysu.bits.p_rd := e.p_rd
+    io.issuePorts.sysu.bits.csr_type := Mux(e.fu_type === FuType.SYSU, CsrType.fromAddr(e.csr_addr), CsrType.None)
+    io.issuePorts.sysu.bits.csr_rdata := e.csr_rdata
+    io.issuePorts.sysu.bits.rs1_val := rs1(i)
+    io.issuePorts.sysu.bits.sysuOp := SysuOp.safe(FuDecode.take(e.fu_op, SysuOp.getWidth))._1
+    io.issuePorts.sysu.bits.imm := e.imm
+  }
+
+  wireAlu(0)
+  wireBru(1)
+  wireAgu(2)
   if (hasM) {
-    io.issuePorts.mul.get.valid := io.in(3).valid
-    val e3 = io.in(3).bits
-    io.issuePorts.mul.get.bits.opA := rs1(3)
-    io.issuePorts.mul.get.bits.opB := rs2(3)
-    io.issuePorts.mul.get.bits.mulOp := MulOp.safe(FuDecode.take(e3.fu_op, MulOp.getWidth))._1
-    io.issuePorts.mul.get.bits.pc := e3.pc
-    io.issuePorts.mul.get.bits.rob_id := e3.rob_id
-    io.issuePorts.mul.get.bits.p_rd := e3.p_rd
-
-    io.issuePorts.div.get.valid := io.in(4).valid
-    val e4 = io.in(4).bits
-    io.issuePorts.div.get.bits.opA := rs1(4)
-    io.issuePorts.div.get.bits.opB := rs2(4)
-    io.issuePorts.div.get.bits.divOp := DivOp.safe(FuDecode.take(e4.fu_op, DivOp.getWidth))._1
-    io.issuePorts.div.get.bits.pc := e4.pc
-    io.issuePorts.div.get.bits.rob_id := e4.rob_id
-    io.issuePorts.div.get.bits.p_rd := e4.p_rd
+    wireMul(3)
+    wireDiv(4)
   }
-
-  io.issuePorts.sysu.valid := io.in(sysuPortIdx).valid
-  val e5 = io.in(sysuPortIdx).bits
-  io.issuePorts.sysu.bits.rob_id := e5.rob_id
-  io.issuePorts.sysu.bits.pc := e5.pc
-  io.issuePorts.sysu.bits.p_rd := e5.p_rd
-  io.issuePorts.sysu.bits.csr_type := Mux(e5.fu_type === FuType.SYSU, CsrType.fromAddr(e5.csr_addr), CsrType.None)
-  io.issuePorts.sysu.bits.csr_rdata := e5.csr_rdata
-  io.issuePorts.sysu.bits.rs1_val := rs1(sysuPortIdx)
-  io.issuePorts.sysu.bits.sysuOp := SysuOp.safe(FuDecode.take(e5.fu_op, SysuOp.getWidth))._1
-  io.issuePorts.sysu.bits.imm := e5.imm
+  wireSysu(numPorts - 1)
 }
 
 /** Issue Queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.
