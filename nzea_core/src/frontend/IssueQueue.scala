@@ -53,6 +53,8 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
     val in            = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
+    /** Read-stage ALU: valid + p_rd only; Select uses for operand readiness (no data). */
+    val alu_read_hint = Input(Valid(UInt(prfAddrWidth.W)))
     /** One output per FU; ready/flush come from PipelineConnect (pipe reg) and consumer. */
     val out = Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   })
@@ -80,6 +82,13 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
         when(p_rs2 === waddr && p_rs2 =/= 0.U) { entries(i).rs2_ready := true.B }
       }
     }
+    when(!flush && io.alu_read_hint.valid && entryValid) {
+      val waddr = io.alu_read_hint.bits
+      val p_rs1 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs1, entries(i).p_rs1)
+      val p_rs2 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs2, entries(i).p_rs2)
+      when(p_rs1 === waddr && p_rs1 =/= 0.U) { entries(i).rs1_ready := true.B }
+      when(p_rs2 === waddr && p_rs2 =/= 0.U) { entries(i).rs2_ready := true.B }
+    }
   }
 
   when(flush) {
@@ -91,14 +100,16 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   val canIssue = Wire(Vec(depth, Bool()))
   for (i <- 0 until depth) {
     val entry = entries(i)
-    val rs1BypassHit = bypassPorts.map { case (_, j) =>
-      (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs1) ||
-      (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs1)
-    }.foldLeft(false.B)(_ || _)
-    val rs2BypassHit = bypassPorts.map { case (_, j) =>
-      (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs2) ||
-      (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs2)
-    }.foldLeft(false.B)(_ || _)
+    val rs1BypassHit = (io.alu_read_hint.valid && io.alu_read_hint.bits === entry.p_rs1 && entry.p_rs1 =/= 0.U) ||
+      bypassPorts.map { case (_, j) =>
+        (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs1) ||
+        (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs1)
+      }.foldLeft(false.B)(_ || _)
+    val rs2BypassHit = (io.alu_read_hint.valid && io.alu_read_hint.bits === entry.p_rs2 && entry.p_rs2 =/= 0.U) ||
+      bypassPorts.map { case (_, j) =>
+        (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs2) ||
+        (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs2)
+      }.foldLeft(false.B)(_ || _)
     val actual_rs1_ready = (entry.p_rs1 === 0.U) || entry.rs1_ready || rs1BypassHit
     val actual_rs2_ready = (entry.p_rs2 === 0.U) || entry.rs2_ready || rs2BypassHit
     val portIdx = MuxLookup(entry.fu_type.asUInt, 0.U)(fuTypeToPortIdx)
@@ -163,6 +174,8 @@ class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit 
     val in = Flipped(Vec(numPorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
     val prf_read = Vec(numPorts, Vec(2, new PrfReadIO(prfAddrWidth)))
     val issuePorts = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
+    /** ALU port in read stage: valid + p_rd for SelectStage readiness only (no result). */
+    val alu_read_hint = Output(Valid(UInt(prfAddrWidth.W)))
   })
 
   private val flush = io.issuePorts.orderedPorts(0).flush
@@ -260,6 +273,10 @@ class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit 
   }
 
   wireAlu(0)
+  val aluE = entry(0)
+  io.alu_read_hint.valid := io.in(0).valid && aluE.p_rd =/= 0.U
+  io.alu_read_hint.bits := aluE.p_rd
+
   wireBru(1)
   wireAgu(2)
   if (hasM) {
@@ -288,6 +305,7 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   s1.io.in <> io.in
   s1.io.prf_write := io.prf_write
   s1.io.bypass_level1 := io.bypass_level1
+  s1.io.alu_read_hint := s2.io.alu_read_hint
 
   val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
   for (i <- 0 until FuConfig.numIssuePorts) {
