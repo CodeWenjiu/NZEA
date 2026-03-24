@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_config.{FuConfig, NzeaConfig}
 
-/** Core module: Rob in Core; FUs write to [[frontend.Prf]]; Rob sends mem_req to MemUnit; Commit receives Rob commit and commits. */
+/** Core module: Rob in Core; FUs write to [[frontend.Prf]] / [[frontend.CsrFile]]; MemUnit; Commit. */
 class Core(implicit config: NzeaConfig) extends Module {
   private val addrWidth    = config.width
   private val robDepth     = config.robDepth
@@ -22,8 +22,9 @@ class Core(implicit config: NzeaConfig) extends Module {
   val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
   val commit = Module(new retire.Commit)
   val wbu = Module(new retire.WBU(prfAddrWidth))
-  val prf  = frontend.Prf.apply(config)
-  val isu  = frontend.ISU(addrWidth)
+  val prf = frontend.Prf.apply(config)
+  val csr = Module(new frontend.CsrFile())
+  val isu = frontend.ISU(addrWidth)
   val iq = Module(new frontend.IssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth, FuConfig.numPrfWritePorts))
   val fuOuts = exu.outPorts :+ memUnit.io.out
   (fuOuts zip wbu.io.in).foreach { case (fu, port) => port <> fu }
@@ -42,7 +43,7 @@ class Core(implicit config: NzeaConfig) extends Module {
   }
   commit.io.do_flush := rob.io.do_flush
   wbu.io.flush := commit.io.do_flush
-  isu.io.csr_write := exu.io.csr_write
+  csr.io.csr_write := exu.io.csr_write
   (exu.robAccessPorts zip rob.io.accessPorts).foreach { case (fu, port) => port <> fu }
 
   val io = IO(new Bundle {
@@ -85,14 +86,17 @@ class Core(implicit config: NzeaConfig) extends Module {
     iq.io.prf_read(i)(j).data := d
   }
 
+  csr.io.read_addr := iq.io.csr_read_addr
+  iq.io.csr_rdata  := csr.io.read_data
+
   (iq.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
   lsq.io.ls_alloc <> isu.io.ls_alloc
   lsq.io.ls_write <> exu.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
-  isu.io.commit_rob_id := commit.io.commit_rob_id
-  isu.io.commit_valid   := commit.io.commit_valid
+  iq.io.commit_rob_id := commit.io.commit_rob_id
+  iq.io.commit_valid  := commit.io.commit_valid
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U
 

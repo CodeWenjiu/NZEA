@@ -1,18 +1,12 @@
 package nzea_core.frontend
 
 import chisel3._
-import chisel3.util.{Mux1H, MuxLookup, Valid, switch, is}
+import chisel3.util.Valid
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocIO}
 import nzea_config.FuConfig
-
-/** CSR write from SYSU: csr_type, data. */
-class CsrWriteBundle extends Bundle {
-  val csr_type = CsrType()
-  val data     = UInt(32.W)
-}
 
 /** ISU factory: config-driven, port count derived from FuConfig. */
 object ISU {
@@ -39,9 +33,6 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     /** Raw PRF read at p_rs1 / p_rs2 (from [[Prf]]); bypass merged here for IssueQueueEntry.ready. */
     val prf_enqueue_rs1 = Input(new PrfRawRead(prfAddrWidth))
     val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
-    val csr_write       = Input(Valid(new CsrWriteBundle))
-    val commit_rob_id   = Input(UInt(robIdWidth.W))
-    val commit_valid    = Input(Bool())
   })
 
   val (_, rs1_ready) = PrfBypass.mergeOperand(
@@ -59,43 +50,6 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     io.prf_write
   )
 
-  // -------- CSR registers --------
-  val csr_mstatus  = RegInit(0x1800.U(32.W))
-  val csr_mtvec    = RegInit(0.U(32.W))
-  val csr_mepc     = RegInit(0.U(32.W))
-  val csr_mcause   = RegInit(0.U(32.W))
-  val csr_mscratch = RegInit(0.U(32.W))
-
-  when(io.csr_write.valid && io.csr_write.bits.csr_type =/= CsrType.None) {
-    switch(io.csr_write.bits.csr_type) {
-      is(CsrType.Mstatus)  { csr_mstatus  := io.csr_write.bits.data }
-      is(CsrType.Mtvec)    { csr_mtvec    := io.csr_write.bits.data }
-      is(CsrType.Mepc)     { csr_mepc     := io.csr_write.bits.data }
-      is(CsrType.Mcause)   { csr_mcause   := io.csr_write.bits.data }
-      is(CsrType.Mscratch) { csr_mscratch := io.csr_write.bits.data }
-    }
-  }
-
-  def readCsr(csrType: CsrType.Type): UInt =
-    Mux(csrType === CsrType.None, 0.U(32.W),
-      Mux1H(
-        Seq(
-          csrType === CsrType.Mstatus,
-          csrType === CsrType.Mtvec,
-          csrType === CsrType.Mepc,
-          csrType === CsrType.Mcause,
-          csrType === CsrType.Mscratch
-        ),
-        Seq(csr_mstatus, csr_mtvec, csr_mepc, csr_mcause, csr_mscratch)
-      ))
-
-  val csr_type_sysu = Mux(
-    io.in.bits.fu_type === FuType.SYSU,
-    CsrType.fromAddr(io.in.bits.csr_addr),
-    CsrType.None
-  )
-  val csr_rdata = readCsr(csr_type_sysu)
-
   io.in.flush := io.out.flush
 
   val fu_type      = io.in.bits.fu_type
@@ -106,21 +60,8 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   val rob_id       = io.rob_enq.rob_id
   val can_dispatch = io.in.valid
 
-  val will_csr_write = csr_type_sysu =/= CsrType.None && io.in.bits.csr_will_write
-  val pending_csr_write_rob_id = RegInit(0.U(robIdWidth.W))
-  val pending_csr_write_valid  = RegInit(false.B)
-  when(io.in.flush) {
-    pending_csr_write_valid := false.B
-  }.elsewhen(io.commit_valid && pending_csr_write_valid && io.commit_rob_id === pending_csr_write_rob_id) {
-    pending_csr_write_valid := false.B
-  }.elsewhen(can_dispatch && io.out.fire && fu_type === FuType.SYSU && will_csr_write) {
-    pending_csr_write_valid := true.B
-    pending_csr_write_rob_id := rob_id
-  }
-  val csr_write_pending_stall = pending_csr_write_valid
-
   val lsu_can_alloc = Mux(fu_type === FuType.LSU, io.ls_alloc.ready, true.B)
-  val can_push      = can_dispatch && !csr_write_pending_stall && io.rob_enq.req.ready && lsu_can_alloc
+  val can_push      = can_dispatch && io.rob_enq.req.ready && lsu_can_alloc
 
   val (lsuOp, _) = LsuOp.safe(FuDecode.take(fu_op, LsuOp.getWidth))
   io.rob_enq.req.valid := can_push && io.out.ready
@@ -149,9 +90,9 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   io.out.bits.pred_next_pc := io.in.bits.pred_next_pc
   io.out.bits.fu_op        := fu_op
   io.out.bits.fu_src       := fu_src
-  io.out.bits.csr_addr     := io.in.bits.csr_addr
-  io.out.bits.csr_rdata    := csr_rdata
-  io.out.bits.rob_id       := rob_id
+  io.out.bits.csr_addr       := io.in.bits.csr_addr
+  io.out.bits.csr_will_write := io.in.bits.csr_will_write
+  io.out.bits.rob_id         := rob_id
   io.out.bits.p_rd         := io.in.bits.p_rd
   io.out.bits.old_p_rd     := io.in.bits.old_p_rd
   io.out.bits.rd_index     := io.in.bits.rd_index
@@ -162,5 +103,5 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
     RobMemType.None
   )
 
-  io.in.ready := !csr_write_pending_stall && io.rob_enq.req.ready && lsu_can_alloc && io.out.ready
+  io.in.ready := io.rob_enq.req.ready && lsu_can_alloc && io.out.ready
 }

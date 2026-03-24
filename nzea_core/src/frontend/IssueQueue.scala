@@ -23,7 +23,8 @@ class IssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) exten
   val fu_op          = UInt(FuOpWidth.Width.W)
   val fu_src         = UInt(FuSrcWidth.Width.W)
   val csr_addr       = UInt(12.W)
-  val csr_rdata      = UInt(32.W)
+  /** Decode-time: SYSU will write CSR (rs1/zimm non-zero for CSRRS/CSRRC/… ). */
+  val csr_will_write = Bool()
   val rob_id         = UInt(robIdWidth.W)
   val lsq_id         = UInt(lsqIdWidth.W)
   val mem_type       = RobMemType()
@@ -48,9 +49,12 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   }
 
   val io = IO(new Bundle {
-    val in            = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
+    val in = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
+    /** Clear SYSU CSR-write pending when matching rob commits. */
+    val commit_rob_id = Input(UInt(robIdWidth.W))
+    val commit_valid  = Input(Bool())
     /** Read-stage ALU: valid + p_rd only; Select uses for operand readiness (no data). */
     val alu_read_hint = Input(Valid(UInt(prfAddrWidth.W)))
     /** One output per FU; ready/flush come from PipelineConnect (pipe reg) and consumer. */
@@ -65,8 +69,12 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex.filter(_._1.hasBypass)
 
   val firstInvalid = PriorityEncoder(VecInit((0 until depth).map(i => !valids(i))).asUInt)
-  io.in.ready := !full
+  val pending_csr_write_rob_id = RegInit(0.U(robIdWidth.W))
+  val pending_csr_write_valid  = RegInit(false.B)
   val enqFire = !flush && io.in.fire
+
+  io.in.ready := !full
+  val csr_pending_issue_stall = pending_csr_write_valid
 
   for (i <- 0 until depth) {
     val entryValid = valids(i) || (enqFire && firstInvalid === i.U)
@@ -111,7 +119,7 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
     val actual_rs1_ready = (entry.p_rs1 === 0.U) || entry.rs1_ready || rs1BypassHit
     val actual_rs2_ready = (entry.p_rs2 === 0.U) || entry.rs2_ready || rs2BypassHit
     val portIdx = MuxLookup(entry.fu_type.asUInt, 0.U)(fuTypeToPortIdx)
-    canIssue(i) := valids(i) && actual_rs1_ready && actual_rs2_ready && fuReady(portIdx)
+    canIssue(i) := valids(i) && actual_rs1_ready && actual_rs2_ready && fuReady(portIdx) && !csr_pending_issue_stall
   }
   val firstReadyIdx = PriorityEncoder(canIssue.asUInt)
   val anyCanIssue = canIssue.asUInt.orR
@@ -136,7 +144,7 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   e.fu_op     := Mux1H(selOneHot, rawEntryFor.map(_.fu_op))
   e.fu_src    := Mux1H(selOneHot, rawEntryFor.map(_.fu_src))
   e.csr_addr  := Mux1H(selOneHot, rawEntryFor.map(_.csr_addr))
-  e.csr_rdata := Mux1H(selOneHot, rawEntryFor.map(_.csr_rdata))
+  e.csr_will_write := Mux1H(selOneHot, rawEntryFor.map(_.csr_will_write))
   e.rob_id    := Mux1H(selOneHot, rawEntryFor.map(_.rob_id))
   e.p_rd      := Mux1H(selOneHot, rawEntryFor.map(_.p_rd))
   e.old_p_rd  := Mux1H(selOneHot, rawEntryFor.map(_.old_p_rd))
@@ -151,6 +159,17 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
 
   val issueFire = anyCanIssue && io.out(portIdxForSel).ready
   val deqFire = !flush && issueFire
+  val csr_type_deq = Mux(e.fu_type === FuType.SYSU, CsrType.fromAddr(e.csr_addr), CsrType.None)
+  val will_csr_write_deq = csr_type_deq =/= CsrType.None && e.csr_will_write
+  when(flush) {
+    pending_csr_write_valid := false.B
+  }.elsewhen(io.commit_valid && pending_csr_write_valid && io.commit_rob_id === pending_csr_write_rob_id) {
+    pending_csr_write_valid := false.B
+  }.elsewhen(deqFire && e.fu_type === FuType.SYSU && will_csr_write_deq) {
+    pending_csr_write_valid := true.B
+    pending_csr_write_rob_id := e.rob_id
+  }
+
   when(deqFire) { valids(firstReadyIdx) := false.B }
   when(enqFire) {
     entries(firstInvalid) := io.in.bits
@@ -169,6 +188,10 @@ class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit 
   val io = IO(new Bundle {
     val in = Flipped(Vec(numPorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
     val prf_read = Vec(numPorts, Vec(2, new PrfReadIO(prfAddrWidth)))
+    /** Combinational CSR read for SYSU port (addr from [[csr_read_addr]]). */
+    val csr_rdata = Input(UInt(32.W))
+    /** CSR address for [[csr_rdata]] read; 0 when SYSU port not issuing. */
+    val csr_read_addr = Output(UInt(12.W))
     val issuePorts = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
     /** ALU port in read stage: valid + p_rd for SelectStage readiness only (no result). */
     val alu_read_hint = Output(Valid(UInt(prfAddrWidth.W)))
@@ -262,15 +285,22 @@ class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit 
     io.issuePorts.sysu.bits.pc := e.pc
     io.issuePorts.sysu.bits.p_rd := e.p_rd
     io.issuePorts.sysu.bits.csr_type := Mux(e.fu_type === FuType.SYSU, CsrType.fromAddr(e.csr_addr), CsrType.None)
-    io.issuePorts.sysu.bits.csr_rdata := e.csr_rdata
+    io.issuePorts.sysu.bits.csr_rdata := io.csr_rdata
     io.issuePorts.sysu.bits.rs1_val := rs1(i)
     io.issuePorts.sysu.bits.sysuOp := SysuOp.safe(FuDecode.take(e.fu_op, SysuOp.getWidth))._1
     io.issuePorts.sysu.bits.imm := e.imm
   }
 
+  private val sysuIdx = numPorts - 1
+  io.csr_read_addr := Mux(
+    io.in(sysuIdx).valid && entry(sysuIdx).fu_type === FuType.SYSU,
+    entry(sysuIdx).csr_addr,
+    0.U(12.W)
+  )
+
   wireAlu(0)
   val aluE = entry(0)
-  io.alu_read_hint.valid := io.in(0).valid && aluE.p_rd =/= 0.U
+  io.alu_read_hint.valid := io.in(0).valid
   io.alu_read_hint.bits := aluE.p_rd
 
   wireBru(1)
@@ -288,11 +318,15 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   implicit config: NzeaConfig
 ) extends Module {
   val io = IO(new Bundle {
-    val in            = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
+    val in = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
+    val commit_rob_id   = Input(UInt(robIdWidth.W))
+    val commit_valid    = Input(Bool())
     val issuePorts    = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
     val prf_read      = Vec(FuConfig.numIssuePorts, Vec(2, new PrfReadIO(prfAddrWidth)))
+    val csr_rdata     = Input(UInt(32.W))
+    val csr_read_addr = Output(UInt(12.W))
   })
 
   val s1 = Module(new IQSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
@@ -301,6 +335,8 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   s1.io.in <> io.in
   s1.io.prf_write := io.prf_write
   s1.io.bypass_level1 := io.bypass_level1
+  s1.io.commit_rob_id := io.commit_rob_id
+  s1.io.commit_valid  := io.commit_valid
   s1.io.alu_read_hint := s2.io.alu_read_hint
 
   val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
@@ -314,5 +350,7 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   for (i <- 0 until FuConfig.numIssuePorts; j <- 0 until 2) {
     io.prf_read(i)(j) <> s2.io.prf_read(i)(j)
   }
+  s2.io.csr_rdata := io.csr_rdata
+  io.csr_read_addr := s2.io.csr_read_addr
   io.issuePorts <> s2.io.issuePorts
 }
