@@ -183,7 +183,7 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val next_pc = b.pc + 4.U
   val u = Rob.entryStateUpdate(io.in.valid, b.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)
   io.rob_access <> u
-  io.out.valid := u.valid && b.p_rd =/= 0.U
+  io.out.valid := u.valid
   io.out.bits.addr := b.p_rd
   io.out.bits.data := result
   io.in.ready := io.out.ready

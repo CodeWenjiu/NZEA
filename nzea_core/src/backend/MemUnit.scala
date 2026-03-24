@@ -75,7 +75,7 @@ class MemUnit(width: Int, robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   io.rob_access <> Rob.entryStateUpdate(respFire, respUser.rob_id, is_done = true.B)(robIdWidth)
 
-  io.out.valid := respFire && isLoadFromResp && respUser.p_rd =/= 0.U && !io.out.flush
+  io.out.valid := respFire && isLoadFromResp
   io.out.bits.addr := respUser.p_rd
   io.out.bits.data := loadData
 }

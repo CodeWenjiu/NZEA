@@ -60,7 +60,7 @@ class ALU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.rob_access <> Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)
   io.in.ready := io.out.ready
 
-  io.out.valid := io.in.valid && io.in.bits.p_rd =/= 0.U
+  io.out.valid := io.in.valid
   io.out.bits.addr := io.in.bits.p_rd
   io.out.bits.data := result
   io.in.flush := io.out.flush

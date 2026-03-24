@@ -98,7 +98,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     next_pc = b.next_pc
   )(robIdWidth)
 
-  io.out.valid := io.in.valid && b.p_rd =/= 0.U
+  io.out.valid := io.in.valid
   io.out.bits.addr := b.p_rd
   io.out.bits.data := b.pc_plus_4
 

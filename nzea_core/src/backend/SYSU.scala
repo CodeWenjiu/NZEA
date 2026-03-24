@@ -76,7 +76,7 @@ class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.csr_write.bits.csr_type := io.in.bits.csr_type
   io.csr_write.bits.data := csr_wdata
 
-  io.out.valid := u.valid && io.in.bits.p_rd =/= 0.U
+  io.out.valid := u.valid
   io.out.bits.addr := io.in.bits.p_rd
   io.out.bits.data := csr_rd_val
   io.in.flush := io.out.flush
