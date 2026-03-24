@@ -74,13 +74,13 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   val firstInvalid = PriorityEncoder(VecInit((0 until depth).map(i => !valids(i))).asUInt)
   val pending_csr_write_rob_id = RegInit(0.U(robIdWidth.W))
   val pending_csr_write_valid  = RegInit(false.B)
-  val enqFire = io.in.fire
+  val enqFire = !flush && io.in.fire
 
-  io.in.ready := !full
+  io.in.ready := !full && !flush
   val csr_pending_issue_stall = pending_csr_write_valid
 
   for (i <- 0 until depth) {
-    val entryValid = valids(i) || (enqFire && firstInvalid === i.U) // 怪东西，为什么要提前判断entryValid?
+    val entryValid = valids(i) || (enqFire && firstInvalid === i.U)
     for (j <- 0 until numPrfWritePorts) {
       val waddr = Mux(io.bypass_level1(j).valid, io.bypass_level1(j).bits.addr, io.prf_write(j).bits.addr)
       val wvalid = io.bypass_level1(j).valid || io.prf_write(j).valid

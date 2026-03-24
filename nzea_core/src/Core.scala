@@ -30,6 +30,10 @@ class Core(implicit config: NzeaConfig) extends Module {
   (fuOuts zip wbu.io.in).foreach { case (fu, port) => port <> fu }
   (wbu.io.out zip iq.io.prf_write).foreach { case (w, p) => p <> w }
   prf.io.write := wbu.io.out
+  // Clear PRF ready when the renamed uop leaves the IDU→ISU pipe reg (isu.in.fire), not idu.out.fire:
+  // PipelineConnect registers one cycle between idu.out and isu.in; idu.out.fire is one cycle earlier.
+  // When ISU is removed (IDU→IQ directly): switch to iq.io.in.fire (or the downstream PipeIO fire that
+  // replaces isu.in), not idu.io.out.fire, unless IDU and IQ are combinatorially connected with no reg.
   prf.io.allocClear.valid := isu.io.in.fire && isu.io.in.bits.p_rd =/= 0.U
   prf.io.allocClear.bits  := isu.io.in.bits.p_rd
   (fuOuts zip iq.io.bypass_level1).foreach { case (fu, port) =>
@@ -54,8 +58,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   isu.io.out.ready := iq.io.in.ready
   isu.io.out.flush := iq.io.issuePorts.orderedPorts(0).flush
 
-  prf.io.read(0).addr := iq.io.in.bits.p_rs1
-  prf.io.read(1).addr := iq.io.in.bits.p_rs2
+  prf.io.read(0).addr := Mux(iq.io.in.valid, iq.io.in.bits.p_rs1, 0.U(prfAddrWidth.W))
+  prf.io.read(1).addr := Mux(iq.io.in.valid, iq.io.in.bits.p_rs2, 0.U(prfAddrWidth.W))
   iq.io.prf_enqueue_rs1.data  := prf.io.read(0).data
   iq.io.prf_enqueue_rs1.ready := prf.io.read(0).ready
   iq.io.prf_enqueue_rs2.data  := prf.io.read(1).data
