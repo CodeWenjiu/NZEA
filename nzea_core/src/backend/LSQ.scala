@@ -41,7 +41,7 @@ class LSQ(robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) extends Module
   val ls_empty = ls_head_ptr === ls_tail_ptr
   val ls_full  = (ls_tail_phys === ls_head_phys) && (ls_tail_ptr(lsqIdWidth) =/= ls_head_ptr(lsqIdWidth))
 
-  io.ls_alloc.ready := !ls_full && !io.flush
+  io.ls_alloc.ready := !ls_full
   io.ls_alloc.lsq_id := ls_tail_phys
   io.ls_write.ready := true.B
   io.ls_write.flush := io.flush

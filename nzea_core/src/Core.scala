@@ -1,10 +1,10 @@
 package nzea_core
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
-import nzea_config.NzeaConfig
+import chisel3.util.Valid
+import nzea_config.{FuConfig, NzeaConfig}
 
-/** Core module: Rob in Core; FUs write to Rob and PRF (in ISU); Rob sends mem_req to MemUnit; Commit receives Rob commit and commits. */
+/** Core module: Rob in Core; FUs write to [[frontend.Prf]]; Rob sends mem_req to MemUnit; Commit receives Rob commit and commits. */
 class Core(implicit config: NzeaConfig) extends Module {
   private val addrWidth    = config.width
   private val robDepth     = config.robDepth
@@ -22,12 +22,16 @@ class Core(implicit config: NzeaConfig) extends Module {
   val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
   val commit = Module(new retire.Commit)
   val wbu = Module(new retire.WBU(prfAddrWidth))
-  val isu = frontend.ISU(addrWidth)
-  val iq = Module(new frontend.IssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth, nzea_config.FuConfig.numPrfWritePorts))
+  val prf  = frontend.Prf.apply(config)
+  val isu  = frontend.ISU(addrWidth)
+  val iq = Module(new frontend.IssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth, FuConfig.numPrfWritePorts))
   val fuOuts = exu.outPorts :+ memUnit.io.out
   (fuOuts zip wbu.io.in).foreach { case (fu, port) => port <> fu }
   (wbu.io.out zip isu.io.prf_write).foreach { case (w, p) => p <> w }
   (wbu.io.out zip iq.io.prf_write).foreach { case (w, p) => p <> w }
+  prf.io.write := wbu.io.out
+  prf.io.allocClear.valid := isu.io.in.fire && isu.io.in.bits.p_rd =/= 0.U
+  prf.io.allocClear.bits  := isu.io.in.bits.p_rd
   (fuOuts zip isu.io.bypass_level1).foreach { case (fu, port) =>
     port.valid := fu.valid
     port.bits := fu.bits
@@ -53,14 +57,40 @@ class Core(implicit config: NzeaConfig) extends Module {
   iq.io.in.bits := isu.io.out.bits
   isu.io.out.ready := iq.io.in.ready
   isu.io.out.flush := iq.io.issuePorts.orderedPorts(0).flush
-  iq.io.prf_read <> isu.io.iq_prf_read
+
+  prf.io.read(0).addr := isu.io.in.bits.p_rs1
+  prf.io.read(1).addr := isu.io.in.bits.p_rs2
+  isu.io.prf_enqueue_rs1.data  := prf.io.read(0).data
+  isu.io.prf_enqueue_rs1.ready := prf.io.read(0).ready
+  isu.io.prf_enqueue_rs2.data  := prf.io.read(1).data
+  isu.io.prf_enqueue_rs2.ready := prf.io.read(1).ready
+
+  prf.io.read(2).addr := commit.io.commit_prf_read.addr
+  commit.io.commit_prf_read.data := frontend.PrfBypass.mergeCommitData(
+    commit.io.commit_prf_read.addr,
+    prf.io.read(2).data,
+    wbu.io.out
+  )
+
+  for (i <- 0 until FuConfig.numIssuePorts; j <- 0 until 2) {
+    val r = 3 + i * 2 + j
+    prf.io.read(r).addr := iq.io.prf_read(i)(j).addr
+    val (d, _) = frontend.PrfBypass.mergeOperand(
+      iq.io.prf_read(i)(j).addr,
+      prf.io.read(r).data,
+      prf.io.read(r).ready,
+      isu.io.bypass_level1,
+      wbu.io.out
+    )
+    iq.io.prf_read(i)(j).data := d
+  }
+
   (iq.io.issuePorts.orderedPorts zip exu.io.issuePorts.orderedPorts).foreach { case (a, b) => a <> b }
 
   rob.enq <> isu.io.rob_enq
   lsq.io.ls_alloc <> isu.io.ls_alloc
   lsq.io.ls_write <> exu.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
-  isu.io.commit_prf_read <> commit.io.commit_prf_read
   isu.io.commit_rob_id := commit.io.commit_rob_id
   isu.io.commit_valid   := commit.io.commit_valid
   rob.io.slotReadRs1.rob_id := 0.U

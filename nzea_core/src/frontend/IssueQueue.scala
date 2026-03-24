@@ -65,7 +65,7 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex.filter(_._1.hasBypass)
 
   val firstInvalid = PriorityEncoder(VecInit((0 until depth).map(i => !valids(i))).asUInt)
-  io.in.ready := !full && !flush
+  io.in.ready := !full
   val enqFire = !flush && io.in.fire
 
   for (i <- 0 until depth) {

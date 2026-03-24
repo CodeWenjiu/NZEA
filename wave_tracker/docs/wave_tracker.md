@@ -29,6 +29,8 @@
 - **`core`**：时间索引、默认路径、二进制/十六进制 PC 辅助、`snapshot_at` / `val_by_substring`、按时间窗迭代采样等  
 - **`analysis`**：各分析函数（scan、deadlock、trace_* 等），偏 nzea 信号命名，可视为该项目的「调试配置」层  
 
+Chisel 核心里 **PRF** 为独立模块 `frontend.Prf`（多口读、WBU 写、rename 分配时清 ready）；**bypass 合并**在 `PrfBypass`，于 `Core` 连接 ISU/IQ/commit 时组合，与波形工具无关。
+
 库 crate 可被测试或其它工具 `use wave_tracker::...` 引用。
 
 ## 信号过滤提示
