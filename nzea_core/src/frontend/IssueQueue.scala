@@ -14,6 +14,9 @@ class IssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) exten
   val rs2_ready      = Bool()
   val p_rs1          = UInt(prfAddrWidth.W)
   val p_rs2          = UInt(prfAddrWidth.W)
+  val p_rd           = UInt(prfAddrWidth.W)
+  val old_p_rd       = UInt(prfAddrWidth.W)
+  val rd_index       = UInt(5.W)
   val imm            = UInt(32.W)
   val pc             = UInt(32.W)
   val pred_next_pc   = UInt(32.W)
@@ -21,13 +24,8 @@ class IssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) exten
   val fu_src         = UInt(FuSrcWidth.Width.W)
   val csr_addr       = UInt(12.W)
   val csr_rdata      = UInt(32.W)
-  val csr_will_write = Bool()
   val rob_id         = UInt(robIdWidth.W)
-  val p_rd           = UInt(prfAddrWidth.W)
-  val old_p_rd       = UInt(prfAddrWidth.W)
-  val rd_index       = UInt(5.W)
   val lsq_id         = UInt(lsqIdWidth.W)
-  val might_flush    = Bool()
   val mem_type       = RobMemType()
 }
 
@@ -139,13 +137,11 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   e.fu_src    := Mux1H(selOneHot, rawEntryFor.map(_.fu_src))
   e.csr_addr  := Mux1H(selOneHot, rawEntryFor.map(_.csr_addr))
   e.csr_rdata := Mux1H(selOneHot, rawEntryFor.map(_.csr_rdata))
-  e.csr_will_write := Mux1H(selOneHot, rawEntryFor.map(_.csr_will_write))
   e.rob_id    := Mux1H(selOneHot, rawEntryFor.map(_.rob_id))
   e.p_rd      := Mux1H(selOneHot, rawEntryFor.map(_.p_rd))
   e.old_p_rd  := Mux1H(selOneHot, rawEntryFor.map(_.old_p_rd))
   e.rd_index  := Mux1H(selOneHot, rawEntryFor.map(_.rd_index))
   e.lsq_id    := Mux1H(selOneHot, rawEntryFor.map(_.lsq_id))
-  e.might_flush := Mux1H(selOneHot, rawEntryFor.map(_.might_flush))
 
   for (i <- 0 until FuConfig.numIssuePorts) {
     io.out(i).valid := anyCanIssue && (portIdxForSel === i.U)

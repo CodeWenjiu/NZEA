@@ -225,13 +225,11 @@ class ISU(addrWidth: Int, numPrfWritePorts: Int)(implicit config: NzeaConfig) ex
   io.out.bits.fu_src         := fu_src
   io.out.bits.csr_addr       := io.in.bits.csr_addr
   io.out.bits.csr_rdata      := csr_rdata
-  io.out.bits.csr_will_write := io.in.bits.csr_will_write
   io.out.bits.rob_id         := rob_id
   io.out.bits.p_rd           := io.in.bits.p_rd
   io.out.bits.old_p_rd       := io.in.bits.old_p_rd
   io.out.bits.rd_index       := io.in.bits.rd_index
   io.out.bits.lsq_id         := Mux(fu_type === FuType.LSU, io.ls_alloc.lsq_id, 0.U(lsqIdWidth.W))
-  io.out.bits.might_flush    := (fu_type === FuType.BRU)
   io.out.bits.mem_type       := Mux(
     fu_type === FuType.LSU,
     Mux(LsuOp.isLoad(lsuOp), RobMemType.Load, RobMemType.Store),
