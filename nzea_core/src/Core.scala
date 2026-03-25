@@ -58,8 +58,8 @@ class Core(implicit config: NzeaConfig) extends Module {
   isu.io.out.ready := iq.io.in.ready
   isu.io.out.flush := iq.io.issuePorts.orderedPorts(0).flush
 
-  prf.io.read(0).addr := Mux(iq.io.in.valid, iq.io.in.bits.p_rs1, 0.U(prfAddrWidth.W))
-  prf.io.read(1).addr := Mux(iq.io.in.valid, iq.io.in.bits.p_rs2, 0.U(prfAddrWidth.W))
+  prf.io.read(0).addr := iq.io.in.bits.p_rs1
+  prf.io.read(1).addr := iq.io.in.bits.p_rs2
   iq.io.prf_enqueue_rs1.data  := prf.io.read(0).data
   iq.io.prf_enqueue_rs1.ready := prf.io.read(0).ready
   iq.io.prf_enqueue_rs2.data  := prf.io.read(1).data
