@@ -1,4 +1,4 @@
-package nzea_core.backend
+package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, MuxCase, Valid}
@@ -190,14 +190,14 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.in.flush := io.flush
 }
 
-/** Common IO bundle for MUL/NullMUL so EXU can use if/else without losing type. */
+/** Common IO bundle for MUL/NullMUL so IntegerExecutionCluster can use if/else without losing type. */
 class MulIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val in         = Flipped(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
   val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
   val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 
-/** Common interface for MUL/NullMUL so EXU can use if/else without losing .io type. */
+/** Common interface for MUL/NullMUL so IntegerExecutionCluster can use if/else without losing .io type. */
 trait MulLike extends Module {
   def mulIo: MulIO
 }

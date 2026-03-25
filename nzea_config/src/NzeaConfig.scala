@@ -9,7 +9,7 @@ case class NzeaConfig(
   @arg(doc = "ISA for compilation (e.g. riscv32i)") isa: String = "riscv32i",
   @arg(doc = "Default PC (reset value)") defaultPc: Long = 0x8000_0000L,
   @arg(doc = "Rob depth (number of in-flight entries)") robDepth: Int = 16,
-  @arg(doc = "Issue queue depth (entries between ISU and EXU)") issueQueueDepth: Int = 8,
+  @arg(doc = "Integer issue queue depth (entries between ISU and execution cluster)") issueQueueDepth: Int = 8,
   @arg(doc = "Physical register file depth (for rename)") prfDepth: Int = 64,
   @arg(doc = "PHT size (power of 2)") phtSize: Int = 64,
   @arg(doc = "BTB size (power of 2)") btbSize: Int = 16

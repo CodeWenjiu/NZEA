@@ -2,7 +2,7 @@ package nzea_core.retire.rob
 
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
-import nzea_core.backend.LsuOp
+import nzea_core.backend.integer.LsuOp
 import nzea_core.frontend.CsrType
 
 // -------- Mem type for ROB slot (set at ISU dispatch) --------

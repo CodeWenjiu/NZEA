@@ -1,4 +1,4 @@
-package nzea_core.backend
+package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Cat, Enum, Mux1H, Valid}
@@ -24,14 +24,14 @@ class DivInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd   = UInt(prfAddrWidth.W)
 }
 
-/** Common IO bundle for DIV/NullDIV so EXU can use if/else without losing type. */
+/** Common IO bundle for DIV/NullDIV so IntegerExecutionCluster can use if/else without losing type. */
 class DivIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
   val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
   val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 
-/** Common interface for DIV/NullDIV so EXU can use if/else without losing .io type. */
+/** Common interface for DIV/NullDIV so IntegerExecutionCluster can use if/else without losing .io type. */
 trait DivLike extends Module {
   def divIo: DivIO
 }

@@ -1,4 +1,4 @@
-package nzea_core.backend
+package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{MuxCase, Valid}

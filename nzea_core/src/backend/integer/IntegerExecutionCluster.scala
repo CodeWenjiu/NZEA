@@ -1,22 +1,18 @@
-package nzea_core.backend
+package nzea_core.backend.integer
 
 import chisel3._
-import chisel3.util.{Decoupled, Valid}
+import chisel3.util.Valid
 import nzea_core.{PipelineConnect, PipeIO}
 import nzea_core.frontend.{CsrWriteBundle, IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
-import nzea_core.retire.rob.{RobEntryStateUpdate, LsWriteReq}
+import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}
 import nzea_config.{FuConfig, NzeaConfig}
 
-/** fu_op unified width: max of all FU opcode widths; used by decode/IDU/ISU. */
-object FuOpWidth {
-  val Width: Int = Seq(AluOp.getWidth, BruOp.getWidth, LsuOp.getWidth, MulOp.getWidth, DivOp.getWidth, SysuOp.getWidth).max
-}
-
-/** EXU: receives per-port payloads from ISU (already extracted); direct connect to FUs. */
-class EXU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
-  private val hasM          = config.isaConfig.hasM
-  private val numRobPorts   = FuConfig.numRobAccessPorts
+/** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, SYSU; receives per-port payloads from [[IntegerIssueQueue]]. */
+class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig)
+    extends Module {
+  private val hasM           = config.isaConfig.hasM
+  private val numRobPorts    = FuConfig.numRobAccessPorts
   private val numExuPrfPorts = FuConfig.numExuPrfWritePorts
 
   val alu  = Module(new ALU(robIdWidth, prfAddrWidth))
@@ -35,7 +31,6 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: 
     val bru_bp_update = Output(Valid(new BpUpdate))
   })
 
-  // -------- PipelineConnect + FU connect (unified per FuConfig.issuePorts) --------
   FuConfig.issuePorts(config).foreach { cfg =>
     cfg.name match {
       case "ALU" =>
@@ -89,11 +84,11 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: 
   }
 
   io.agu_ls_write.valid := agu.io.ls_write.valid
-  io.agu_ls_write.bits := agu.io.ls_write.bits
+  io.agu_ls_write.bits  := agu.io.ls_write.bits
   agu.io.ls_write.ready := io.agu_ls_write.ready
   agu.io.ls_write.flush := io.agu_ls_write.flush
-  io.csr_write := sysu.io.csr_write
-  io.bru_bp_update := bru.io.bp_update
+  io.csr_write          := sysu.io.csr_write
+  io.bru_bp_update      := bru.io.bp_update
 
   FuConfig.robAccessPorts(config).zipWithIndex.foreach { case (cfg, i) =>
     cfg.name match {
@@ -116,6 +111,6 @@ class EXU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: 
     }
   }
 
-  def outPorts: Seq[PipeIO[PrfWriteBundle]] = io.out.toSeq
+  def outPorts: Seq[PipeIO[PrfWriteBundle]]              = io.out.toSeq
   def robAccessPorts: Seq[Valid[RobEntryStateUpdate]] = io.rob_access.toSeq
 }

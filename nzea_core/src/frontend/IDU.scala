@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, MuxCase, Valid}
 import nzea_core.PriorityEncoderTree
 import nzea_core.PipeIO
-import nzea_core.backend.{FuOpWidth, SysuOp}
+import nzea_core.backend.integer.{FuOpWidth, SysuOp}
 import nzea_core.frontend.FuDecode
 import nzea_core.retire.IDUCommit
 import nzea_config.NzeaConfig

@@ -3,7 +3,8 @@ package nzea_core.frontend
 import chisel3._
 import nzea_core.PipeIO
 import nzea_config.NzeaConfig
-import nzea_core.backend.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
+import nzea_core.backend.integer.IntegerIssueQueueEntry
+import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocIO}
 /** ISU factory. */
 object ISU {
@@ -11,8 +12,8 @@ object ISU {
     Module(new ISU(addrWidth))
 }
 
-/** ISU: Issue Unit. Outputs unified IssueQueueEntry to IssueQueue (no per-port dispatch).
-  * rs1/rs2 ready are placeholders; [[IssueQueue]] reads PRF + bypass when writing a slot.
+/** ISU: Issue Unit. Outputs unified [[IntegerIssueQueueEntry]] to the integer issue queue (no per-port dispatch).
+  * rs1/rs2 ready are placeholders; issue queue reads PRF + bypass when writing a slot.
   */
 class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val robDepth     = config.robDepth
@@ -22,7 +23,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
 
   val io = IO(new Bundle {
     val in              = Flipped(new PipeIO(new IDUOut(addrWidth, prfAddrWidth)))
-    val out             = new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
+    val out             = new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
     val rob_enq         = Flipped(new RobEnqIO(robIdWidth, prfAddrWidth))
     val ls_alloc        = Flipped(new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth))
   })

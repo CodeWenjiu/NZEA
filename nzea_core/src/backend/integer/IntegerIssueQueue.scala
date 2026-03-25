@@ -1,14 +1,14 @@
-package nzea_core.frontend
+package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
 import nzea_core.{PipeIO, PipelineConnect}
-import nzea_core.backend.{AluOp, BruOp, DivOp, FuOpWidth, LsuOp, MulOp, SysuOp}
+import nzea_core.frontend.{AluSrc, CsrType, FuDecode, FuSrcWidth, FuType, IssuePortsBundle, PrfBypass, PrfRawRead, PrfReadIO, PrfWriteBundle}
 import nzea_core.retire.rob.RobMemType
 import nzea_config.{FuConfig, NzeaConfig}
 
-/** Issue queue entry: FuType + operand tags (paddr) + ready. No source data; values read via bypass net at dispatch. */
-class IssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Bundle {
+/** Integer issue queue entry: FuType + operand tags (paddr) + ready. No source data; values read via bypass net at dispatch. */
+class IntegerIssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Bundle {
   val fu_type        = FuType()
   val rs1_ready      = Bool()
   val rs2_ready      = Bool()
@@ -31,7 +31,7 @@ class IssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) exten
 }
 
 /** Stage 1: Select slot, push to pipeline reg. Uses pipeline reg ready (not Fu ready) for canIssue. */
-class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
+class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
   implicit config: NzeaConfig
 ) extends Module {
   private val issuePortConfigs = FuConfig.issuePorts(config)
@@ -49,7 +49,7 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   }
 
   val io = IO(new Bundle {
-    val in = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
+    val in = Flipped(new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     /** Clear SYSU CSR-write pending when matching rob commits. */
@@ -61,11 +61,11 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
     val prf_enqueue_rs1 = Input(new PrfRawRead(prfAddrWidth))
     val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
     /** One output per FU; ready/flush come from PipelineConnect (pipe reg) and consumer. */
-    val out = Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
+    val out = Vec(FuConfig.numIssuePorts, new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   })
 
   private val flush = io.out(0).flush
-  val entries = Reg(Vec(depth, new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
+  val entries = Reg(Vec(depth, new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
   val valids  = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val count   = PopCount(valids.asUInt)
   val full    = count >= depth.U
@@ -132,7 +132,7 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
   val (selFuType, _) = FuType.safe(Mux1H(selOneHot, rawEntryFor.map(_.fu_type.asUInt)))
   val portIdxForSel = MuxLookup(selFuType.asUInt, 0.U)(fuTypeToPortIdx)
 
-  val e = Wire(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
+  val e = Wire(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))
   val (eFuType, _)  = FuType.safe(Mux1H(selOneHot, rawEntryFor.map(_.fu_type.asUInt)))
   val (eMemType, _) = RobMemType.safe(Mux1H(selOneHot, rawEntryFor.map(_.mem_type.asUInt)))
   e.fu_type   := eFuType
@@ -201,12 +201,12 @@ class IQSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: 
 
 /** Stage 2: Per-port independent. If pipe valid, read PRF+bypass and drive FU. No arbitration.
   * Extracts flush from issuePorts (consumer-driven) and propagates to in.flush. */
-class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
+class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val hasM = config.isaConfig.hasM
   private val numPorts = FuConfig.numIssuePorts
 
   val io = IO(new Bundle {
-    val in = Flipped(Vec(numPorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
+    val in = Flipped(Vec(numPorts, new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
     val prf_read = Vec(numPorts, Vec(2, new PrfReadIO(prfAddrWidth)))
     /** Combinational CSR read for SYSU port (addr from [[csr_read_addr]]). */
     val csr_rdata = Input(UInt(32.W))
@@ -332,13 +332,13 @@ class IQReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit 
   wireSysu(numPorts - 1)
 }
 
-/** Issue Queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.
+/** Integer issue queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.
   * Flush: S2 extracts from issuePorts (consumer); S1 gets it via PipelineConnect from S2 input. */
-class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
+class IntegerIssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
   implicit config: NzeaConfig
 ) extends Module {
   val io = IO(new Bundle {
-    val in = Flipped(new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
+    val in = Flipped(new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val bypass_level1 = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
     val commit_rob_id   = Input(UInt(robIdWidth.W))
@@ -352,8 +352,8 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
     val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
   })
 
-  val s1 = Module(new IQSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
-  val s2 = Module(new IQReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
+  val s1 = Module(new IntegerIssueQueueSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
+  val s2 = Module(new IntegerIssueQueueReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
 
   s1.io.in <> io.in
   s1.io.prf_write := io.prf_write
@@ -364,7 +364,7 @@ class IssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int
   s1.io.prf_enqueue_rs1 := io.prf_enqueue_rs1
   s1.io.prf_enqueue_rs2 := io.prf_enqueue_rs2
 
-  val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
+  val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
   for (i <- 0 until FuConfig.numIssuePorts) {
     s2.io.in(i).valid := pipeRegOut(i).valid
     s2.io.in(i).bits := pipeRegOut(i).bits

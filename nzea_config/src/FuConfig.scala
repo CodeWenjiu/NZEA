@@ -30,11 +30,11 @@ object FuConfig {
     exuBypass :+ FuConfig("MemUnit", hasPrfWrite = true, hasBypass = false)
   }
 
-  /** PRF write ports provided by EXU (excludes MemUnit). Used for EXU io size. */
+  /** PRF write ports provided by the integer execution cluster (excludes MemUnit). Used for its `io.out` size. */
   def exuPrfWritePorts(implicit config: NzeaConfig): Seq[FuConfig] =
     prfWritePorts.filter(_.name != "MemUnit")
 
-  /** Number of PRF write ports EXU provides (excludes MemUnit). */
+  /** Number of PRF write ports the integer execution cluster provides (excludes MemUnit). */
   def numExuPrfWritePorts(implicit config: NzeaConfig): Int =
     exuPrfWritePorts.size
 

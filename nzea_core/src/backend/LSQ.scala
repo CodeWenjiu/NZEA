@@ -1,6 +1,7 @@
 package nzea_core.backend
 
 import chisel3._
+import nzea_core.backend.integer.LsuOp
 import chisel3.util.{Mux1H, Valid}
 import nzea_core.PipeIO
 import nzea_core.retire.rob.{LsAllocIO, LsAllocReq, LsWriteReq, RobMemReq}

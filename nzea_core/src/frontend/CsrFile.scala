@@ -3,7 +3,7 @@ package nzea_core.frontend
 import chisel3._
 import chisel3.util.{Mux1H, Valid, switch, is}
 
-/** CSR write from SYSU completion (EXU). */
+/** CSR write from SYSU completion (integer execution cluster). */
 class CsrWriteBundle extends Bundle {
   val csr_type = CsrType()
   val data     = UInt(32.W)
