@@ -1,3 +1,9 @@
+# Implementation phases (scaffold → full RVV)
+# 1 DONE: backend.vector — ValuOp + VectorIssueQueue + VALU + VectorPrf + VectorWbu + VectorBackend (VIQ→VALU→WBU→PVR), test elaboration with isa e.g. riscv32im_zve32x_zvl128b.
+# 2: Decode + FuType.VEC (or side-band) + IDU VRAT / p_vs* / p_vd in IDUOut; ISU dual dispatch to IQ vs VIQ; shared ROB/LSQ ids.
+# 3: PVR rename allocClear + VIQ operand ready from PVR + bypass from VectorWBU (and cross PRF↔PVR where needed).
+# 4: Add VMUL / VLOAD / VSTORE / VCFG units and extra issue ports; shadow vl/vtype + commit to integer CSR.
+#
 /// funct3 = 0b000: OP-IVV (vector-vector)
     Vor_vv
     Vsub_vv
