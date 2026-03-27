@@ -121,17 +121,18 @@ class MULStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   val pp = Wire(Vec(18, UInt(64.W)))
   val negFlags = Wire(Vec(17, Bool()))
-  val zeroProduct = (b.opA === 0.U) || (b.opB === 0.U)
   for (i <- 0 until 17) {
-    val b2 = if (i < 16) b34(2*i + 1) else b34(33)
+    val b0 = if (i != 0) b34(2*i - 1) else 0.U
     val b1 = b34(2*i)
-    val b0 = if (i == 0) 0.U else b34(2*i - 1)
+    val b2 = b34(2*i + 1)
     val (raw, neg) = BoothRadix4.encode(Cat(b2, b1, b0), a34)
-    pp(i) := Mux(zeroProduct, 0.U, Cat(Fill(30, neg), raw) << (2 * i))
+    pp(i) := Cat(Fill(30, neg), raw) << (2 * i)
     negFlags(i) := neg
   }
-  val compensation = (0 until 17).map(i => Mux(negFlags(i), 1.U(64.W) << (2 * i), 0.U(64.W))).reduce(_ | _)
-  pp(17) := Mux(zeroProduct, 0.U, compensation)
+  /** When [[BoothRadix4.encode]] selects a negative multiple it returns ~value only; two's-complement
+    * negation still needs a +1 at that bit position. We defer every such +1 (one hot per step i at
+    * weight 2*i) into a single row so Stage0 does not instantiate 17 separate incrementers. */
+  pp(17) := (0 until 17).map(i => Mux(negFlags(i), 1.U(64.W) << (2 * i), 0.U(64.W))).reduce(_ | _)
 
   io.out.valid := io.in.valid
   io.out.bits.pp := pp

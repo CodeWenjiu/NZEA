@@ -6,6 +6,13 @@ import nzea_core.PipeIO
 import nzea_core.retire.rob.Rob
 import nzea_config.NzeaConfig
 
+/** Subset of RVV OP-IVV / OP-IVI ops handled by [[VALU]] (single-lane / first element in this scaffold). */
+object ValuOp extends ChiselEnum {
+  val VorVv  = Value
+  val VsubVv = Value
+  val VaddVi = Value
+}
+
 /** Vector integer ALU: single 32-bit result (first-lane scaffold). */
 class VALU(robIdWidth: Int)(implicit config: NzeaConfig) extends Module {
   private val pvrAddrWidth = config.pvrAddrWidth
