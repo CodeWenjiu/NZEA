@@ -6,7 +6,7 @@ case class NzeaConfig(
   @arg(doc = "Whether to enable Debug port") debug: Boolean = false,
   @arg(doc = "Verilog output directory (overrides platform default when set)") outDir: Option[String] = None,
   @arg(doc = "Platform: sim (default, Core+DPI), yosys (Core with exposed IO)") synthPlatform: String = "sim",
-  @arg(doc = "ISA string, e.g. riscv32i or riscv32im_zve32x_zvl128b (underscore-named extensions)") isa: String = "riscv32i",
+  @arg(doc = "ISA string, e.g. riscv32i or riscv32im_zve32x_zvl128b (underscore-named extensions; order after `_` ignored)") isa: String = "riscv32i",
   @arg(doc = "Default PC (reset value)") defaultPc: Long = 0x8000_0000L,
   @arg(doc = "Rob depth (number of in-flight entries)") robDepth: Int = 16,
   @arg(doc = "Integer issue queue depth (entries between ISU and execution cluster)") issueQueueDepth: Int = 8,

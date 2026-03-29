@@ -5,7 +5,8 @@ package nzea_config
   * Base string (before first `_`): `riscv32im`, `rv32im`, `rv64gc`, etc. — single-letter extensions after XLEN.
   *
   * After `_`, named extensions / profiles (lowercase), e.g. `riscv32im_zve32x_zvl128b` for embedded vector
-  * (not the full single-letter `V` RVV extension).
+  * (not the full single-letter `V` RVV extension). Those tokens are stored in a [[Set]] — order after the first
+  * `_` does not matter (e.g. `..._zve32x_wjcus0` and `..._wjcus0_zve32x` are equivalent).
   */
 case class IsaConfig(
   xlen: Int,
@@ -31,6 +32,9 @@ case class IsaConfig(
 
   /** True if any Zve* profile token is present. */
   def hasEmbeddedVector: Boolean = hasZve32x || hasZve64x
+
+  /** Wjcus0: custom extension 0 (placeholder; no functional enablement yet). */
+  def hasWjcus0: Boolean = namedExtensions.contains("wjcus0")
 }
 
 object IsaConfig {
