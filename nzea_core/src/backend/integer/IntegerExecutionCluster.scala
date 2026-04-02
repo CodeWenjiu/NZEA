@@ -3,7 +3,7 @@ package nzea_core.backend.integer
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.{PipelineConnect, PipeIO}
-import nzea_core.frontend.{CsrWriteBundle, IssuePortsBundle, PrfWriteBundle}
+import nzea_core.frontend.{IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}
 import nzea_config.{FuConfig, NzeaConfig}
@@ -27,7 +27,6 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
     val rob_access    = Vec(numRobPorts, Output(Valid(new RobEntryStateUpdate(robIdWidth))))
     val out           = Vec(numExuPrfPorts, new PipeIO(new PrfWriteBundle(prfAddrWidth)))
     val agu_ls_write  = new PipeIO(new LsWriteReq(lsqIdWidth))
-    val csr_write     = Output(Valid(new CsrWriteBundle))
     val bru_bp_update = Output(Valid(new BpUpdate))
   })
 
@@ -87,7 +86,6 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
   io.agu_ls_write.bits  := agu.io.ls_write.bits
   agu.io.ls_write.ready := io.agu_ls_write.ready
   agu.io.ls_write.flush := io.agu_ls_write.flush
-  io.csr_write          := sysu.io.csr_write
   io.bru_bp_update      := bru.io.bp_update
 
   FuConfig.robAccessPorts(config).zipWithIndex.foreach { case (cfg, i) =>

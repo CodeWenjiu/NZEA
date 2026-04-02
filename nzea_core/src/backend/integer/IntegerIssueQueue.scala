@@ -35,6 +35,9 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
   implicit config: NzeaConfig
 ) extends Module {
   private val issuePortConfigs = FuConfig.issuePorts(config)
+
+  /** Port index for SYSU. CSR-write pending stalls only SYSU so older ALU/AGU/BRU/MUL/DIV can still issue (avoids deadlock). */
+  private val sysuPortIdx = (FuConfig.numIssuePorts - 1).U
   private val fuTypeToPortIdx: Seq[(UInt, UInt)] = FuType.all.zipWithIndex.map { case (ft, i) =>
     val portName = ft match {
       case FuType.ALU  => "ALU"
@@ -122,7 +125,8 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
     val actual_rs1_ready = (entry.p_rs1 === 0.U) || entry.rs1_ready || rs1BypassHit
     val actual_rs2_ready = (entry.p_rs2 === 0.U) || entry.rs2_ready || rs2BypassHit
     val portIdx = MuxLookup(entry.fu_type.asUInt, 0.U)(fuTypeToPortIdx)
-    canIssue(i) := valids(i) && actual_rs1_ready && actual_rs2_ready && fuReady(portIdx) && !csr_pending_issue_stall
+    canIssue(i) := valids(i) && actual_rs1_ready && actual_rs2_ready && fuReady(portIdx) &&
+      !(csr_pending_issue_stall && portIdx === sysuPortIdx)
   }
   val firstReadyIdx = PriorityEncoder(canIssue.asUInt)
   val anyCanIssue = canIssue.asUInt.orR

@@ -3,7 +3,7 @@ package nzea_core.backend.integer
 import chisel3._
 import chisel3.util.{MuxCase, Valid}
 import nzea_core.PipeIO
-import nzea_core.frontend.{CsrType, CsrWriteBundle, PrfWriteBundle}
+import nzea_core.frontend.{CsrType, PrfWriteBundle}
 import nzea_core.retire.rob.Rob
 
 /** SYSU op: CSR ops + ECALL/EBREAK/FENCE. Decoded from funct3 like other FU ops. */
@@ -31,13 +31,12 @@ class SysuInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val imm       = UInt(32.W)
 }
 
-/** SYSU FU: CSR read/write, ECALL/EBREAK/FENCE; writes result to Rob and PRF. */
+/** SYSU FU: CSR read/write, ECALL/EBREAK/FENCE; writes rd to PRF and CSR side effects into ROB (CSR regs updated at commit in [[nzea_core.Core]]). */
 class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new SysuInput(robIdWidth, prfAddrWidth)))
     val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
-    val out  = new PipeIO(new PrfWriteBundle(prfAddrWidth))
-    val csr_write  = Output(Valid(new CsrWriteBundle))
+    val out        = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
   val next_pc = io.in.bits.pc + 4.U
   // CSR read result: old value for rd
@@ -71,10 +70,6 @@ class SYSU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   )(robIdWidth)
   io.rob_access <> u
   io.in.ready := io.out.ready
-
-  io.csr_write.valid := u.valid && do_csr_write
-  io.csr_write.bits.csr_type := io.in.bits.csr_type
-  io.csr_write.bits.data := csr_wdata
 
   io.out.valid := u.valid
   io.out.bits.addr := io.in.bits.p_rd

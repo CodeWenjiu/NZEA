@@ -24,73 +24,69 @@ class MulInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd   = UInt(prfAddrWidth.W)
 }
 
-/** Stage 1 output: 18 partial products (17 Booth + 1 compensation) + passthrough. */
+/** Stage 1 output: 17 radix-4 Booth partial products (72b each) + passthrough. */
 class MulS1Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val pp     = Vec(18, UInt(64.W))
+  val pp     = Vec(17, UInt(72.W))
   val mulOp  = MulOp()
   val rob_id = UInt(robIdWidth.W)
   val p_rd   = UInt(prfAddrWidth.W)
   val pc     = UInt(32.W)
 }
 
-/** Stage 2 output: sum + carry + passthrough. */
+/** Stage 2 output: sum + carry + passthrough (72b CSA result). */
 class MulS2Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val sum    = UInt(64.W)
-  val carry  = UInt(64.W)
+  val sum    = UInt(72.W)
+  val carry  = UInt(72.W)
   val mulOp  = MulOp()
   val rob_id = UInt(robIdWidth.W)
   val p_rd   = UInt(prfAddrWidth.W)
   val pc     = UInt(32.W)
 }
 
-/** Radix-4 Booth encoding: 3 bits (b2,b1,b0) -> 0, ±A, ±2A.
-  * a34: 34-bit multiplicand (sign-extended for signed mul). Returns (raw_34, is_neg).
-  * For neg: returns ~value only; +1 is deferred to compensation vector (avoids 17 adders in Stage 0).
-  */
+/** Radix-4 modified Booth: 3-bit digit (b2,b1,b0) → signed multiple {-2A,-A,0,+A,+2A} of sign/zero-extended 34b multiplicand. */
 object BoothRadix4 {
-  def encode(b: UInt, a34: UInt): (UInt, Bool) = {
-    val a2  = (a34 << 1.U)(33, 0)
-    val neg = (b === "b100".U) || (b === "b101".U) || (b === "b110".U)
-    val sel = MuxCase(0.U(3.W), Seq(
-      (b === "b001".U || b === "b010".U) -> 1.U,
-      (b === "b011".U) -> 2.U,
-      (b === "b100".U) -> 3.U,
-      (b === "b101".U || b === "b110".U) -> 4.U
-    ))
-    val posVal = Mux(sel === 1.U, a34, Mux(sel === 2.U, a2, 0.U(34.W)))
-    val negVal = Mux(sel === 3.U, (~a2).asUInt, Mux(sel === 4.U, (~a34).asUInt, 0.U(34.W)))
-    val raw = Mux(neg, negVal, posVal)
-    (raw, neg && (sel =/= 0.U))
+  def signedPartial(b: UInt, a34: UInt): SInt = {
+    val a  = a34.asSInt
+    val a2 = (a << 1).asSInt
+    MuxCase(
+      0.S(40.W),
+      Seq(
+        (b === "b000".U || b === "b111".U) -> 0.S(40.W),
+        (b === "b001".U || b === "b010".U) -> a.pad(40),
+        (b === "b011".U)                  -> a2.pad(40),
+        (b === "b100".U)                  -> (-a2).pad(40),
+        (b === "b101".U || b === "b110".U) -> (-a).pad(40)
+      )
+    )
   }
 }
 
-/** Wallace tree: reduce 17 partial products (64-bit each) to sum + carry. */
+/** Wallace tree: reduce partial products of width [[w]] to sum + carry. */
 object WallaceTree {
-  def fa64(a: UInt, b: UInt, c: UInt): (UInt, UInt) = {
+  def fa(w: Int, a: UInt, b: UInt, c: UInt): (UInt, UInt) = {
     val sum   = a ^ b ^ c
     val carry = (a & b) | (a & c) | (b & c)
-    (sum, Cat(carry(62, 0), 0.U(1.W)))
+    (sum, Cat(carry(w - 2, 0), 0.U(1.W)))
   }
-  def ha64(a: UInt, b: UInt): (UInt, UInt) = {
+  def ha(w: Int, a: UInt, b: UInt): (UInt, UInt) = {
     val sum   = a ^ b
     val carry = a & b
-    (sum, Cat(carry(62, 0), 0.U(1.W)))
+    (sum, Cat(carry(w - 2, 0), 0.U(1.W)))
   }
-  def reduce(pp: Seq[UInt]): (UInt, UInt) = {
+  def reduce(w: Int, pp: Seq[UInt]): (UInt, UInt) = {
     require(pp.nonEmpty)
-    val w = 64
     var rows = pp.toVector
     while (rows.size > 2) {
       val nextRows = scala.collection.mutable.ArrayBuffer[UInt]()
       var i = 0
       while (i + 2 < rows.size) {
-        val (s, c) = fa64(rows(i), rows(i+1), rows(i+2))
+        val (s, c) = fa(w, rows(i), rows(i + 1), rows(i + 2))
         nextRows += s
         nextRows += c
         i += 3
       }
       if (i + 1 < rows.size) {
-        val (s, c) = ha64(rows(i), rows(i+1))
+        val (s, c) = ha(w, rows(i), rows(i + 1))
         nextRows += s
         nextRows += c
         i += 2
@@ -104,35 +100,34 @@ object WallaceTree {
   }
 }
 
-/** Stage 0: Radix-4 Booth partial product generation. */
+/** Stage 0: Radix-4 Booth partial product generation (true signed partials, wide enough for shifted lanes). */
 class MULStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
+  private val ppW = 72
+  private val shW = 112 // >= 40 + 2*16 = 72, margin for SInt shift width growth
+
   val io = IO(new Bundle {
     val in  = Flipped(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
     val out = new PipeIO(new MulS1Out(robIdWidth, prfAddrWidth))
   })
 
   val b = io.in.bits
-  val aSigned = (b.mulOp === MulOp.Mulh) || (b.mulOp === MulOp.Mulhsu)
-  val bSigned = (b.mulOp === MulOp.Mulh)
+  // RV32M: MUL/MULH signed×signed; MULHSU signed rs1 × unsigned rs2; MULHU unsigned×unsigned
+  val aSigned = (b.mulOp === MulOp.Mul) || (b.mulOp === MulOp.Mulh) || (b.mulOp === MulOp.Mulhsu)
+  val bSigned = (b.mulOp === MulOp.Mul) || (b.mulOp === MulOp.Mulh)
   val aExt = Mux(aSigned, Cat(Fill(32, b.opA(31)), b.opA), Cat(0.U(32.W), b.opA))
   val bExt = Mux(bSigned, Cat(Fill(32, b.opB(31)), b.opB), Cat(0.U(32.W), b.opB))
   val a34 = aExt(33, 0)
   val b34 = bExt(33, 0)
 
-  val pp = Wire(Vec(18, UInt(64.W)))
-  val negFlags = Wire(Vec(17, Bool()))
+  val pp = Wire(Vec(17, UInt(ppW.W)))
   for (i <- 0 until 17) {
-    val b0 = if (i != 0) b34(2*i - 1) else 0.U
-    val b1 = b34(2*i)
-    val b2 = b34(2*i + 1)
-    val (raw, neg) = BoothRadix4.encode(Cat(b2, b1, b0), a34)
-    pp(i) := Cat(Fill(30, neg), raw) << (2 * i)
-    negFlags(i) := neg
+    val b0 = if (i != 0) b34(2 * i - 1) else 0.U
+    val b1 = b34(2 * i)
+    val b2 = b34(2 * i + 1)
+    val partial = BoothRadix4.signedPartial(Cat(b2, b1, b0), a34)
+    val shifted = (partial.pad(shW).asSInt << (2 * i).U)(ppW - 1, 0).asUInt
+    pp(i) := shifted
   }
-  /** When [[BoothRadix4.encode]] selects a negative multiple it returns ~value only; two's-complement
-    * negation still needs a +1 at that bit position. We defer every such +1 (one hot per step i at
-    * weight 2*i) into a single row so Stage0 does not instantiate 17 separate incrementers. */
-  pp(17) := (0 until 17).map(i => Mux(negFlags(i), 1.U(64.W) << (2 * i), 0.U(64.W))).reduce(_ | _)
 
   io.out.valid := io.in.valid
   io.out.bits.pp := pp
@@ -146,12 +141,14 @@ class MULStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
 /** Stage 1: Wallace tree compression. */
 class MULStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
+  private val w = 72
+
   val io = IO(new Bundle {
     val in  = Flipped(new PipeIO(new MulS1Out(robIdWidth, prfAddrWidth)))
     val out = new PipeIO(new MulS2Out(robIdWidth, prfAddrWidth))
   })
 
-  val (sum, carry) = WallaceTree.reduce(io.in.bits.pp.toSeq)
+  val (sum, carry) = WallaceTree.reduce(w, io.in.bits.pp.toSeq)
 
   io.out.valid := io.in.valid
   io.out.bits.sum := sum
@@ -170,19 +167,19 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val in         = Flipped(new PipeIO(new MulS2Out(robIdWidth, prfAddrWidth)))
     val flush      = Input(Bool())
     val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
-    val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out        = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
   val b = io.in.bits
-  val product64 = b.sum + b.carry
-  val mul    = product64(31, 0)
-  val mulh   = product64(63, 32)
-  val mulhsu = product64(63, 32)
-  val mulhu  = product64(63, 32)
-  val result = Mux1H(b.mulOp.asUInt, Seq(mul, mulh, mulhsu, mulhu))
+  val product64 = (b.sum + b.carry)(63, 0)
+  val mul       = product64(31, 0)
+  val mulh      = product64(63, 32)
+  val mulhsu    = product64(63, 32)
+  val mulhu     = product64(63, 32)
+  val result    = Mux1H(b.mulOp.asUInt, Seq(mul, mulh, mulhsu, mulhu))
 
   val next_pc = b.pc + 4.U
-  val u = Rob.entryStateUpdate(io.in.valid, b.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)
+  val u       = Rob.entryStateUpdate(io.in.valid, b.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)
   io.rob_access <> u
   io.out.valid := u.valid
   io.out.bits.addr := b.p_rd
@@ -195,7 +192,7 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 class MulIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val in         = Flipped(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
   val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
-  val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+  val out        = new PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 
 /** Common interface for MUL/NullMUL so IntegerExecutionCluster can use if/else without losing .io type. */

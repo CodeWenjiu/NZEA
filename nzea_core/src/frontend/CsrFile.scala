@@ -3,13 +3,13 @@ package nzea_core.frontend
 import chisel3._
 import chisel3.util.{Mux1H, Valid, switch, is}
 
-/** CSR write from SYSU completion (integer execution cluster). */
+/** CSR write payload (used at ROB commit in [[nzea_core.Core]], not on execute). */
 class CsrWriteBundle extends Bundle {
   val csr_type = CsrType()
   val data     = UInt(32.W)
 }
 
-/** Machine-mode CSR register file; writes from SYSU; combinational read by 12-bit addr (e.g. IQ issue stage). */
+/** Machine-mode CSR register file; writes on commit; combinational read by 12-bit addr (e.g. IQ issue stage). */
 class CsrFile extends Module {
   val io = IO(new Bundle {
     val csr_write = Input(Valid(new CsrWriteBundle))

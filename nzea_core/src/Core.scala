@@ -2,6 +2,7 @@ package nzea_core
 
 import chisel3._
 import chisel3.util.Valid
+import nzea_core.frontend.CsrType
 import nzea_config.{FuConfig, NzeaConfig}
 
 /** Core module: Rob in Core; integer cluster + MemUnit write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */
@@ -42,7 +43,12 @@ class Core(implicit config: NzeaConfig) extends Module {
   }
   commit.io.do_flush := rob.io.do_flush
   wbu.io.flush := commit.io.do_flush
-  csr.io.csr_write := integerExecutionCluster.io.csr_write
+  // CSR updates only on ROB commit (not on SYSU execute), so squashed uops never modify CSRs.
+  val csrWriteCommit = Wire(Valid(new frontend.CsrWriteBundle))
+  csrWriteCommit.valid := rob.io.commit.valid && rob.io.commit.bits.csr_type =/= CsrType.None
+  csrWriteCommit.bits.csr_type := rob.io.commit.bits.csr_type
+  csrWriteCommit.bits.data := rob.io.commit.bits.csr_data
+  csr.io.csr_write := csrWriteCommit
   (integerExecutionCluster.robAccessPorts zip rob.io.accessPorts).foreach { case (fu, port) => port <> fu }
 
   val io = IO(new Bundle {
