@@ -46,6 +46,7 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
       case FuType.MUL  => "MUL"
       case FuType.DIV  => "DIV"
       case FuType.SYSU => "SYSU"
+      case FuType.NNU  => "NNU"
     }
     val idx = issuePortConfigs.indexWhere(_.name == portName)
     (ft.asUInt, (if (idx >= 0) idx else 0).U)
@@ -206,8 +207,18 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
 /** Stage 2: Per-port independent. If pipe valid, read PRF+bypass and drive FU. No arbitration.
   * Extracts flush from issuePorts (consumer-driven) and propagates to in.flush. */
 class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
-  private val hasM = config.isaConfig.hasM
+  private val hasM  = config.isaConfig.hasM
+  private val hasNn = config.isaConfig.hasWjcus0
   private val numPorts = FuConfig.numIssuePorts
+
+  private val aluIdx = 0
+  private val bruIdx = 1
+  private val aguIdx = 2
+  private val mulIdxOpt = Option.when(hasM)(3)
+  private val divIdxOpt = Option.when(hasM)(4)
+  private val baseAfterMd = if (hasM) 5 else 3
+  private val nnuIdxOpt = Option.when(hasNn)(baseAfterMd)
+  private val sysuIdx = baseAfterMd + (if (hasNn) 1 else 0)
 
   val io = IO(new Bundle {
     val in = Flipped(Vec(numPorts, new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
@@ -315,25 +326,34 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
     io.issuePorts.sysu.bits.imm := e.imm
   }
 
-  private val sysuIdx = numPorts - 1
+  private def wireNnu(i: Int): Unit = {
+    val e = entry(i)
+    io.issuePorts.nnu.get.valid := io.in(i).valid
+    io.issuePorts.nnu.get.bits.nnOp := NnOp.safe(FuDecode.take(e.fu_op, NnOp.getWidth))._1
+    io.issuePorts.nnu.get.bits.rs1 := rs1(i)
+    io.issuePorts.nnu.get.bits.rs2 := rs2(i)
+    io.issuePorts.nnu.get.bits.pc := e.pc
+    io.issuePorts.nnu.get.bits.rob_id := e.rob_id
+    io.issuePorts.nnu.get.bits.p_rd := e.p_rd
+  }
+
   io.csr_read_addr := Mux(
     io.in(sysuIdx).valid && entry(sysuIdx).fu_type === FuType.SYSU,
     entry(sysuIdx).csr_addr,
     0.U(12.W)
   )
 
-  wireAlu(0)
-  val aluE = entry(0)
-  io.alu_read_hint.valid := io.in(0).valid
+  wireAlu(aluIdx)
+  val aluE = entry(aluIdx)
+  io.alu_read_hint.valid := io.in(aluIdx).valid
   io.alu_read_hint.bits := aluE.p_rd
 
-  wireBru(1)
-  wireAgu(2)
-  if (hasM) {
-    wireMul(3)
-    wireDiv(4)
-  }
-  wireSysu(numPorts - 1)
+  wireBru(bruIdx)
+  wireAgu(aguIdx)
+  mulIdxOpt.foreach(wireMul)
+  divIdxOpt.foreach(wireDiv)
+  nnuIdxOpt.foreach(wireNnu)
+  wireSysu(sysuIdx)
 }
 
 /** Integer issue queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.

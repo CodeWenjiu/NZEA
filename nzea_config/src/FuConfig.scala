@@ -11,7 +11,7 @@ case class FuConfig(
 )
 
 object FuConfig {
-  /** PRF write port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], MemUnit.
+  /** PRF write port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], [NNU], MemUnit.
     * Ports with hasBypass=true participate in operand bypass.
     */
   def prfWritePorts(implicit config: NzeaConfig): Seq[FuConfig] = {
@@ -24,6 +24,8 @@ object FuConfig {
         FuConfig("MUL", hasPrfWrite = true, hasBypass = true), 
         FuConfig("DIV", hasPrfWrite = true, hasBypass = false)
       )
+    ).getOrElse(Seq.empty) ++ Option.when(config.isaConfig.hasWjcus0)(
+      Seq(FuConfig("NNU", hasPrfWrite = true, hasBypass = true))
     ).getOrElse(Seq.empty)
     // MemUnit (load) must have hasBypass=true so IQ's combinational bypass sees load write-back.
     // Otherwise IQ entry stays rs1_ready=false despite PRF ready -> deadlock (PRF-IQ mismatch).
@@ -38,8 +40,8 @@ object FuConfig {
   def numExuPrfWritePorts(implicit config: NzeaConfig): Int =
     exuPrfWritePorts.size
 
-  /** Rob access port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], AGU.
-    * 4 ports when hasM is false, 6 when hasM is true. */
+  /** Rob access port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], [NNU], AGU.
+    * Port count depends on hasM / hasWjcus0. */
   def robAccessPorts(implicit config: NzeaConfig): Seq[FuConfig] = {
     Seq(
       FuConfig("ALU", hasRobAccess = true),
@@ -47,6 +49,8 @@ object FuConfig {
       FuConfig("SYSU", hasRobAccess = true)
     ) ++ Option.when(config.isaConfig.hasM)(
       Seq(FuConfig("MUL", hasRobAccess = true), FuConfig("DIV", hasRobAccess = true))
+    ).getOrElse(Seq.empty) ++ Option.when(config.isaConfig.hasWjcus0)(
+      Seq(FuConfig("NNU", hasRobAccess = true))
     ).getOrElse(Seq.empty) :+ FuConfig("AGU", hasRobAccess = true)
   }
 
@@ -58,7 +62,7 @@ object FuConfig {
   def numRobAccessPorts(implicit config: NzeaConfig): Int =
     robAccessPorts.size
 
-  /** Issue port list: order ALU, BRU, AGU, [MUL, DIV], SYSU. Port index = hardware Vec index.
+  /** Issue port list: order ALU, BRU, AGU, [MUL, DIV], [NNU], SYSU. Port index = hardware Vec index.
     * Each port supports one FuType. Used for mask-based routing in ISU. */
   def issuePorts(implicit config: NzeaConfig): Seq[FuConfig] = {
     Seq(
@@ -67,6 +71,8 @@ object FuConfig {
       FuConfig("AGU", hasRobAccess = true)
     ) ++ Option.when(config.isaConfig.hasM)(
       Seq(FuConfig("MUL", hasRobAccess = true), FuConfig("DIV", hasRobAccess = true))
+    ).getOrElse(Seq.empty) ++ Option.when(config.isaConfig.hasWjcus0)(
+      Seq(FuConfig("NNU", hasRobAccess = true))
     ).getOrElse(Seq.empty) :+ FuConfig("SYSU", hasRobAccess = true)
   }
 

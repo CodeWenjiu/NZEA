@@ -8,10 +8,11 @@ import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}
 import nzea_config.{FuConfig, NzeaConfig}
 
-/** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, SYSU; receives per-port payloads from [[IntegerIssueQueue]]. */
+/** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, NNU (WJCUS0), SYSU; receives per-port payloads from [[IntegerIssueQueue]]. */
 class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig)
     extends Module {
   private val hasM           = config.isaConfig.hasM
+  private val hasNn          = config.isaConfig.hasWjcus0
   private val numRobPorts    = FuConfig.numRobAccessPorts
   private val numExuPrfPorts = FuConfig.numExuPrfWritePorts
 
@@ -21,6 +22,7 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
   val sysu = Module(new SYSU(robIdWidth, prfAddrWidth))
   val mul  = Option.when(hasM)(Module(new MUL(robIdWidth, prfAddrWidth)))
   val div  = Option.when(hasM)(Module(new DIV(robIdWidth, prfAddrWidth)))
+  val nnu  = Option.when(hasNn)(Module(new NNU(robIdWidth, prfAddrWidth)))
 
   val io = IO(new Bundle {
     val issuePorts    = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth))
@@ -78,6 +80,17 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
         PipelineConnect(io.issuePorts.sysu, pipeOut)
         sysu.io.in.valid := pipeOut.valid
         sysu.io.in.bits  := pipeOut.bits
+      case "NNU" =>
+        nnu.foreach { nn =>
+          io.issuePorts.nnu.foreach { p =>
+            val pipeOut = Wire(new PipeIO(new NnInput(robIdWidth, prfAddrWidth)))
+            pipeOut.flush := nn.io.in.flush
+            pipeOut.ready := nn.io.in.ready
+            PipelineConnect(p, pipeOut)
+            nn.io.in.valid := pipeOut.valid
+            nn.io.in.bits  := pipeOut.bits
+          }
+        }
       case _ =>
     }
   }
@@ -96,6 +109,7 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
       case "MUL"  => mul.foreach(m => io.rob_access(i) <> m.io.rob_access)
       case "DIV"  => div.foreach(dm => io.rob_access(i) <> dm.io.rob_access)
       case "AGU"  => io.rob_access(i) <> agu.io.rob_access
+      case "NNU"  => nnu.foreach(nn => io.rob_access(i) <> nn.io.rob_access)
     }
   }
 
@@ -106,6 +120,7 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
       case "SYSU" => io.out(i) <> sysu.io.out
       case "MUL"  => mul.foreach(m => io.out(i) <> m.io.out)
       case "DIV"  => div.foreach(dm => io.out(i) <> dm.io.out)
+      case "NNU"  => nnu.foreach(nn => io.out(i) <> nn.io.out)
     }
   }
 

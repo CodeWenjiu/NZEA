@@ -147,7 +147,7 @@ class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   // csr_will_write: decode-time; CSRRS/CSRRC use rs1_index=0 (x0), CSRRSI/CSRRCI use zimm=0; same 5 bits inst[19:15]
   val csr_rs1_or_zimm = io.in.bits.inst(19, 15)
   val (sysuOp, _) = SysuOp.safe(FuDecode.take(fuOp, SysuOp.getWidth))
-  io.out.bits.csr_will_write := MuxCase(false.B, Seq(
+  io.out.bits.csr_will_write := (fuType === FuType.SYSU) && MuxCase(false.B, Seq(
     (sysuOp === SysuOp.CSRRW)  -> true.B,
     (sysuOp === SysuOp.CSRRWI) -> true.B,
     (sysuOp === SysuOp.CSRRS)  -> (csr_rs1_or_zimm =/= 0.U),

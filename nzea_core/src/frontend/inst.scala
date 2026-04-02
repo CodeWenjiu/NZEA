@@ -10,7 +10,7 @@ import chisel3.util.experimental.decode.{
   decoder
 }
 import nzea_core.backend.integer.FuOpWidth
-import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
+import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, NnOp, SysuOp}
 import nzea_config.NzeaConfig
 // -------- Instruction pattern & decode fields (ImmType, Fu = op+src per FU, RVInst, RiscvInsts) --------
 
@@ -24,7 +24,7 @@ object ImmType extends chisel3.ChiselEnum {
   val Z = Value((1 << 5).U)  // zero-extend inst[19:15] for CSR zimm
 }
 
-/** Function unit type for routing (ALU/BRU/LSU/MUL/DIV/SYSU). */
+/** Function unit type for routing (ALU/BRU/LSU/MUL/DIV/SYSU/NNU). */
 object FuType extends chisel3.ChiselEnum {
   val ALU  = Value
   val BRU  = Value
@@ -32,6 +32,7 @@ object FuType extends chisel3.ChiselEnum {
   val MUL  = Value
   val DIV  = Value
   val SYSU = Value
+  val NNU  = Value
 }
 
 /** CSR type: None = no mapping (for blocking/bypass); others = machine-mode CSRs. */
@@ -107,6 +108,7 @@ object Fu {
   case class MUL(op: MulOp.Type) extends Type
   case class DIV(op: DivOp.Type) extends Type
   case class SYSU(op: SysuOp.Type) extends Type
+  case class NNU(op: NnOp.Type) extends Type
 
   def fuTypeOf(fu: Fu.Type): FuType.Type = fu match {
     case ALU(_, _) => FuType.ALU
@@ -115,6 +117,7 @@ object Fu {
     case MUL(_)    => FuType.MUL
     case DIV(_)    => FuType.DIV
     case SYSU(_)   => FuType.SYSU
+    case NNU(_)    => FuType.NNU
   }
   def opLitValue(fu: Fu.Type): BigInt = fu match {
     case ALU(op, _) => op.litValue
@@ -123,6 +126,7 @@ object Fu {
     case MUL(op)    => op.litValue
     case DIV(op)    => op.litValue
     case SYSU(op)   => op.litValue
+    case NNU(op)    => op.litValue
   }
   def srcLitValue(fu: Fu.Type): BigInt = fu match {
     case ALU(_, s) => s.litValue
@@ -131,6 +135,7 @@ object Fu {
     case MUL(_)    => BigInt(0)
     case DIV(_)    => BigInt(0)
     case SYSU(_)   => BigInt(0)
+    case NNU(_)    => BigInt(0)
   }
 }
 
@@ -604,8 +609,37 @@ object RiscvInsts {
 
   private val m: Seq[RVInst] = Seq(MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU)
 
-  /** All instructions for decode; M extension included only when isaConfig.hasM. */
-  def all(implicit config: NzeaConfig): Seq[RVInst] = base ++ (if (config.isaConfig.hasM) m else Seq.empty)
+  /** WJCUS0: custom-0 opcode `0001011` — NN_LOAD_ACT (R), NN_START (I), NN_LOAD (I). */
+  private val wjcus0: Seq[RVInst] = Seq(
+    RVInst(
+      "NN_LOAD_ACT",
+      "b0000000" + n(5) + n(5) + "000" + "00000" + "0001011",
+      None,
+      Fu.NNU(NnOp.LoadAct),
+      gprWr = false
+    ),
+    RVInst(
+      "NN_START",
+      "b00000000000000000000100000001011",
+      Some(ImmType.I),
+      Fu.NNU(NnOp.Start),
+      gprWr = false,
+      rs1Rd = false,
+      rs2Rd = false
+    ),
+    RVInst(
+      "NN_LOAD",
+      "b000000000000" + n(5) + "010" + n(5) + "0001011",
+      Some(ImmType.I),
+      Fu.NNU(NnOp.Load),
+      rs2Rd = false
+    )
+  )
+
+  /** All instructions for decode; M / WJCUS0 gated like other optional extensions. */
+  def all(implicit config: NzeaConfig): Seq[RVInst] =
+    base ++ (if (config.isaConfig.hasM) m else Seq.empty) ++
+      (if (config.isaConfig.hasWjcus0) wjcus0 else Seq.empty)
 }
 
 // -------- DecodeField helpers --------
