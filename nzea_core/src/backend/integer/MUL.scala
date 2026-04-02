@@ -24,19 +24,19 @@ class MulInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val p_rd   = UInt(prfAddrWidth.W)
 }
 
-/** Stage 1 output: 17 radix-4 Booth partial products (72b each) + passthrough. */
+/** Stage 1 output: 17 radix-4 Booth partial products (64b: each lane ≡ true lane mod 2^64) + passthrough. */
 class MulS1Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val pp     = Vec(17, UInt(72.W))
+  val pp     = Vec(17, UInt(64.W))
   val mulOp  = MulOp()
   val rob_id = UInt(robIdWidth.W)
   val p_rd   = UInt(prfAddrWidth.W)
   val pc     = UInt(32.W)
 }
 
-/** Stage 2 output: sum + carry + passthrough (72b CSA result). */
+/** Stage 2 output: sum + carry + passthrough (64b CSA result). */
 class MulS2Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val sum    = UInt(72.W)
-  val carry  = UInt(72.W)
+  val sum    = UInt(64.W)
+  val carry  = UInt(64.W)
   val mulOp  = MulOp()
   val rob_id = UInt(robIdWidth.W)
   val p_rd   = UInt(prfAddrWidth.W)
@@ -100,10 +100,11 @@ object WallaceTree {
   }
 }
 
-/** Stage 0: Radix-4 Booth partial product generation (true signed partials, wide enough for shifted lanes). */
+/** Stage 0: Radix-4 Booth partial product generation.
+  * Each row is ((signedPartial << 2i) mod 2^64); sum of rows mod 2^64 equals the 32×32 product (low 64b).
+  */
 class MULStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
-  private val ppW = 72
-  private val shW = 112 // >= 40 + 2*16 = 72, margin for SInt shift width growth
+  private val ppW = 64
 
   val io = IO(new Bundle {
     val in  = Flipped(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
@@ -125,8 +126,8 @@ class MULStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val b1 = b34(2 * i)
     val b2 = b34(2 * i + 1)
     val partial = BoothRadix4.signedPartial(Cat(b2, b1, b0), a34)
-    val shifted = (partial.pad(shW).asSInt << (2 * i).U)(ppW - 1, 0).asUInt
-    pp(i) := shifted
+    val s64     = partial.pad(ppW).asSInt
+    pp(i) := (s64 << (2 * i).U)(ppW - 1, 0).asUInt
   }
 
   io.out.valid := io.in.valid
@@ -141,7 +142,7 @@ class MULStage0(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
 /** Stage 1: Wallace tree compression. */
 class MULStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
-  private val w = 72
+  private val w = 64
 
   val io = IO(new Bundle {
     val in  = Flipped(new PipeIO(new MulS1Out(robIdWidth, prfAddrWidth)))
@@ -171,7 +172,7 @@ class MULStage2(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   })
 
   val b = io.in.bits
-  val product64 = (b.sum + b.carry)(63, 0)
+  val product64 = b.sum + b.carry // mod 2^64 (32×32 product fits in 64b)
   val mul       = product64(31, 0)
   val mulh      = product64(63, 32)
   val mulhsu    = product64(63, 32)
