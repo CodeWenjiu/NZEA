@@ -30,7 +30,7 @@ case class NzeaConfig(
   val viqDepthActual: Int = viqDepth.max(1)
   val viqIdWidth: Int     = Iterator.from(0).find(i => (1 << i) >= viqDepthActual).getOrElse(1)
   /** Parsed ISA config for Chisel to match extensions (e.g. isaConfig.hasM). */
-  val isaConfig: IsaConfig = IsaConfig.parse(isa)
+  val isaConfig: IsaConfig = IsaConfig.parseOrThrow(isa)
   /** Data/address width derived from ISA (e.g. riscv32 -> 32, riscv64 -> 64). */
   val width: Int = isaConfig.xlen
   /** Effective VLEN: `zvl{N}b` in ISA if present, else `vlen`. */

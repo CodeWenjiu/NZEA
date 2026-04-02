@@ -47,7 +47,7 @@ class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
   io.ls_alloc.bits.rob_id := rob_id
   io.ls_alloc.bits.p_rd := io.in.bits.p_rd
   io.ls_alloc.bits.lsuOp := lsuOp.asUInt
-  io.rob_enq.req.bits.rd_index := Mux(fu_type === FuType.SYSU, 0.U(5.W), io.in.bits.rd_index)
+  io.rob_enq.req.bits.rd_index := io.in.bits.rd_index
   io.rob_enq.req.bits.might_flush := (fu_type === FuType.BRU)
   io.rob_enq.req.bits.mem_type := Mux(
     fu_type === FuType.LSU,
