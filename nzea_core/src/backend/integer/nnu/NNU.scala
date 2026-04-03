@@ -2,15 +2,31 @@ package nzea_core.backend.integer.nnu
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Valid, is, log2Ceil, switch}
+import chisel3.util.experimental.loadMemoryFromFile
+import firrtl.annotations.MemoryLoadFileType
 import nzea_core.PipeIO
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
-/** WJCUS0 custom-0 NN ops; aligned with remu `OP_WJCUS0` + `mnist_infer`. NN_START = multi-cycle, one MAC/cycle. */
+/** WJCUS0 custom-0 NN ops; aligned with remu `OP_WJCUS0` + `mnist_infer`.
+  * Weights live in [[SyncReadMem]] fed by [[loadMemoryFromFile]] (binary): Scala parses `fc*_weight.bin`,
+  * writes `build/nnu_mem_init/fc*_w8.bin`, then Chisel emits memory-load annotations for BRAM inference (e.g. Vivado). */
 object NnOp extends chisel3.ChiselEnum {
   val LoadAct = Value((1 << 0).U)
   val Start   = Value((1 << 1).U)
   val Load    = Value((1 << 2).U)
+}
+
+object NnuSramDims {
+  val Fc1Rows = 256
+  val Fc1Cols = 784
+  val Fc2Rows = 128
+  val Fc2Cols = 256
+  val Fc3Rows = 10
+  val Fc3Cols = 128
+  val Fc1Depth: Int = Fc1Rows * Fc1Cols
+  val Fc2Depth: Int = Fc2Rows * Fc2Cols
+  val Fc3Depth: Int = Fc3Rows * Fc3Cols
 }
 
 class NnInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
@@ -29,21 +45,22 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val out        = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
-  val fc1Blob = MnistWeightLoader.fc1
-  val fc2Blob = MnistWeightLoader.fc2
-  val fc3Blob = MnistWeightLoader.fc3
+  val fc1AddrW = log2Ceil(NnuSramDims.Fc1Depth)
+  val fc2AddrW = log2Ceil(NnuSramDims.Fc2Depth)
+  val fc3AddrW = log2Ceil(NnuSramDims.Fc3Depth)
 
-  val fc1W = VecInit(fc1Blob.bytes.toIndexedSeq.map(b => (b & 0xff).U(8.W)))
-  val fc2W = VecInit(fc2Blob.bytes.toIndexedSeq.map(b => (b & 0xff).U(8.W)))
-  val fc3W = VecInit(fc3Blob.bytes.toIndexedSeq.map(b => (b & 0xff).U(8.W)))
+  val (fc1MemPath, fc2MemPath, fc3MemPath) = MnistRemuWeightBin.syncReadMemInitFilePaths
 
-  val scaleQ16Fc1 = fc1Blob.scaleQ16.S
-  val scaleQ16Fc2 = fc2Blob.scaleQ16.S
-  val scaleQ16Fc3 = fc3Blob.scaleQ16.S
+  val fc1W = SyncReadMem(NnuSramDims.Fc1Depth, UInt(8.W))
+  val fc2W = SyncReadMem(NnuSramDims.Fc2Depth, UInt(8.W))
+  val fc3W = SyncReadMem(NnuSramDims.Fc3Depth, UInt(8.W))
+  loadMemoryFromFile(fc1W, fc1MemPath, MemoryLoadFileType.Binary)
+  loadMemoryFromFile(fc2W, fc2MemPath, MemoryLoadFileType.Binary)
+  loadMemoryFromFile(fc3W, fc3MemPath, MemoryLoadFileType.Binary)
 
-  val fc1AddrW = log2Ceil(fc1Blob.bytes.length)
-  val fc2AddrW = log2Ceil(fc2Blob.bytes.length)
-  val fc3AddrW = log2Ceil(fc3Blob.bytes.length)
+  val scaleQ16Fc1 = MnistRemuWeightBin.fc1ScaleQ16.S(32.W)
+  val scaleQ16Fc2 = MnistRemuWeightBin.fc2ScaleQ16.S(32.W)
+  val scaleQ16Fc3 = MnistRemuWeightBin.fc3ScaleQ16.S(32.W)
 
   val inputBuf = Reg(Vec(784, UInt(8.W)))
   val fc1Out   = Reg(Vec(256, SInt(32.W)))
@@ -67,6 +84,11 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val shiftAmt  = Reg(UInt(6.W))
   val shiftIter = Reg(UInt(32.W))
 
+  /** true = accumulate cycle (weight byte valid for latched index). */
+  val macHi     = RegInit(false.B)
+  val macLatAddr = Reg(UInt(18.W))
+  val macLatCol  = Reg(UInt(10.W))
+
   val robIdReg = Reg(UInt(robIdWidth.W))
   val pcReg    = Reg(UInt(32.W))
   val pRdReg   = Reg(UInt(prfAddrWidth.W))
@@ -78,6 +100,7 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   when(io.out.flush) {
     state := sIdle
+    macHi := false.B
   }
 
   val nextPc = pcReg + 4.U
@@ -86,17 +109,17 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val fc2Idx = ((row * 256.U(32.W)) + col)(fc2AddrW - 1, 0)
   val fc3Idx = ((row * 128.U(32.W)) + col)(fc3AddrW - 1, 0)
 
-  val wFc1 = fc1W(fc1Idx)
-  val wFc2 = fc2W(fc2Idx)
-  val wFc3 = fc3W(fc3Idx)
+  val inF1 = state === sInfer && inferPhase === 0.U
+  val inF4 = state === sInfer && inferPhase === 4.U
+  val inF8 = state === sInfer && inferPhase === 8.U
 
-  val aFc1 = inputBuf(col)
-  val aFc2 = fc1Act(col(7, 0))
-  val aFc3 = fc2Act(col(6, 0))
+  val fc1AddrMux = Mux(macHi, macLatAddr, fc1Idx)
+  val fc2AddrMux = Mux(macHi, macLatAddr, fc2Idx)
+  val fc3AddrMux = Mux(macHi, macLatAddr, fc3Idx)
 
-  val prodFc1 = NNU.sext8(wFc1) * NNU.sext8(aFc1)
-  val prodFc2 = NNU.sext8(wFc2) * NNU.sext8(aFc2)
-  val prodFc3 = NNU.sext8(wFc3) * NNU.sext8(aFc3)
+  val fc1Byte = fc1W.read(fc1AddrMux, inF1)
+  val fc2Byte = fc2W.read(fc2AddrMux, inF4)
+  val fc3Byte = fc3W.read(fc3AddrMux, inF8)
 
   when(state === sIdle && fire) {
     robIdReg := io.in.bits.rob_id
@@ -119,28 +142,41 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
       col        := 0.U
       acc        := 0.S
       inferPhase := 0.U
+      macHi      := false.B
       state      := sInfer
     }
   }
 
   when(state === sInfer && !io.out.flush) {
+    when(!(inferPhase === 0.U || inferPhase === 4.U || inferPhase === 8.U)) {
+      macHi := false.B
+    }
+
     switch(inferPhase) {
       is(0.U) {
-        val accNext = acc + prodFc1.pad(48)
-        when(col === 783.U) {
-          fc1Out(row(7, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc1)
-          when(row === 255.U) {
-            inferPhase := 1.U
-            kScan   := 0.U
-            maxAbs  := 0.U
-          }.otherwise {
-            row := row + 1.U
-            col := 0.U
-            acc := 0.S
-          }
+        when(!macHi) {
+          macLatAddr := fc1Idx
+          macLatCol  := col
+          macHi      := true.B
         }.otherwise {
-          acc := accNext
-          col := col + 1.U
+          val accNext = acc + (NNU.sext8(fc1Byte) * NNU.sext8(inputBuf(macLatCol))).pad(48)
+          macHi := false.B
+          when(col === 783.U) {
+            fc1Out(row(7, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc1)
+            when(row === 255.U) {
+              inferPhase := 1.U
+              macHi   := false.B
+              kScan   := 0.U
+              maxAbs  := 0.U
+            }.otherwise {
+              row := row + 1.U
+              col := 0.U
+              acc := 0.S
+            }
+          }.otherwise {
+            acc := accNext
+            col := col + 1.U
+          }
         }
       }
       is(1.U) {
@@ -180,26 +216,36 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
           row        := 0.U
           col        := 0.U
           acc        := 0.S
+          macHi      := false.B
         }.otherwise {
           kScan := kScan + 1.U
         }
       }
       is(4.U) {
-        val accNext = acc + prodFc2.pad(48)
-        when(col === 255.U) {
-          fc2Out(row(6, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc2)
-          when(row === 127.U) {
-            inferPhase := 5.U
-            kScan   := 0.U
-            maxAbs  := 0.U
-          }.otherwise {
-            row := row + 1.U
-            col := 0.U
-            acc := 0.S
-          }
+        when(!macHi) {
+          macLatAddr := fc2Idx
+          macLatCol  := col(7, 0)
+          macHi      := true.B
         }.otherwise {
-          acc := accNext
-          col := col + 1.U
+          val accNext =
+            acc + (NNU.sext8(fc2Byte) * NNU.sext8(fc1Act(macLatCol(7, 0)))).pad(48)
+          macHi := false.B
+          when(col === 255.U) {
+            fc2Out(row(6, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc2)
+            when(row === 127.U) {
+              inferPhase := 5.U
+              macHi   := false.B
+              kScan   := 0.U
+              maxAbs  := 0.U
+            }.otherwise {
+              row := row + 1.U
+              col := 0.U
+              acc := 0.S
+            }
+          }.otherwise {
+            acc := accNext
+            col := col + 1.U
+          }
         }
       }
       is(5.U) {
@@ -239,24 +285,35 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
           row        := 0.U
           col        := 0.U
           acc        := 0.S
+          macHi      := false.B
         }.otherwise {
           kScan := kScan + 1.U
         }
       }
       is(8.U) {
-        val accNext = acc + prodFc3.pad(48)
-        when(col === 127.U) {
-          logits(row(3, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc3)
-          when(row === 9.U) {
-            state := sDone
-          }.otherwise {
-            row := row + 1.U
-            col := 0.U
-            acc := 0.S
-          }
+        when(!macHi) {
+          macLatAddr := fc3Idx
+          macLatCol  := col(6, 0)
+          macHi      := true.B
         }.otherwise {
-          acc := accNext
-          col := col + 1.U
+          val fc3ActIdx = Wire(UInt(7.W))
+          fc3ActIdx := macLatCol(6, 0)
+          val accNext =
+            acc + (NNU.sext8(fc3Byte) * NNU.sext8(fc2Act(fc3ActIdx))).pad(48)
+          macHi := false.B
+          when(col === 127.U) {
+            logits(row(3, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc3)
+            when(row === 9.U) {
+              state := sDone
+            }.otherwise {
+              row := row + 1.U
+              col := 0.U
+              acc := 0.S
+            }
+          }.otherwise {
+            acc := accNext
+            col := col + 1.U
+          }
         }
       }
     }
@@ -285,4 +342,3 @@ object NNU {
 
   def absU(x: SInt): UInt = Mux(x < 0.S, (-x).asUInt, x.asUInt)
 }
-
