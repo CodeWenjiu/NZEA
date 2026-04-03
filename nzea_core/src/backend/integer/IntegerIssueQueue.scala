@@ -6,6 +6,7 @@ import nzea_core.{PipeIO, PipelineConnect}
 import nzea_core.frontend.{AluSrc, CsrType, FuDecode, FuSrcWidth, FuType, IssuePortsBundle, PrfBypass, PrfRawRead, PrfReadIO, PrfWriteBundle}
 import nzea_core.retire.rob.RobMemType
 import nzea_config.{FuConfig, NzeaConfig}
+import nzea_core.backend.integer.nnu.NnOp
 
 /** Integer issue queue entry: FuType + operand tags (paddr) + ready. No source data; values read via bypass net at dispatch. */
 class IntegerIssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Bundle {

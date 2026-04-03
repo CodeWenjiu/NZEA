@@ -2,7 +2,8 @@ package nzea_core.frontend
 
 import chisel3._
 import nzea_core.PipeIO
-import nzea_core.backend.integer.{AguInput, AluInput, BruInput, DivInput, MulInput, NnInput, SysuInput}
+import nzea_core.backend.integer.{AguInput, AluInput, BruInput, DivInput, MulInput, SysuInput}
+import nzea_core.backend.integer.nnu.NnInput
 import nzea_config.{FuConfig, NzeaConfig}
 
 /** Per-port payload types: each issue port has FU-specific input (AluInput, BruInput, etc.).

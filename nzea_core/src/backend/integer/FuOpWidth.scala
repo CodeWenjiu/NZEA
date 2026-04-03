@@ -1,5 +1,7 @@
 package nzea_core.backend.integer
 
+import nzea_core.backend.integer.nnu.NnOp
+
 /** Unified fu_op width: max of all FU opcode widths; used by decode/IDU/ISU and integer issue queue. */
 object FuOpWidth {
   val Width: Int =

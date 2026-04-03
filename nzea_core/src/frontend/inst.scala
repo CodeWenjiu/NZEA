@@ -10,7 +10,8 @@ import chisel3.util.experimental.decode.{
   decoder
 }
 import nzea_core.backend.integer.FuOpWidth
-import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, NnOp, SysuOp}
+import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
+import nzea_core.backend.integer.nnu.NnOp
 import nzea_config.NzeaConfig
 // -------- Instruction pattern & decode fields (ImmType, Fu = op+src per FU, RVInst, RiscvInsts) --------
 
