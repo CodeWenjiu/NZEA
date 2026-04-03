@@ -621,7 +621,8 @@ object RiscvInsts {
     ),
     RVInst(
       "NN_START",
-      "b00000000000000000000100000001011",
+      // Must match remu `0x0000100b`: funct3=001; old pattern decoded as non-NNU (default ALU), so START never reached NNU.
+      "b00000000000000000001000000001011",
       Some(ImmType.I),
       Fu.NNU(NnOp.Start),
       gprWr = false,

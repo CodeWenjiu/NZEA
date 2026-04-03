@@ -9,12 +9,16 @@ import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
 /** WJCUS0 custom-0 NN ops; aligned with remu `OP_WJCUS0` + `mnist_infer`.
-  * Weights live in [[SyncReadMem]] fed by [[loadMemoryFromFile]] (binary): Scala parses `fc*_weight.bin`,
-  * writes `build/nnu_mem_init/fc*_w8.bin`, then Chisel emits memory-load annotations for BRAM inference (e.g. Vivado). */
+  * Weights live in [[SyncReadMem]] fed by [[loadMemoryFromFile]] (Hex / `$readmemh`): Scala parses `fc*_weight.bin`,
+  * writes `build/nnu_mem_init/fc*_w8.hex` (ASCII hex, one byte per line). Use [[MemoryLoadFileType.Hex]] — Binary maps to
+  * `$readmemb` (text `0`/`1` only), not raw bytes; Verilator rejects a raw `.bin` with a syntax error. */
+/** Must use sequential encodings (0,1,2): [[FuOpField]] stores `litValue` in a shared `fu_op` field and
+  * [[IntegerIssueQueue]] masks with `FuDecode.take(_, NnOp.getWidth)`. One-hot values (1,2,4) would make
+  * `Load=4` truncate to 0 when `getWidth==2`, mis-decoding NN_LOAD as LoadAct and skipping GPR writeback. */
 object NnOp extends chisel3.ChiselEnum {
-  val LoadAct = Value((1 << 0).U)
-  val Start   = Value((1 << 1).U)
-  val Load    = Value((1 << 2).U)
+  val LoadAct = Value
+  val Start   = Value
+  val Load    = Value
 }
 
 object NnuSramDims {
@@ -54,9 +58,9 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val fc1W = SyncReadMem(NnuSramDims.Fc1Depth, UInt(8.W))
   val fc2W = SyncReadMem(NnuSramDims.Fc2Depth, UInt(8.W))
   val fc3W = SyncReadMem(NnuSramDims.Fc3Depth, UInt(8.W))
-  loadMemoryFromFile(fc1W, fc1MemPath, MemoryLoadFileType.Binary)
-  loadMemoryFromFile(fc2W, fc2MemPath, MemoryLoadFileType.Binary)
-  loadMemoryFromFile(fc3W, fc3MemPath, MemoryLoadFileType.Binary)
+  loadMemoryFromFile(fc1W, fc1MemPath, MemoryLoadFileType.Hex)
+  loadMemoryFromFile(fc2W, fc2MemPath, MemoryLoadFileType.Hex)
+  loadMemoryFromFile(fc3W, fc3MemPath, MemoryLoadFileType.Hex)
 
   val scaleQ16Fc1 = MnistRemuWeightBin.fc1ScaleQ16.S(32.W)
   val scaleQ16Fc2 = MnistRemuWeightBin.fc2ScaleQ16.S(32.W)

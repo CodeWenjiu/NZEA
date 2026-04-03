@@ -1,5 +1,6 @@
 package nzea_core.backend.integer.nnu
 
+import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.{ByteBuffer, ByteOrder}
 import java.nio.file.{Files, Paths}
 
@@ -8,8 +9,10 @@ import java.nio.file.{Files, Paths}
   * `remu_simulator/.../OP_WJCUS0/mnist_infer.rs` `parse_weight_binary_const` + `scale_to_q16`
   * (Q16 = truncate toward zero, not `round`).
   *
-  * Also materializes weight-only binaries under `build/nnu_mem_init/` for
-  * [[chisel3.util.experimental.loadMemoryFromFile]] on [[chisel3.SyncReadMem]] (Vivado BRAM inference).
+  * Also materializes `build/nnu_mem_init/fc*_w8.hex` (**ASCII hex**, one byte per line) for
+  * [[chisel3.util.experimental.loadMemoryFromFile]] with [[firrtl.annotations.MemoryLoadFileType.Hex]]
+  * (`$readmemh`). Raw `.bin` is unsuitable: [[MemoryLoadFileType.Binary]] emits `$readmemb`, which expects
+  * text `0`/`1` bits, not binary bytes — Verilator reports a file syntax error on raw `.bin`.
   */
 object MnistRemuWeightBin {
 
@@ -60,16 +63,29 @@ object MnistRemuWeightBin {
   require(fc2WeightBytes.length == NnuSramDims.Fc2Depth, "fc2 weight count")
   require(fc3WeightBytes.length == NnuSramDims.Fc3Depth, "fc3 weight count")
 
-  /** Absolute paths to 8-bit weight-only images for [[loadMemoryFromFile]] (binary, one byte per entry). */
+  /** One 8-bit word per line, lowercase hex — standard `$readmemh` text format for Verilator/Vivado. */
+  private def weightsToReadmemhHex(bytes: Array[Byte]): Array[Byte] = {
+    val sb = new StringBuilder(bytes.length * 3)
+    var i  = 0
+    while (i < bytes.length) {
+      val b = bytes(i) & 0xff
+      if (b < 16) sb.append('0')
+      sb.append(Integer.toHexString(b)).append('\n')
+      i += 1
+    }
+    sb.toString.getBytes(UTF_8)
+  }
+
+  /** Absolute paths to 8-bit weight images for [[loadMemoryFromFile]] (ASCII hex, [[MemoryLoadFileType.Hex]] / `$readmemh`). */
   def syncReadMemInitFilePaths: (String, String, String) = {
     val root = Paths.get(System.getProperty("user.dir", ".")).resolve("build").resolve("nnu_mem_init")
     Files.createDirectories(root)
-    val f1 = root.resolve("fc1_w8.bin")
-    val f2 = root.resolve("fc2_w8.bin")
-    val f3 = root.resolve("fc3_w8.bin")
-    Files.write(f1, fc1WeightBytes)
-    Files.write(f2, fc2WeightBytes)
-    Files.write(f3, fc3WeightBytes)
+    val f1 = root.resolve("fc1_w8.hex")
+    val f2 = root.resolve("fc2_w8.hex")
+    val f3 = root.resolve("fc3_w8.hex")
+    Files.write(f1, weightsToReadmemhHex(fc1WeightBytes))
+    Files.write(f2, weightsToReadmemhHex(fc2WeightBytes))
+    Files.write(f3, weightsToReadmemhHex(fc3WeightBytes))
     (
       f1.toAbsolutePath.normalize().toString,
       f2.toAbsolutePath.normalize().toString,
