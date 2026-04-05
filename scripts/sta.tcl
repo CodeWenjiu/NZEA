@@ -12,5 +12,6 @@ read_netlist $NETLIST_V
 read_liberty [concat $LIB_FILES]
 link_design $DESIGN
 read_sdc  $SDC_FILE
+# Timing report (e.g. Top.rpt under $RESULT_DIR) — stop here: full toggle power analysis
+# has been observed to overload the host *after* timing completes.
 report_timing -max_path 5
-report_power -toggle 0.1

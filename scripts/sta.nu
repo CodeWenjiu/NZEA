@@ -1,6 +1,7 @@
 #!/usr/bin/env nu
 # iEDA STA: requires synth first, PDK_PATH (from flake), iEDA in PATH
 # Outputs: build/yosys/<isa>/synth/Top.rpt (timing), build/yosys/<isa>/synth/sta.log
+# sta.tcl ends after report_timing (no report_power) to avoid heavy post-timing work crashing the machine.
 
 def main [
   --isa: string = "riscv32i"

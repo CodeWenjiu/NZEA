@@ -1,7 +1,7 @@
 package nzea_core.backend.integer.nnu
 
 import chisel3._
-import chisel3.util.{Cat, Fill, Valid, is, log2Ceil, switch}
+import chisel3.util.{Cat, Fill, Valid, is, switch}
 import chisel3.util.experimental.loadMemoryFromFile
 import firrtl.annotations.MemoryLoadFileType
 import nzea_core.PipeIO
@@ -9,9 +9,9 @@ import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
 /** WJCUS0 custom-0 NN ops; aligned with remu `OP_WJCUS0` + `mnist_infer`.
-  * Weights live in [[SyncReadMem]] fed by [[loadMemoryFromFile]] (Hex / `$readmemh`): Scala parses `fc*_weight.bin`,
-  * writes `build/nnu_mem_init/fc*_w8.hex` (ASCII hex, one byte per line). Use [[MemoryLoadFileType.Hex]] — Binary maps to
-  * `$readmemb` (text `0`/`1` only), not raw bytes; Verilator rejects a raw `.bin` with a syntax error. */
+  * Weights: row-wide [[SyncReadMem]] + parallel [[Vec.reduceTree]] dot; two-cycle row MAC (`rowDotLatch`)
+  * matches SyncReadMem read latency. `fc*_w8.hex`: one contiguous hex line per row — see [[MnistRemuWeightBin]].
+  */
 /** Must use sequential encodings (0,1,2): [[FuOpField]] stores `litValue` in a shared `fu_op` field and
   * [[IntegerIssueQueue]] masks with `FuDecode.take(_, NnOp.getWidth)`. One-hot values (1,2,4) would make
   * `Load=4` truncate to 0 when `getWidth==2`, mis-decoding NN_LOAD as LoadAct and skipping GPR writeback. */
@@ -49,15 +49,12 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val out        = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
-  val fc1AddrW = log2Ceil(NnuSramDims.Fc1Depth)
-  val fc2AddrW = log2Ceil(NnuSramDims.Fc2Depth)
-  val fc3AddrW = log2Ceil(NnuSramDims.Fc3Depth)
-
   val (fc1MemPath, fc2MemPath, fc3MemPath) = MnistRemuWeightBin.syncReadMemInitFilePaths
 
-  val fc1W = SyncReadMem(NnuSramDims.Fc1Depth, UInt(8.W))
-  val fc2W = SyncReadMem(NnuSramDims.Fc2Depth, UInt(8.W))
-  val fc3W = SyncReadMem(NnuSramDims.Fc3Depth, UInt(8.W))
+  /** One row per address; read port width = Fc*Cols × 8 bit (parallel MAC vs activations). */
+  val fc1W = SyncReadMem(NnuSramDims.Fc1Rows, Vec(NnuSramDims.Fc1Cols, UInt(8.W)))
+  val fc2W = SyncReadMem(NnuSramDims.Fc2Rows, Vec(NnuSramDims.Fc2Cols, UInt(8.W)))
+  val fc3W = SyncReadMem(NnuSramDims.Fc3Rows, Vec(NnuSramDims.Fc3Cols, UInt(8.W)))
   loadMemoryFromFile(fc1W, fc1MemPath, MemoryLoadFileType.Hex)
   loadMemoryFromFile(fc2W, fc2MemPath, MemoryLoadFileType.Hex)
   loadMemoryFromFile(fc3W, fc3MemPath, MemoryLoadFileType.Hex)
@@ -66,32 +63,46 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val scaleQ16Fc2 = MnistRemuWeightBin.fc2ScaleQ16.S(32.W)
   val scaleQ16Fc3 = MnistRemuWeightBin.fc3ScaleQ16.S(32.W)
 
-  val inputBuf = Reg(Vec(784, UInt(8.W)))
+  /** Full input image in registers so FC1 dot can use all pixels in parallel. */
+  val inputAct = Reg(Vec(NnuSramDims.Fc1Cols, UInt(8.W)))
   val fc1Out   = Reg(Vec(256, SInt(32.W)))
   val fc1Act   = Reg(Vec(256, UInt(8.W)))
   val fc2Out   = Reg(Vec(128, SInt(32.W)))
   val fc2Act   = Reg(Vec(128, UInt(8.W)))
   val logits   = Reg(Vec(10, SInt(32.W)))
 
-  val sIdle :: sInfer :: sDone :: Nil = chisel3.util.Enum(3)
+  val sIdle :: sLoadActStore :: sInfer :: sDone :: Nil = chisel3.util.Enum(4)
   val state = RegInit(sIdle)
 
-  /** 0=FC1 MAC, 1=FC1 max|.|, 2=FC1 shift count, 3=FC1 quant+relu, 4=FC2 MAC, 5=FC2 max, 6=FC2 shift, 7=FC2 quant+relu, 8=FC3 MAC */
+  val loadActIdx   = Reg(UInt(10.W))
+  val loadActByte  = Reg(UInt(8.W))
+  val loadActValid = Reg(Bool())
+
+  /** 0=FC1 row dot (+2 cyc scale), 1=max, 2=shift, 3=quant (4 cyc/elem), 4=FC2 row dot, 5=max, 6=shift, 7=quant, 8=FC3 row dot */
   val inferPhase = Reg(UInt(4.W))
 
-  val row   = Reg(UInt(9.W))
-  val col   = Reg(UInt(10.W))
-  val acc   = Reg(SInt(48.W))
+  val row = Reg(UInt(9.W))
   val kScan = Reg(UInt(9.W))
 
   val maxAbs    = Reg(UInt(32.W))
   val shiftAmt  = Reg(UInt(6.W))
   val shiftIter = Reg(UInt(32.W))
 
-  /** true = accumulate cycle (weight byte valid for latched index). */
-  val macHi     = RegInit(false.B)
-  val macLatAddr = Reg(UInt(18.W))
-  val macLatCol  = Reg(UInt(10.W))
+  /** false = issue SyncReadMem row read; true = dot product + kick scale (read data valid). */
+  val rowDotLatch = RegInit(false.B)
+
+  /** Quant sub-sequence for phase 3 / 7: 0=read vec, 1=`>> shiftAmt` reg, 2=sat+ReLU→byte reg, 3=write act RAM. */
+  val quantStage      = RegInit(0.U(2.W))
+  val quantPipeK      = Reg(UInt(8.W))
+  val quantPipeXs     = Reg(SInt(32.W))
+  val quantShiftedReg = Reg(SInt(32.W))
+  val quantActByteReg = Reg(UInt(8.W))
+
+  /** After row dot: 1=mul reg, 2=`>>16` + write fc*Out/logits. */
+  val macWriteStage = RegInit(0.U(2.W))
+  val macProdReg    = Reg(SInt(64.W))
+  val macScaleAcc   = Reg(SInt(32.W))
+  val macScaleRow   = Reg(UInt(9.W))
 
   val robIdReg = Reg(UInt(robIdWidth.W))
   val pcReg    = Reg(UInt(32.W))
@@ -103,27 +114,21 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.in.ready := (state === sIdle) && !io.out.flush && io.out.ready
 
   when(io.out.flush) {
-    state := sIdle
-    macHi := false.B
+    state           := sIdle
+    quantStage      := 0.U
+    macWriteStage   := 0.U
+    rowDotLatch := false.B
   }
 
   val nextPc = pcReg + 4.U
-
-  val fc1Idx = ((row * 784.U(32.W)) + col)(fc1AddrW - 1, 0)
-  val fc2Idx = ((row * 256.U(32.W)) + col)(fc2AddrW - 1, 0)
-  val fc3Idx = ((row * 128.U(32.W)) + col)(fc3AddrW - 1, 0)
 
   val inF1 = state === sInfer && inferPhase === 0.U
   val inF4 = state === sInfer && inferPhase === 4.U
   val inF8 = state === sInfer && inferPhase === 8.U
 
-  val fc1AddrMux = Mux(macHi, macLatAddr, fc1Idx)
-  val fc2AddrMux = Mux(macHi, macLatAddr, fc2Idx)
-  val fc3AddrMux = Mux(macHi, macLatAddr, fc3Idx)
-
-  val fc1Byte = fc1W.read(fc1AddrMux, inF1)
-  val fc2Byte = fc2W.read(fc2AddrMux, inF4)
-  val fc3Byte = fc3W.read(fc3AddrMux, inF8)
+  val fc1RowVec = fc1W.read(row(7, 0), inF1)
+  val fc2RowVec = fc2W.read(row(6, 0), inF4)
+  val fc3RowVec = fc3W.read(row(3, 0), inF8)
 
   when(state === sIdle && fire) {
     robIdReg := io.in.bits.rob_id
@@ -132,65 +137,110 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
     when(io.in.bits.nnOp === NnOp.LoadAct) {
       val idxS = io.in.bits.rs1.asSInt
-      when(idxS >= 0.S && idxS < 784.S) {
-        inputBuf(idxS.asUInt(9, 0)) := io.in.bits.rs2(7, 0)
-      }
-      state := sDone
+      loadActValid := (idxS >= 0.S) && (idxS < 784.S)
+      loadActIdx   := idxS.asUInt(9, 0)
+      loadActByte  := io.in.bits.rs2(7, 0)
+      state        := sLoadActStore
     }.elsewhen(io.in.bits.nnOp === NnOp.Load) {
       val kS        = io.in.bits.rs1.asSInt
       val kClampedS = Mux(kS < 0.S, 0.S, Mux(kS > 9.S, 9.S, kS))
       loadData := logits(kClampedS.asUInt(3, 0)).asUInt
       state := sDone
     }.elsewhen(io.in.bits.nnOp === NnOp.Start) {
-      row        := 0.U
-      col        := 0.U
-      acc        := 0.S
-      inferPhase := 0.U
-      macHi      := false.B
-      state      := sInfer
+      row            := 0.U
+      inferPhase     := 0.U
+      quantStage     := 0.U
+      macWriteStage  := 0.U
+      rowDotLatch    := false.B
+      state          := sInfer
     }
   }
 
-  when(state === sInfer && !io.out.flush) {
-    when(!(inferPhase === 0.U || inferPhase === 4.U || inferPhase === 8.U)) {
-      macHi := false.B
+  when(state === sLoadActStore && !io.out.flush) {
+    when(loadActValid) {
+      inputAct(loadActIdx) := loadActByte
     }
+    state := sDone
+  }
 
-    switch(inferPhase) {
-      is(0.U) {
-        when(!macHi) {
-          macLatAddr := fc1Idx
-          macLatCol  := col
-          macHi      := true.B
-        }.otherwise {
-          val accNext = acc + (NNU.sext8(fc1Byte) * NNU.sext8(inputBuf(macLatCol))).pad(48)
-          macHi := false.B
-          when(col === 783.U) {
-            fc1Out(row(7, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc1)
-            when(row === 255.U) {
-              inferPhase := 1.U
-              macHi   := false.B
-              kScan   := 0.U
-              maxAbs  := 0.U
-            }.otherwise {
-              row := row + 1.U
-              col := 0.U
-              acc := 0.S
-            }
+  val inRowMac =
+    (inferPhase === 0.U || inferPhase === 4.U || inferPhase === 8.U) && (macWriteStage === 0.U)
+
+  when(state === sInfer && !io.out.flush) {
+    when(macWriteStage =/= 0.U) {
+      when(macWriteStage === 1.U) {
+        val scaleSel = Mux(inferPhase === 4.U, scaleQ16Fc2, Mux(inferPhase === 8.U, scaleQ16Fc3, scaleQ16Fc1))
+        macProdReg    := (macScaleAcc * scaleSel).asSInt
+        macWriteStage := 2.U
+      }.otherwise {
+        val scaled = (macProdReg >> 16.U)(31, 0).asSInt
+        when(inferPhase === 0.U) {
+          fc1Out(macScaleRow(7, 0)) := scaled
+          macWriteStage := 0.U
+          when(macScaleRow === 255.U) {
+            inferPhase    := 1.U
+            kScan         := 0.U
+            maxAbs        := 0.U
+            quantStage    := 0.U
+            rowDotLatch   := false.B
           }.otherwise {
-            acc := accNext
-            col := col + 1.U
+            row := macScaleRow + 1.U
+          }
+        }.elsewhen(inferPhase === 4.U) {
+          fc2Out(macScaleRow(6, 0)) := scaled
+          macWriteStage := 0.U
+          when(macScaleRow === 127.U) {
+            inferPhase    := 5.U
+            kScan         := 0.U
+            maxAbs        := 0.U
+            quantStage    := 0.U
+            rowDotLatch   := false.B
+          }.otherwise {
+            row := macScaleRow + 1.U
+          }
+        }.elsewhen(inferPhase === 8.U) {
+          logits(macScaleRow(3, 0)) := scaled
+          macWriteStage := 0.U
+          when(macScaleRow === 9.U) {
+            state := sDone
+          }.otherwise {
+            row := macScaleRow + 1.U
           }
         }
       }
+    }.otherwise {
+      when(inferPhase =/= 0.U && inferPhase =/= 4.U && inferPhase =/= 8.U) {
+        rowDotLatch := false.B
+      }
+
+      when(inRowMac) {
+        when(!rowDotLatch) {
+          rowDotLatch := true.B
+        }.otherwise {
+          val dotFull = Wire(SInt(48.W))
+          when(inferPhase === 0.U) {
+            dotFull := NNU.dotProducts(fc1RowVec, inputAct)
+          }.elsewhen(inferPhase === 4.U) {
+            dotFull := NNU.dotProducts(fc2RowVec, fc1Act)
+          }.otherwise {
+            dotFull := NNU.dotProducts(fc3RowVec, fc2Act)
+          }
+          macScaleAcc   := dotFull(31, 0).asSInt
+          macScaleRow   := row
+          macWriteStage := 1.U
+          rowDotLatch   := false.B
+        }
+      }
+
+      switch(inferPhase) {
       is(1.U) {
         val mag     = NNU.absU(fc1Out(kScan(7, 0)))
         val nextMax = Mux(mag > maxAbs, mag, maxAbs)
         maxAbs := nextMax
         when(kScan === 255.U) {
           inferPhase := 2.U
-          shiftIter := nextMax
-          shiftAmt  := 0.U
+          shiftIter  := nextMax
+          shiftAmt   := 0.U
         }.otherwise {
           kScan := kScan + 1.U
         }
@@ -199,56 +249,46 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
         when(shiftIter === 0.U) {
           inferPhase := 3.U
           kScan      := 0.U
+          quantStage := 0.U
         }.elsewhen(shiftIter > 127.U) {
           shiftIter := shiftIter >> 1
           shiftAmt  := shiftAmt + 1.U
         }.otherwise {
           inferPhase := 3.U
           kScan      := 0.U
+          quantStage := 0.U
         }
       }
       is(3.U) {
-        val k8      = kScan(7, 0)
-        val x       = fc1Out(k8)
-        val shifted = x >> shiftAmt
-        val sat =
-          Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
-        val relu = Mux(sat < 0.S, 0.S, sat)
-        fc1Act(k8) := relu.asUInt(7, 0)
-        when(kScan === 255.U) {
-          inferPhase := 4.U
-          row        := 0.U
-          col        := 0.U
-          acc        := 0.S
-          macHi      := false.B
-        }.otherwise {
-          kScan := kScan + 1.U
-        }
-      }
-      is(4.U) {
-        when(!macHi) {
-          macLatAddr := fc2Idx
-          macLatCol  := col(7, 0)
-          macHi      := true.B
-        }.otherwise {
-          val accNext =
-            acc + (NNU.sext8(fc2Byte) * NNU.sext8(fc1Act(macLatCol(7, 0)))).pad(48)
-          macHi := false.B
-          when(col === 255.U) {
-            fc2Out(row(6, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc2)
-            when(row === 127.U) {
-              inferPhase := 5.U
-              macHi   := false.B
-              kScan   := 0.U
-              maxAbs  := 0.U
+        switch(quantStage) {
+          is(0.U) {
+            quantPipeK  := kScan(7, 0)
+            quantPipeXs := fc1Out(kScan(7, 0))
+            quantStage  := 1.U
+          }
+          is(1.U) {
+            quantShiftedReg := quantPipeXs >> shiftAmt
+            quantStage      := 2.U
+          }
+          is(2.U) {
+            val shifted = quantShiftedReg
+            val sat =
+              Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
+            val relu = Mux(sat < 0.S, 0.S, sat)
+            quantActByteReg := relu.asUInt(7, 0)
+            quantStage      := 3.U
+          }
+          is(3.U) {
+            fc1Act(quantPipeK) := quantActByteReg
+            quantStage := 0.U
+            when(kScan === 255.U) {
+              inferPhase   := 4.U
+              row          := 0.U
+              quantStage   := 0.U
+              rowDotLatch  := false.B
             }.otherwise {
-              row := row + 1.U
-              col := 0.U
-              acc := 0.S
+              kScan := kScan + 1.U
             }
-          }.otherwise {
-            acc := accNext
-            col := col + 1.U
           }
         }
       }
@@ -258,8 +298,8 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
         maxAbs := nextMax
         when(kScan === 127.U) {
           inferPhase := 6.U
-          shiftIter := nextMax
-          shiftAmt  := 0.U
+          shiftIter  := nextMax
+          shiftAmt   := 0.U
         }.otherwise {
           kScan := kScan + 1.U
         }
@@ -268,57 +308,49 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
         when(shiftIter === 0.U) {
           inferPhase := 7.U
           kScan      := 0.U
+          quantStage := 0.U
         }.elsewhen(shiftIter > 127.U) {
           shiftIter := shiftIter >> 1
           shiftAmt  := shiftAmt + 1.U
         }.otherwise {
           inferPhase := 7.U
           kScan      := 0.U
+          quantStage := 0.U
         }
       }
       is(7.U) {
-        val k7      = kScan(6, 0)
-        val x       = fc2Out(k7)
-        val shifted = x >> shiftAmt
-        val sat =
-          Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
-        val relu = Mux(sat < 0.S, 0.S, sat)
-        fc2Act(k7) := relu.asUInt(7, 0)
-        when(kScan === 127.U) {
-          inferPhase := 8.U
-          row        := 0.U
-          col        := 0.U
-          acc        := 0.S
-          macHi      := false.B
-        }.otherwise {
-          kScan := kScan + 1.U
-        }
-      }
-      is(8.U) {
-        when(!macHi) {
-          macLatAddr := fc3Idx
-          macLatCol  := col(6, 0)
-          macHi      := true.B
-        }.otherwise {
-          val fc3ActIdx = Wire(UInt(7.W))
-          fc3ActIdx := macLatCol(6, 0)
-          val accNext =
-            acc + (NNU.sext8(fc3Byte) * NNU.sext8(fc2Act(fc3ActIdx))).pad(48)
-          macHi := false.B
-          when(col === 127.U) {
-            logits(row(3, 0)) := NNU.applyScale(accNext(31, 0).asSInt, scaleQ16Fc3)
-            when(row === 9.U) {
-              state := sDone
+        switch(quantStage) {
+          is(0.U) {
+            quantPipeK  := kScan(7, 0)
+            quantPipeXs := fc2Out(kScan(6, 0))
+            quantStage  := 1.U
+          }
+          is(1.U) {
+            quantShiftedReg := quantPipeXs >> shiftAmt
+            quantStage      := 2.U
+          }
+          is(2.U) {
+            val shifted = quantShiftedReg
+            val sat =
+              Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
+            val relu = Mux(sat < 0.S, 0.S, sat)
+            quantActByteReg := relu.asUInt(7, 0)
+            quantStage      := 3.U
+          }
+          is(3.U) {
+            fc2Act(quantPipeK(6, 0)) := quantActByteReg
+            quantStage := 0.U
+            when(kScan === 127.U) {
+              inferPhase   := 8.U
+              row          := 0.U
+              quantStage   := 0.U
+              rowDotLatch  := false.B
             }.otherwise {
-              row := row + 1.U
-              col := 0.U
-              acc := 0.S
+              kScan := kScan + 1.U
             }
-          }.otherwise {
-            acc := accNext
-            col := col + 1.U
           }
         }
+      }
       }
     }
   }
@@ -345,4 +377,13 @@ object NNU {
   }
 
   def absU(x: SInt): UInt = Mux(x < 0.S, (-x).asUInt, x.asUInt)
+
+  /** Parallel int8×uint8 MAC across a row; balanced adder tree (width grows in tree, chop at caller). */
+  def dotProducts(w: Vec[UInt], x: Vec[UInt]): SInt = {
+    require(w.length == x.length)
+    val prods = VecInit((0 until w.length).map { i =>
+      (sext8(w(i)) * sext8(x(i))).asSInt.pad(56)
+    })
+    prods.reduceTree(_ + _)
+  }
 }

@@ -15,7 +15,7 @@ synth *ARGS:
     @nu scripts/synth.nu {{ ARGS }}
 
 # Synth + STA: area + timing. Requires nix develop (iEDA, PDK_PATH)
-# Reports: build/yosys/<isa>/synth/synth_stat.txt (area), Top.rpt (timing), Top.pwr (power), sta.log
+# Reports: build/yosys/<isa>/synth/synth_stat.txt (area), Top.rpt (timing), sta.log (power report disabled in sta.tcl)
 sta *ARGS:
     @just synth {{ ARGS }}
     @nu scripts/sta.nu {{ ARGS }}

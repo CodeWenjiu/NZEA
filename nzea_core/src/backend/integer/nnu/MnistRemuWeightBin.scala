@@ -9,10 +9,11 @@ import java.nio.file.{Files, Paths}
   * `remu_simulator/.../OP_WJCUS0/mnist_infer.rs` `parse_weight_binary_const` + `scale_to_q16`
   * (Q16 = truncate toward zero, not `round`).
   *
-  * Also materializes `build/nnu_mem_init/fc*_w8.hex` (**ASCII hex**, one byte per line) for
-  * [[chisel3.util.experimental.loadMemoryFromFile]] with [[firrtl.annotations.MemoryLoadFileType.Hex]]
-  * (`$readmemh`). Raw `.bin` is unsuitable: [[MemoryLoadFileType.Binary]] emits `$readmemb`, which expects
-  * text `0`/`1` bits, not binary bytes — Verilator reports a file syntax error on raw `.bin`.
+  * Also materializes `build/nnu_mem_init/fc*_w8.hex` for [[chisel3.util.experimental.loadMemoryFromFile]]
+  * (`$readmemh`): **one line per FC row** = one contiguous hex string of `2*Fc*Cols` digits (**no spaces**).
+  * Spaces would make Verilator fill multiple addresses per line and overflow `Memory[0:rows-1]`. Bytes are
+  * emitted MSB-first (last column first) so column 0 is RAM word bits `[7:0]` (`Vec(0)`). Raw `.bin` is
+  * unsuitable for Binary load type: `$readmemb` expects text bits — Verilator rejects raw `.bin`.
   */
 object MnistRemuWeightBin {
 
@@ -63,29 +64,36 @@ object MnistRemuWeightBin {
   require(fc2WeightBytes.length == NnuSramDims.Fc2Depth, "fc2 weight count")
   require(fc3WeightBytes.length == NnuSramDims.Fc3Depth, "fc3 weight count")
 
-  /** One 8-bit word per line, lowercase hex — standard `$readmemh` text format for Verilator/Vivado. */
-  private def weightsToReadmemhHex(bytes: Array[Byte]): Array[Byte] = {
-    val sb = new StringBuilder(bytes.length * 3)
-    var i  = 0
-    while (i < bytes.length) {
-      val b = bytes(i) & 0xff
-      if (b < 16) sb.append('0')
-      sb.append(Integer.toHexString(b)).append('\n')
-      i += 1
+  /** One `$readmemh` line per row: `cols` bytes as one packed word — **no spaces**; MSB = last column. */
+  private def weightsToReadmemhHexRows(bytes: Array[Byte], cols: Int): Array[Byte] = {
+    require(cols > 0 && bytes.length % cols == 0, "weight byte count must be divisible by cols")
+    val rows = bytes.length / cols
+    val sb   = new StringBuilder(rows * (cols * 2 + 1))
+    var r    = 0
+    while (r < rows) {
+      var c = cols - 1
+      while (c >= 0) {
+        val b = bytes(r * cols + c) & 0xff
+        if (b < 16) sb.append('0')
+        sb.append(Integer.toHexString(b))
+        c -= 1
+      }
+      sb.append('\n')
+      r += 1
     }
     sb.toString.getBytes(UTF_8)
   }
 
-  /** Absolute paths to 8-bit weight images for [[loadMemoryFromFile]] (ASCII hex, [[MemoryLoadFileType.Hex]] / `$readmemh`). */
+  /** Absolute paths to weight images for [[loadMemoryFromFile]] (row-wide [[MemoryLoadFileType.Hex]]). */
   def syncReadMemInitFilePaths: (String, String, String) = {
     val root = Paths.get(System.getProperty("user.dir", ".")).resolve("build").resolve("nnu_mem_init")
     Files.createDirectories(root)
     val f1 = root.resolve("fc1_w8.hex")
     val f2 = root.resolve("fc2_w8.hex")
     val f3 = root.resolve("fc3_w8.hex")
-    Files.write(f1, weightsToReadmemhHex(fc1WeightBytes))
-    Files.write(f2, weightsToReadmemhHex(fc2WeightBytes))
-    Files.write(f3, weightsToReadmemhHex(fc3WeightBytes))
+    Files.write(f1, weightsToReadmemhHexRows(fc1WeightBytes, NnuSramDims.Fc1Cols))
+    Files.write(f2, weightsToReadmemhHexRows(fc2WeightBytes, NnuSramDims.Fc2Cols))
+    Files.write(f3, weightsToReadmemhHexRows(fc3WeightBytes, NnuSramDims.Fc3Cols))
     (
       f1.toAbsolutePath.normalize().toString,
       f2.toAbsolutePath.normalize().toString,

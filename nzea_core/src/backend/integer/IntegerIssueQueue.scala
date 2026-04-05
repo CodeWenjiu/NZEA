@@ -377,30 +377,30 @@ class IntegerIssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, dep
     val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
   })
 
-  val s1 = Module(new IntegerIssueQueueSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
-  val s2 = Module(new IntegerIssueQueueReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
+  val s0 = Module(new IntegerIssueQueueSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
+  val s1 = Module(new IntegerIssueQueueReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
 
-  s1.io.in <> io.in
-  s1.io.prf_write := io.prf_write
-  s1.io.bypass_level1 := io.bypass_level1
-  s1.io.commit_rob_id := io.commit_rob_id
-  s1.io.commit_valid  := io.commit_valid
-  s1.io.alu_read_hint := s2.io.alu_read_hint
-  s1.io.prf_enqueue_rs1 := io.prf_enqueue_rs1
-  s1.io.prf_enqueue_rs2 := io.prf_enqueue_rs2
+  s0.io.in <> io.in
+  s0.io.prf_write := io.prf_write
+  s0.io.bypass_level1 := io.bypass_level1
+  s0.io.commit_rob_id := io.commit_rob_id
+  s0.io.commit_valid  := io.commit_valid
+  s0.io.alu_read_hint := s1.io.alu_read_hint
+  s0.io.prf_enqueue_rs1 := io.prf_enqueue_rs1
+  s0.io.prf_enqueue_rs2 := io.prf_enqueue_rs2
 
   val pipeRegOut = Wire(Vec(FuConfig.numIssuePorts, new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
   for (i <- 0 until FuConfig.numIssuePorts) {
-    s2.io.in(i).valid := pipeRegOut(i).valid
-    s2.io.in(i).bits := pipeRegOut(i).bits
-    pipeRegOut(i).ready := s2.io.in(i).ready
-    pipeRegOut(i).flush := s2.io.in(i).flush
-    PipelineConnect(s1.io.out(i), pipeRegOut(i))
+    s1.io.in(i).valid := pipeRegOut(i).valid
+    s1.io.in(i).bits := pipeRegOut(i).bits
+    pipeRegOut(i).ready := s1.io.in(i).ready
+    pipeRegOut(i).flush := s1.io.in(i).flush
+    PipelineConnect(s0.io.out(i), pipeRegOut(i))
   }
   for (i <- 0 until FuConfig.numIssuePorts; j <- 0 until 2) {
-    io.prf_read(i)(j) <> s2.io.prf_read(i)(j)
+    io.prf_read(i)(j) <> s1.io.prf_read(i)(j)
   }
-  s2.io.csr_rdata := io.csr_rdata
-  io.csr_read_addr := s2.io.csr_read_addr
-  io.issuePorts <> s2.io.issuePorts
+  s1.io.csr_rdata := io.csr_rdata
+  io.csr_read_addr := s1.io.csr_read_addr
+  io.issuePorts <> s1.io.issuePorts
 }
