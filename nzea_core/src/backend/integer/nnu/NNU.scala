@@ -1,7 +1,7 @@
 package nzea_core.backend.integer.nnu
 
 import chisel3._
-import chisel3.util.{Cat, Fill, Valid, is, switch}
+import chisel3.util.{Cat, Fill, MuxLookup, Valid}
 import chisel3.util.experimental.loadMemoryFromFile
 import firrtl.annotations.MemoryLoadFileType
 import nzea_core.PipeIO
@@ -19,6 +19,34 @@ object NnOp extends chisel3.ChiselEnum {
   val LoadAct = Value
   val Start   = Value
   val Load    = Value
+}
+
+/** One high-level step of the fixed MNIST FC inference FSM (FC1 → ReLU quant → FC2 → … → FC3 logits). */
+object InferPhase extends ChiselEnum {
+  val Fc1RowDotAllRows = Value // 256× MAC: input image vs FC1 weights
+  val Fc1MaxAbs        = Value // scan FC1 sums, find max |x|
+  val Fc1ShiftAmount   = Value // normalize dynamic range (leading zeros)
+  val Fc1QuantToAct    = Value // per-neuron shift / saturate / ReLU → fc1Act
+  val Fc2RowDotAllRows = Value
+  val Fc2MaxAbs        = Value
+  val Fc2ShiftAmount   = Value
+  val Fc2QuantToAct    = Value
+  val Fc3RowDotLogits  = Value // 10 logits
+}
+
+/** Between row dot and writing one scaled accumulator element. */
+object MacWriteStage extends ChiselEnum {
+  val Idle       = Value // issue row read or wait for next row index
+  val MulByScale = Value // acc * per-layer Q16 scale
+  val WriteAccum = Value // >>16, write fc*Out / logits
+}
+
+/** Per-neuron quantize pipeline inside [[InferPhase.Fc1QuantToAct]] / [[InferPhase.Fc2QuantToAct]]. */
+object QuantStage extends ChiselEnum {
+  val LatchSrc = Value // sample fc*Out[k], k
+  val Shift    = Value // arithmetic shift by shiftAmt
+  val SatRelu  = Value // clamp to int8-ish range, ReLU
+  val WriteAct = Value // store byte into fc*Act
 }
 
 object NnuSramDims {
@@ -78,8 +106,7 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val loadActByte  = Reg(UInt(8.W))
   val loadActValid = Reg(Bool())
 
-  /** 0=FC1 row dot (+2 cyc scale), 1=max, 2=shift, 3=quant (4 cyc/elem), 4=FC2 row dot, 5=max, 6=shift, 7=quant, 8=FC3 row dot */
-  val inferPhase = Reg(UInt(4.W))
+  val inferPhase = RegInit(InferPhase.Fc1RowDotAllRows)
 
   val row = Reg(UInt(9.W))
   val kScan = Reg(UInt(9.W))
@@ -91,15 +118,13 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   /** false = issue SyncReadMem row read; true = dot product + kick scale (read data valid). */
   val rowDotLatch = RegInit(false.B)
 
-  /** Quant sub-sequence for phase 3 / 7: 0=read vec, 1=`>> shiftAmt` reg, 2=sat+ReLU→byte reg, 3=write act RAM. */
-  val quantStage      = RegInit(0.U(2.W))
+  val quantStage      = RegInit(QuantStage.LatchSrc)
   val quantPipeK      = Reg(UInt(8.W))
   val quantPipeXs     = Reg(SInt(32.W))
   val quantShiftedReg = Reg(SInt(32.W))
   val quantActByteReg = Reg(UInt(8.W))
 
-  /** After row dot: 1=mul reg, 2=`>>16` + write fc*Out/logits. */
-  val macWriteStage = RegInit(0.U(2.W))
+  val macWriteStage = RegInit(MacWriteStage.Idle)
   val macProdReg    = Reg(SInt(64.W))
   val macScaleAcc   = Reg(SInt(32.W))
   val macScaleRow   = Reg(UInt(9.W))
@@ -114,21 +139,25 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.in.ready := (state === sIdle) && !io.out.flush && io.out.ready
 
   when(io.out.flush) {
-    state           := sIdle
-    quantStage      := 0.U
-    macWriteStage   := 0.U
-    rowDotLatch := false.B
+    state         := sIdle
+    quantStage    := QuantStage.LatchSrc
+    macWriteStage := MacWriteStage.Idle
+    rowDotLatch   := false.B
   }
 
   val nextPc = pcReg + 4.U
 
-  val inF1 = state === sInfer && inferPhase === 0.U
-  val inF4 = state === sInfer && inferPhase === 4.U
-  val inF8 = state === sInfer && inferPhase === 8.U
+  val phaseIsRowDotFc1 = inferPhase === InferPhase.Fc1RowDotAllRows
+  val phaseIsRowDotFc2 = inferPhase === InferPhase.Fc2RowDotAllRows
+  val phaseIsRowDotFc3 = inferPhase === InferPhase.Fc3RowDotLogits
 
-  val fc1RowVec = fc1W.read(row(7, 0), inF1)
-  val fc2RowVec = fc2W.read(row(6, 0), inF4)
-  val fc3RowVec = fc3W.read(row(3, 0), inF8)
+  val readFc1Row = state === sInfer && phaseIsRowDotFc1
+  val readFc2Row = state === sInfer && phaseIsRowDotFc2
+  val readFc3Row = state === sInfer && phaseIsRowDotFc3
+
+  val fc1RowVec = fc1W.read(row(7, 0), readFc1Row)
+  val fc2RowVec = fc2W.read(row(6, 0), readFc2Row)
+  val fc3RowVec = fc3W.read(row(3, 0), readFc3Row)
 
   when(state === sIdle && fire) {
     robIdReg := io.in.bits.rob_id
@@ -148,9 +177,9 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
       state := sDone
     }.elsewhen(io.in.bits.nnOp === NnOp.Start) {
       row            := 0.U
-      inferPhase     := 0.U
-      quantStage     := 0.U
-      macWriteStage  := 0.U
+      inferPhase     := InferPhase.Fc1RowDotAllRows
+      quantStage     := QuantStage.LatchSrc
+      macWriteStage  := MacWriteStage.Idle
       rowDotLatch    := false.B
       state          := sInfer
     }
@@ -163,195 +192,197 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     state := sDone
   }
 
-  val inRowMac =
-    (inferPhase === 0.U || inferPhase === 4.U || inferPhase === 8.U) && (macWriteStage === 0.U)
+  val inRowMacPhase = phaseIsRowDotFc1 || phaseIsRowDotFc2 || phaseIsRowDotFc3
+  val inRowMac      = inRowMacPhase && (macWriteStage === MacWriteStage.Idle)
+
+  /** Q16 scale for the current row-dot layer (table, not nested Mux). */
+  val rowDotScaleQ16: SInt = MuxLookup(
+    inferPhase.asUInt,
+    scaleQ16Fc1
+  )(
+    Seq(
+      InferPhase.Fc2RowDotAllRows.asUInt -> scaleQ16Fc2,
+      InferPhase.Fc3RowDotLogits.asUInt  -> scaleQ16Fc3
+    )
+  )
+
+  /** Saturate + ReLU to unsigned 8b (shared FC1/FC2 quant). */
+  def satReluToU8(shifted: SInt): UInt = {
+    val sat  = Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
+    val relu = Mux(sat < 0.S, 0.S, sat)
+    relu.asUInt(7, 0)
+  }
+
+  /** Row-MAC pipeline: mul by Q16, then >>16 into fc*Out / logits. */
+  def stepRowMacPipeline(): Unit = {
+    when(macWriteStage === MacWriteStage.MulByScale) {
+      macProdReg    := (macScaleAcc * rowDotScaleQ16).asSInt
+      macWriteStage := MacWriteStage.WriteAccum
+    }
+    when(macWriteStage === MacWriteStage.WriteAccum) {
+      val scaled = (macProdReg >> 16.U)(31, 0).asSInt
+      when(phaseIsRowDotFc1) {
+        fc1Out(macScaleRow(7, 0)) := scaled
+        macWriteStage := MacWriteStage.Idle
+        when(macScaleRow === 255.U) {
+          inferPhase  := InferPhase.Fc1MaxAbs
+          kScan       := 0.U
+          maxAbs      := 0.U
+          quantStage  := QuantStage.LatchSrc
+          rowDotLatch := false.B
+        }.otherwise {
+          row := macScaleRow + 1.U
+        }
+      }.elsewhen(phaseIsRowDotFc2) {
+        fc2Out(macScaleRow(6, 0)) := scaled
+        macWriteStage := MacWriteStage.Idle
+        when(macScaleRow === 127.U) {
+          inferPhase  := InferPhase.Fc2MaxAbs
+          kScan       := 0.U
+          maxAbs      := 0.U
+          quantStage  := QuantStage.LatchSrc
+          rowDotLatch := false.B
+        }.otherwise {
+          row := macScaleRow + 1.U
+        }
+      }.elsewhen(phaseIsRowDotFc3) {
+        logits(macScaleRow(3, 0)) := scaled
+        macWriteStage := MacWriteStage.Idle
+        when(macScaleRow === 9.U) {
+          state := sDone
+        }.otherwise {
+          row := macScaleRow + 1.U
+        }
+      }
+    }
+  }
+
+  /** Two-cycle row read + dot: first cycle assert read, second cycle consume + start scale. */
+  def stepRowDotRead(): Unit = {
+    when(!inRowMacPhase) {
+      rowDotLatch := false.B
+    }
+    when(inRowMac) {
+      when(!rowDotLatch) {
+        rowDotLatch := true.B
+      }.otherwise {
+        val dotFull = Wire(SInt(48.W))
+        when(phaseIsRowDotFc1) {
+          dotFull := NNU.dotProducts(fc1RowVec, inputAct)
+        }.elsewhen(phaseIsRowDotFc2) {
+          dotFull := NNU.dotProducts(fc2RowVec, fc1Act)
+        }.otherwise {
+          dotFull := NNU.dotProducts(fc3RowVec, fc2Act)
+        }
+        macScaleAcc   := dotFull(31, 0).asSInt
+        macScaleRow   := row
+        macWriteStage := MacWriteStage.MulByScale
+        rowDotLatch   := false.B
+      }
+    }
+  }
+
+  /** FC1+FC2: scan max |activation| before per-layer shift. */
+  def stepMaxAbsScan(): Unit = {
+    val inMax = (inferPhase === InferPhase.Fc1MaxAbs) || (inferPhase === InferPhase.Fc2MaxAbs)
+    when(inMax) {
+      val useFc1 = inferPhase === InferPhase.Fc1MaxAbs
+      val mag    = Mux(useFc1, NNU.absU(fc1Out(kScan(7, 0))), NNU.absU(fc2Out(kScan(6, 0))))
+      val nextMx = Mux(mag > maxAbs, mag, maxAbs)
+      maxAbs := nextMx
+      val kEnd = Mux(useFc1, kScan === 255.U, kScan === 127.U)
+      when(kEnd) {
+        inferPhase := Mux(useFc1, InferPhase.Fc1ShiftAmount, InferPhase.Fc2ShiftAmount)
+        shiftIter  := nextMx
+        shiftAmt   := 0.U
+      }.otherwise {
+        kScan := kScan + 1.U
+      }
+    }
+  }
+
+  /** FC1+FC2: derive per-layer shift count from max magnitude. */
+  def stepShiftAmount(): Unit = {
+    val inShift = (inferPhase === InferPhase.Fc1ShiftAmount) || (inferPhase === InferPhase.Fc2ShiftAmount)
+    when(inShift) {
+      val useFc1    = inferPhase === InferPhase.Fc1ShiftAmount
+      val nextQuant = Mux(useFc1, InferPhase.Fc1QuantToAct, InferPhase.Fc2QuantToAct)
+      when(shiftIter === 0.U) {
+        inferPhase := nextQuant
+        kScan      := 0.U
+        quantStage := QuantStage.LatchSrc
+      }.elsewhen(shiftIter > 127.U) {
+        shiftIter := shiftIter >> 1
+        shiftAmt  := shiftAmt + 1.U
+      }.otherwise {
+        inferPhase := nextQuant
+        kScan      := 0.U
+        quantStage := QuantStage.LatchSrc
+      }
+    }
+  }
+
+  /** FC1+FC2: quant sub-pipeline; next [[QuantStage]] from MuxLookup for Latch→Shift→SatRelu→WriteAct. */
+  def stepQuantToAct(): Unit = {
+    val inQuant = (inferPhase === InferPhase.Fc1QuantToAct) || (inferPhase === InferPhase.Fc2QuantToAct)
+    when(inQuant) {
+      val useFc1 = inferPhase === InferPhase.Fc1QuantToAct
+      val srcXs  = Mux(useFc1, fc1Out(kScan(7, 0)), fc2Out(kScan(6, 0)))
+      val kLast  = Mux(useFc1, kScan === 255.U, kScan === 127.U)
+      val nextRowDot =
+        Mux(useFc1, InferPhase.Fc2RowDotAllRows, InferPhase.Fc3RowDotLogits)
+
+      val nextQuantAfterLatch = MuxLookup(
+        quantStage.asUInt,
+        quantStage
+      )(
+        Seq(
+          QuantStage.LatchSrc.asUInt -> QuantStage.Shift,
+          QuantStage.Shift.asUInt    -> QuantStage.SatRelu,
+          QuantStage.SatRelu.asUInt  -> QuantStage.WriteAct
+        )
+      )
+
+      when(quantStage === QuantStage.LatchSrc) {
+        quantPipeK  := kScan(7, 0)
+        quantPipeXs := srcXs
+        quantStage  := nextQuantAfterLatch
+      }
+      when(quantStage === QuantStage.Shift) {
+        quantShiftedReg := quantPipeXs >> shiftAmt
+        quantStage      := nextQuantAfterLatch
+      }
+      when(quantStage === QuantStage.SatRelu) {
+        quantActByteReg := satReluToU8(quantShiftedReg)
+        quantStage      := nextQuantAfterLatch
+      }
+      when(quantStage === QuantStage.WriteAct) {
+        when(useFc1) {
+          fc1Act(quantPipeK) := quantActByteReg
+        }.otherwise {
+          fc2Act(quantPipeK(6, 0)) := quantActByteReg
+        }
+        quantStage := QuantStage.LatchSrc
+        when(kLast) {
+          inferPhase  := nextRowDot
+          row         := 0.U
+          quantStage  := QuantStage.LatchSrc
+          rowDotLatch := false.B
+        }.otherwise {
+          kScan := kScan + 1.U
+        }
+      }
+    }
+  }
 
   when(state === sInfer && !io.out.flush) {
-    when(macWriteStage =/= 0.U) {
-      when(macWriteStage === 1.U) {
-        val scaleSel = Mux(inferPhase === 4.U, scaleQ16Fc2, Mux(inferPhase === 8.U, scaleQ16Fc3, scaleQ16Fc1))
-        macProdReg    := (macScaleAcc * scaleSel).asSInt
-        macWriteStage := 2.U
-      }.otherwise {
-        val scaled = (macProdReg >> 16.U)(31, 0).asSInt
-        when(inferPhase === 0.U) {
-          fc1Out(macScaleRow(7, 0)) := scaled
-          macWriteStage := 0.U
-          when(macScaleRow === 255.U) {
-            inferPhase    := 1.U
-            kScan         := 0.U
-            maxAbs        := 0.U
-            quantStage    := 0.U
-            rowDotLatch   := false.B
-          }.otherwise {
-            row := macScaleRow + 1.U
-          }
-        }.elsewhen(inferPhase === 4.U) {
-          fc2Out(macScaleRow(6, 0)) := scaled
-          macWriteStage := 0.U
-          when(macScaleRow === 127.U) {
-            inferPhase    := 5.U
-            kScan         := 0.U
-            maxAbs        := 0.U
-            quantStage    := 0.U
-            rowDotLatch   := false.B
-          }.otherwise {
-            row := macScaleRow + 1.U
-          }
-        }.elsewhen(inferPhase === 8.U) {
-          logits(macScaleRow(3, 0)) := scaled
-          macWriteStage := 0.U
-          when(macScaleRow === 9.U) {
-            state := sDone
-          }.otherwise {
-            row := macScaleRow + 1.U
-          }
-        }
-      }
+    when(macWriteStage =/= MacWriteStage.Idle) {
+      stepRowMacPipeline()
     }.otherwise {
-      when(inferPhase =/= 0.U && inferPhase =/= 4.U && inferPhase =/= 8.U) {
-        rowDotLatch := false.B
-      }
-
-      when(inRowMac) {
-        when(!rowDotLatch) {
-          rowDotLatch := true.B
-        }.otherwise {
-          val dotFull = Wire(SInt(48.W))
-          when(inferPhase === 0.U) {
-            dotFull := NNU.dotProducts(fc1RowVec, inputAct)
-          }.elsewhen(inferPhase === 4.U) {
-            dotFull := NNU.dotProducts(fc2RowVec, fc1Act)
-          }.otherwise {
-            dotFull := NNU.dotProducts(fc3RowVec, fc2Act)
-          }
-          macScaleAcc   := dotFull(31, 0).asSInt
-          macScaleRow   := row
-          macWriteStage := 1.U
-          rowDotLatch   := false.B
-        }
-      }
-
-      switch(inferPhase) {
-      is(1.U) {
-        val mag     = NNU.absU(fc1Out(kScan(7, 0)))
-        val nextMax = Mux(mag > maxAbs, mag, maxAbs)
-        maxAbs := nextMax
-        when(kScan === 255.U) {
-          inferPhase := 2.U
-          shiftIter  := nextMax
-          shiftAmt   := 0.U
-        }.otherwise {
-          kScan := kScan + 1.U
-        }
-      }
-      is(2.U) {
-        when(shiftIter === 0.U) {
-          inferPhase := 3.U
-          kScan      := 0.U
-          quantStage := 0.U
-        }.elsewhen(shiftIter > 127.U) {
-          shiftIter := shiftIter >> 1
-          shiftAmt  := shiftAmt + 1.U
-        }.otherwise {
-          inferPhase := 3.U
-          kScan      := 0.U
-          quantStage := 0.U
-        }
-      }
-      is(3.U) {
-        switch(quantStage) {
-          is(0.U) {
-            quantPipeK  := kScan(7, 0)
-            quantPipeXs := fc1Out(kScan(7, 0))
-            quantStage  := 1.U
-          }
-          is(1.U) {
-            quantShiftedReg := quantPipeXs >> shiftAmt
-            quantStage      := 2.U
-          }
-          is(2.U) {
-            val shifted = quantShiftedReg
-            val sat =
-              Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
-            val relu = Mux(sat < 0.S, 0.S, sat)
-            quantActByteReg := relu.asUInt(7, 0)
-            quantStage      := 3.U
-          }
-          is(3.U) {
-            fc1Act(quantPipeK) := quantActByteReg
-            quantStage := 0.U
-            when(kScan === 255.U) {
-              inferPhase   := 4.U
-              row          := 0.U
-              quantStage   := 0.U
-              rowDotLatch  := false.B
-            }.otherwise {
-              kScan := kScan + 1.U
-            }
-          }
-        }
-      }
-      is(5.U) {
-        val mag     = NNU.absU(fc2Out(kScan(6, 0)))
-        val nextMax = Mux(mag > maxAbs, mag, maxAbs)
-        maxAbs := nextMax
-        when(kScan === 127.U) {
-          inferPhase := 6.U
-          shiftIter  := nextMax
-          shiftAmt   := 0.U
-        }.otherwise {
-          kScan := kScan + 1.U
-        }
-      }
-      is(6.U) {
-        when(shiftIter === 0.U) {
-          inferPhase := 7.U
-          kScan      := 0.U
-          quantStage := 0.U
-        }.elsewhen(shiftIter > 127.U) {
-          shiftIter := shiftIter >> 1
-          shiftAmt  := shiftAmt + 1.U
-        }.otherwise {
-          inferPhase := 7.U
-          kScan      := 0.U
-          quantStage := 0.U
-        }
-      }
-      is(7.U) {
-        switch(quantStage) {
-          is(0.U) {
-            quantPipeK  := kScan(7, 0)
-            quantPipeXs := fc2Out(kScan(6, 0))
-            quantStage  := 1.U
-          }
-          is(1.U) {
-            quantShiftedReg := quantPipeXs >> shiftAmt
-            quantStage      := 2.U
-          }
-          is(2.U) {
-            val shifted = quantShiftedReg
-            val sat =
-              Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
-            val relu = Mux(sat < 0.S, 0.S, sat)
-            quantActByteReg := relu.asUInt(7, 0)
-            quantStage      := 3.U
-          }
-          is(3.U) {
-            fc2Act(quantPipeK(6, 0)) := quantActByteReg
-            quantStage := 0.U
-            when(kScan === 127.U) {
-              inferPhase   := 8.U
-              row          := 0.U
-              quantStage   := 0.U
-              rowDotLatch  := false.B
-            }.otherwise {
-              kScan := kScan + 1.U
-            }
-          }
-        }
-      }
-      }
+      stepRowDotRead()
+      stepMaxAbsScan()
+      stepShiftAmount()
+      stepQuantToAct()
     }
   }
 
