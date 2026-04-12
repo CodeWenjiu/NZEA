@@ -1,7 +1,7 @@
 package nzea_core.backend.vector
 
 import chisel3._
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_config.NzeaConfig
 
 /** VIQ → [[VALU]] → [[VectorWbu]] → [[VectorPrf]]; for integration tests and future Core hookup. */

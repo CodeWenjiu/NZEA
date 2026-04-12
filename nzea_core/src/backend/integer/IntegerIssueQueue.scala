@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
-import nzea_core.{PipeIO, PipelineConnect}
+import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.{AluSrc, CsrType, FuDecode, FuSrcWidth, FuType, IssuePortsBundle, PrfBypass, PrfRawRead, PrfReadIO, PrfWriteBundle}
 import nzea_core.retire.rob.RobMemType
 import nzea_config.{FuConfig, NzeaConfig}

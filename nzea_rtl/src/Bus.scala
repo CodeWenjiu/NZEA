@@ -1,7 +1,6 @@
-package nzea_core
+package nzea_rtl
 
 import chisel3._
-import nzea_core.PipeIO
 
 /** Request payload for read-write bus: addr, wdata, wen, wstrb, user (passthrough to resp). */
 class CoreReq(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Bundle {
@@ -49,4 +48,3 @@ object CoreBus {
   def apply(addrWidth: Int, dataWidth: Int, hasWrite: Boolean, userWidth: Int = 0): Bundle with CoreBusLike =
     if (hasWrite) new CoreBusReadWrite(addrWidth, dataWidth, userWidth) else new CoreBusReadOnly(addrWidth, dataWidth)
 }
-

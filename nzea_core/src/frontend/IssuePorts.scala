@@ -1,7 +1,7 @@
 package nzea_core.frontend
 
 import chisel3._
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_core.backend.integer.{AguInput, AluInput, BruInput, DivInput, MulInput, SysuInput}
 import nzea_core.backend.integer.nnu.NnInput
 import nzea_config.{FuConfig, NzeaConfig}

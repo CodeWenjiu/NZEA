@@ -1,4 +1,4 @@
-package nzea_core
+package nzea_rtl
 
 import chisel3._
 import chisel3.util.PriorityEncoder

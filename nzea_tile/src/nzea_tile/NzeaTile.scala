@@ -22,7 +22,7 @@ class TileStatusBundle extends Bundle {
 
 /** CPU tile: [[nzea_core.Core]] plus explicit bus routing insertion points and tile control IO.
   * Bus fabric is currently pass-through (`ibusRouter` / `dbusRouter`); replace with arbiters/mux later.
-  * `config.sim` mirrors [[nzea_core.Top]] (DPI vs exposed ibus/dbus/commit).
+  * `config.sim` mirrors [[nzea_core.CoreElaborate.Top]] (DPI vs exposed ibus/dbus/commit).
   */
 class NzeaTile(implicit config: NzeaConfig) extends Module {
   private val addrWidth = config.width

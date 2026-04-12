@@ -2,7 +2,7 @@ package nzea_core.backend.vector
 
 import chisel3._
 import chisel3.util.{Mux1H, PopCount, PriorityEncoder}
-import nzea_core.{PipeIO, PipelineConnect}
+import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.PrfReadIO
 import nzea_config.NzeaConfig
 

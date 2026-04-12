@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Cat, Mux1H, Valid}
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
@@ -28,7 +28,7 @@ class DivInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 class DivIO(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val in         = Flipped(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
   val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
-  val out        = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+  val out        = new nzea_rtl.PipeIO(new PrfWriteBundle(prfAddrWidth))
 }
 
 /** Common interface for DIV/NullDIV so IntegerExecutionCluster can use if/else without losing .io type. */

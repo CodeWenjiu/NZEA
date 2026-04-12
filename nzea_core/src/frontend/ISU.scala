@@ -1,7 +1,7 @@
 package nzea_core.frontend
 
 import chisel3._
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_config.NzeaConfig
 import nzea_core.backend.integer.IntegerIssueQueueEntry
 import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}

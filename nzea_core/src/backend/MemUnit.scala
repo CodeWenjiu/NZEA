@@ -3,9 +3,9 @@ package nzea_core.backend
 import chisel3._
 import nzea_core.backend.integer.LsuOp
 import chisel3.util.{Cat, Mux1H, Valid}
-import nzea_core.CoreBusReadWrite
+import nzea_rtl.CoreBusReadWrite
 import nzea_core.frontend.PrfWriteBundle
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_core.retire.rob.{Rob, RobEntryStateUpdate, RobMemReq}
 
 /** Dbus user payload: rob_id + lsuOp + addr2 + p_rd, passthrough req->resp for load PRF write. */

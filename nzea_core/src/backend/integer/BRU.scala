@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_core.{PipeIO, PipelineConnect}
+import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.Rob
@@ -85,7 +85,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val in         = Flipped(new PipeIO(new BruS1Out(robIdWidth, prfAddrWidth)))
     val flush      = Input(Bool())
     val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
-    val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out  = new nzea_rtl.PipeIO(new PrfWriteBundle(prfAddrWidth))
     val bp_update  = Output(Valid(new BpUpdate))
   })
 
@@ -116,7 +116,7 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
     val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
-    val out  = new nzea_core.PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out  = new nzea_rtl.PipeIO(new PrfWriteBundle(prfAddrWidth))
     val bp_update  = Output(Valid(new BpUpdate))
   })
 

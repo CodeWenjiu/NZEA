@@ -2,7 +2,7 @@ package nzea_core.dpi
 
 import chisel3._
 import chisel3.util._
-import nzea_core._
+import nzea_rtl._
 
 /** Dbus bridge using SyncReadMem (no DPI). Same pipeline structure as DbusDpiBridge, for testing. */
 class DbusMemBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {

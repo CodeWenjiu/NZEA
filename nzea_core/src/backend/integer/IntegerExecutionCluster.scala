@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_core.{PipelineConnect, PipeIO}
+import nzea_rtl.{PipelineConnect, PipeIO}
 import nzea_core.frontend.{IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}

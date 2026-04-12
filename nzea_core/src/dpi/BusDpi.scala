@@ -4,7 +4,8 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_config.NzeaConfig
 import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFunctionCall}
-import nzea_core._
+import nzea_rtl._
+import nzea_core.retire.CommitMsg
 
 /** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect.
   * Flush clears in-flight; req.flush/resp.flush from bus.resp.flush. */
@@ -89,7 +90,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
 class CommitDpiBridge(implicit config: NzeaConfig) extends Module {
   val io = IO(new Bundle {
-    val commit_msg = Input(Valid(new retire.CommitMsg))
+    val commit_msg = Input(Valid(new CommitMsg))
   })
 
   val (csr_imm, csr_valid) = nzea_core.frontend.CsrType.toImmValid(io.commit_msg.bits.csr_type)

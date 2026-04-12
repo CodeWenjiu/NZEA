@@ -2,7 +2,7 @@ package nzea_core.backend.vector
 
 import chisel3._
 import chisel3.util.{MuxCase, Valid}
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_core.retire.rob.Rob
 import nzea_config.NzeaConfig
 

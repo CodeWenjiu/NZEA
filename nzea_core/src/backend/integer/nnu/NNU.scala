@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Cat, Fill, MuxLookup, Valid}
 import chisel3.util.experimental.loadMemoryFromFile
 import firrtl.annotations.MemoryLoadFileType
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 

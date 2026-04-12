@@ -2,7 +2,7 @@ package nzea_core.retire
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_core.PipeIO
+import nzea_rtl.PipeIO
 import nzea_core.frontend.PrfWriteBundle
 import nzea_config.{FuConfig, NzeaConfig}
 

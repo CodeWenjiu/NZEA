@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
 import nzea_config.{FuConfig, NzeaConfig}
+import nzea_rtl.PipelineConnect
 
 /** Core module: Rob in Core; integer cluster + MemUnit write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */
 class Core(implicit config: NzeaConfig) extends Module {
