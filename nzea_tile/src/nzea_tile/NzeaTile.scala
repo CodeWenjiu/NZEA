@@ -2,7 +2,7 @@ package nzea_tile
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.{NzeaConfig, SynthPlatform}
+import nzea_config.NzeaConfig
 import nzea_core.dpi.{CommitDpiBridge, DbusDpiBridge, IbusDpiBridge}
 import nzea_core.retire.CommitMsg
 
@@ -22,7 +22,7 @@ class TileStatusBundle extends Bundle {
 
 /** CPU tile: [[nzea_core.Core]] plus explicit bus routing insertion points and tile control IO.
   * Bus fabric is currently pass-through (`ibusRouter` / `dbusRouter`); replace with arbiters/mux later.
-  * Simulation and synthesis modes mirror [[nzea_core.Top]] (DPI vs exposed ibus/dbus/commit).
+  * `config.sim` mirrors [[nzea_core.Top]] (DPI vs exposed ibus/dbus/commit).
   */
 class NzeaTile(implicit config: NzeaConfig) extends Module {
   private val addrWidth = config.width
@@ -35,27 +35,24 @@ class NzeaTile(implicit config: NzeaConfig) extends Module {
   ibusRouter <> core.io.ibus
   dbusRouter <> core.io.dbus
 
-  config.platform match {
-    case SynthPlatform.Yosys =>
-      val ctrl   = IO(new TileControlBundle)
-      val status = IO(new TileStatusBundle)
-      val ibus   = IO(chiselTypeOf(ibusRouter))
-      val dbus   = IO(chiselTypeOf(dbusRouter))
-      val commit_msg = IO(Output(Valid(new CommitMsg)))
-      ibus   <> ibusRouter
-      dbus   <> dbusRouter
-      commit_msg := core.io.commit_msg
-      status.commit_msg_valid := core.io.commit_msg.valid
-    case _ =>
-      val ctrl   = IO(new TileControlBundle)
-      val status = IO(new TileStatusBundle)
-      val ib     = Module(new IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth))
-      val db     = Module(new DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
-      val cb     = Module(new CommitDpiBridge)
-      ib.io.bus <> ibusRouter
-      db.io.bus <> dbusRouter
-      cb.io.commit_msg := core.io.commit_msg
-      status.commit_msg_valid := core.io.commit_msg.valid
+  val ctrl   = IO(new TileControlBundle)
+  val status = IO(new TileStatusBundle)
+  if (config.sim) {
+    val ib = Module(new IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth))
+    val db = Module(new DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
+    val cb = Module(new CommitDpiBridge)
+    ib.io.bus <> ibusRouter
+    db.io.bus <> dbusRouter
+    cb.io.commit_msg := core.io.commit_msg
+    status.commit_msg_valid := core.io.commit_msg.valid
+  } else {
+    val ibus = IO(chiselTypeOf(ibusRouter))
+    val dbus = IO(chiselTypeOf(dbusRouter))
+    val commit_msg = IO(Output(Valid(new CommitMsg)))
+    ibus   <> ibusRouter
+    dbus   <> dbusRouter
+    commit_msg := core.io.commit_msg
+    status.commit_msg_valid := core.io.commit_msg.valid
   }
 
   // Reserved: connect ctrl to Core reset / flush when tile policy is defined.

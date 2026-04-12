@@ -1,11 +1,11 @@
 #!/usr/bin/env nu
 # Yosys synthesis (yosys-sta style)
-# Reads build/<target>/yosys/<isa>/*.sv from filelist.f, outputs to .../synth/
+# Reads build/<target>/yosys/<isa>/sta/*.sv from filelist.f, outputs to .../sta/synth/
 #   - <Top|NzeaTile>.netlist.v (netlist)
 #   - synth_stat.txt (area/cell report, transistor estimate)
 #   - synth_check.txt (check report)
 #   - yosys.log (full log)
-# Prerequisite: just dump --synthPlatform yosys --target <core|tile> --isa <isa>
+# Prerequisite: just dump --sim false --target <core|tile> --isa <isa> (or mill nzea_cli.run ...)
 
 def main [
   --isa: string = "riscv32i"
@@ -13,12 +13,12 @@ def main [
   hdl_dir?: string
   synth_dir?: string
 ] {
-  let base_dir = $hdl_dir | default $"build/($target)/yosys/($isa)"
+  let base_dir = $hdl_dir | default $"build/($target)/yosys/($isa)/sta"
   let hdl_dir = $base_dir
   let synth_dir = $synth_dir | default $"($base_dir)/synth"
 
   if not ($hdl_dir | path exists) {
-    print -e $"Error: ($hdl_dir) not found. Run: just dump --synthPlatform yosys --target ($target) --isa ($isa)"
+    print -e $"Error: ($hdl_dir) not found. Run: just dump --sim false --target ($target) --isa ($isa)"
     exit 1
   }
 

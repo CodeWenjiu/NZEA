@@ -10,14 +10,14 @@ object TileElaborate {
       "TileElaborate expects target=tile; use --target core for Top"
     )
     println(
-      s"Generating NzeaTile (target: ${config.target}, isa: ${config.isa}, debug: ${config.debug}, platform: ${config.synthPlatform})"
+      s"Generating NzeaTile (target: ${config.target}, isa: ${config.isa}, debug: ${config.debug}, platform: ${config.synthPlatform}, sim: ${config.sim})"
     )
     println(s"Output: ${config.effectiveOutDir}")
 
     ChiselStage.emitSystemVerilogFile(
       new NzeaTile,
       args = Array("--target-dir", config.effectiveOutDir),
-      firtoolOpts = config.platform.firtoolOpts
+      firtoolOpts = config.firtoolOpts
     )
   }
 }

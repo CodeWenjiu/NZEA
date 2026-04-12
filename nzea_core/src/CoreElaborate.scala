@@ -11,7 +11,7 @@ object CoreElaborate {
       "Elaborate expects target=core (Top); use --target tile with TileElaborate for NzeaTile"
     )
     println(
-      s"Generating Top (target: ${config.target}, isa: ${config.isa}, debug: ${config.debug}, platform: ${config.synthPlatform})"
+      s"Generating Top (target: ${config.target}, isa: ${config.isa}, debug: ${config.debug}, platform: ${config.synthPlatform}, sim: ${config.sim})"
     )
     println(s"Output: ${config.effectiveOutDir}")
 
@@ -19,7 +19,7 @@ object CoreElaborate {
     ChiselStage.emitSystemVerilogFile(
       topModule,
       args = Array("--target-dir", config.effectiveOutDir),
-      firtoolOpts = config.platform.firtoolOpts
+      firtoolOpts = config.firtoolOpts
     )
   }
 }
