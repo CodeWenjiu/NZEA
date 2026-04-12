@@ -1,6 +1,6 @@
 # Nzea Yosys synthesis (yosys-sta style)
 # Env: HDL_DIR, SYNTH_DIR, DESIGN, PDK_PATH (optional, enables liberty mapping + STA)
-set HDL_DIR    [expr {[info exists env(HDL_DIR)] ? $env(HDL_DIR) : "build/yosys"}]
+set HDL_DIR    [expr {[info exists env(HDL_DIR)] ? $env(HDL_DIR) : "build/core/yosys"}]
 set SYNTH_DIR  [expr {[info exists env(SYNTH_DIR)] ? $env(SYNTH_DIR) : "build/synth"}]
 set DESIGN     [expr {[info exists env(DESIGN)] ? $env(DESIGN) : "Top"}]
 set NETLIST_V  "$SYNTH_DIR/${DESIGN}.netlist.v"

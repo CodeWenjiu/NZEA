@@ -1,16 +1,17 @@
 #!/usr/bin/env nu
 # iEDA STA: requires synth first, PDK_PATH (from flake), iEDA in PATH
-# Outputs: build/yosys/<isa>/synth/Top.rpt (timing), build/yosys/<isa>/synth/sta.log
+# Outputs: build/<target>/yosys/<isa>/synth/<design>.rpt (timing), sta.log
 # sta.tcl ends after report_timing (no report_power) to avoid heavy post-timing work crashing the machine.
 
 def main [
   --isa: string = "riscv32i"
+  --target: string = "core"
   synth_dir?: string
   design?: string
   pdk?: string
 ] {
-  let synth_dir = $synth_dir | default $"build/yosys/($isa)/synth"
-  let design = $design | default "Top"
+  let synth_dir = $synth_dir | default $"build/($target)/yosys/($isa)/synth"
+  let design = $design | default (if $target == "tile" { "NzeaTile" } else { "Top" })
   let pdk = $pdk | default "icsprout55"
 
   let script_dir = ($env.FILE_PWD? | default ($env.PWD | path join "scripts"))

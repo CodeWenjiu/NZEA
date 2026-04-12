@@ -35,7 +35,26 @@ object nzea_core extends ScalaModule {
 object nzea_cli extends ScalaModule {
   def scalaVersion = nzea_core.scalaVersion()
 
-  def moduleDeps = Seq(nzea_core)
+  def moduleDeps = Seq(nzea_core, nzea_tile)
 
   override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
+}
+
+object nzea_tile extends ScalaModule {
+  def scalaVersion = nzea_core.scalaVersion()
+
+  def moduleDeps = Seq(nzea_core)
+
+  override def scalacOptions = Seq(
+    "-language:reflectiveCalls",
+    "-deprecation",
+    "-feature",
+    "-Xcheckinit",
+    "-Ymacro-annotations"
+  )
+
+  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:7.9.0")
+  override def scalacPluginMvnDeps = Seq(
+    mvn"org.chipsalliance:::chisel-plugin:7.9.0"
+  )
 }

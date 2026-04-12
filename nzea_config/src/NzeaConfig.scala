@@ -4,8 +4,9 @@ import mainargs.arg
 
 case class NzeaConfig(
   @arg(doc = "Whether to enable Debug port") debug: Boolean = false,
-  @arg(doc = "Verilog output directory (overrides platform default when set)") outDir: Option[String] = None,
-  @arg(doc = "Platform: sim (default, Core+DPI), yosys (Core with exposed IO)") synthPlatform: String = "sim",
+  @arg(doc = "Verilog output directory (overrides default build/<target>/<platform>/<isa> when set)") outDir: Option[String] = None,
+  @arg(doc = "Elaboration hierarchy: core (Top) or tile (NzeaTile)") target: ElaborationTarget = ElaborationTarget.Core,
+  @arg(doc = "Platform: sim (default, Core+DPI), yosys (synthesizable IO)") synthPlatform: String = "sim",
   @arg(doc = "ISA string, e.g. riscv32i or riscv32im_zve32x_zvl128b (underscore-named extensions; order after `_` ignored)") isa: String = "riscv32i",
   @arg(doc = "Default PC (reset value)") defaultPc: Long = 0x8000_0000L,
   @arg(doc = "Rob depth (number of in-flight entries)") robDepth: Int = 16,
@@ -18,7 +19,10 @@ case class NzeaConfig(
   @arg(doc = "BTB size (power of 2)") btbSize: Int = 16
 ) {
   val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Sim)
-  val effectiveOutDir: String = outDir.getOrElse(s"${platform.outDir}/${isa}")
+
+  /** Default and override-aware RTL output directory. */
+  val effectiveOutDir: String =
+    outDir.getOrElse(s"build/${target.segment}/${platform.segment}/${isa}")
   val prfAddrWidth: Int = Iterator.from(0).find(i => (1 << i) >= prfDepth).getOrElse(6)
   /** LS_Queue depth (for MemUnit); typically robDepth/2. */
   val effectiveLsBufferDepth: Int = (robDepth / 2).max(1)

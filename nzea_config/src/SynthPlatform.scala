@@ -1,15 +1,16 @@
 package nzea_config
 
-/** Platform: simulation (Core+DPI) or synthesis (Core with exposed IO). */
+/** Platform: simulation (Core+DPI) or synthesis (exposed IO). */
 sealed trait SynthPlatform {
-  def outDir: String
+  /** Directory segment under `build/<target>/<segment>/<isa>`. */
+  def segment: String
   def firtoolOpts: Array[String]
 }
 
 object SynthPlatform {
   /** Default: simulation. Core's bus connects to DPI-C bridges. */
   case object Sim extends SynthPlatform {
-    override def outDir: String = "build/sim"
+    override def segment: String = "sim"
     override def firtoolOpts: Array[String] = Array(
       "-disable-all-randomization",
       "-strip-debug-info",
@@ -19,7 +20,7 @@ object SynthPlatform {
 
   /** Yosys synthesis. Core with ibus/dbus/commit exposed as top-level IO. */
   case object Yosys extends SynthPlatform {
-    override def outDir: String = "build/yosys"
+    override def segment: String = "yosys"
     override def firtoolOpts: Array[String] = Array(
       "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays"
     )
