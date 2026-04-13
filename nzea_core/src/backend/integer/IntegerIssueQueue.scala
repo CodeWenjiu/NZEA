@@ -3,10 +3,9 @@ package nzea_core.backend.integer
 import chisel3._
 import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect}
-import nzea_core.frontend.{AluSrc, CsrType, FuDecode, FuSrcWidth, FuType, IssuePortsBundle, PrfBypass, PrfRawRead, PrfReadIO, PrfWriteBundle}
+import nzea_core.frontend.{CsrType, FuSrcWidth, FuType, IssuePortsBundle, PrfBypass, PrfRawRead, PrfReadIO, PrfWriteBundle}
 import nzea_core.retire.rob.RobMemType
 import nzea_config.{FuConfig, CoreConfig}
-import nzea_core.backend.integer.nnu.NnOp
 
 /** Integer issue queue entry: FuType + operand tags (paddr) + ready. No source data; values read via bypass net at dispatch. */
 class IntegerIssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Bundle {
@@ -247,95 +246,62 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
     io.prf_read(i)(1).addr := entry(i).p_rs2
   }
 
-  private def wireAlu(i: Int): Unit = {
-    val e = entry(i)
-    io.issuePorts.alu.valid := io.in(i).valid
-    val (aluSrc0, _) = AluSrc.safe(FuDecode.take(e.fu_src, AluSrc.getWidth))
-    io.issuePorts.alu.bits.opA := MuxLookup(aluSrc0.asUInt, rs1(i))(Seq(
-      AluSrc.ImmZero.asUInt -> e.imm,
-      AluSrc.PcImm.asUInt   -> e.pc
-    ))
-    io.issuePorts.alu.bits.opB := MuxLookup(aluSrc0.asUInt, rs2(i))(Seq(
-      AluSrc.Rs1Imm.asUInt  -> e.imm,
-      AluSrc.ImmZero.asUInt -> 0.U(32.W),
-      AluSrc.PcImm.asUInt   -> e.imm
-    ))
-    io.issuePorts.alu.bits.aluOp := AluOp.safe(FuDecode.take(e.fu_op, AluOp.getWidth))._1
-    io.issuePorts.alu.bits.pc := e.pc
-    io.issuePorts.alu.bits.rob_id := e.rob_id
-    io.issuePorts.alu.bits.p_rd := e.p_rd
-  }
-
-  private def wireBru(i: Int): Unit = {
-    val e = entry(i)
-    io.issuePorts.bru.valid := io.in(i).valid
-    io.issuePorts.bru.bits.pc := e.pc
-    io.issuePorts.bru.bits.pred_next_pc := e.pred_next_pc
-    io.issuePorts.bru.bits.offset := e.imm
-    io.issuePorts.bru.bits.rs1 := rs1(i)
-    io.issuePorts.bru.bits.rs2 := rs2(i)
-    io.issuePorts.bru.bits.bruOp := BruOp.safe(FuDecode.take(e.fu_op, BruOp.getWidth))._1
-    io.issuePorts.bru.bits.rob_id := e.rob_id
-    io.issuePorts.bru.bits.p_rd := e.p_rd
-  }
-
-  private def wireAgu(i: Int): Unit = {
-    val e = entry(i)
-    io.issuePorts.agu.valid := io.in(i).valid
-    io.issuePorts.agu.bits.base := rs1(i)
-    io.issuePorts.agu.bits.imm := e.imm
-    io.issuePorts.agu.bits.lsuOp := LsuOp.safe(FuDecode.take(e.fu_op, LsuOp.getWidth))._1
-    io.issuePorts.agu.bits.storeData := rs2(i)
-    io.issuePorts.agu.bits.pc := e.pc
-    io.issuePorts.agu.bits.rob_id := e.rob_id
-    io.issuePorts.agu.bits.p_rd := e.p_rd
-    io.issuePorts.agu.bits.lsq_id := e.lsq_id
-  }
-
-  private def wireMul(i: Int): Unit = {
-    val e = entry(i)
-    io.issuePorts.mul.get.valid := io.in(i).valid
-    io.issuePorts.mul.get.bits.opA := rs1(i)
-    io.issuePorts.mul.get.bits.opB := rs2(i)
-    io.issuePorts.mul.get.bits.mulOp := MulOp.safe(FuDecode.take(e.fu_op, MulOp.getWidth))._1
-    io.issuePorts.mul.get.bits.pc := e.pc
-    io.issuePorts.mul.get.bits.rob_id := e.rob_id
-    io.issuePorts.mul.get.bits.p_rd := e.p_rd
-  }
-
-  private def wireDiv(i: Int): Unit = {
-    val e = entry(i)
-    io.issuePorts.div.get.valid := io.in(i).valid
-    io.issuePorts.div.get.bits.opA := rs1(i)
-    io.issuePorts.div.get.bits.opB := rs2(i)
-    io.issuePorts.div.get.bits.divOp := DivOp.safe(FuDecode.take(e.fu_op, DivOp.getWidth))._1
-    io.issuePorts.div.get.bits.pc := e.pc
-    io.issuePorts.div.get.bits.rob_id := e.rob_id
-    io.issuePorts.div.get.bits.p_rd := e.p_rd
-  }
-
-  private def wireSysu(i: Int): Unit = {
-    val e = entry(i)
-    io.issuePorts.sysu.valid := io.in(i).valid
-    io.issuePorts.sysu.bits.rob_id := e.rob_id
-    io.issuePorts.sysu.bits.pc := e.pc
-    io.issuePorts.sysu.bits.p_rd := e.p_rd
-    io.issuePorts.sysu.bits.csr_type := Mux(e.fu_type === FuType.SYSU, CsrType.fromAddr(e.csr_addr), CsrType.None)
-    io.issuePorts.sysu.bits.csr_rdata := io.csr_rdata
-    io.issuePorts.sysu.bits.rs1_val := rs1(i)
-    io.issuePorts.sysu.bits.sysuOp := SysuOp.safe(FuDecode.take(e.fu_op, SysuOp.getWidth))._1
-    io.issuePorts.sysu.bits.imm := e.imm
-  }
-
-  private def wireNnu(i: Int): Unit = {
-    val e = entry(i)
-    io.issuePorts.nnu.get.valid := io.in(i).valid
-    io.issuePorts.nnu.get.bits.nnOp := NnOp.safe(FuDecode.take(e.fu_op, NnOp.getWidth))._1
-    io.issuePorts.nnu.get.bits.rs1 := rs1(i)
-    io.issuePorts.nnu.get.bits.rs2 := rs2(i)
-    io.issuePorts.nnu.get.bits.pc := e.pc
-    io.issuePorts.nnu.get.bits.rob_id := e.rob_id
-    io.issuePorts.nnu.get.bits.p_rd := e.p_rd
+  private def dispatchToFuPorts(): Unit = {
+    IssueAdapters.Alu.drive(
+      valid = io.in(aluIdx).valid,
+      entry = entry(aluIdx),
+      rs1 = rs1(aluIdx),
+      rs2 = rs2(aluIdx),
+      out = io.issuePorts.alu
+    )
+    IssueAdapters.Bru.drive(
+      valid = io.in(bruIdx).valid,
+      entry = entry(bruIdx),
+      rs1 = rs1(bruIdx),
+      rs2 = rs2(bruIdx),
+      out = io.issuePorts.bru
+    )
+    IssueAdapters.Agu.drive(
+      valid = io.in(aguIdx).valid,
+      entry = entry(aguIdx),
+      rs1 = rs1(aguIdx),
+      rs2 = rs2(aguIdx),
+      out = io.issuePorts.agu
+    )
+    mulIdxOpt.foreach { i =>
+      IssueAdapters.Mul.drive(
+        valid = io.in(i).valid,
+        entry = entry(i),
+        rs1 = rs1(i),
+        rs2 = rs2(i),
+        out = io.issuePorts.mul.get
+      )
+    }
+    divIdxOpt.foreach { i =>
+      IssueAdapters.Div.drive(
+        valid = io.in(i).valid,
+        entry = entry(i),
+        rs1 = rs1(i),
+        rs2 = rs2(i),
+        out = io.issuePorts.div.get
+      )
+    }
+    nnuIdxOpt.foreach { i =>
+      IssueAdapters.Nnu.drive(
+        valid = io.in(i).valid,
+        entry = entry(i),
+        rs1 = rs1(i),
+        rs2 = rs2(i),
+        out = io.issuePorts.nnu.get
+      )
+    }
+    IssueAdapters.Sysu.drive(
+      valid = io.in(sysuIdx).valid,
+      entry = entry(sysuIdx),
+      rs1 = rs1(sysuIdx),
+      csrRdata = io.csr_rdata,
+      out = io.issuePorts.sysu
+    )
   }
 
   io.csr_read_addr := Mux(
@@ -344,17 +310,11 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
     0.U(12.W)
   )
 
-  wireAlu(aluIdx)
+  dispatchToFuPorts()
+
   val aluE = entry(aluIdx)
   io.alu_read_hint.valid := io.in(aluIdx).valid
   io.alu_read_hint.bits := aluE.p_rd
-
-  wireBru(bruIdx)
-  wireAgu(aguIdx)
-  mulIdxOpt.foreach(wireMul)
-  divIdxOpt.foreach(wireDiv)
-  nnuIdxOpt.foreach(wireNnu)
-  wireSysu(sysuIdx)
 }
 
 /** Integer issue queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.
