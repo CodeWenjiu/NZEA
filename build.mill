@@ -18,7 +18,7 @@ object nzea_config extends ScalaModule {
 
 object nzea_rtl extends ScalaModule {
   def scalaVersion = "2.13.18"
-  def chiselVersion = "7.9.0"
+  def chiselVersion = "7.10.0"
 
   override def scalacOptions = Seq(
     "-language:reflectiveCalls",

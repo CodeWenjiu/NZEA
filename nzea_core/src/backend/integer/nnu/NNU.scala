@@ -83,9 +83,9 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val fc1W = SyncReadMem(NnuSramDims.Fc1Rows, Vec(NnuSramDims.Fc1Cols, UInt(8.W)))
   val fc2W = SyncReadMem(NnuSramDims.Fc2Rows, Vec(NnuSramDims.Fc2Cols, UInt(8.W)))
   val fc3W = SyncReadMem(NnuSramDims.Fc3Rows, Vec(NnuSramDims.Fc3Cols, UInt(8.W)))
-  loadMemoryFromFile(fc1W, fc1MemPath, MemoryLoadFileType.Hex)
-  loadMemoryFromFile(fc2W, fc2MemPath, MemoryLoadFileType.Hex)
-  loadMemoryFromFile(fc3W, fc3MemPath, MemoryLoadFileType.Hex)
+  loadMemoryFromFile(fc1W, fc1MemPath)
+  loadMemoryFromFile(fc2W, fc2MemPath)
+  loadMemoryFromFile(fc3W, fc3MemPath)
 
   val scaleQ16Fc1 = MnistRemuWeightBin.fc1ScaleQ16.S(32.W)
   val scaleQ16Fc2 = MnistRemuWeightBin.fc2ScaleQ16.S(32.W)
