@@ -6,7 +6,7 @@ import nzea_core.frontend.CsrType
 import nzea_config.{FuConfig, CoreConfig}
 import nzea_rtl.PipelineConnect
 
-/** Core module: Rob in Core; integer cluster + MemUnit write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */
+/** Core module: Rob in Core; integer cluster + LSU write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */
 class Core(implicit config: CoreConfig) extends Module {
   private val addrWidth    = config.width
   private val robDepth     = config.robDepth
@@ -17,10 +17,9 @@ class Core(implicit config: CoreConfig) extends Module {
 
   val ifu = Module(new frontend.IFU)
   val idu = Module(new frontend.IDU(addrWidth))
-  val integerIssueQueue       = Module(new backend.integer.IntegerIssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth, FuConfig.numPrfWritePorts))
+  val integerIssueQueue       = Module(new backend.integer.IntegerIssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth))
   val integerExecutionCluster = Module(new backend.integer.IntegerExecutionCluster(robIdWidth, prfAddrWidth, lsqIdWidth))
-  val lsq = Module(new backend.LSQ(robIdWidth, lsBufferDepth, prfAddrWidth))
-  val memUnit = Module(new backend.MemUnit(addrWidth, robIdWidth, prfAddrWidth))
+  val lsu = Module(new backend.LSU(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
 
   val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
   val commit = Module(new retire.Commit)
@@ -28,7 +27,7 @@ class Core(implicit config: CoreConfig) extends Module {
   val prf = frontend.Prf.apply(config)
   val csr = Module(new frontend.CsrFile())
   val isu = frontend.ISU(addrWidth)
-  val fuOuts = integerExecutionCluster.outPorts :+ memUnit.io.out
+  val fuOuts = integerExecutionCluster.outPorts :+ lsu.io.out
   (fuOuts zip wbu.io.in).foreach { case (fu, port) => port <> fu }
   (wbu.io.out zip integerIssueQueue.io.prf_write).foreach { case (w, p) => p <> w }
   prf.io.write := wbu.io.out
@@ -54,7 +53,7 @@ class Core(implicit config: CoreConfig) extends Module {
 
   val io = IO(new Bundle {
     val ibus       = chiselTypeOf(ifu.io.bus)
-    val dbus       = chiselTypeOf(memUnit.io.dbus)
+    val dbus       = chiselTypeOf(lsu.io.dbus)
     val commit_msg = Output(Valid(new retire.CommitMsg))
   })
 
@@ -98,8 +97,8 @@ class Core(implicit config: CoreConfig) extends Module {
   integerIssueQueue.io.issuePorts <> integerExecutionCluster.io.issuePorts
 
   rob.enq <> isu.io.rob_enq
-  lsq.io.ls_alloc <> isu.io.ls_alloc
-  lsq.io.ls_write <> integerExecutionCluster.io.agu_ls_write
+  lsu.io.ls_alloc <> isu.io.ls_alloc
+  lsu.io.agu_ls_write <> integerExecutionCluster.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
   integerIssueQueue.io.commit_rob_id := commit.io.commit_rob_id
   integerIssueQueue.io.commit_valid  := commit.io.commit_valid
@@ -108,16 +107,13 @@ class Core(implicit config: CoreConfig) extends Module {
 
   idu.io.commit := commit.io.idu_commit
   idu.io.restore_rmt := commit.io.restore_rmt
-  lsq.io.issue := rob.mem.issue
-  lsq.io.flush := wbu.io.flush
-  rob.mem.issue_rob_id := lsq.io.issue_rob_id
-  memUnit.io.mem_req.valid := lsq.io.mem_req.valid
-  memUnit.io.mem_req.bits := lsq.io.mem_req.bits
-  lsq.io.mem_req_ready := memUnit.io.mem_req_ready
-  rob.mem.mem_access <> memUnit.io.rob_access
+  lsu.io.issue := rob.mem.issue
+  lsu.io.flush := rob.mem.flush
+  rob.mem.issue_rob_id := lsu.io.issue_rob_id
+  rob.mem.mem_access <> lsu.io.rob_access
 
   io.ibus       <> ifu.io.bus
-  io.dbus       <> memUnit.io.dbus
+  io.dbus       <> lsu.io.dbus
   io.commit_msg := commit.io.commit_msg
   ifu.io.redirect_pc := commit.io.redirect_pc
   ifu.io.bp_update := integerExecutionCluster.io.bru_bp_update

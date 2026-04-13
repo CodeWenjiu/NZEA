@@ -5,7 +5,7 @@ import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.{CsrType, FuSrcWidth, FuType, IssuePortsBundle, PrfBypass, PrfRawRead, PrfReadIO, PrfWriteBundle}
 import nzea_core.retire.rob.RobMemType
-import nzea_config.{FuConfig, CoreConfig}
+import nzea_config.{CoreConfig, FuConfig, FuKind}
 
 /** Integer issue queue entry: FuType + operand tags (paddr) + ready. No source data; values read via bypass net at dispatch. */
 class IntegerIssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Bundle {
@@ -31,24 +31,31 @@ class IntegerIssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int
 }
 
 /** Stage 1: Select slot, push to pipeline reg. Uses pipeline reg ready (not Fu ready) for canIssue. */
-class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
+class IntegerIssueQueueSelectStage(
+  robIdWidth: Int,
+  prfAddrWidth: Int,
+  lsqIdWidth: Int,
+  depth: Int
+)(
   implicit config: CoreConfig
 ) extends Module {
   private val issuePortConfigs = FuConfig.issuePorts(config)
+  private val numPrfWritePorts = FuConfig.numPrfWritePorts
+  private val numWakeupHints   = FuConfig.numWakeupHints
 
   /** Port index for SYSU. CSR-write pending stalls only SYSU so older ALU/AGU/BRU/MUL/DIV can still issue (avoids deadlock). */
   private val sysuPortIdx = (FuConfig.numIssuePorts - 1).U
+  private def fuKindForType(ft: FuType.Type): FuKind = ft match {
+    case FuType.ALU  => FuKind.Alu
+    case FuType.BRU  => FuKind.Bru
+    case FuType.LSU  => FuKind.Agu
+    case FuType.MUL  => FuKind.Mul
+    case FuType.DIV  => FuKind.Div
+    case FuType.SYSU => FuKind.Sysu
+    case FuType.NNU  => FuKind.Nnu
+  }
   private val fuTypeToPortIdx: Seq[(UInt, UInt)] = FuType.all.zipWithIndex.map { case (ft, i) =>
-    val portName = ft match {
-      case FuType.ALU  => "ALU"
-      case FuType.BRU  => "BRU"
-      case FuType.LSU  => "AGU"
-      case FuType.MUL  => "MUL"
-      case FuType.DIV  => "DIV"
-      case FuType.SYSU => "SYSU"
-      case FuType.NNU  => "NNU"
-    }
-    val idx = issuePortConfigs.indexWhere(_.name == portName)
+    val idx = issuePortConfigs.indexWhere(_.kind == fuKindForType(ft))
     (ft.asUInt, (if (idx >= 0) idx else 0).U)
   }
 
@@ -59,8 +66,8 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
     /** Clear SYSU CSR-write pending when matching rob commits. */
     val commit_rob_id = Input(UInt(robIdWidth.W))
     val commit_valid  = Input(Bool())
-    /** Read-stage ALU: valid + p_rd only; Select uses for operand readiness (no data). */
-    val alu_read_hint = Input(Valid(UInt(prfAddrWidth.W)))
+    /** Read-stage early wakeup hints from fixed-latency FU pipelines (valid + p_rd only). */
+    val wakeup_hints = Input(Vec(numWakeupHints, Valid(UInt(prfAddrWidth.W))))
     /** Raw PRF read at enqueue p_rs1 / p_rs2 (same addrs as [[in]]); used with bypass for slot ready. */
     val prf_enqueue_rs1 = Input(new PrfRawRead(prfAddrWidth))
     val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
@@ -82,6 +89,8 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
 
   io.in.ready := !full && !flush
   val csr_pending_issue_stall = pending_csr_write_valid
+  private def hasWakeupHitFor(paddr: UInt): Bool =
+    io.wakeup_hints.map(h => h.valid && h.bits === paddr && paddr =/= 0.U).foldLeft(false.B)(_ || _)
 
   for (i <- 0 until depth) {
     val entryValid = valids(i) || (enqFire && firstInvalid === i.U)
@@ -95,12 +104,11 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
         when(p_rs2 === waddr && p_rs2 =/= 0.U) { entries(i).rs2_ready := true.B }
       }
     }
-    when(!flush && io.alu_read_hint.valid && entryValid) {
-      val waddr = io.alu_read_hint.bits
+    when(!flush && entryValid) {
       val p_rs1 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs1, entries(i).p_rs1)
       val p_rs2 = Mux(enqFire && firstInvalid === i.U, io.in.bits.p_rs2, entries(i).p_rs2)
-      when(p_rs1 === waddr && p_rs1 =/= 0.U) { entries(i).rs1_ready := true.B }
-      when(p_rs2 === waddr && p_rs2 =/= 0.U) { entries(i).rs2_ready := true.B }
+      when(hasWakeupHitFor(p_rs1)) { entries(i).rs1_ready := true.B }
+      when(hasWakeupHitFor(p_rs2)) { entries(i).rs2_ready := true.B }
     }
   }
 
@@ -113,12 +121,12 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
   val canIssue = Wire(Vec(depth, Bool()))
   for (i <- 0 until depth) {
     val entry = entries(i)
-    val rs1BypassHit = (io.alu_read_hint.valid && io.alu_read_hint.bits === entry.p_rs1 && entry.p_rs1 =/= 0.U) ||
+    val rs1BypassHit = hasWakeupHitFor(entry.p_rs1) ||
       bypassPorts.map { case (_, j) =>
         (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs1) ||
         (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs1)
       }.foldLeft(false.B)(_ || _)
-    val rs2BypassHit = (io.alu_read_hint.valid && io.alu_read_hint.bits === entry.p_rs2 && entry.p_rs2 =/= 0.U) ||
+    val rs2BypassHit = hasWakeupHitFor(entry.p_rs2) ||
       bypassPorts.map { case (_, j) =>
         (io.bypass_level1(j).valid && io.bypass_level1(j).bits.addr === entry.p_rs2) ||
         (io.prf_write(j).valid && io.prf_write(j).bits.addr === entry.p_rs2)
@@ -210,6 +218,11 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
   private val hasM  = config.isaConfig.hasM
   private val hasNn = config.isaConfig.hasWjcus0
   private val numPorts = FuConfig.numIssuePorts
+  private val issuePortConfigs = FuConfig.issuePorts(config)
+  private val wakeupHintSpecs: Seq[(Int, Int)] = issuePortConfigs.zipWithIndex.flatMap { case (cfg, idx) =>
+    cfg.wakeupHintLatency.map(lat => (idx, lat))
+  }
+  private val numWakeupHints = wakeupHintSpecs.size
 
   private val aluIdx = 0
   private val bruIdx = 1
@@ -228,8 +241,8 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
     /** CSR address for [[csr_rdata]] read; 0 when SYSU port not issuing. */
     val csr_read_addr = Output(UInt(12.W))
     val issuePorts = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
-    /** ALU port in read stage: valid + p_rd for SelectStage readiness only (no result). */
-    val alu_read_hint = Output(Valid(UInt(prfAddrWidth.W)))
+    /** Early wakeup hints (valid + p_rd) generated from fixed-latency FU issue points. */
+    val wakeup_hints = Output(Vec(numWakeupHints, Valid(UInt(prfAddrWidth.W))))
   })
 
   private val flush = io.issuePorts.orderedPorts(0).flush
@@ -244,6 +257,31 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
   for (i <- 0 until numPorts) {
     io.prf_read(i)(0).addr := entry(i).p_rs1
     io.prf_read(i)(1).addr := entry(i).p_rs2
+  }
+
+  private def driveWakeupHint(dst: Valid[UInt], portIdx: Int, latency: Int): Unit = {
+    require(latency >= 0, s"wakeupHintLatency must be >= 0, got $latency for port $portIdx")
+    if (latency == 0) {
+      dst.valid := io.in(portIdx).valid
+      dst.bits  := entry(portIdx).p_rd
+    } else {
+      val validPipe = RegInit(VecInit(Seq.fill(latency)(false.B)))
+      val pRdPipe   = Reg(Vec(latency, UInt(prfAddrWidth.W)))
+      when(flush) {
+        for (k <- 0 until latency) {
+          validPipe(k) := false.B
+        }
+      }.otherwise {
+        validPipe(0) := io.in(portIdx).valid
+        pRdPipe(0)   := entry(portIdx).p_rd
+        for (k <- 1 until latency) {
+          validPipe(k) := validPipe(k - 1)
+          pRdPipe(k)   := pRdPipe(k - 1)
+        }
+      }
+      dst.valid := validPipe(latency - 1)
+      dst.bits  := pRdPipe(latency - 1)
+    }
   }
 
   private def dispatchToFuPorts(): Unit = {
@@ -311,17 +349,18 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
   )
 
   dispatchToFuPorts()
-
-  val aluE = entry(aluIdx)
-  io.alu_read_hint.valid := io.in(aluIdx).valid
-  io.alu_read_hint.bits := aluE.p_rd
+  for (hintIdx <- wakeupHintSpecs.indices) {
+    val (portIdx, latency) = wakeupHintSpecs(hintIdx)
+    driveWakeupHint(io.wakeup_hints(hintIdx), portIdx, latency)
+  }
 }
 
 /** Integer issue queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.
   * Flush: S2 extracts from issuePorts (consumer); S1 gets it via PipelineConnect from S2 input. */
-class IntegerIssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
+class IntegerIssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int)(
   implicit config: CoreConfig
 ) extends Module {
+  private val numPrfWritePorts = FuConfig.numPrfWritePorts
   val io = IO(new Bundle {
     val in = Flipped(new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))
     val prf_write     = Input(Vec(numPrfWritePorts, Valid(new PrfWriteBundle(prfAddrWidth))))
@@ -337,7 +376,14 @@ class IntegerIssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, dep
     val prf_enqueue_rs2 = Input(new PrfRawRead(prfAddrWidth))
   })
 
-  val s0 = Module(new IntegerIssueQueueSelectStage(robIdWidth, prfAddrWidth, lsqIdWidth, depth, numPrfWritePorts))
+  val s0 = Module(
+    new IntegerIssueQueueSelectStage(
+      robIdWidth,
+      prfAddrWidth,
+      lsqIdWidth,
+      depth
+    )
+  )
   val s1 = Module(new IntegerIssueQueueReadStage(robIdWidth, prfAddrWidth, lsqIdWidth))
 
   s0.io.in <> io.in
@@ -345,7 +391,7 @@ class IntegerIssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, dep
   s0.io.bypass_level1 := io.bypass_level1
   s0.io.commit_rob_id := io.commit_rob_id
   s0.io.commit_valid  := io.commit_valid
-  s0.io.alu_read_hint := s1.io.alu_read_hint
+  s0.io.wakeup_hints := s1.io.wakeup_hints
   s0.io.prf_enqueue_rs1 := io.prf_enqueue_rs1
   s0.io.prf_enqueue_rs2 := io.prf_enqueue_rs2
 

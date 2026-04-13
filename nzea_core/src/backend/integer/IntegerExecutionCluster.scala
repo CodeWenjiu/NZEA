@@ -6,7 +6,7 @@ import nzea_rtl.{PipelineConnect, PipeIO}
 import nzea_core.frontend.{IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}
-import nzea_config.{FuConfig, CoreConfig}
+import nzea_config.{CoreConfig, FuConfig, FuKind}
 import nzea_core.backend.integer.nnu.{NNU, NnInput}
 
 /** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, NNU (WJCUS0), SYSU; receives per-port payloads from [[IntegerIssueQueue]]. */
@@ -34,29 +34,29 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
   })
 
   FuConfig.issuePorts(config).foreach { cfg =>
-    cfg.name match {
-      case "ALU" =>
+    cfg.kind match {
+      case FuKind.Alu =>
         val pipeOut = Wire(new PipeIO(new AluInput(robIdWidth, prfAddrWidth)))
         pipeOut.flush := alu.io.in.flush
         pipeOut.ready := alu.io.in.ready
         PipelineConnect(io.issuePorts.alu, pipeOut)
         alu.io.in.valid := pipeOut.valid
         alu.io.in.bits  := pipeOut.bits
-      case "BRU" =>
+      case FuKind.Bru =>
         val pipeOut = Wire(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
         pipeOut.flush := bru.io.in.flush
         pipeOut.ready := bru.io.in.ready
         PipelineConnect(io.issuePorts.bru, pipeOut)
         bru.io.in.valid := pipeOut.valid
         bru.io.in.bits  := pipeOut.bits
-      case "AGU" =>
+      case FuKind.Agu =>
         val pipeOut = Wire(new PipeIO(new AguInput(robIdWidth, prfAddrWidth, lsqIdWidth)))
         pipeOut.flush := io.agu_ls_write.flush
         pipeOut.ready := agu.io.in.ready
         PipelineConnect(io.issuePorts.agu, pipeOut)
         agu.io.in.valid := pipeOut.valid
         agu.io.in.bits  := pipeOut.bits
-      case "MUL" =>
+      case FuKind.Mul =>
         mul.foreach { m =>
           val pipeOut = Wire(new PipeIO(new MulInput(robIdWidth, prfAddrWidth)))
           pipeOut.flush := m.io.in.flush
@@ -65,7 +65,7 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
           m.io.in.valid := pipeOut.valid
           m.io.in.bits  := pipeOut.bits
         }
-      case "DIV" =>
+      case FuKind.Div =>
         div.foreach { dm =>
           val pipeOut = Wire(new PipeIO(new DivInput(robIdWidth, prfAddrWidth)))
           pipeOut.flush := dm.io.in.flush
@@ -74,14 +74,14 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
           dm.io.in.valid := pipeOut.valid
           dm.io.in.bits  := pipeOut.bits
         }
-      case "SYSU" =>
+      case FuKind.Sysu =>
         val pipeOut = Wire(new PipeIO(new SysuInput(robIdWidth, prfAddrWidth)))
         pipeOut.flush := sysu.io.in.flush
         pipeOut.ready := sysu.io.in.ready
         PipelineConnect(io.issuePorts.sysu, pipeOut)
         sysu.io.in.valid := pipeOut.valid
         sysu.io.in.bits  := pipeOut.bits
-      case "NNU" =>
+      case FuKind.Nnu =>
         nnu.foreach { nn =>
           io.issuePorts.nnu.foreach { p =>
             val pipeOut = Wire(new PipeIO(new NnInput(robIdWidth, prfAddrWidth)))
@@ -92,7 +92,6 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
             nn.io.in.bits  := pipeOut.bits
           }
         }
-      case _ =>
     }
   }
 
@@ -103,25 +102,26 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
   io.bru_bp_update      := bru.io.bp_update
 
   FuConfig.robAccessPorts(config).zipWithIndex.foreach { case (cfg, i) =>
-    cfg.name match {
-      case "ALU"  => io.rob_access(i) <> alu.io.rob_access
-      case "BRU"  => io.rob_access(i) <> bru.io.rob_access
-      case "SYSU" => io.rob_access(i) <> sysu.io.rob_access
-      case "MUL"  => mul.foreach(m => io.rob_access(i) <> m.io.rob_access)
-      case "DIV"  => div.foreach(dm => io.rob_access(i) <> dm.io.rob_access)
-      case "AGU"  => io.rob_access(i) <> agu.io.rob_access
-      case "NNU"  => nnu.foreach(nn => io.rob_access(i) <> nn.io.rob_access)
+    cfg.kind match {
+      case FuKind.Alu  => io.rob_access(i) <> alu.io.rob_access
+      case FuKind.Bru  => io.rob_access(i) <> bru.io.rob_access
+      case FuKind.Sysu => io.rob_access(i) <> sysu.io.rob_access
+      case FuKind.Mul  => mul.foreach(m => io.rob_access(i) <> m.io.rob_access)
+      case FuKind.Div  => div.foreach(dm => io.rob_access(i) <> dm.io.rob_access)
+      case FuKind.Agu  => io.rob_access(i) <> agu.io.rob_access
+      case FuKind.Nnu  => nnu.foreach(nn => io.rob_access(i) <> nn.io.rob_access)
     }
   }
 
   FuConfig.exuPrfWritePorts(config).zipWithIndex.foreach { case (cfg, i) =>
-    cfg.name match {
-      case "ALU"  => io.out(i) <> alu.io.out
-      case "BRU"  => io.out(i) <> bru.io.out
-      case "SYSU" => io.out(i) <> sysu.io.out
-      case "MUL"  => mul.foreach(m => io.out(i) <> m.io.out)
-      case "DIV"  => div.foreach(dm => io.out(i) <> dm.io.out)
-      case "NNU"  => nnu.foreach(nn => io.out(i) <> nn.io.out)
+    cfg match {
+      case FuKind.Alu  => io.out(i) <> alu.io.out
+      case FuKind.Bru  => io.out(i) <> bru.io.out
+      case FuKind.Sysu => io.out(i) <> sysu.io.out
+      case FuKind.Mul  => mul.foreach(m => io.out(i) <> m.io.out)
+      case FuKind.Div  => div.foreach(dm => io.out(i) <> dm.io.out)
+      case FuKind.Nnu  => nnu.foreach(nn => io.out(i) <> nn.io.out)
+      case FuKind.Agu =>
     }
   }
 

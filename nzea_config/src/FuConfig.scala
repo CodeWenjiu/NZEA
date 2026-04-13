@@ -4,37 +4,44 @@ package nzea_config
   * Used for config-driven parameterized architecture: port count derived from config, top-level uses foreach for wiring.
   */
 case class FuConfig(
-  name: String,
+  kind: FuKind,
   hasPrfWrite: Boolean = true,
   hasBypass: Boolean = true,
-  hasRobAccess: Boolean = true
+  hasRobAccess: Boolean = true,
+  /** Early wakeup hint latency from IQ read-stage dispatch to IQ select-stage observe point. */
+  wakeupHintLatency: Option[Int] = None
+)
+
+case class WbSourceConfig(
+  kind: WbSourceKind,
+  hasBypass: Boolean = true
 )
 
 object FuConfig {
-  /** PRF write port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], [NNU], MemUnit.
+  /** PRF write source list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], [NNU], MemUnit.
     * Ports with hasBypass=true participate in operand bypass.
     */
-  def prfWritePorts(implicit config: CoreConfig): Seq[FuConfig] = {
+  def prfWritePorts(implicit config: CoreConfig): Seq[WbSourceConfig] = {
     val exuBypass = Seq(
-      FuConfig("ALU", hasPrfWrite = true, hasBypass = true),
-      FuConfig("BRU", hasPrfWrite = true, hasBypass = true),
-      FuConfig("SYSU", hasPrfWrite = true, hasBypass = true)
+      WbSourceConfig(WbSourceKind.Exu(FuKind.Alu), hasBypass = true),
+      WbSourceConfig(WbSourceKind.Exu(FuKind.Bru), hasBypass = true),
+      WbSourceConfig(WbSourceKind.Exu(FuKind.Sysu), hasBypass = true)
     ) ++ Option.when(config.isaConfig.hasM)(
       Seq(
-        FuConfig("MUL", hasPrfWrite = true, hasBypass = true), 
-        FuConfig("DIV", hasPrfWrite = true, hasBypass = false)
+        WbSourceConfig(WbSourceKind.Exu(FuKind.Mul), hasBypass = true),
+        WbSourceConfig(WbSourceKind.Exu(FuKind.Div), hasBypass = false)
       )
     ).getOrElse(Seq.empty) ++ Option.when(config.isaConfig.hasWjcus0)(
-      Seq(FuConfig("NNU", hasPrfWrite = true, hasBypass = true))
+      Seq(WbSourceConfig(WbSourceKind.Exu(FuKind.Nnu), hasBypass = true))
     ).getOrElse(Seq.empty)
-    // MemUnit (load) must have hasBypass=true so IQ's combinational bypass sees load write-back.
-    // Otherwise IQ entry stays rs1_ready=false despite PRF ready -> deadlock (PRF-IQ mismatch).
-    exuBypass :+ FuConfig("MemUnit", hasPrfWrite = true, hasBypass = false)
+    // MemUnit is not an issue-port FU. Keep hasBypass=false so it does not participate in
+    // IQ select-stage combinational bypass hit checks; readiness is updated via write-back.
+    exuBypass :+ WbSourceConfig(WbSourceKind.MemUnit, hasBypass = false)
   }
 
   /** PRF write ports provided by the integer execution cluster (excludes MemUnit). Used for its `io.out` size. */
-  def exuPrfWritePorts(implicit config: CoreConfig): Seq[FuConfig] =
-    prfWritePorts.filter(_.name != "MemUnit")
+  def exuPrfWritePorts(implicit config: CoreConfig): Seq[FuKind] =
+    prfWritePorts.collect { case WbSourceConfig(WbSourceKind.Exu(kind), _) => kind }
 
   /** Number of PRF write ports the integer execution cluster provides (excludes MemUnit). */
   def numExuPrfWritePorts(implicit config: CoreConfig): Int =
@@ -44,14 +51,14 @@ object FuConfig {
     * Port count depends on hasM / hasWjcus0. */
   def robAccessPorts(implicit config: CoreConfig): Seq[FuConfig] = {
     Seq(
-      FuConfig("ALU", hasRobAccess = true),
-      FuConfig("BRU", hasRobAccess = true),
-      FuConfig("SYSU", hasRobAccess = true)
+      FuConfig(FuKind.Alu, hasRobAccess = true),
+      FuConfig(FuKind.Bru, hasRobAccess = true),
+      FuConfig(FuKind.Sysu, hasRobAccess = true)
     ) ++ Option.when(config.isaConfig.hasM)(
-      Seq(FuConfig("MUL", hasRobAccess = true), FuConfig("DIV", hasRobAccess = true))
+      Seq(FuConfig(FuKind.Mul, hasRobAccess = true), FuConfig(FuKind.Div, hasRobAccess = true))
     ).getOrElse(Seq.empty) ++ Option.when(config.isaConfig.hasWjcus0)(
-      Seq(FuConfig("NNU", hasRobAccess = true))
-    ).getOrElse(Seq.empty) :+ FuConfig("AGU", hasRobAccess = true)
+      Seq(FuConfig(FuKind.Nnu, hasRobAccess = true))
+    ).getOrElse(Seq.empty) :+ FuConfig(FuKind.Agu, hasRobAccess = true)
   }
 
   /** Total number of PRF write ports. */
@@ -66,15 +73,22 @@ object FuConfig {
     * Each port supports one FuType. Used for mask-based routing in ISU. */
   def issuePorts(implicit config: CoreConfig): Seq[FuConfig] = {
     Seq(
-      FuConfig("ALU", hasRobAccess = true),
-      FuConfig("BRU", hasRobAccess = true),
-      FuConfig("AGU", hasRobAccess = true)
+      FuConfig(FuKind.Alu, hasRobAccess = true, wakeupHintLatency = Some(0)),
+      FuConfig(FuKind.Bru, hasRobAccess = true),
+      FuConfig(FuKind.Agu, hasRobAccess = true)
     ) ++ Option.when(config.isaConfig.hasM)(
-      Seq(FuConfig("MUL", hasRobAccess = true), FuConfig("DIV", hasRobAccess = true))
+      Seq(
+        FuConfig(FuKind.Mul, hasRobAccess = true, wakeupHintLatency = Some(2)),
+        FuConfig(FuKind.Div, hasRobAccess = true)
+      )
     ).getOrElse(Seq.empty) ++ Option.when(config.isaConfig.hasWjcus0)(
-      Seq(FuConfig("NNU", hasRobAccess = true))
-    ).getOrElse(Seq.empty) :+ FuConfig("SYSU", hasRobAccess = true)
+      Seq(FuConfig(FuKind.Nnu, hasRobAccess = true))
+    ).getOrElse(Seq.empty) :+ FuConfig(FuKind.Sysu, hasRobAccess = true)
   }
 
   def numIssuePorts(implicit config: CoreConfig): Int = issuePorts.size
+
+  /** Number of early wakeup hint channels produced by IQ read-stage. */
+  def numWakeupHints(implicit config: CoreConfig): Int =
+    issuePorts.count(_.wakeupHintLatency.nonEmpty)
 }
