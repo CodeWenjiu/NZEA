@@ -4,12 +4,12 @@ import chisel3._
 import nzea_rtl.PipeIO
 import nzea_core.backend.integer.{AguInput, AluInput, BruInput, DivInput, MulInput, SysuInput}
 import nzea_core.backend.integer.nnu.NnInput
-import nzea_config.{FuConfig, NzeaConfig}
+import nzea_config.{FuConfig, CoreConfig}
 
 /** Per-port payload types: each issue port has FU-specific input (AluInput, BruInput, etc.).
   * Operand extraction (e.g. ALU opA/opB from fu_src) happens in ISU before pipeline reg.
   */
-class IssuePortsBundle(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Bundle {
+class IssuePortsBundle(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig) extends Bundle {
   val alu  = new PipeIO(new AluInput(robIdWidth, prfAddrWidth))
   val bru  = new PipeIO(new BruInput(robIdWidth, prfAddrWidth))
   val agu  = new PipeIO(new AguInput(robIdWidth, prfAddrWidth, lsqIdWidth))

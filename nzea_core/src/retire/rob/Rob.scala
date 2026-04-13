@@ -3,7 +3,7 @@ package nzea_core.retire.rob
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_rtl.MuxTree
-import nzea_config.{FuConfig, NzeaConfig}
+import nzea_config.{FuConfig, CoreConfig}
 import nzea_core.frontend.CsrType
 import nzea_core.retire.RobCommitPayload
 import nzea_core.retire.rob.RobMemType
@@ -13,7 +13,7 @@ import nzea_core.retire.rob.RobMemType
 /** Companion object: Rob factory and entryStateUpdate helper. */
 object Rob {
   /** Config-driven factory: port count derived from FuConfig.robAccessPorts. */
-  def apply(depth: Int, prfAddrWidth: Int = 6)(implicit config: NzeaConfig): Rob =
+  def apply(depth: Int, prfAddrWidth: Int = 6)(implicit config: CoreConfig): Rob =
     Module(new Rob(depth, FuConfig.numRobAccessPorts, prfAddrWidth))
 
   def entryStateUpdate(

@@ -3,19 +3,19 @@ package nzea_core
 import chisel3._
 import chisel3.util.Valid
 import _root_.circt.stage.ChiselStage
-import nzea_config.{ElaborationTarget, NzeaConfig}
+import nzea_config.{CoreConfig, ElaborationTarget, NzeaConfig}
 
 object CoreElaborate {
 
-  /** Core wrapper: `config.sim` = DPI bridges; else ibus/dbus/commit as top-level IO (synthesizable). */
-  class Top(implicit config: NzeaConfig) extends Module {
+  /** Core wrapper: `sim=true` enables DPI bridges; else expose ibus/dbus/commit as top-level IO. */
+  class Top(sim: Boolean)(implicit config: CoreConfig) extends Module {
     override def desiredName = "Top"
 
     private val addrWidth = config.width
     private val dataWidth = config.width
 
     val core = Module(new Core)
-    if (config.sim) {
+    if (sim) {
       val ib = Module(new nzea_core.dpi.IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth))
       val db = Module(new nzea_core.dpi.DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
       val cb = Module(new nzea_core.dpi.CommitDpiBridge)
@@ -37,12 +37,13 @@ object CoreElaborate {
       config.target == ElaborationTarget.Core,
       "Elaborate expects target=core (Top); use --target tile with TileElaborate for NzeaTile"
     )
+    implicit val coreConfig: CoreConfig = config.core
     println(
-      s"Generating Top (target: ${config.target}, isa: ${config.isa}, debug: ${config.debug}, platform: ${config.synthPlatform}, sim: ${config.sim})"
+      s"Generating Top (target: ${config.target}, isa: ${config.core.isa}, debug: ${config.debug}, platform: ${config.synthPlatform}, sim: ${config.sim})"
     )
     println(s"Output: ${config.effectiveOutDir}")
 
-    lazy val topModule = new Top
+    lazy val topModule = new Top(config.sim)
     ChiselStage.emitSystemVerilogFile(
       topModule,
       args = Array("--target-dir", config.effectiveOutDir),

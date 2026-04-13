@@ -12,7 +12,7 @@ import chisel3.util.experimental.decode.{
 import nzea_core.backend.integer.FuOpWidth
 import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
 import nzea_core.backend.integer.nnu.NnOp
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 // -------- Instruction pattern & decode fields (ImmType, Fu = op+src per FU, RVInst, RiscvInsts) --------
 
 /** One-hot encoding for Mux1H; better timing than binary. */
@@ -639,7 +639,7 @@ object RiscvInsts {
   )
 
   /** All instructions for decode; M / WJCUS0 gated like other optional extensions. */
-  def all(implicit config: NzeaConfig): Seq[RVInst] =
+  def all(implicit config: CoreConfig): Seq[RVInst] =
     base ++ (if (config.isaConfig.hasM) m else Seq.empty) ++
       (if (config.isaConfig.hasWjcus0) wjcus0 else Seq.empty)
 }

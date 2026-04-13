@@ -2,20 +2,20 @@ package nzea_core.frontend
 
 import chisel3._
 import nzea_rtl.PipeIO
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 import nzea_core.backend.integer.IntegerIssueQueueEntry
 import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocIO}
 /** ISU factory. */
 object ISU {
-  def apply(addrWidth: Int)(implicit config: NzeaConfig): ISU =
+  def apply(addrWidth: Int)(implicit config: CoreConfig): ISU =
     Module(new ISU(addrWidth))
 }
 
 /** ISU: Issue Unit. Outputs unified [[IntegerIssueQueueEntry]] to the integer issue queue (no per-port dispatch).
   * rs1/rs2 ready are placeholders; issue queue reads PRF + bypass when writing a slot.
   */
-class ISU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
+class ISU(addrWidth: Int)(implicit config: CoreConfig) extends Module {
   private val robDepth     = config.robDepth
   private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth = config.prfAddrWidth

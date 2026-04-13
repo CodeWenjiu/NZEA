@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Valid}
 import nzea_rtl.PipeIO
 import nzea_core.frontend.bp.{PHT, BTB, BpUpdate}
 import nzea_rtl.CoreBusReadOnly
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 
 /** Ibus user payload: pred_next_pc + pc, passthrough req->resp for branch
   * prediction / flush.
@@ -25,7 +25,7 @@ class IFUOut(width: Int) extends Bundle {
 /** Instruction Fetch Unit: holds PC, issues read requests, PC += 4 on
   * readResp.fire.
   */
-class IFU(implicit config: NzeaConfig) extends Module {
+class IFU(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val userBundleType = new IbusUserBundle(addrWidth)

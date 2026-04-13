@@ -4,10 +4,10 @@ import chisel3._
 import chisel3.util.{Mux1H, PopCount, PriorityEncoder}
 import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.PrfReadIO
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 
 /** Select stage: pick oldest ready entry, push to per-FU pipeline reg (single VALU port). */
-class VectorIssueQueueSelectStage(robIdWidth: Int, pvrAddrWidth: Int, depth: Int)(implicit config: NzeaConfig)
+class VectorIssueQueueSelectStage(robIdWidth: Int, pvrAddrWidth: Int, depth: Int)(implicit config: CoreConfig)
     extends Module {
   val io = IO(new Bundle {
     val in  = Flipped(new PipeIO(new VectorIssueQueueEntry(robIdWidth, pvrAddrWidth)))
@@ -68,7 +68,7 @@ class VectorIssueQueueSelectStage(robIdWidth: Int, pvrAddrWidth: Int, depth: Int
 }
 
 /** Read stage: fetch vs1/vs2 from PVR, build [[ValuInput]]. */
-class VectorIssueQueueReadStage(robIdWidth: Int, pvrAddrWidth: Int)(implicit config: NzeaConfig) extends Module {
+class VectorIssueQueueReadStage(robIdWidth: Int, pvrAddrWidth: Int)(implicit config: CoreConfig) extends Module {
   val io = IO(new Bundle {
     val in     = Flipped(Vec(1, new PipeIO(new VectorIssueQueueEntry(robIdWidth, pvrAddrWidth))))
     val prf    = Vec(2, new PrfReadIO(pvrAddrWidth))
@@ -95,7 +95,7 @@ class VectorIssueQueueReadStage(robIdWidth: Int, pvrAddrWidth: Int)(implicit con
 }
 
 /** Vector issue queue: select → pipeline reg → PVR read → [[VALU]]. */
-class VectorIssueQueue(robIdWidth: Int)(implicit config: NzeaConfig) extends Module {
+class VectorIssueQueue(robIdWidth: Int)(implicit config: CoreConfig) extends Module {
   private val pvrAddrWidth = config.pvrAddrWidth
   private val depth        = config.viqDepthActual
 

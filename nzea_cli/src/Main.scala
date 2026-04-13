@@ -7,7 +7,8 @@ import nzea_tile.TileElaborate
 
 object Main {
   def main(args: Array[String]): Unit = {
-    implicit val config = ParserForClass[NzeaConfig].constructOrExit(args.toIndexedSeq)
+    val cliArgs = ParserForClass[CliArgs].constructOrExit(args.toIndexedSeq)
+    implicit val config: NzeaConfig = cliArgs.toConfig
     config.target match {
       case ElaborationTarget.Tile => TileElaborate.elaborate
       case ElaborationTarget.Core => CoreElaborate.elaborate

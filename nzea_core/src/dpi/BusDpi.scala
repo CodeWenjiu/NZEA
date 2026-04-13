@@ -2,7 +2,7 @@ package nzea_core.dpi
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFunctionCall}
 import nzea_rtl._
 import nzea_core.retire.CommitMsg
@@ -88,7 +88,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 }
 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
-class CommitDpiBridge(implicit config: NzeaConfig) extends Module {
+class CommitDpiBridge(implicit config: CoreConfig) extends Module {
   val io = IO(new Bundle {
     val commit_msg = Input(Valid(new CommitMsg))
   })

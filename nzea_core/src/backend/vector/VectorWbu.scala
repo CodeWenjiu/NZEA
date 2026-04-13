@@ -3,10 +3,10 @@ package nzea_core.backend.vector
 import chisel3._
 import chisel3.util.Valid
 import nzea_rtl.PipeIO
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 
 /** One-cycle delay for PVR writes (mirrors [[nzea_core.retire.WBU]]; enables future bypass from `io.out`). */
-class VectorWbu(implicit config: NzeaConfig) extends Module {
+class VectorWbu(implicit config: CoreConfig) extends Module {
   private val pvrAddrWidth = config.pvrAddrWidth
 
   val io = IO(new Bundle {

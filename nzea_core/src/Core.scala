@@ -3,11 +3,11 @@ package nzea_core
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
-import nzea_config.{FuConfig, NzeaConfig}
+import nzea_config.{FuConfig, CoreConfig}
 import nzea_rtl.PipelineConnect
 
 /** Core module: Rob in Core; integer cluster + MemUnit write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */
-class Core(implicit config: NzeaConfig) extends Module {
+class Core(implicit config: CoreConfig) extends Module {
   private val addrWidth    = config.width
   private val robDepth     = config.robDepth
   private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))

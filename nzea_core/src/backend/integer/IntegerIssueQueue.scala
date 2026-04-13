@@ -5,7 +5,7 @@ import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.{AluSrc, CsrType, FuDecode, FuSrcWidth, FuType, IssuePortsBundle, PrfBypass, PrfRawRead, PrfReadIO, PrfWriteBundle}
 import nzea_core.retire.rob.RobMemType
-import nzea_config.{FuConfig, NzeaConfig}
+import nzea_config.{FuConfig, CoreConfig}
 import nzea_core.backend.integer.nnu.NnOp
 
 /** Integer issue queue entry: FuType + operand tags (paddr) + ready. No source data; values read via bypass net at dispatch. */
@@ -33,7 +33,7 @@ class IntegerIssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int
 
 /** Stage 1: Select slot, push to pipeline reg. Uses pipeline reg ready (not Fu ready) for canIssue. */
 class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
-  implicit config: NzeaConfig
+  implicit config: CoreConfig
 ) extends Module {
   private val issuePortConfigs = FuConfig.issuePorts(config)
 
@@ -207,7 +207,7 @@ class IntegerIssueQueueSelectStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidt
 
 /** Stage 2: Per-port independent. If pipe valid, read PRF+bypass and drive FU. No arbitration.
   * Extracts flush from issuePorts (consumer-driven) and propagates to in.flush. */
-class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig) extends Module {
+class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig) extends Module {
   private val hasM  = config.isaConfig.hasM
   private val hasNn = config.isaConfig.hasWjcus0
   private val numPorts = FuConfig.numIssuePorts
@@ -360,7 +360,7 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
 /** Integer issue queue: 2-stage pipeline. S1 selects slot; S2 reads PRF+bypass and dispatches to FUs.
   * Flush: S2 extracts from issuePorts (consumer); S1 gets it via PipelineConnect from S2 input. */
 class IntegerIssueQueue(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int, depth: Int, numPrfWritePorts: Int)(
-  implicit config: NzeaConfig
+  implicit config: CoreConfig
 ) extends Module {
   val io = IO(new Bundle {
     val in = Flipped(new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth)))

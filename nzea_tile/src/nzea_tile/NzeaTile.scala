@@ -2,7 +2,7 @@ package nzea_tile
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 import nzea_core.dpi.{CommitDpiBridge, DbusDpiBridge, IbusDpiBridge}
 import nzea_core.retire.CommitMsg
 
@@ -22,9 +22,9 @@ class TileStatusBundle extends Bundle {
 
 /** CPU tile: [[nzea_core.Core]] plus explicit bus routing insertion points and tile control IO.
   * Bus fabric is currently pass-through (`ibusRouter` / `dbusRouter`); replace with arbiters/mux later.
-  * `config.sim` mirrors [[nzea_core.CoreElaborate.Top]] (DPI vs exposed ibus/dbus/commit).
+  * `sim=true` mirrors [[nzea_core.CoreElaborate.Top]] (DPI vs exposed ibus/dbus/commit).
   */
-class NzeaTile(implicit config: NzeaConfig) extends Module {
+class NzeaTile(sim: Boolean)(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
 
@@ -37,7 +37,7 @@ class NzeaTile(implicit config: NzeaConfig) extends Module {
 
   val ctrl   = IO(new TileControlBundle)
   val status = IO(new TileStatusBundle)
-  if (config.sim) {
+  if (sim) {
     val ib = Module(new IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth))
     val db = Module(new DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
     val cb = Module(new CommitDpiBridge)

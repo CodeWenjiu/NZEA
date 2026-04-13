@@ -3,7 +3,7 @@ package nzea_core.retire
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 
 /** Internal Rob→Commit payload: all fields for bookkeeping. */
 class RobCommitPayload(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
@@ -39,7 +39,7 @@ class IDUCommit(prfAddrWidth: Int) extends Bundle {
 /** Commit: receives Rob commit; maintains AMT; outputs commit to IDU.
   * AMT: updated on commit (rd -> p_rd). On flush, restore_rmt=AMT, restore_free from AMT.
   */
-class Commit(implicit config: NzeaConfig) extends Module {
+class Commit(implicit config: CoreConfig) extends Module {
   private val prfAddrWidth = config.prfAddrWidth
   private val robIdWidth   = chisel3.util.log2Ceil(config.robDepth.max(2))
 

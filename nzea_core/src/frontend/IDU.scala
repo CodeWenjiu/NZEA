@@ -7,7 +7,7 @@ import nzea_rtl.PipeIO
 import nzea_core.backend.integer.{FuOpWidth, SysuOp}
 import nzea_core.frontend.FuDecode
 import nzea_core.retire.IDUCommit
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 
 // -------- IDU stage output --------
 
@@ -30,7 +30,7 @@ class IDUOut(width: Int, prfAddrWidth: Int) extends Bundle {
 
 // -------- IDU module --------
 
-class IDU(addrWidth: Int)(implicit config: NzeaConfig) extends Module {
+class IDU(addrWidth: Int)(implicit config: CoreConfig) extends Module {
   private val prfDepth     = config.prfDepth
   private val prfAddrWidth = chisel3.util.log2Ceil(prfDepth)
   private val allocStart   = 1  // PR0 reserved for x0

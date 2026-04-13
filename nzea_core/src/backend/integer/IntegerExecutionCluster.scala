@@ -6,11 +6,11 @@ import nzea_rtl.{PipelineConnect, PipeIO}
 import nzea_core.frontend.{IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}
-import nzea_config.{FuConfig, NzeaConfig}
+import nzea_config.{FuConfig, CoreConfig}
 import nzea_core.backend.integer.nnu.{NNU, NnInput}
 
 /** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, NNU (WJCUS0), SYSU; receives per-port payloads from [[IntegerIssueQueue]]. */
-class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: NzeaConfig)
+class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig)
     extends Module {
   private val hasM           = config.isaConfig.hasM
   private val hasNn          = config.isaConfig.hasWjcus0

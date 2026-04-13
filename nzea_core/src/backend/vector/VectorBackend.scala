@@ -2,10 +2,10 @@ package nzea_core.backend.vector
 
 import chisel3._
 import nzea_rtl.PipeIO
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 
 /** VIQ → [[VALU]] → [[VectorWbu]] → [[VectorPrf]]; for integration tests and future Core hookup. */
-class VectorBackend(robIdWidth: Int)(implicit config: NzeaConfig) extends Module {
+class VectorBackend(robIdWidth: Int)(implicit config: CoreConfig) extends Module {
   private val pvrAddrWidth = config.pvrAddrWidth
 
   val io = IO(new Bundle {

@@ -3,10 +3,10 @@ package nzea_core.backend.vector
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.PrfReadIO
-import nzea_config.NzeaConfig
+import nzea_config.CoreConfig
 
 /** Physical vector register file: `vrfDepth` × 32-bit lanes with per-reg ready (RVV scaffold). */
-class VectorPrf(numReadPorts: Int, numWritePorts: Int)(implicit config: NzeaConfig) extends Module {
+class VectorPrf(numReadPorts: Int, numWritePorts: Int)(implicit config: CoreConfig) extends Module {
   private val pvrAddrWidth = config.pvrAddrWidth
   private val vrfDepth     = config.vrfDepth
 

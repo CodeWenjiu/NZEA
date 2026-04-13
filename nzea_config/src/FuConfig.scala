@@ -14,7 +14,7 @@ object FuConfig {
   /** PRF write port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], [NNU], MemUnit.
     * Ports with hasBypass=true participate in operand bypass.
     */
-  def prfWritePorts(implicit config: NzeaConfig): Seq[FuConfig] = {
+  def prfWritePorts(implicit config: CoreConfig): Seq[FuConfig] = {
     val exuBypass = Seq(
       FuConfig("ALU", hasPrfWrite = true, hasBypass = true),
       FuConfig("BRU", hasPrfWrite = true, hasBypass = true),
@@ -33,16 +33,16 @@ object FuConfig {
   }
 
   /** PRF write ports provided by the integer execution cluster (excludes MemUnit). Used for its `io.out` size. */
-  def exuPrfWritePorts(implicit config: NzeaConfig): Seq[FuConfig] =
+  def exuPrfWritePorts(implicit config: CoreConfig): Seq[FuConfig] =
     prfWritePorts.filter(_.name != "MemUnit")
 
   /** Number of PRF write ports the integer execution cluster provides (excludes MemUnit). */
-  def numExuPrfWritePorts(implicit config: NzeaConfig): Int =
+  def numExuPrfWritePorts(implicit config: CoreConfig): Int =
     exuPrfWritePorts.size
 
   /** Rob access port list derived from ISA config. Order: ALU, BRU, SYSU, [MUL, DIV], [NNU], AGU.
     * Port count depends on hasM / hasWjcus0. */
-  def robAccessPorts(implicit config: NzeaConfig): Seq[FuConfig] = {
+  def robAccessPorts(implicit config: CoreConfig): Seq[FuConfig] = {
     Seq(
       FuConfig("ALU", hasRobAccess = true),
       FuConfig("BRU", hasRobAccess = true),
@@ -55,16 +55,16 @@ object FuConfig {
   }
 
   /** Total number of PRF write ports. */
-  def numPrfWritePorts(implicit config: NzeaConfig): Int =
+  def numPrfWritePorts(implicit config: CoreConfig): Int =
     prfWritePorts.size
 
   /** Total number of Rob access ports. */
-  def numRobAccessPorts(implicit config: NzeaConfig): Int =
+  def numRobAccessPorts(implicit config: CoreConfig): Int =
     robAccessPorts.size
 
   /** Issue port list: order ALU, BRU, AGU, [MUL, DIV], [NNU], SYSU. Port index = hardware Vec index.
     * Each port supports one FuType. Used for mask-based routing in ISU. */
-  def issuePorts(implicit config: NzeaConfig): Seq[FuConfig] = {
+  def issuePorts(implicit config: CoreConfig): Seq[FuConfig] = {
     Seq(
       FuConfig("ALU", hasRobAccess = true),
       FuConfig("BRU", hasRobAccess = true),
@@ -76,5 +76,5 @@ object FuConfig {
     ).getOrElse(Seq.empty) :+ FuConfig("SYSU", hasRobAccess = true)
   }
 
-  def numIssuePorts(implicit config: NzeaConfig): Int = issuePorts.size
+  def numIssuePorts(implicit config: CoreConfig): Int = issuePorts.size
 }

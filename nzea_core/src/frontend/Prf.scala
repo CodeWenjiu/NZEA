@@ -2,7 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_config.{FuConfig, NzeaConfig}
+import nzea_config.{FuConfig, CoreConfig}
 
 /** PRF write port: addr, data. Shared by all FU completions. */
 class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {
@@ -30,7 +30,7 @@ class PrfReadPort(prfAddrWidth: Int) extends Bundle {
 }
 
 /** Physical register file only: banked regs + ready bits, multi-port read, write from WBU, clear on rename alloc. */
-class Prf(numWritePorts: Int, numReadPorts: Int)(implicit config: NzeaConfig) extends Module {
+class Prf(numWritePorts: Int, numReadPorts: Int)(implicit config: CoreConfig) extends Module {
   val prfAddrWidth = config.prfAddrWidth
   val prfDepth     = config.prfDepth
 
@@ -89,10 +89,10 @@ class Prf(numWritePorts: Int, numReadPorts: Int)(implicit config: NzeaConfig) ex
 }
 
 object Prf {
-  def numReadPorts(implicit config: NzeaConfig): Int =
+  def numReadPorts(implicit config: CoreConfig): Int =
     2 + 1 + FuConfig.numIssuePorts * 2
 
-  def apply(implicit config: NzeaConfig): Prf =
+  def apply(implicit config: CoreConfig): Prf =
     Module(new Prf(FuConfig.numPrfWritePorts, numReadPorts))
 }
 
@@ -104,7 +104,7 @@ object PrfBypass {
     prfReady: Bool,
     bypassL1: Vec[Valid[PrfWriteBundle]],
     prfWrite: Vec[Valid[PrfWriteBundle]]
-  )(implicit config: NzeaConfig): (UInt, Bool) = {
+  )(implicit config: CoreConfig): (UInt, Bool) = {
     val prfAddrWidth = addr.getWidth
     val bypassPorts  = FuConfig.prfWritePorts(config).zipWithIndex
     val level1Sel    = bypassPorts.map { case (_, i) => bypassL1(i).valid && bypassL1(i).bits.addr === addr }
@@ -130,7 +130,7 @@ object PrfBypass {
     addr: UInt,
     prfData: UInt,
     prfWrite: Vec[Valid[PrfWriteBundle]]
-  )(implicit config: NzeaConfig): UInt = {
+  )(implicit config: CoreConfig): UInt = {
     val bypassPorts = FuConfig.prfWritePorts(config).zipWithIndex
     val level2Sel   = bypassPorts.map { case (_, i) => prfWrite(i).valid && prfWrite(i).bits.addr === addr }
     val commitWbBypassHit =

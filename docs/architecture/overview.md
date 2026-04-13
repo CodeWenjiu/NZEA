@@ -2,7 +2,7 @@
 
 ## Module Boundaries
 
-- `nzea_config`: shared configuration model (`NzeaConfig`, target selection, ISA-related options).
+- `nzea_config`: shared configuration model. `NzeaConfig` holds global elaboration options (`target`, `sim`, output path, platform), while `CoreConfig` holds core-only micro-architecture and ISA options.
 - `nzea_core`: core RTL implementation and elaboration path for core target.
 - `nzea_tile`: tile-level wrapper and elaboration path for tile target.
 - `nzea_rtl`: shared utility RTL components.
@@ -20,5 +20,6 @@ Primary Scala dependency direction:
 ## Design Principles
 
 1. Keep configuration centralized in `nzea_config` to avoid duplicated CLI parsing logic.
-2. Keep CLI concerns separate from hardware generation so elaboration remains reusable by tools and tests.
-3. Prefer small focused modules with clear ownership over large multi-purpose files.
+2. Keep scope explicit: pass `config.core` into core/tile hardware modules, keep non-core flow options in top-level `NzeaConfig`.
+3. Keep CLI concerns separate from hardware generation so elaboration remains reusable by tools and tests.
+4. Prefer small focused modules with clear ownership over large multi-purpose files.
