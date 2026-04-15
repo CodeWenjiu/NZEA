@@ -19,7 +19,8 @@ class ISU(addrWidth: Int)(implicit config: CoreConfig) extends Module {
   private val robDepth     = config.robDepth
   private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth = config.prfAddrWidth
-  private val lsqIdWidth   = chisel3.util.log2Ceil((robDepth / 2).max(1).max(2))
+  /** Keep LSQ id width consistent with Core/LSU sizing from shared CoreConfig. */
+  private val lsqIdWidth   = config.lsqIdWidth
 
   val io = IO(new Bundle {
     val in              = Flipped(new PipeIO(new IDUOut(addrWidth, prfAddrWidth)))

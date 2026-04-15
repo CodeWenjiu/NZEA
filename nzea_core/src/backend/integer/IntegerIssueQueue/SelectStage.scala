@@ -18,34 +18,27 @@ class IntegerIssueQueueSelectStage(
 )(
   implicit config: CoreConfig
 ) extends Module {
-  private val issuePortConfigs = FuConfig.issuePorts(config)
-  private val portIdxByKind = issuePortConfigs.zipWithIndex.map { case (cfg, idx) => cfg.kind -> idx }.toMap
-  require(
-    portIdxByKind.size == issuePortConfigs.size,
-    s"Duplicate FuKind in issue port config: ${issuePortConfigs.map(_.kind)}"
-  )
-
-  private def portIdx(kind: FuKind): Int =
-    portIdxByKind.getOrElse(kind, throw new IllegalArgumentException(s"Missing issue port for FuKind.$kind"))
-  private def portIdxOpt(kind: FuKind): Option[Int] = portIdxByKind.get(kind)
+  private val hasM  = config.isaConfig.hasM
+  private val hasNn = config.isaConfig.hasWjcus0
+  private val layout = IssuePortLayout.build(config)
 
   private val numPrfWritePorts = FuConfig.numPrfWritePorts
-  private val numWakeupHints   = FuConfig.numWakeupHints
+  private val numWakeupHints   = layout.wakeupHintSpecs.size
 
   /** Port index for SYSU. CSR-write pending stalls only SYSU so older ALU/AGU/BRU/MUL/DIV can still issue (avoids deadlock). */
-  private val sysuPortIdx = portIdx(FuKind.Sysu).U
-  private def fuKindForType(ft: FuType.Type): FuKind = ft match {
-    case FuType.ALU  => FuKind.Alu
-    case FuType.BRU  => FuKind.Bru
-    case FuType.LSU  => FuKind.Agu
-    case FuType.MUL  => FuKind.Mul
-    case FuType.DIV  => FuKind.Div
-    case FuType.SYSU => FuKind.Sysu
-    case FuType.NNU  => FuKind.Nnu
-  }
+  private val sysuPortIdx = layout.idx(FuKind.Sysu).U
   private val fuTypeToPortIdx: Seq[(UInt, UInt)] = FuType.all.map { ft =>
-    val idx = portIdxOpt(fuKindForType(ft)).getOrElse(0)
+    val idx = layout.idxOpt(IssuePortLayout.fuKindForType(ft)).getOrElse(0)
     (ft.asUInt, idx.U)
+  }
+  private def unsupportedFuType(ft: FuType.Type): Bool = {
+    val unsupportedM =
+      if (hasM) false.B
+      else (ft === FuType.MUL || ft === FuType.DIV)
+    val unsupportedNn =
+      if (hasNn) false.B
+      else (ft === FuType.NNU)
+    unsupportedM || unsupportedNn
   }
 
   val io = IO(new Bundle {
@@ -75,8 +68,12 @@ class IntegerIssueQueueSelectStage(
   val pending_csr_write_rob_id = RegInit(0.U(robIdWidth.W))
   val pending_csr_write_valid  = RegInit(false.B)
   val enqFire = !flush && io.in.fire
+  val enqUnsupported = unsupportedFuType(io.in.bits.fu_type)
 
   io.in.ready := !full && !flush
+  when(enqFire) {
+    assert(!enqUnsupported, "Unsupported fu_type enqueued into IntegerIssueQueue")
+  }
   val csr_pending_issue_stall = pending_csr_write_valid
   private def hasWakeupHitFor(paddr: UInt): Bool =
     io.wakeup_hints.map(h => h.valid && h.bits === paddr && paddr =/= 0.U).foldLeft(false.B)(_ || _)
@@ -123,7 +120,8 @@ class IntegerIssueQueueSelectStage(
     val actual_rs1_ready = (entry.p_rs1 === 0.U) || entry.rs1_ready || rs1BypassHit
     val actual_rs2_ready = (entry.p_rs2 === 0.U) || entry.rs2_ready || rs2BypassHit
     val portIdx = MuxLookup(entry.fu_type.asUInt, 0.U)(fuTypeToPortIdx)
-    canIssue(i) := valids(i) && actual_rs1_ready && actual_rs2_ready && fuReady(portIdx) &&
+    canIssue(i) := valids(i) && !unsupportedFuType(entry.fu_type) &&
+      actual_rs1_ready && actual_rs2_ready && fuReady(portIdx) &&
       !(csr_pending_issue_stall && portIdx === sysuPortIdx)
   }
   val firstReadyIdx = PriorityEncoder(canIssue.asUInt)

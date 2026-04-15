@@ -12,29 +12,17 @@ import nzea_rtl.PipeIO
   */
 class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig) extends Module {
   private val numPorts = FuConfig.numIssuePorts
-  private val issuePortConfigs = FuConfig.issuePorts(config)
-  private val portIdxByKind = issuePortConfigs.zipWithIndex.map { case (cfg, idx) => cfg.kind -> idx }.toMap
-  require(
-    portIdxByKind.size == issuePortConfigs.size,
-    s"Duplicate FuKind in issue port config: ${issuePortConfigs.map(_.kind)}"
-  )
-
-  private def portIdx(kind: FuKind): Int =
-    portIdxByKind.getOrElse(kind, throw new IllegalArgumentException(s"Missing issue port for FuKind.$kind"))
-  private def portIdxOpt(kind: FuKind): Option[Int] = portIdxByKind.get(kind)
-
-  private val wakeupHintSpecs: Seq[(Int, Int)] = issuePortConfigs.zipWithIndex.flatMap { case (cfg, idx) =>
-    cfg.wakeupHintLatency.map(lat => (idx, lat))
-  }
+  private val layout = IssuePortLayout.build(config)
+  private val wakeupHintSpecs = layout.wakeupHintSpecs
   private val numWakeupHints = wakeupHintSpecs.size
 
-  private val aluIdx = portIdx(FuKind.Alu)
-  private val bruIdx = portIdx(FuKind.Bru)
-  private val aguIdx = portIdx(FuKind.Agu)
-  private val mulIdxOpt = portIdxOpt(FuKind.Mul)
-  private val divIdxOpt = portIdxOpt(FuKind.Div)
-  private val nnuIdxOpt = portIdxOpt(FuKind.Nnu)
-  private val sysuIdx = portIdx(FuKind.Sysu)
+  private val aluIdx = layout.idx(FuKind.Alu)
+  private val bruIdx = layout.idx(FuKind.Bru)
+  private val aguIdx = layout.idx(FuKind.Agu)
+  private val mulIdxOpt = layout.idxOpt(FuKind.Mul)
+  private val divIdxOpt = layout.idxOpt(FuKind.Div)
+  private val nnuIdxOpt = layout.idxOpt(FuKind.Nnu)
+  private val sysuIdx = layout.idx(FuKind.Sysu)
 
   val io = IO(new Bundle {
     val in = Flipped(Vec(numPorts, new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))

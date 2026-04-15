@@ -2,14 +2,16 @@ package nzea_core.frontend
 
 import chisel3._
 import nzea_rtl.PipeIO
-import nzea_core.backend.integer.{AguInput, AluInput, BruInput, DivInput, MulInput, SysuInput}
+import nzea_core.backend.integer.{AguInput, AluInput, BruInput, DivInput, IssuePortLayout, MulInput, SysuInput}
 import nzea_core.backend.integer.nnu.NnInput
-import nzea_config.{FuConfig, CoreConfig}
+import nzea_config.{CoreConfig, FuKind}
 
 /** Per-port payload types: each issue port has FU-specific input (AluInput, BruInput, etc.).
   * Operand extraction (e.g. ALU opA/opB from fu_src) happens in ISU before pipeline reg.
   */
 class IssuePortsBundle(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig) extends Bundle {
+  private val layout = IssuePortLayout.build(config)
+
   val alu  = new PipeIO(new AluInput(robIdWidth, prfAddrWidth))
   val bru  = new PipeIO(new BruInput(robIdWidth, prfAddrWidth))
   val agu  = new PipeIO(new AguInput(robIdWidth, prfAddrWidth, lsqIdWidth))
@@ -21,9 +23,15 @@ class IssuePortsBundle(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(impl
 
   /** Ports in FuConfig.issuePorts order for iteration. */
   def orderedPorts: Seq[PipeIO[_ <: Bundle]] = {
-    val base = Seq(alu, bru, agu)
-    val md   = if (config.isaConfig.hasM) Seq(mul.get, div.get) else Seq.empty
-    val nn   = if (config.isaConfig.hasWjcus0) Seq(nnu.get) else Seq.empty
-    base ++ md ++ nn :+ sysu
+    def byKind(kind: FuKind): PipeIO[_ <: Bundle] = kind match {
+      case FuKind.Alu  => alu
+      case FuKind.Bru  => bru
+      case FuKind.Agu  => agu
+      case FuKind.Mul  => mul.get
+      case FuKind.Div  => div.get
+      case FuKind.Nnu  => nnu.get
+      case FuKind.Sysu => sysu
+    }
+    layout.kinds.map(byKind)
   }
 }
