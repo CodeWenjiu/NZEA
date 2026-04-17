@@ -1,4 +1,4 @@
-package nzea_config
+package nzea_core.config
 
 /** FU config: describes whether each FU needs PRF write, bypass, Rob access, etc.
   * Used for config-driven parameterized architecture: port count derived from config, top-level uses foreach for wiring.

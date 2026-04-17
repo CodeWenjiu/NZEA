@@ -7,7 +7,7 @@ import nzea_rtl.PipeIO
 import nzea_core.backend.integer.{FuOpWidth, SysuOp}
 import nzea_core.frontend.FuDecode
 import nzea_core.retire.IDUCommit
-import nzea_config.CoreConfig
+import nzea_core.config.CoreConfig
 
 // -------- IDU stage output --------
 

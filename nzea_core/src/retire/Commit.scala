@@ -3,7 +3,7 @@ package nzea_core.retire
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
-import nzea_config.CoreConfig
+import nzea_core.config.CoreConfig
 
 /** Internal Rob→Commit payload: all fields for bookkeeping. */
 class RobCommitPayload(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {

@@ -1,5 +1,7 @@
 package nzea_config
 
+import nzea_core.config.CoreConfig
+
 case class NzeaConfig(
   debug: Boolean = false,
   outDir: Option[String] = None,

@@ -1,4 +1,4 @@
-package nzea_config
+package nzea_core.config
 
 /** Core-specific configuration used by nzea_core modules. */
 case class CoreConfig(

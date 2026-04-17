@@ -1,7 +1,8 @@
 package nzea_cli
 
 import mainargs.arg
-import nzea_config.{CoreConfig, ElaborationTarget, NzeaConfig}
+import nzea_config.{ElaborationTarget, NzeaConfig}
+import nzea_core.config.CoreConfig
 
 /** Flat CLI arguments for backward-compatible command-line flags. */
 case class CliArgs(

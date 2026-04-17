@@ -1,4 +1,4 @@
-package nzea_config
+package nzea_core.config
 
 /** Parsed ISA configuration for Chisel.
   *

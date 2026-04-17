@@ -2,7 +2,7 @@ package nzea_core
 
 import _root_.circt.stage.ChiselStage
 import nzea_core.backend.vector.VectorBackend
-import nzea_config.CoreConfig
+import nzea_core.config.CoreConfig
 import org.scalatest.funsuite.AnyFunSuite
 
 class VectorBackendTest extends AnyFunSuite {

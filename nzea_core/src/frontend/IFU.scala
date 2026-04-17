@@ -5,7 +5,7 @@ import chisel3.util.{Decoupled, Valid}
 import nzea_rtl.PipeIO
 import nzea_core.frontend.bp.{PHT, BTB, BpUpdate}
 import nzea_rtl.CoreBusReadOnly
-import nzea_config.CoreConfig
+import nzea_core.config.CoreConfig
 
 /** Ibus user payload: pred_next_pc + pc, passthrough req->resp for branch
   * prediction / flush.

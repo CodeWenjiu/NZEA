@@ -1,24 +1,23 @@
 package nzea_tile
 
 import _root_.circt.stage.ChiselStage
-import nzea_config.{CoreConfig, ElaborationTarget, NzeaConfig}
+import nzea_core.config.CoreConfig
 
 object TileElaborate {
-  def elaborate(implicit config: NzeaConfig): Unit = {
-    require(
-      config.target == ElaborationTarget.Tile,
-      "TileElaborate expects target=tile; use --target core for Top"
-    )
-    implicit val coreConfig: CoreConfig = config.core
+  def elaborate(
+    sim: Boolean,
+    outDir: String,
+    firtoolOpts: Array[String]
+  )(implicit config: CoreConfig): Unit = {
     println(
-      s"Generating NzeaTile (target: ${config.target}, isa: ${config.core.isa}, debug: ${config.debug}, platform: ${config.synthPlatform}, sim: ${config.sim})"
+      s"Generating NzeaTile (isa: ${config.isa}, sim: $sim)"
     )
-    println(s"Output: ${config.effectiveOutDir}")
+    println(s"Output: $outDir")
 
     ChiselStage.emitSystemVerilogFile(
-      new NzeaTile(config.sim),
-      args = Array("--target-dir", config.effectiveOutDir),
-      firtoolOpts = config.firtoolOpts
+      new NzeaTile(sim),
+      args = Array("--target-dir", outDir),
+      firtoolOpts = firtoolOpts
     )
   }
 }

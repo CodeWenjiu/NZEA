@@ -6,7 +6,7 @@ import nzea_rtl.{PipelineConnect, PipeIO}
 import nzea_core.frontend.{IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}
-import nzea_config.{CoreConfig, FuConfig, FuKind}
+import nzea_core.config.{CoreConfig, FuConfig, FuKind}
 import nzea_core.backend.integer.nnu.NNU
 
 /** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, NNU (WJCUS0), SYSU; receives per-port payloads from [[IntegerIssueQueue]]. */

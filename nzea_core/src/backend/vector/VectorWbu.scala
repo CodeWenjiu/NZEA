@@ -3,7 +3,7 @@ package nzea_core.backend.vector
 import chisel3._
 import chisel3.util.Valid
 import nzea_rtl.PipeIO
-import nzea_config.CoreConfig
+import nzea_core.config.CoreConfig
 
 /** One-cycle delay for PVR writes (mirrors [[nzea_core.retire.WBU]]; enables future bypass from `io.out`). */
 class VectorWbu(implicit config: CoreConfig) extends Module {

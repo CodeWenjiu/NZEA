@@ -3,7 +3,7 @@ package nzea_core
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
-import nzea_config.{FuConfig, CoreConfig}
+import nzea_core.config.{CoreConfig, FuConfig}
 import nzea_rtl.PipelineConnect
 
 /** Core module: Rob in Core; integer cluster + LSU write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */

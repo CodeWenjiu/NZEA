@@ -2,7 +2,7 @@ package nzea_tile
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.dpi.{CommitDpiBridge, DbusDpiBridge, IbusDpiBridge}
 import nzea_core.retire.CommitMsg
 

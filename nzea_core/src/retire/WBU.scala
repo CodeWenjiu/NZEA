@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_rtl.PipeIO
 import nzea_core.frontend.PrfWriteBundle
-import nzea_config.{FuConfig, CoreConfig}
+import nzea_core.config.{CoreConfig, FuConfig}
 
 /** Write-Back Unit: 1-cycle delay for PRF writes. All FU + MemUnit outputs go through WBU.
   * Provides two-level bypass: Level 1 = inputs (FU output), Level 2 = outputs (delayed).

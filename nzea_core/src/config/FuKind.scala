@@ -1,4 +1,4 @@
-package nzea_config
+package nzea_core.config
 
 /** Strongly-typed issue/execution FU kind used by static port/topology config.
   * MemUnit is intentionally excluded because it is not an issue-port FU.

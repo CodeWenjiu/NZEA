@@ -1,4 +1,4 @@
-package nzea_config
+package nzea_core.config
 
 /** PRF write-back source kind.
   * Distinguishes execution-unit sources from MemUnit, which is not an issue-port FU.

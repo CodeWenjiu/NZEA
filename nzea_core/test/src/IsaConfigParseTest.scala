@@ -1,6 +1,6 @@
 package nzea_core
 
-import nzea_config.IsaConfig
+import nzea_core.config.IsaConfig
 import org.scalatest.funsuite.AnyFunSuite
 
 class IsaConfigParseTest extends AnyFunSuite {

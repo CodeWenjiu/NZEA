@@ -3,7 +3,7 @@ package nzea_core
 import chisel3._
 import chisel3.util.Valid
 import _root_.circt.stage.ChiselStage
-import nzea_config.{CoreConfig, ElaborationTarget, NzeaConfig}
+import nzea_core.config.CoreConfig
 
 object CoreElaborate {
 
@@ -32,22 +32,21 @@ object CoreElaborate {
     }
   }
 
-  def elaborate(implicit config: NzeaConfig): Unit = {
-    require(
-      config.target == ElaborationTarget.Core,
-      "Elaborate expects target=core (Top); use --target tile with TileElaborate for NzeaTile"
-    )
-    implicit val coreConfig: CoreConfig = config.core
+  def elaborate(
+    sim: Boolean,
+    outDir: String,
+    firtoolOpts: Array[String]
+  )(implicit config: CoreConfig): Unit = {
     println(
-      s"Generating Top (target: ${config.target}, isa: ${config.core.isa}, debug: ${config.debug}, platform: ${config.synthPlatform}, sim: ${config.sim})"
+      s"Generating Top (isa: ${config.isa}, sim: $sim)"
     )
-    println(s"Output: ${config.effectiveOutDir}")
+    println(s"Output: $outDir")
 
-    lazy val topModule = new Top(config.sim)
+    lazy val topModule = new Top(sim)
     ChiselStage.emitSystemVerilogFile(
       topModule,
-      args = Array("--target-dir", config.effectiveOutDir),
-      firtoolOpts = config.firtoolOpts
+      args = Array("--target-dir", outDir),
+      firtoolOpts = firtoolOpts
     )
   }
 }

@@ -3,7 +3,7 @@ package nzea_core.retire.rob
 import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_rtl.MuxTree
-import nzea_config.{FuConfig, CoreConfig}
+import nzea_core.config.{CoreConfig, FuConfig}
 import nzea_core.frontend.CsrType
 import nzea_core.retire.RobCommitPayload
 import nzea_core.retire.rob.RobMemType
@@ -240,4 +240,3 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
     }
   }
 }
-

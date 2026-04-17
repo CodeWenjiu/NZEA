@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Mux1H, MuxLookup, PopCount, PriorityEncoder, Valid}
 import nzea_core.frontend.{CsrType, FuType, PrfBypass, PrfRawRead, PrfWriteBundle}
 import nzea_core.retire.rob.RobMemType
-import nzea_config.{CoreConfig, FuConfig, FuKind}
+import nzea_core.config.{CoreConfig, FuConfig, FuKind}
 import nzea_rtl.PipeIO
 
 /** Stage 1: select one ready slot and push to pipeline register.

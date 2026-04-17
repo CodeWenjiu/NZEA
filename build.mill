@@ -6,13 +6,14 @@ val mainargsVersion = "0.5.2"
 object nzea_cli extends ScalaModule {
   def scalaVersion = nzea_core.scalaVersion()
 
-  def moduleDeps = Seq(nzea_core, nzea_tile)
+  def moduleDeps = Seq(nzea_core, nzea_tile, nzea_config)
 
   override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
 }
 
 object nzea_config extends ScalaModule {
   def scalaVersion = "2.13.18"
+  def moduleDeps = Seq(nzea_core)
   override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
 }
 
@@ -38,7 +39,7 @@ object nzea_core extends ScalaModule {
   def scalaVersion = "2.13.18"
   def chiselVersion = "7.9.0"
 
-  def moduleDeps = Seq(nzea_config, nzea_rtl)
+  def moduleDeps = Seq(nzea_rtl)
 
   override def scalacOptions = Seq(
     "-language:reflectiveCalls",

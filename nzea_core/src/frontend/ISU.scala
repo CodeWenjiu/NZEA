@@ -2,7 +2,7 @@ package nzea_core.frontend
 
 import chisel3._
 import nzea_rtl.PipeIO
-import nzea_config.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.backend.integer.IntegerIssueQueueEntry
 import nzea_core.backend.integer.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
 import nzea_core.retire.rob.{RobEnqIO, RobMemType, LsAllocIO}
