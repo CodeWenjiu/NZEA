@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_rtl.PipeIO
 import nzea_core.frontend.bp.{PHT, BTB, BpUpdate}
-import nzea_rtl.CoreBusReadOnly
+import nzea_rtl.LiteBusRO
 import nzea_core.config.CoreConfig
 
 /** Ibus user payload: pred_next_pc + pc, passthrough req->resp for branch
@@ -30,7 +30,7 @@ class IFU(implicit config: CoreConfig) extends Module {
   private val dataWidth = config.width
   private val userBundleType = new IbusUserBundle(addrWidth)
   private val userWidth = addrWidth * 2
-  private val busType = new CoreBusReadOnly(addrWidth, dataWidth, userWidth)
+  private val busType = new LiteBusRO(addrWidth, dataWidth, userWidth)
   private val pcReset =
     (config.defaultPc & ((1L << addrWidth) - 1)).U(addrWidth.W)
 

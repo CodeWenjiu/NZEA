@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.{LsAllocIO, LsWriteReq, RobEntryStateUpdate}
-import nzea_rtl.{CoreBusReadWrite, PipeIO}
+import nzea_rtl.{LiteBusRW, PipeIO}
 
 /** LSU wrapper: unifies AGU->LSQ write path, LSQ queueing/issue, and MemUnit bus/resp handling.
   * Internal behavior is unchanged; this module only consolidates boundaries.
@@ -28,7 +28,7 @@ class LSU(width: Int, robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) ex
 
     /** To write-back path: load responses only. */
     val out  = new PipeIO(new PrfWriteBundle(prfAddrWidth))
-    val dbus = new CoreBusReadWrite(width, width, userWidth)
+    val dbus = new LiteBusRW(width, width, userWidth)
   })
 
   private val lsq = Module(new LSQ(robIdWidth, lsBufferDepth, prfAddrWidth))

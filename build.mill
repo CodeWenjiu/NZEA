@@ -33,6 +33,10 @@ object nzea_rtl extends ScalaModule {
   override def scalacPluginMvnDeps = Seq(
     mvn"org.chipsalliance:::chisel-plugin:$chiselVersion"
   )
+
+  object test extends ScalaTests with TestModule.ScalaTest {
+    def mvnDeps = Seq(mvn"org.scalatest::scalatest:3.2.19")
+  }
 }
 
 object nzea_core extends ScalaModule {

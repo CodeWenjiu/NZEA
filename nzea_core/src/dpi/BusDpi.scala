@@ -11,12 +11,12 @@ import nzea_core.retire.CommitMsg
   * Flush clears in-flight; req.flush/resp.flush from bus.resp.flush. */
 class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
   val io = IO(new Bundle {
-    val bus = Flipped(new CoreBusReadOnly(addrWidth, dataWidth, userWidth))
+    val bus = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth))
   })
   val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
-  val respType = new CoreResp(dataWidth, userWidth)
+  val respType = new LiteResp(dataWidth, userWidth)
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))
   stage1.flush := flush
@@ -42,14 +42,14 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   * Store also waits for resp (for fault handling). Flush clears in-flight. */
 class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
   val io = IO(new Bundle {
-    val bus = Flipped(new CoreBusReadWrite(addrWidth, dataWidth, userWidth))
+    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth))
   })
   val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
   val req = io.bus.req.bits
   val isRead = !req.wen
-  val respType = new CoreResp(dataWidth, userWidth)
+  val respType = new LiteResp(dataWidth, userWidth)
 
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))

@@ -3,7 +3,7 @@ package nzea_core.backend
 import chisel3._
 import nzea_core.backend.integer.LsuOp
 import chisel3.util.{Cat, Mux1H, Valid}
-import nzea_rtl.CoreBusReadWrite
+import nzea_rtl.LiteBusRW
 import nzea_core.frontend.PrfWriteBundle
 import nzea_rtl.PipeIO
 import nzea_core.retire.rob.{Rob, RobEntryStateUpdate, RobMemReq}
@@ -21,7 +21,7 @@ class DbusUserBundle(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
 class MemUnit(width: Int, robIdWidth: Int, prfAddrWidth: Int) extends Module {
   private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2 + prfAddrWidth
   private val userWidth = width.max(userPayloadWidth)
-  private val dbusType = new CoreBusReadWrite(width, width, userWidth)
+  private val dbusType = new LiteBusRW(width, width, userWidth)
   private val userBundleType = new DbusUserBundle(robIdWidth, prfAddrWidth)
 
   val io = IO(new Bundle {
