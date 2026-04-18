@@ -86,6 +86,10 @@ pub struct Args {
     #[arg(long)]
     pub deadlock_tail: Option<u64>,
 
+    /// Dump FabricBus/Xbar state for last N cycles to locate req/resp/outstanding deadlocks
+    #[arg(long)]
+    pub fabric_deadlock_tail: Option<u64>,
+
     /// Find who produces a given PR: scan for prf_write/commit with p_rd=PR
     #[arg(long)]
     pub who_produces: Option<String>,

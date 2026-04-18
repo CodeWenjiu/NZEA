@@ -3,9 +3,9 @@ use wellen::simple;
 
 use crate::analysis::{
     bug_scan_pr_in_both, deadlock_analysis, deadlock_tail, dispatch_lsq_check,
-    find_enq_rob_id_p_rd, find_p_rd_in_pipeline, find_rob_id_in_pipeline, flush_sync_scan,
-    prf_iq_mismatch_scan, rob_iq_desync_scan, scan_time_range, timeline_trace, trace_p_rd_timeline,
-    trace_pc_timeline, trace_rob_id_timeline, who_produces_pr,
+    fabric_deadlock_tail, find_enq_rob_id_p_rd, find_p_rd_in_pipeline, find_rob_id_in_pipeline,
+    flush_sync_scan, prf_iq_mismatch_scan, rob_iq_desync_scan, scan_time_range, timeline_trace,
+    trace_p_rd_timeline, trace_pc_timeline, trace_rob_id_timeline, who_produces_pr,
 };
 use crate::core::{default_wave_path, find_time_idx_at_or_before, pc_hex_to_binary};
 
@@ -101,6 +101,8 @@ pub fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         deadlock_analysis(&mut wf, time_table, start, end)?;
     } else if let Some(n) = args.deadlock_tail {
         deadlock_tail(&mut wf, time_table, n)?;
+    } else if let Some(n) = args.fabric_deadlock_tail {
+        fabric_deadlock_tail(&mut wf, time_table, n)?;
     } else if let Some(ref pr_bin) = args.who_produces {
         who_produces_pr(&mut wf, time_table, pr_bin)?;
     } else if let Some(ref pr_bin) = args.find_p_rd {

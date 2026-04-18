@@ -32,11 +32,11 @@ test module="nzea_rtl":
     @mill --no-server {{module}}.test
 
 # Run selected ScalaTest suites in one module.
-# Example: just test-suites nzea_rtl LiteBusCrossbarTest LiteBusXbarTest
+# Example: just test-suites nzea_rtl FabricBusCrossbarTest FabricBusAdapterTest
 test-suites module *suites:
     @bash -lc 'set -euo pipefail; \
       if [ "{{suites}}" = "" ]; then \
-        echo "No suites provided. Example: just test-suites nzea_rtl LiteBusCrossbarTest LiteBusXbarTest" >&2; \
+        echo "No suites provided. Example: just test-suites nzea_rtl FabricBusCrossbarTest FabricBusAdapterTest" >&2; \
         exit 1; \
       fi; \
       fq=(); \
@@ -47,7 +47,7 @@ test-suites module *suites:
       mill --no-server {{module}}.test.testOnly "${fq[@]}"'
 
 # Run a suite collection matched by regex on *Test.scala filename.
-# Example: just test-match nzea_rtl "LiteBus(Arbiter|Crossbar)Test"
+# Example: just test-match nzea_rtl "FabricBus.*Test"
 test-match module pattern:
     @bash -lc 'set -euo pipefail; \
       mapfile -t suites < <( \
@@ -67,6 +67,6 @@ test-match module pattern:
       mill --no-server {{module}}.test.testOnly "${fq[@]}"'
 
 # Convenience alias for RTL test benches.
-# Example: just tb "LiteBus.*Test"
+# Example: just tb "FabricBus.*Test"
 tb pattern:
     @just test-match nzea_rtl "{{pattern}}"

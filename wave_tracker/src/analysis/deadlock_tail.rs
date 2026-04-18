@@ -40,6 +40,12 @@ pub fn deadlock_tail(
             sigs.push((name, var.signal_ref()));
         }
     }
+    let has_legacy_iq = sigs.iter().any(|(n, _)| n.contains("core.iq.count"));
+    if !has_legacy_iq {
+        println!("No legacy core.iq.* signals found in this waveform.");
+        println!("Hint: for tile/fabric deadlock, try: --fabric-deadlock-tail {}", n);
+        return Ok(());
+    }
     let to_load: Vec<SignalRef> = sigs.iter().map(|(_, sr)| *sr).collect();
     wf.load_signals(&to_load);
 

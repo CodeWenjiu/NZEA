@@ -2,11 +2,17 @@ package nzea_tile
 
 import chisel3._
 import chisel3.util.Valid
-import chisel3.util.Cat
 import nzea_core.config.CoreConfig
 import nzea_core.dpi.{CommitDpiBridge, DbusDpiBridge}
 import nzea_core.retire.CommitMsg
-import nzea_rtl.{LiteBusAddrRange, LiteBusROToRW, LiteBusRW, LiteBusRWCrossbar}
+import nzea_rtl.{
+  FabricAddrRange,
+  FabricBusRW,
+  FabricBusRWCrossbar,
+  FabricRWToLiteRW,
+  LiteBusROToFabricRW,
+  LiteBusRWToFabricRW
+}
 
 /** Tile address map.
   *
@@ -20,85 +26,50 @@ import nzea_rtl.{LiteBusAddrRange, LiteBusROToRW, LiteBusRW, LiteBusRWCrossbar}
   * +----------------------+-------------------------+
   */
 object TileAddressMap {
-  val ram = LiteBusAddrRange(base = BigInt("80000000", 16), size = BigInt("08000000", 16))
-  val uart16550 = LiteBusAddrRange(base = BigInt("10000000", 16), size = BigInt("00000008", 16))
-  val sifiveTestFinisher = LiteBusAddrRange(base = BigInt("00100000", 16), size = BigInt("00000004", 16))
-  val clint = LiteBusAddrRange(base = BigInt("02000000", 16), size = BigInt("0000c000", 16))
-  val ranges: Seq[LiteBusAddrRange] = Seq(ram, uart16550, sifiveTestFinisher, clint)
+  val ram = FabricAddrRange(base = BigInt("80000000", 16), size = BigInt("08000000", 16))
+  val uart16550 = FabricAddrRange(base = BigInt("10000000", 16), size = BigInt("00000008", 16))
+  val sifiveTestFinisher = FabricAddrRange(base = BigInt("00100000", 16), size = BigInt("00000004", 16))
+  val clint = FabricAddrRange(base = BigInt("02000000", 16), size = BigInt("0000c000", 16))
+  val ranges: Seq[FabricAddrRange] = Seq(ram, uart16550, sifiveTestFinisher, clint)
 }
 
 /** External device bus ports (non-sim path). */
-class TileDeviceBusBundle(addrWidth: Int, dataWidth: Int, userWidth: Int) extends Bundle {
-  val ram = new LiteBusRW(addrWidth, dataWidth, userWidth)
-  val uart16550 = new LiteBusRW(addrWidth, dataWidth, userWidth)
-  val sifive_test_finisher = new LiteBusRW(addrWidth, dataWidth, userWidth)
-  val clint = new LiteBusRW(addrWidth, dataWidth, userWidth)
+class TileDeviceBusBundle(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Bundle {
+  val ram = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  val uart16550 = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  val sifive_test_finisher = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  val clint = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
 }
 
-/** Adapt LiteBusRW user width to a common fabric width.
-  * Request user is zero-extended/truncated; response user is truncated back to inUserWidth.
+/** Wrapper around [[DbusDpiBridge]] for Fabric xbar slave-side use.
+  * Uses Fabric->Lite conversion and breaks req.flush combinational feedback by forcing slave req.flush to false.
   */
-class LiteBusRwUserWidthAdapter(addrWidth: Int, dataWidth: Int, inUserWidth: Int, outUserWidth: Int) extends Module {
-  require(inUserWidth > 0, s"inUserWidth must be > 0, got $inUserWidth")
-  require(outUserWidth > 0, s"outUserWidth must be > 0, got $outUserWidth")
-
+class TileSimDeviceDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val in = Flipped(new LiteBusRW(addrWidth, dataWidth, inUserWidth))
-    val out = new LiteBusRW(addrWidth, dataWidth, outUserWidth)
+    val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
   })
-
-  io.out.req.valid := io.in.req.valid
-  io.out.req.bits.addr := io.in.req.bits.addr
-  io.out.req.bits.wdata := io.in.req.bits.wdata
-  io.out.req.bits.wen := io.in.req.bits.wen
-  io.out.req.bits.wstrb := io.in.req.bits.wstrb
-  io.out.req.bits.user := {
-    if (outUserWidth == inUserWidth) io.in.req.bits.user
-    else if (outUserWidth > inUserWidth) Cat(0.U((outUserWidth - inUserWidth).W), io.in.req.bits.user)
-    else io.in.req.bits.user(outUserWidth - 1, 0)
-  }
-  io.in.req.ready := io.out.req.ready
-  io.in.req.flush := io.out.req.flush
-
-  io.in.resp.valid := io.out.resp.valid
-  io.in.resp.bits.data := io.out.resp.bits.data
-  io.in.resp.bits.user := {
-    if (outUserWidth >= inUserWidth) io.out.resp.bits.user(inUserWidth - 1, 0)
-    else Cat(0.U((inUserWidth - outUserWidth).W), io.out.resp.bits.user)
-  }
-  io.out.resp.ready := io.in.resp.ready
-  io.out.resp.flush := io.in.resp.flush
-}
-
-/** Direction adapter for exposing a slave-side bus as top-level IO while still passing
-  * a Flipped endpoint to auto-link builder.
-  */
-class TileSlaveTap(addrWidth: Int, dataWidth: Int, userWidth: Int) extends Module {
-  val io = IO(new Bundle {
-    val ext = new LiteBusRW(addrWidth, dataWidth, userWidth)
-    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth))
-  })
-  io.bus <> io.ext
-}
-
-/** Wrapper around [[DbusDpiBridge]] for xbar slave-side use.
-  * Breaks req.flush combinational feedback by forcing slave req.flush to false.
-  */
-class TileSimDeviceDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int) extends Module {
-  val io = IO(new Bundle {
-    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth))
-  })
+  private val toLite = Module(new FabricRWToLiteRW(
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    fabricUserWidth = userWidth,
+    idWidth = idWidth,
+    liteUserWidth = userWidth
+  ))
   private val bridge = Module(new DbusDpiBridge(addrWidth, dataWidth, userWidth))
 
-  bridge.io.bus.req.valid := io.bus.req.valid
-  bridge.io.bus.req.bits := io.bus.req.bits
-  io.bus.req.ready := bridge.io.bus.req.ready
+  // Request side: break req.flush combinational loop at tile/device boundary.
+  toLite.io.in.req.valid := io.bus.req.valid
+  toLite.io.in.req.bits := io.bus.req.bits
+  io.bus.req.ready := toLite.io.in.req.ready
   io.bus.req.flush := false.B
 
-  io.bus.resp.valid := bridge.io.bus.resp.valid
-  io.bus.resp.bits := bridge.io.bus.resp.bits
-  bridge.io.bus.resp.ready := io.bus.resp.ready
-  bridge.io.bus.resp.flush := io.bus.resp.flush
+  // Response side keeps normal flush propagation.
+  toLite.io.in.resp.flush := io.bus.resp.flush
+  io.bus.resp.valid := toLite.io.in.resp.valid
+  io.bus.resp.bits := toLite.io.in.resp.bits
+  toLite.io.in.resp.ready := io.bus.resp.ready
+
+  bridge.io.bus <> toLite.io.out
 }
 
 /** Tile-level observability (optional taps). */
@@ -107,10 +78,10 @@ class TileStatusBundle extends Bundle {
   val commit_msg_valid = Output(Bool())
 }
 
-/** CPU tile: [[nzea_core.Core]] plus LiteBus fabric and per-device external interfaces.
+/** CPU tile: [[nzea_core.Core]] plus FabricBus interconnect and per-device external interfaces.
   * Bus fabric: 2 masters (core ibus+dbus) -> 4 slaves (ram/uart16550/sifive_test_finisher/clint).
   * `sim=true`: each slave is connected to a DPI RW bridge (bus_read/bus_write).
-  * `sim=false`: expose per-device LiteBusRW ports for SoC integration.
+  * `sim=false`: expose per-device FabricBusRW ports for SoC integration.
   */
 class NzeaTile(sim: Boolean)(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
@@ -118,55 +89,61 @@ class NzeaTile(sim: Boolean)(implicit config: CoreConfig) extends Module {
 
   val core = Module(new nzea_core.Core)
   private val fabricUserWidth = core.io.ibus.userWidth.max(core.io.dbus.userWidth)
+  // 8-bit request ID is enough for current tile-level outstanding needs and leaves room for growth.
+  private val fabricIdWidth = 8
 
-  val ibusRoToRw = Module(new LiteBusROToRW(addrWidth, dataWidth, core.io.ibus.userWidth))
-  ibusRoToRw.io.in <> core.io.ibus
-  val dbusUserAdapter = Module(new LiteBusRwUserWidthAdapter(
-    addrWidth,
-    dataWidth,
-    core.io.dbus.userWidth,
-    fabricUserWidth
+  val ibusToFabric = Module(new LiteBusROToFabricRW(
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    liteUserWidth = core.io.ibus.userWidth,
+    fabricUserWidth = fabricUserWidth,
+    idWidth = fabricIdWidth
   ))
-  dbusUserAdapter.io.in <> core.io.dbus
+  ibusToFabric.io.in <> core.io.ibus
+
+  val dbusToFabric = Module(new LiteBusRWToFabricRW(
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    liteUserWidth = core.io.dbus.userWidth,
+    fabricUserWidth = fabricUserWidth,
+    idWidth = fabricIdWidth
+  ))
+  dbusToFabric.io.in <> core.io.dbus
+
+  val fabric = Module(new FabricBusRWCrossbar(
+    numMasters = 2,
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    userWidth = fabricUserWidth,
+    idWidth = fabricIdWidth,
+    ranges = TileAddressMap.ranges,
+    perSlaveOutstanding = 8
+  ))
+  fabric.io.in(0) <> ibusToFabric.io.out
+  fabric.io.in(1) <> dbusToFabric.io.out
 
   val status = IO(new TileStatusBundle)
   if (sim) {
-    val ram = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth))
-    val uart = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth))
-    val finisher = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth))
-    val clint = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth))
-    LiteBusRWCrossbar(TileAddressMap.ranges) { x =>
-      x <> ibusRoToRw.io.out
-      x <> dbusUserAdapter.io.out
-      x <> ram.io.bus
-      x <> uart.io.bus
-      x <> finisher.io.bus
-      x <> clint.io.bus
-    }
+    val ram = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+    val uart = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+    val finisher = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+    val clint = Module(new TileSimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+    fabric.io.out(0) <> ram.io.bus
+    fabric.io.out(1) <> uart.io.bus
+    fabric.io.out(2) <> finisher.io.bus
+    fabric.io.out(3) <> clint.io.bus
+
     val cb = Module(new CommitDpiBridge)
     cb.io.commit_msg := core.io.commit_msg
     status.commit_msg_valid := core.io.commit_msg.valid
   } else {
-    val devices = IO(new TileDeviceBusBundle(addrWidth, dataWidth, fabricUserWidth))
+    val devices = IO(new TileDeviceBusBundle(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
     val commit_msg = IO(Output(Valid(new CommitMsg)))
 
-    val ramTap = Module(new TileSlaveTap(addrWidth, dataWidth, fabricUserWidth))
-    val uartTap = Module(new TileSlaveTap(addrWidth, dataWidth, fabricUserWidth))
-    val finisherTap = Module(new TileSlaveTap(addrWidth, dataWidth, fabricUserWidth))
-    val clintTap = Module(new TileSlaveTap(addrWidth, dataWidth, fabricUserWidth))
-    ramTap.io.ext <> devices.ram
-    uartTap.io.ext <> devices.uart16550
-    finisherTap.io.ext <> devices.sifive_test_finisher
-    clintTap.io.ext <> devices.clint
-
-    LiteBusRWCrossbar(TileAddressMap.ranges) { x =>
-      x <> ibusRoToRw.io.out
-      x <> dbusUserAdapter.io.out
-      x <> ramTap.io.bus
-      x <> uartTap.io.bus
-      x <> finisherTap.io.bus
-      x <> clintTap.io.bus
-    }
+    fabric.io.out(0) <> devices.ram
+    fabric.io.out(1) <> devices.uart16550
+    fabric.io.out(2) <> devices.sifive_test_finisher
+    fabric.io.out(3) <> devices.clint
 
     commit_msg := core.io.commit_msg
     status.commit_msg_valid := core.io.commit_msg.valid
