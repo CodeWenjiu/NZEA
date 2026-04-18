@@ -9,13 +9,13 @@ init:
 dump *ARGS:
     @mill --no-server nzea_cli.run {{ ARGS }}
 
-# Synth only: RTL from .../<isa>/sta/, reports in .../sta/synth/ (synth_stat.txt, synth_check.txt)
+# Synth only: RTL from .../<platform>/<isa>/sta/, reports in .../sta/synth/ (synth_stat.txt, synth_check.txt)
 synth *ARGS:
     @just dump --sim false {{ ARGS }}
     @nu scripts/synth.nu {{ ARGS }}
 
 # Synth + STA: area + timing. Requires nix develop (iEDA, PDK_PATH)
-# Reports: build/<target>/yosys/<isa>/sta/synth/ (area, timing rpt, sta.log; power report disabled in sta.tcl)
+# Reports: build/<target>/<platform>/<isa>/sta/synth/ (area, timing rpt, sta.log; power report disabled in sta.tcl)
 sta *ARGS:
     @just synth {{ ARGS }}
     @nu scripts/sta.nu {{ ARGS }}

@@ -15,6 +15,7 @@ object Main {
       case ElaborationTarget.Tile =>
         TileElaborate.elaborate(
           sim = config.sim,
+          platform = config.platform,
           outDir = config.effectiveOutDir,
           firtoolOpts = config.firtoolOpts
         )

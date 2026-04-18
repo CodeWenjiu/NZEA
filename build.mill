@@ -67,7 +67,7 @@ object nzea_core extends ScalaModule {
 object nzea_tile extends ScalaModule {
   def scalaVersion = nzea_core.scalaVersion()
 
-  def moduleDeps = Seq(nzea_core, nzea_rtl)
+  def moduleDeps = Seq(nzea_core, nzea_rtl, nzea_config)
 
   override def scalacOptions = Seq(
     "-language:reflectiveCalls",

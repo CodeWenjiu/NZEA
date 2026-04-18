@@ -9,7 +9,7 @@ case class CliArgs(
   @arg(doc = "Whether to enable Debug port") debug: Boolean = false,
   @arg(doc = "Verilog output directory (overrides default build/<target>/<platform>/<isa>/<sim|sta> when set)") outDir: Option[String] = None,
   @arg(doc = "Elaboration hierarchy: core (Top) or tile (NzeaTile)") target: ElaborationTarget = ElaborationTarget.Core,
-  @arg(doc = "Backend platform segment (e.g. yosys)") synthPlatform: String = "yosys",
+  @arg(doc = "Backend platform segment (e.g. yosys, hellofpga)") platform: String = "yosys",
   @arg(doc = "If true, emit simulation RTL (DPI bridges); if false, emit synthesizable top-level IO") sim: Boolean = true,
   @arg(doc = "ISA string, e.g. riscv32i or riscv32im_zve32x_zvl128b (underscore-named extensions; order after `_` ignored)") isa: String = "riscv32i",
   @arg(doc = "Default PC (reset value)") defaultPc: Long = 0x8000_0000L,
@@ -27,7 +27,7 @@ case class CliArgs(
       debug = debug,
       outDir = outDir,
       target = target,
-      synthPlatform = synthPlatform,
+      synthPlatform = platform,
       sim = sim,
       core = CoreConfig(
         isa = isa,
