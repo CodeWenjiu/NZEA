@@ -101,8 +101,13 @@ class FabricBusRWCrossbar(
 
     val rotated = Wire(Vec(numMasters, Bool()))
     for (i <- 0 until numMasters) {
-      rotated(i) :=
-        (if (numMasters <= 1) candidates(0) else candidates((i.U + slaveReqRrPtr(s)) % numMasters.U))
+      val idx =
+        if (numMasters <= 1) 0.U
+        else {
+          val sum = i.U +& slaveReqRrPtr(s)
+          Mux(sum >= numMasters.U, sum - numMasters.U, sum)(mIdxWidth - 1, 0)
+        }
+      rotated(i) := candidates(idx)
     }
     val relIdx = PriorityEncoder(rotated.asUInt)
     val sumIdx = relIdx +& slaveReqRrPtr(s)
@@ -196,8 +201,13 @@ class FabricBusRWCrossbar(
 
     val rotated = Wire(Vec(numSlaves, Bool()))
     for (i <- 0 until numSlaves) {
-      rotated(i) :=
-        (if (numSlaves <= 1) candidates(0) else candidates((i.U + masterRespRrPtr(m)) % numSlaves.U))
+      val idx =
+        if (numSlaves <= 1) 0.U
+        else {
+          val sum = i.U +& masterRespRrPtr(m)
+          Mux(sum >= numSlaves.U, sum - numSlaves.U, sum)(sIdxWidth - 1, 0)
+        }
+      rotated(i) := candidates(idx)
     }
     val relIdx = PriorityEncoder(rotated.asUInt)
     val sumIdx = relIdx +& masterRespRrPtr(m)

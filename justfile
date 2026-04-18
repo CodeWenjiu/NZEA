@@ -3,11 +3,11 @@ _default:
 
 # Initialize Project
 init:
-    @mill mill.bsp.BSP/install
+    @mill --no-server mill.bsp.BSP/install
 
 # Generate Verilog to build/<target>/<platform>/<isa>/<sim|sta>/ (default: sim=true). Use --sim false for synth-ready RTL.
 dump *ARGS:
-    @mill nzea_cli.run {{ ARGS }}
+    @mill --no-server nzea_cli.run {{ ARGS }}
 
 # Synth only: RTL from .../<isa>/sta/, reports in .../sta/synth/ (synth_stat.txt, synth_check.txt)
 synth *ARGS:

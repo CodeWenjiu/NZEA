@@ -7,9 +7,12 @@ import nzea_core.dpi.{CommitDpiBridge, DbusDpiBridge}
 import nzea_core.retire.CommitMsg
 import nzea_rtl.{
   FabricAddrRange,
+  FabricBusRWReqRegisterSlice,
   FabricBusRW,
   FabricBusRWCrossbar,
+  FabricBusRWRegisterSlice,
   FabricRWToLiteRW,
+  LiteBusROReqRegisterSlice,
   LiteBusROToFabricRW,
   LiteBusRWToFabricRW
 }
@@ -92,6 +95,13 @@ class NzeaTile(sim: Boolean)(implicit config: CoreConfig) extends Module {
   // 8-bit request ID is enough for current tile-level outstanding needs and leaves room for growth.
   private val fabricIdWidth = 8
 
+  val ibusReqSlice = Module(new LiteBusROReqRegisterSlice(
+    addrWidth = addrWidth,
+    dataWidth = dataWidth,
+    userWidth = core.io.ibus.userWidth
+  ))
+  ibusReqSlice.io.in <> core.io.ibus
+
   val ibusToFabric = Module(new LiteBusROToFabricRW(
     addrWidth = addrWidth,
     dataWidth = dataWidth,
@@ -99,7 +109,7 @@ class NzeaTile(sim: Boolean)(implicit config: CoreConfig) extends Module {
     fabricUserWidth = fabricUserWidth,
     idWidth = fabricIdWidth
   ))
-  ibusToFabric.io.in <> core.io.ibus
+  ibusToFabric.io.in <> ibusReqSlice.io.out
 
   val dbusToFabric = Module(new LiteBusRWToFabricRW(
     addrWidth = addrWidth,
@@ -119,8 +129,15 @@ class NzeaTile(sim: Boolean)(implicit config: CoreConfig) extends Module {
     ranges = TileAddressMap.ranges,
     perSlaveOutstanding = 8
   ))
-  fabric.io.in(0) <> ibusToFabric.io.out
-  fabric.io.in(1) <> dbusToFabric.io.out
+
+  // Keep sim and non-sim topology identical at the tile boundary.
+  // Always insert the same bus register slices before entering the fabric.
+  val ibusSlice = Module(new FabricBusRWRegisterSlice(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+  val dbusSlice = Module(new FabricBusRWRegisterSlice(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+  ibusSlice.io.in <> ibusToFabric.io.out
+  dbusSlice.io.in <> dbusToFabric.io.out
+  fabric.io.in(0) <> ibusSlice.io.out
+  fabric.io.in(1) <> dbusSlice.io.out
 
   val status = IO(new TileStatusBundle)
   if (sim) {

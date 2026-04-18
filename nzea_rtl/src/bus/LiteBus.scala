@@ -43,6 +43,27 @@ class LiteBusRW(a: Int, d: Int, val userWidth: Int = 0) extends Bundle with Lite
   val resp = Flipped(new PipeIO(new LiteResp(dataWidth, userWidth)))
 }
 
+/** One-stage request register slice for LiteBusRO.
+  * Used to cut long request-side timing paths while keeping response latency unchanged.
+  */
+class LiteBusROReqRegisterSlice(
+  addrWidth: Int,
+  dataWidth: Int,
+  userWidth: Int = 0
+) extends Module {
+  val io = IO(new Bundle {
+    val in = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth))
+    val out = new LiteBusRO(addrWidth, dataWidth, userWidth)
+  })
+
+  PipelineConnect(io.in.req, io.out.req)
+
+  io.in.resp.valid := io.out.resp.valid
+  io.in.resp.bits := io.out.resp.bits
+  io.out.resp.ready := io.in.resp.ready
+  io.out.resp.flush := io.in.resp.flush
+}
+
 /** Parameterized by hasWrite: yields LiteBusRO or LiteBusRW. */
 object LiteBus {
   def apply(addrWidth: Int, dataWidth: Int, hasWrite: Boolean, userWidth: Int = 0): Bundle with LiteBusLike =

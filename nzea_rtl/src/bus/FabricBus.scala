@@ -48,6 +48,87 @@ class FabricBusRW(
   val resp = Flipped(new PipeIO(new FabricResp(dataWidth, userWidth, idWidth)))
 }
 
+/** One-stage register slice for FabricBusRW.
+  * Cuts combinational paths on both req (master->slave) and resp (slave->master) channels.
+  */
+class FabricBusRWRegisterSlice(
+  addrWidth: Int,
+  dataWidth: Int,
+  userWidth: Int,
+  idWidth: Int
+) extends Module {
+  val io = IO(new Bundle {
+    val in = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val out = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  })
+
+  PipelineConnect(io.in.req, io.out.req)
+
+  // Response side uses a tiny flushable FIFO to cut ready-path timing.
+  // This keeps steady-state throughput at one response per cycle while
+  // removing direct combinational backpressure from consumer->producer.
+  val respQ = Reg(Vec(2, new FabricResp(dataWidth, userWidth, idWidth)))
+  val head = RegInit(0.U(1.W))
+  val tail = RegInit(0.U(1.W))
+  val count = RegInit(0.U(2.W)) // 0..2
+  val flush = io.in.resp.flush
+
+  val canEnq = count =/= 2.U
+  val canDeq = count =/= 0.U
+
+  io.out.resp.ready := canEnq && !flush
+  io.out.resp.flush := flush
+
+  io.in.resp.valid := canDeq && !flush
+  io.in.resp.bits := Mux(canDeq, respQ(head), 0.U.asTypeOf(new FabricResp(dataWidth, userWidth, idWidth)))
+
+  val enqFire = io.out.resp.valid && io.out.resp.ready
+  val deqFire = io.in.resp.valid && io.in.resp.ready
+
+  when(flush) {
+    head := 0.U
+    tail := 0.U
+    count := 0.U
+  }.otherwise {
+    when(enqFire) {
+      respQ(tail) := io.out.resp.bits
+      tail := ~tail
+    }
+    when(deqFire) {
+      head := ~head
+    }
+    count := MuxCase(
+      count,
+      Seq(
+        (enqFire && !deqFire) -> (count + 1.U),
+        (!enqFire && deqFire) -> (count - 1.U)
+      )
+    )
+  }
+}
+
+/** Request-only register slice for FabricBusRW.
+  * Use when req path needs a timing cut but resp path should stay lightweight.
+  */
+class FabricBusRWReqRegisterSlice(
+  addrWidth: Int,
+  dataWidth: Int,
+  userWidth: Int,
+  idWidth: Int
+) extends Module {
+  val io = IO(new Bundle {
+    val in = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val out = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  })
+
+  PipelineConnect(io.in.req, io.out.req)
+
+  io.in.resp.valid := io.out.resp.valid
+  io.in.resp.bits := io.out.resp.bits
+  io.out.resp.ready := io.in.resp.ready
+  io.out.resp.flush := io.in.resp.flush
+}
+
 private object FabricBusCast {
   def castWidth(x: UInt, inWidth: Int, outWidth: Int): UInt = {
     if (outWidth == inWidth) x
