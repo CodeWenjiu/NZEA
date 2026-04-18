@@ -39,6 +39,8 @@
             scalafmt
             yosys
             ieda
+
+            verilator # for chisel svsim
           
             (rust-bin.nightly.latest.default.override {
               extensions = [

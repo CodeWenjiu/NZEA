@@ -36,6 +36,7 @@ object nzea_rtl extends ScalaModule {
 
   object test extends ScalaTests with TestModule.ScalaTest {
     def mvnDeps = Seq(mvn"org.scalatest::scalatest:3.2.19")
+    def forkEnv = Map("PATH" -> sys.env.getOrElse("PATH", ""))
   }
 }
 
