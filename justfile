@@ -9,6 +9,10 @@ init:
 dump *ARGS:
     @mill --no-server nzea_cli.run {{ ARGS }}
 
+# Generate Verilog for tile target (convenience alias for dump --target tile).
+dump-tile *ARGS:
+    @just dump --target tile {{ ARGS }}
+
 # Synth only: RTL from .../<platform>/<isa>/sta/, reports in .../sta/synth/ (synth_stat.txt, synth_check.txt)
 synth *ARGS:
     @just dump --sim false {{ ARGS }}
