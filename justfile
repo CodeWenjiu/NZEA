@@ -74,3 +74,30 @@ test-match module pattern:
 # Example: just tb "FabricBus.*Test"
 tb pattern:
     @just test-match nzea_rtl "{{pattern}}"
+
+# ---- 4-state simulation with iverilog ----
+
+# Run 4-state simulation (build + run). Requires iverilog in PATH (nix develop).
+iv isa="riscv32i": iv-build iv-run
+
+# Compile testbench + RTL with iverilog.
+# Output: build/core/yosys/<isa>/sta/iverilog/tb.vvp
+iv-build isa="riscv32i":
+    @if [ ! -f build/core/yosys/{{isa}}/sta/Top.sv ]; then \
+        echo "RTL not found, generating..."; \
+        just dump --sim false --isa {{isa}}; \
+      fi
+    @mkdir -p build/core/yosys/{{isa}}/sta/iverilog
+    @cp iverilog_tb/*.hex build/core/yosys/{{isa}}/sta/iverilog/
+    @echo "Compiling with iverilog..."
+    @iverilog -g2012 -Wall \
+      -o build/core/yosys/{{isa}}/sta/iverilog/tb.vvp \
+      iverilog_tb/tb.sv \
+      iverilog_tb/ibus_model.sv \
+      iverilog_tb/dbus_model.sv \
+      build/core/yosys/{{isa}}/sta/*.sv
+
+# Run compiled iverilog simulation.
+iv-run isa="riscv32i":
+    @cd build/core/yosys/{{isa}}/sta/iverilog && vvp tb.vvp; \
+      echo "Waveform: build/core/yosys/{{isa}}/sta/iverilog/tb.fst"

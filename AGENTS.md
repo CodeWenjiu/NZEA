@@ -55,6 +55,13 @@ Prefer the repo `justfile` over ad hoc commands. Common commands:
 - `cd wave_tracker && cargo clippy`: run Rust lints.
 - `cd wave_tracker && cargo fmt --check`: check Rust formatting.
 
+### 4-State Simulation (iverilog)
+- `just iv <isa>`: generate RTL, compile, and run 4-state simulation (default `riscv32i`).
+- `just iv-build <isa>`: compile only (output to `build/core/yosys/<isa>/sta/iverilog/`).
+- `just iv-run <isa>`: run compiled simulation.
+
+Testbench sources live in `iverilog_tb/` (bus models, test programs). The `--sim false` RTL is used since it exposes bus IO without DPI bridges, and the behavioral bus models in the testbench replace DPI with pure Verilog memory models loaded via `$readmemh`.
+
 ## Coding Style & Naming Conventions
 Follow existing file-local style instead of reformatting unrelated code. Scala uses `PascalCase` for classes, objects, and modules, `camelCase` for vals and methods, and test files ending in `*Test.scala`. Rust follows the standard split of `snake_case` for modules and functions and `CamelCase` for types. Keep comments and docstrings in English only. Prefer small modules and comments that explain intent or hazards, not line-by-line mechanics.
 

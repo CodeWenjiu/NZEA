@@ -41,7 +41,8 @@
             ieda
 
             verilator # for chisel svsim
-          
+            iverilog  # for 4-state simulation
+
             (rust-bin.nightly.latest.default.override {
               extensions = [
                 "rust-src"
