@@ -90,7 +90,7 @@ iv-build isa="riscv32i":
     @mkdir -p build/core/yosys/{{isa}}/sta/iverilog
     @cp iverilog_tb/*.hex build/core/yosys/{{isa}}/sta/iverilog/
     @echo "Compiling with iverilog..."
-    @iverilog -g2012 -Wall \
+    @      iverilog -g2012 -Wall -Wno-timescale \
       -o build/core/yosys/{{isa}}/sta/iverilog/tb.vvp \
       iverilog_tb/tb.sv \
       iverilog_tb/ibus_model.sv \

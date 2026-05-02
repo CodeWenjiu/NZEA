@@ -1,6 +1,8 @@
 // Behavioral instruction-bus model: loads hex file into memory,
 // responds to LiteBusRO reads with 2-cycle pipeline latency (matching DPI bridge).
 
+`timescale 1ns / 1ps
+
 module ibus_model #(
     parameter PC_BASE  = 32'h8000_0000,
     parameter MEM_FILE = "hello.hex"
@@ -68,6 +70,7 @@ module ibus_model #(
                 s1_user  <= req_user;
             end else
                 s1_valid <= 1'b0;
+        end
     end
 
 endmodule

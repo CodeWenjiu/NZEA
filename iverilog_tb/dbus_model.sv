@@ -1,6 +1,8 @@
 // Behavioral data-bus model: RW memory for CPU data access.
 // Responds to LiteBusRW reads/writes with 2-cycle pipeline latency (matching DPI bridge).
 
+`timescale 1ns / 1ps
+
 module dbus_model #(
     parameter MEM_FILE = "data.hex"
 ) (
@@ -66,6 +68,7 @@ module dbus_model #(
                 s1_user  <= req_user;
             end else
                 s1_valid <= 1'b0;
+        end
     end
 
 endmodule

@@ -15,7 +15,9 @@ object SynthPlatform {
   )
 
   private val synthesisFirtoolOpts: Array[String] = Array(
-    "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays"
+    "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb",
+    "-disable-all-randomization",
+    "-strip-debug-info"
   )
 
   /** Yosys flow: DPI/sim SV vs exposed-IO netlist use different lowering. */
