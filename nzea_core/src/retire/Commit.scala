@@ -66,7 +66,7 @@ class Commit(implicit config: CoreConfig) extends Module {
   io.commit_msg.bits.is_load   := c.is_load
   io.commit_msg.bits.csr_type  := c.csr_type
   io.commit_msg.bits.csr_data  := c.csr_data
-  io.redirect_pc := RegNext(c.next_pc)
+  io.redirect_pc := RegNext(c.next_pc, 0.U(32.W))
 
   io.idu_commit.valid := any_commit
   io.idu_commit.bits.rd_index := c.rd_index

@@ -68,6 +68,13 @@ module dbus_model #(
                 s1_user  <= req_user;
             end else
                 s1_valid <= 1'b0;
+
+            if (resp_flush)
+                s2_valid <= 1'b0;
+            else if (s1_fire) begin
+                s2_valid <= 1'b1; s2_data <= s1_data; s2_user <= s1_user;
+            end else if (s2_valid && resp_ready)
+                s2_valid <= 1'b0;
         end
     end
 

@@ -61,7 +61,7 @@ module ibus_model #(
             s1_valid <= 1'b0; s1_data <= 32'h0; s1_user <= 64'h0;
             s2_valid <= 1'b0; s2_data <= 32'h0; s2_user <= 64'h0;
         end else begin
-            // stage 1: capture on req.fire (pulse to mimic DPI bridge combinational path)
+            // stage 1: capture on req.fire
             if (resp_flush)
                 s1_valid <= 1'b0;
             else if (fire) begin
@@ -70,6 +70,16 @@ module ibus_model #(
                 s1_user  <= req_user;
             end else
                 s1_valid <= 1'b0;
+
+            // stage 2: forward from s1 to resp
+            if (resp_flush)
+                s2_valid <= 1'b0;
+            else if (s1_fire) begin
+                s2_valid <= 1'b1;
+                s2_data  <= s1_data;
+                s2_user  <= s1_user;
+            end else if (s2_valid && resp_ready)
+                s2_valid <= 1'b0;
         end
     end
 

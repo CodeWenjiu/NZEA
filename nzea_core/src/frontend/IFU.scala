@@ -48,7 +48,7 @@ class IFU(implicit config: CoreConfig) extends Module {
   val pc_update = io.bus.req.fire
 
   val pred_next_pc = Mux(RegNext(io.out.flush, false.B), pc + 4.U,
-    Mux(RegNext(pc_update) && pht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U))
+    Mux(RegNext(pc_update, false.B) && pht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U))
   // SyncReadMem has 1-cycle read latency: we must pass pred_next_pc so the result
   // aligns with the fetched PC next cycle.
   pht.io.pc := pred_next_pc

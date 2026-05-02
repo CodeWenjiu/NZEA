@@ -236,6 +236,18 @@ module tb;
         $dumpvars(0, tb);
         $dumplimit(0);
 
+        // Init BTB and PHT memories to 0 (not reset by Chisel SyncReadMem).
+        // Hierarchical paths follow Chisel module instance naming.
+        begin
+            integer _mi;
+            // PHT: 64 entries x 2-bit saturating counter (weak not-taken = 2'b01)
+            for (_mi = 0; _mi < 64; _mi = _mi + 1)
+                tb.dut.core.ifu.pht.mem_ext.Memory[_mi] = 2'b01;
+            // BTB: 16 entries x 58-bit (26-bit tag + 32-bit target)
+            for (_mi = 0; _mi < 16; _mi = _mi + 1)
+                tb.dut.core.ifu.btb.mem_ext.Memory[_mi] = '0;
+        end
+
         // Reset
         rst_n = 0;
         repeat (RESET_CYCLES) @(posedge clk);
