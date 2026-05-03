@@ -34,7 +34,7 @@ class LSQ(robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) extends Module
   })
 
   private val ptrWidth = lsqIdWidth + 1
-  val ls_slots = Reg(Vec(lsBufferDepth, new LsqSlot(robIdWidth, prfAddrWidth)))
+  val ls_slots = RegInit(VecInit(Seq.fill(lsBufferDepth)(0.U.asTypeOf(new LsqSlot(robIdWidth, prfAddrWidth)))))
   val ls_head_ptr = RegInit(0.U(ptrWidth.W))
   val ls_tail_ptr = RegInit(0.U(ptrWidth.W))
   val ls_head_phys = ls_head_ptr(lsqIdWidth - 1, 0)

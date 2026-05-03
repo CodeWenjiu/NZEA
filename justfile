@@ -86,7 +86,7 @@ iv target platform isa:
 # Compile testbench + RTL with iverilog.
 # Output: build/<target>/<platform>/<isa>/hw/iverilog/tb.vvp
 iv-build target platform isa:
-    @bash -c 't="{{target}}"; p="{{platform}}"; i="{{isa}}"; t="${t#*=}"; p="${p#*=}"; i="${i#*=}"; rtl="build/$t/$p/$i/hw"; if [ ! -f "$rtl/filelist.f" ]; then echo "RTL not found, generating..." && just dump --target "$t" --platform "$p" --isa "$i" --sim false; fi; mkdir -p "$rtl/iverilog"; cp iverilog_tb/*.hex "$rtl/iverilog/"; echo "Compiling with iverilog..." && iverilog -g2012 -Wall -Wno-timescale -o "$rtl/iverilog/tb.vvp" iverilog_tb/tb.sv iverilog_tb/ibus_model.sv iverilog_tb/dbus_model.sv "$rtl"/*.sv'
+    @bash -c 't="{{target}}"; p="{{platform}}"; i="{{isa}}"; t="${t#*=}"; p="${p#*=}"; i="${i#*=}"; rtl="build/$t/$p/$i/hw"; if [ ! -f "$rtl/filelist.f" ]; then echo "RTL not found, generating..." && just dump --target "$t" --platform "$p" --isa "$i" --sim false; fi; mkdir -p "$rtl/iverilog"; cp iverilog_tb/*.hex "$rtl/iverilog/"; echo "Compiling with iverilog..." && iverilog -g2012 -Wall -Wno-timescale -o "$rtl/iverilog/tb.vvp" iverilog_tb/tb.sv "$rtl"/*.sv'
 
 # Run compiled iverilog simulation.
 iv-run target platform isa:

@@ -189,17 +189,15 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
           idWidth = fabricIdWidth,
           baseAddr = HelloFpgaAddressMap.ram.base
         ))
-        val uart = Module(new HelloFpgaUartFabricSlave(
-          addrWidth = addrWidth,
-          dataWidth = dataWidth,
-          userWidth = fabricUserWidth,
-          idWidth = fabricIdWidth,
-          baseAddr = HelloFpgaAddressMap.uart.base
-        ))
+        val uart = Module(new FabricBusUart)
 
         fabric.io.out(0) <> ram.io.bus
         fabric.io.out(1) <> uart.io.bus
-        io.fpga_uart <> uart.io.uart
+        io.fpga_uart.txd := uart.io.txd
+        io.fpga_uart.rtsn := uart.io.rtsn
+        io.fpga_uart.interrupt := uart.io.interrupt
+        uart.io.rxd := io.fpga_uart.rxd
+        uart.io.ctsn := io.fpga_uart.ctsn
     }
   }
 }
