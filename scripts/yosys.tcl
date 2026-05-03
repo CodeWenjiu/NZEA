@@ -1,8 +1,8 @@
 # Nzea Yosys synthesis (yosys-sta style)
 # Env: HDL_DIR, SYNTH_DIR, DESIGN, PDK_PATH (optional, enables liberty mapping + STA)
 set PLATFORM   [expr {[info exists env(PLATFORM)] ? $env(PLATFORM) : "yosys"}]
-set HDL_DIR    [expr {[info exists env(HDL_DIR)] ? $env(HDL_DIR) : "build/core/$PLATFORM/riscv32i/sta"}]
-set SYNTH_DIR  [expr {[info exists env(SYNTH_DIR)] ? $env(SYNTH_DIR) : "build/core/$PLATFORM/riscv32i/sta/synth"}]
+set HDL_DIR    [expr {[info exists env(HDL_DIR)] ? $env(HDL_DIR) : "build/core/$PLATFORM/riscv32i/hw"}]
+set SYNTH_DIR  [expr {[info exists env(SYNTH_DIR)] ? $env(SYNTH_DIR) : "build/core/$PLATFORM/riscv32i/hw/synth"}]
 set DESIGN     [expr {[info exists env(DESIGN)] ? $env(DESIGN) : "Top"}]
 set NETLIST_V  "$SYNTH_DIR/${DESIGN}.netlist.v"
 set PDK        "icsprout55"

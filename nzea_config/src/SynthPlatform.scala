@@ -8,24 +8,24 @@ sealed trait SynthPlatform {
 }
 
 object SynthPlatform {
-  private val simulationFirtoolOpts: Array[String] = Array(
+  private val dpiFirtoolOpts: Array[String] = Array(
     "-disable-all-randomization",
     "-strip-debug-info",
     "-default-layer-specialization=enable"
   )
 
-  private val synthesisFirtoolOpts: Array[String] = Array(
+  private val hwFirtoolOpts: Array[String] = Array(
     "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb",
     "-disable-all-randomization",
     "-strip-debug-info"
   )
 
-  /** Yosys flow: DPI/sim SV vs exposed-IO netlist use different lowering. */
+  /** Yosys flow: DPI/hw SV use different lowering. */
   case object Yosys extends SynthPlatform {
     override def segment: String = "yosys"
 
     override def firtoolOpts(sim: Boolean): Array[String] =
-      if (sim) simulationFirtoolOpts else synthesisFirtoolOpts
+      if (sim) dpiFirtoolOpts else hwFirtoolOpts
   }
 
   /** FPGA bring-up flow (initially aligned with Yosys firtool lowering). */
@@ -33,7 +33,7 @@ object SynthPlatform {
     override def segment: String = "hellofpga"
 
     override def firtoolOpts(sim: Boolean): Array[String] =
-      if (sim) simulationFirtoolOpts else synthesisFirtoolOpts
+      if (sim) dpiFirtoolOpts else hwFirtoolOpts
   }
 
   def fromString(s: String): Option[SynthPlatform] = s.toLowerCase match {

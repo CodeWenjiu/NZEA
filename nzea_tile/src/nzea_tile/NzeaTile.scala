@@ -94,8 +94,17 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
 
   val core = Module(new nzea_core.Core)
   private val fabricUserWidth = core.io.ibus.userWidth.max(core.io.dbus.userWidth)
-  // 8-bit request ID is enough for current tile-level outstanding needs and leaves room for growth.
-  private val fabricIdWidth = 8
+  private val fabricIdWidth   = 8
+
+  val io = IO(new Bundle {
+    val commit_msg       = Output(Valid(new CommitMsg))
+    // Yosys: expose per-device FabricBusRW ports
+    val yosys_devices    = new TileDeviceBusBundle(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
+    // HelloFPGA: expose UART pins (ram is internal)
+    val fpga_uart        = new HelloFpgaUartIo
+  })
+  // Default: drive all HW IO to inactive state (DPI path overrides nothing)
+  io := DontCare
 
   val ibusReqSlice = Module(new LiteBusROReqRegisterSlice(
     addrWidth = addrWidth,
@@ -163,22 +172,16 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
     val cb = Module(new CommitDpiBridge)
     cb.io.commit_msg := core.io.commit_msg
   } else {
-    val commit_msg = IO(Output(Valid(new CommitMsg)))
-    commit_msg := core.io.commit_msg
+    io.commit_msg := core.io.commit_msg
 
     platform match {
       case SynthPlatform.Yosys =>
-        val devices = IO(new TileDeviceBusBundle(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-        fabric.io.out(0) <> devices.ram
-        fabric.io.out(1) <> devices.uart16550
-        fabric.io.out(2) <> devices.sifive_test_finisher
-        fabric.io.out(3) <> devices.clint
+        fabric.io.out(0) <> io.yosys_devices.ram
+        fabric.io.out(1) <> io.yosys_devices.uart16550
+        fabric.io.out(2) <> io.yosys_devices.sifive_test_finisher
+        fabric.io.out(3) <> io.yosys_devices.clint
 
       case SynthPlatform.HelloFPGA =>
-        val fpga = IO(new Bundle {
-          val uart = new HelloFpgaUartIo
-        })
-
         val ram = Module(new HelloFpgaRamFabricSlave(
           addrWidth = addrWidth,
           dataWidth = dataWidth,
@@ -196,7 +199,7 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
 
         fabric.io.out(0) <> ram.io.bus
         fabric.io.out(1) <> uart.io.bus
-        fpga.uart <> uart.io.uart
+        io.fpga_uart <> uart.io.uart
     }
   }
 }
