@@ -56,11 +56,11 @@ Prefer the repo `justfile` over ad hoc commands. Common commands:
 - `cd wave_tracker && cargo fmt --check`: check Rust formatting.
 
 ### 4-State Simulation (iverilog)
-- `just iv target=<target> platform=<platform> isa=<isa>`: generate RTL, compile, and run 4-state simulation.
-  - Example: `just iv target=tile platform=hellofpga isa=riscv32i`
-  - Output: `build/<target>/<platform>/<isa>/hw/iverilog/tb.{vvp,fst}`
-- `just iv-build target=<target> platform=<platform> isa=<isa>`: compile only.
-- `just iv-run target=<target> platform=<platform> isa=<isa>`: run compiled simulation.
+- `just iv platform=<platform> isa=<isa>`: generate RTL, compile, and run 4-state simulation.
+  - Example: `just iv platform=hellofpga isa=riscv32i`
+  - Output: `build/tile/<platform>/<isa>/hw/iverilog/tb.{vvp,fst}`
+- `just iv-build platform=<platform> isa=<isa>`: compile only.
+- `just iv-run platform=<platform> isa=<isa>`: run compiled simulation.
 
 Testbench sources live in `iverilog_tb/` (bus models, test programs). The `--sim false` RTL is used since it exposes bus IO without DPI bridges, and the behavioral bus models in the testbench replace DPI with pure Verilog memory models loaded via `$readmemh`.
 

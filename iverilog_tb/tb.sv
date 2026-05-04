@@ -127,7 +127,7 @@ module tb;
             for (_mi = 0; _mi < 16; _mi = _mi + 1)
                 tb.dut.tile.core.ifu.btb.mem_ext.Memory[_mi] = '0;
 
-            // Test program (hello.hex) loaded into RAM at word 0 (PC = 0x8000_0000)
+            // Test program loaded into RAM at word 0 (PC = 0x8000_0000)
             tb.dut.tile.ram.mem_ext.Memory[0] = 32'h00A00093;
             tb.dut.tile.ram.mem_ext.Memory[1] = 32'h01400113;
             tb.dut.tile.ram.mem_ext.Memory[2] = 32'h002081B3;

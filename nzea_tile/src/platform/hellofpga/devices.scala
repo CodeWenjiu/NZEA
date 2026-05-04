@@ -72,7 +72,7 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 115200) extends
     val txd = Output(Bool()); val rxd = Input(Bool()); val rtsn = Output(Bool())
     val ctsn = Input(Bool()); val interrupt = Output(Bool())
   })
-  private val divisor = simClkHz / (baudRate * 16)
+  private val divisor = simClkHz / baudRate
   private val divCntBits = log2Ceil(divisor.max(1))
   private val divCnt = RegInit(0.U(divCntBits.W))
   private val baudTick = divCnt === (divisor - 1).U(divCntBits.W)
@@ -83,8 +83,8 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 115200) extends
   val lsr = RegInit(0x60.U(8.W)); val dll = RegInit(0.U(8.W)); val dlm = RegInit(0.U(8.W))
   val mcr = RegInit(0.U(8.W)); val msr = RegInit(0.U(8.W))
 
-  val txSR = RegInit(1.U(11.W)); val txBitCnt = RegInit(0.U(4.W)); val txBusy = RegInit(false.B)
-  val rxSR = RegInit(1.U(10.W)); val rxBitCnt = RegInit(0.U(4.W)); val rxSampleCnt = RegInit(0.U(4.W))
+  val txSR = RegInit(1.U(10.W)); val txBitCnt = RegInit(0.U(4.W)); val txBusy = RegInit(false.B)
+  val rxSR = RegInit(1.U(9.W)); val rxBitCnt = RegInit(0.U(4.W))
   val rxActive = RegInit(false.B); val rxdD1 = RegInit(true.B); val rxdD2 = RegInit(true.B)
 
   io.txd := txSR(0); io.rtsn := false.B; io.interrupt := RegNext(lsr(0) && ier(0), false.B)
@@ -123,14 +123,14 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 115200) extends
   when(io.bus.resp.fire || flush) { busy := false.B }
 
   when(txBusy) {
-    when(baudTick) { txBitCnt := txBitCnt + 1.U; txSR := Cat(1.U(1.W), txSR(10,1)); when(txBitCnt === 10.U) { txBusy := false.B; lsr := lsr(7,1).asUInt ## true.B } }
+    when(baudTick) { txBitCnt := txBitCnt + 1.U; txSR := Cat(1.U(1.W), txSR(9,1)); when(txBitCnt === 9.U) { txBusy := false.B; lsr := lsr(7,1).asUInt ## true.B } }
   }.elsewhen(reqFire && io.bus.req.bits.wen && byteSel === 0x0.U && !dlab) {
-    txSR := Cat(1.U(2.W), thr, 0.U(1.W)); txBitCnt := 0.U; txBusy := true.B; lsr := lsr(7,1).asUInt ## false.B
+    txSR := Cat(1.U(1.W), thr, 0.U(1.W)); txBitCnt := 0.U; txBusy := true.B; lsr := lsr(7,1).asUInt ## false.B
   }
 
   rxdD1 := io.rxd; rxdD2 := rxdD1
   when(rxActive) {
-    when(baudTick) { rxSampleCnt := rxSampleCnt + 1.U; when(rxSampleCnt === 7.U) { rxSR := Cat(rxdD2, rxSR(9,1)); rxSampleCnt := 0.U; rxBitCnt := rxBitCnt + 1.U; when(rxBitCnt === 9.U) { rxActive := false.B; rbr := rxSR(8,1); lsr := 1.U ## lsr(6,1) } } }
-  }.elsewhen(rxdD2 && !rxdD1) { rxActive := true.B; rxBitCnt := 0.U; rxSampleCnt := 0.U }
+    when(baudTick) { rxSR := Cat(rxdD2, rxSR(8,1)); rxBitCnt := rxBitCnt + 1.U; when(rxBitCnt === 8.U) { rxActive := false.B; rbr := rxSR(7,1); lsr := 1.U ## lsr(6,1) } }
+  }.elsewhen(rxdD2 && !rxdD1) { rxActive := true.B; rxBitCnt := 0.U }
   when(reqFire && !io.bus.req.bits.wen && byteSel === 0x14.U) { lsr := 0.U ## lsr(6,1) }
 }
