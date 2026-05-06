@@ -1,7 +1,7 @@
 package nzea_tile.platform.hellofpga
 
 import chisel3._
-import chisel3.util.{Cat, log2Ceil, switch, is}
+import chisel3.util.{Cat, Enum, log2Ceil, switch, is}
 import nzea_rtl.{FabricAddrRange, FabricBusRW}
 
 object AddressMap {
@@ -26,7 +26,12 @@ class RamFabricSlave(
   baseAddr: BigInt
 ) extends Module {
   require(dataWidth == 32, s"RamFabricSlave expects 32-bit data, got $dataWidth")
-  val io = IO(new Bundle { val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)) })
+  val io = IO(new Bundle {
+    val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val boot_wen   = Input(Bool())
+    val boot_addr  = Input(UInt(15.W))
+    val boot_wdata = Input(UInt(32.W))
+  })
 
   private val depth        = 1 << 15
   private val flush        = io.bus.resp.flush
@@ -52,7 +57,11 @@ class RamFabricSlave(
   val wordAddr      = localByteAddr(16, 2)
   val wenClean = reqFire && io.bus.req.bits.wen
   val renClean = reqFire && !io.bus.req.bits.wen
-  when(wenClean) { mem.write(wordAddr, io.bus.req.bits.wdata) }
+  when(io.boot_wen) {
+    mem.write(io.boot_addr, io.boot_wdata)
+  }.elsewhen(wenClean) {
+    mem.write(wordAddr, io.bus.req.bits.wdata)
+  }
   val memRead = mem.read(wordAddr, renClean)
   readData := RegNext(memRead, 0.U(dataWidth.W))
 
@@ -66,17 +75,24 @@ class RamFabricSlave(
   when((busCycle === 3.U && io.bus.resp.ready) || flush) { busCycle := 0.U }
 }
 
-class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 115200) extends Module {
+class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extends Module {
   val io = IO(new Bundle {
     val bus = Flipped(new FabricBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
     val txd = Output(Bool()); val rxd = Input(Bool()); val rtsn = Output(Bool())
     val ctsn = Input(Bool()); val interrupt = Output(Bool())
+    val boot_rx_valid = Output(Bool())
+    val boot_rx_data  = Output(UInt(8.W))
   })
+  private val rxStart = WireDefault(false.B)
+  private val txStart = WireDefault(false.B)
   private val divisor = simClkHz / baudRate
   private val divCntBits = log2Ceil(divisor.max(1))
   private val divCnt = RegInit(0.U(divCntBits.W))
   private val baudTick = divCnt === (divisor - 1).U(divCntBits.W)
-  when(baudTick) { divCnt := 0.U } .otherwise { divCnt := divCnt + 1.U }
+  when(txStart) { divCnt := 0.U(divCntBits.W) }
+  .elsewhen(rxStart) { divCnt := (divisor / 2).U(divCntBits.W) }
+  .elsewhen(baudTick) { divCnt := 0.U(divCntBits.W) }
+  .otherwise { divCnt := divCnt + 1.U }
 
   val dlab = RegInit(false.B); val thr = RegInit(0.U(8.W)); val rbr = RegInit(0.U(8.W))
   val ier = RegInit(0.U(8.W)); val iir = RegInit(1.U(4.W)); val lcr = RegInit(3.U(8.W))
@@ -125,12 +141,94 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 115200) extends
   when(txBusy) {
     when(baudTick) { txBitCnt := txBitCnt + 1.U; txSR := Cat(1.U(1.W), txSR(9,1)); when(txBitCnt === 9.U) { txBusy := false.B; lsr := lsr(7,1).asUInt ## true.B } }
   }.elsewhen(reqFire && io.bus.req.bits.wen && byteSel === 0x0.U && !dlab) {
-    txSR := Cat(1.U(1.W), thr, 0.U(1.W)); txBitCnt := 0.U; txBusy := true.B; lsr := lsr(7,1).asUInt ## false.B
+    txSR := Cat(1.U(1.W), io.bus.req.bits.wdata(7,0), 0.U(1.W)); txBitCnt := 0.U; txBusy := true.B; lsr := lsr(7,1).asUInt ## false.B; txStart := true.B
   }
 
   rxdD1 := io.rxd; rxdD2 := rxdD1
+  val rxDone  = WireDefault(false.B)
+  val rxDummy = RegInit(false.B)  // skip first baudTick after start (falls in start bit)
   when(rxActive) {
-    when(baudTick) { rxSR := Cat(rxdD2, rxSR(8,1)); rxBitCnt := rxBitCnt + 1.U; when(rxBitCnt === 8.U) { rxActive := false.B; rbr := rxSR(7,1); lsr := 1.U ## lsr(6,1) } }
-  }.elsewhen(rxdD2 && !rxdD1) { rxActive := true.B; rxBitCnt := 0.U }
+    when(baudTick) {
+      when(rxDummy) { rxDummy := false.B }
+      .otherwise {
+        rxSR := Cat(rxdD2, rxSR(8,1)); rxBitCnt := rxBitCnt + 1.U
+        when(rxBitCnt === 8.U) { rxActive := false.B; rbr := rxSR(8,1); lsr := 1.U ## lsr(6,1); rxDone := true.B }
+      }
+    }
+  }.elsewhen(rxdD2 && !rxdD1) { rxActive := true.B; rxBitCnt := 0.U; rxStart := true.B; rxDummy := true.B }
+  io.boot_rx_valid := RegNext(rxDone, false.B)
+  io.boot_rx_data  := rbr
   when(reqFire && !io.bus.req.bits.wen && byteSel === 0x14.U) { lsr := 0.U ## lsr(6,1) }
+}
+
+class BootFsm extends Module {
+  val io = IO(new Bundle {
+    val boot_en   = Input(Bool())
+    val rx_valid = Input(Bool())
+    val rx_data  = Input(UInt(8.W))
+    val ram_wen   = Output(Bool())
+    val ram_addr  = Output(UInt(15.W))
+    val ram_wdata = Output(UInt(32.W))
+    val cpu_reset = Output(Bool())
+  })
+
+  val sIdle :: sMagic :: sAddr :: sSize :: sData :: sDone :: Nil = Enum(6)
+  val state      = RegInit(sIdle)
+  val shift      = RegInit(0.U(32.W))
+  val byteCnt    = RegInit(0.U(2.W))
+  val wordCnt    = RegInit(0.U(32.W))
+  val totalWords = RegInit(0.U(32.W))
+  val wordAddr   = RegInit(0.U(15.W))
+
+  io.cpu_reset := io.boot_en && state =/= sDone
+
+  io.ram_wen   := false.B
+  io.ram_addr  := wordAddr
+  io.ram_wdata := Cat(io.rx_data, shift(31, 8))  // include current byte in word
+
+  when(io.rx_valid) {
+    shift := Cat(io.rx_data, shift(31, 8))
+    byteCnt := byteCnt + 1.U
+  }
+
+  val magicLow  = RegInit(0.U(32.W))
+  when(io.rx_valid) {
+    magicLow := Cat(io.rx_data, magicLow(31, 8))
+  }
+
+  switch(state) {
+    is(sIdle) {
+      when(magicLow === "hB007B007".U) {
+        state := sAddr
+        byteCnt := 0.U
+      }
+    }
+    is(sAddr) {
+      when(byteCnt === 3.U && io.rx_valid) {
+        wordAddr := Cat(io.rx_data, shift(31, 8))(14, 0)
+        byteCnt  := 0.U
+        state    := sSize
+      }
+    }
+    is(sSize) {
+      when(byteCnt === 3.U && io.rx_valid) {
+        totalWords := Cat(io.rx_data, shift(31, 8))
+        wordCnt    := 0.U
+        byteCnt    := 0.U
+        state      := sData
+      }
+    }
+    is(sData) {
+      when(byteCnt === 3.U && io.rx_valid) {
+        io.ram_wen := true.B
+        wordCnt    := wordCnt + 1.U
+        wordAddr   := wordAddr + 1.U
+        byteCnt    := 0.U
+        when(wordCnt + 1.U === totalWords) {
+          state := sDone
+        }
+      }
+    }
+    is(sDone) {}
+  }
 }

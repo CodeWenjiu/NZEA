@@ -35,17 +35,25 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val ranges = TileAddressMap.forPlatform(platform)
-
-  val core = Module(new nzea_core.Core)
-  private val fabricUserWidth = core.io.ibus.userWidth.max(core.io.dbus.userWidth)
+  private val fabricUserWidth = 64
   private val fabricIdWidth   = 8
 
   val io = IO(new Bundle {
     val commit_msg = Output(Valid(new CommitMsg))
     val yosys_devices = new yosys.DeviceBusBundle(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
     val fpga_uart     = new hellofpga.UartIo
+    val boot_override = Input(Bool())
   })
   io := DontCare
+
+  // Boot FSM: holds core in reset during UART program load
+  val bootFsm = Module(new hellofpga.BootFsm)
+  bootFsm.io.boot_en := true.B
+  bootFsm.io.rx_valid := false.B  // default; overridden in HelloFPGA hw
+  bootFsm.io.rx_data  := 0.U
+  val cpuReset = reset.asBool || (bootFsm.io.cpu_reset && io.boot_override)
+
+  val core = withReset(cpuReset) { Module(new nzea_core.Core) }
 
   val ibusReqSlice = Module(new LiteBusROReqRegisterSlice(
     addrWidth = addrWidth, dataWidth = dataWidth, userWidth = core.io.ibus.userWidth
@@ -121,6 +129,13 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
         io.fpga_uart.interrupt := uart.io.interrupt
         uart.io.rxd  := io.fpga_uart.rxd
         uart.io.ctsn := io.fpga_uart.ctsn
+
+        // Boot FSM: UART RX → RAM write
+        bootFsm.io.rx_valid := uart.io.boot_rx_valid
+        bootFsm.io.rx_data  := uart.io.boot_rx_data
+        ram.io.boot_wen   := bootFsm.io.ram_wen
+        ram.io.boot_addr  := bootFsm.io.ram_addr
+        ram.io.boot_wdata := bootFsm.io.ram_wdata
     }
   }
 }

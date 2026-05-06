@@ -16,8 +16,11 @@ object TileElaborate {
     tile.io.yosys_devices := DontCare
     tile.io.fpga_uart     := DontCare
 
+    val boot_override = IO(Input(Bool()))
+    tile.io.boot_override := boot_override
+
     if (sim) {
-      // DPI mode: nothing exposed at Top boundary
+      // DPI mode: nothing else exposed at Top boundary
     } else {
       val commit_msg = IO(Output(chiselTypeOf(tile.io.commit_msg)))
       commit_msg := tile.io.commit_msg

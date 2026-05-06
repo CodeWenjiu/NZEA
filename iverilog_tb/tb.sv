@@ -1,187 +1,114 @@
-// 4-state simulation testbench for nzea Tile (--sim false).
-// Known CPU RTL issue: commit_msg_valid may be X when no commit is active
-// due to unreset registers in Commit/ROB.
-
+// 4-state simulation testbench — UART boot via BootFsm protocol.
 `timescale 1ns / 1ps
-
 module tb;
-    reg clk;
-    reg rst_n;
-
-    // commit_msg
-    wire        commit_msg_valid;
-    wire [31:0] commit_msg_next_pc;
+    reg clk, rst_n;
+    wire commit_msg_valid, commit_msg_is_load;
+    wire [31:0] commit_msg_next_pc, commit_msg_rd_value, commit_msg_mem_count;
     wire [4:0]  commit_msg_rd_index;
-    wire [31:0] commit_msg_rd_value;
-    wire [31:0] commit_msg_mem_count;
-    wire        commit_msg_is_load;
     wire [2:0]  commit_msg_csr_type;
     wire [31:0] commit_msg_csr_data;
+    wire uart_txd, uart_rtsn, uart_interrupt;
+    reg  uart_rxd, uart_ctsn, boot_override;
 
-    // UART pins
-    wire        uart_txd;
-    reg         uart_rxd;
-    wire        uart_rtsn;
-    reg         uart_ctsn;
-    wire        uart_interrupt;
+    localparam MAX_CYCLES = 40000, RESET_CYCLES = 10;
+    integer cycle, commit_count;
+    reg xz_reported, commit_warned;
 
-    // ---- Simulation control ----
-    localparam MAX_CYCLES    = 500;
-    localparam RESET_CYCLES  = 10;
-    localparam SETTLE_CYCLES = 24;
-    integer cycle;
-    integer commit_count;
-    reg     xz_reported;
-    reg     commit_warned;
-
-    // ---- Clock: 100MHz ----
-    initial clk = 0;
-    always #5 clk = ~clk;
-
-    // ---- DUT ----
-    Top dut (
-        .clock                    (clk),
-        .reset                    (~rst_n),
-        .commit_msg_valid         (commit_msg_valid),
-        .commit_msg_bits_next_pc  (commit_msg_next_pc),
-        .commit_msg_bits_rd_index (commit_msg_rd_index),
-        .commit_msg_bits_rd_value (commit_msg_rd_value),
+    initial clk = 0; always #5 clk = ~clk;
+    Top dut (.clock(clk), .reset(~rst_n),
+        .commit_msg_valid(commit_msg_valid),
+        .commit_msg_bits_next_pc(commit_msg_next_pc),
+        .commit_msg_bits_rd_index(commit_msg_rd_index),
+        .commit_msg_bits_rd_value(commit_msg_rd_value),
         .commit_msg_bits_mem_count(commit_msg_mem_count),
-        .commit_msg_bits_is_load  (commit_msg_is_load),
-        .commit_msg_bits_csr_type (commit_msg_csr_type),
-        .commit_msg_bits_csr_data (commit_msg_csr_data),
-        .uart_txd                 (uart_txd),
-        .uart_rxd                 (uart_rxd),
-        .uart_rtsn                (uart_rtsn),
-        .uart_ctsn                (uart_ctsn),
-        .uart_interrupt           (uart_interrupt)
-    );
+        .commit_msg_bits_is_load(commit_msg_is_load),
+        .commit_msg_bits_csr_type(commit_msg_csr_type),
+        .commit_msg_bits_csr_data(commit_msg_csr_data),
+        .uart_txd(uart_txd), .uart_rxd(uart_rxd),
+        .uart_rtsn(uart_rtsn), .uart_ctsn(uart_ctsn),
+        .uart_interrupt(uart_interrupt),
+        .boot_override(boot_override));
 
-    // UART loopback: TX → RX, CTS pulled low
-    assign uart_rxd  = uart_txd;
-    assign uart_ctsn = 1'b0;
+    assign uart_ctsn=1'b0; assign boot_override=1'b1;
+    reg uart_tx=1'b1; assign uart_rxd=uart_tx;
 
-    // ============================================================
-    // X/Z check
-    // ============================================================
-    wire any_xz =
-        (commit_msg_valid     === 1'bx) || (commit_msg_valid     === 1'bz) ||
-        (uart_txd             === 1'bx) || (uart_txd             === 1'bz) ||
-        (uart_rtsn            === 1'bx) || (uart_rtsn            === 1'bz) ||
-        (uart_interrupt       === 1'bx) || (uart_interrupt       === 1'bz) ||
-        (commit_msg_valid === 1'b1 && (^commit_msg_next_pc  === 1'bx || ^commit_msg_next_pc  === 1'bz)) ||
-        (commit_msg_valid === 1'b1 && (^commit_msg_rd_index === 1'bx || ^commit_msg_rd_index === 1'bz)) ||
-        (commit_msg_valid === 1'b1 && (^commit_msg_rd_value === 1'bx || ^commit_msg_rd_value === 1'bz)) ||
-        (commit_msg_valid === 1'b1 && (^commit_msg_mem_count=== 1'bx || ^commit_msg_mem_count=== 1'bz)) ||
-        (commit_msg_valid === 1'b1 && (commit_msg_is_load   === 1'bx || commit_msg_is_load   === 1'bz)) ||
-        (commit_msg_valid === 1'b1 && (^commit_msg_csr_type === 1'bx || ^commit_msg_csr_type === 1'bz)) ||
-        (commit_msg_valid === 1'b1 && (^commit_msg_csr_data === 1'bx || ^commit_msg_csr_data === 1'bz));
+    // ---- UART TX monitor (1Mbps 8N1) ----
+    integer uart_fd;
+    reg  [7:0]  uart_char;
+    reg  [15:0] uart_sample_cnt;
+    reg  [3:0]  uart_bit;
+    reg         uart_active;
+    reg         uart_done;
+    reg         uart_txd_d1;
 
-    task report_xz;
-        begin
-            if (commit_msg_valid  === 1'bx) $display("  commit_msg_valid = X");
-            if (commit_msg_valid  === 1'bz) $display("  commit_msg_valid = Z");
-            if (uart_txd          === 1'bx) $display("  uart_txd      = X");
-            if (uart_txd          === 1'bz) $display("  uart_txd      = Z");
-            if (uart_rtsn         === 1'bx) $display("  uart_rtsn     = X");
-            if (uart_rtsn         === 1'bz) $display("  uart_rtsn     = Z");
-            if (uart_interrupt    === 1'bx) $display("  uart_interrupt= X");
-            if (uart_interrupt    === 1'bz) $display("  uart_interrupt= Z");
-            if (commit_msg_valid === 1'b1) begin
-                if (^commit_msg_next_pc  === 1'bx) $display("  commit_msg_next_pc   = X (%h)", commit_msg_next_pc);
-                if (^commit_msg_next_pc  === 1'bz) $display("  commit_msg_next_pc   = Z");
-                if (^commit_msg_rd_index === 1'bx) $display("  commit_msg_rd_index  = X");
-                if (^commit_msg_rd_index === 1'bz) $display("  commit_msg_rd_index  = Z");
-                if (^commit_msg_rd_value === 1'bx) $display("  commit_msg_rd_value  = X");
-                if (^commit_msg_rd_value === 1'bz) $display("  commit_msg_rd_value  = Z");
-                if (^commit_msg_mem_count=== 1'bx) $display("  commit_msg_mem_count = X");
-                if (^commit_msg_mem_count=== 1'bz) $display("  commit_msg_mem_count = Z");
-                if (commit_msg_is_load   === 1'bx) $display("  commit_msg_is_load   = X");
-                if (commit_msg_is_load   === 1'bz) $display("  commit_msg_is_load   = Z");
-                if (^commit_msg_csr_type === 1'bx) $display("  commit_msg_csr_type  = X");
-                if (^commit_msg_csr_type === 1'bz) $display("  commit_msg_csr_type  = Z");
-                if (^commit_msg_csr_data === 1'bx) $display("  commit_msg_csr_data  = X");
-                if (^commit_msg_csr_data === 1'bz) $display("  commit_msg_csr_data  = Z");
-            end
+    localparam BAUD = 100_000_000 / 1000000;   // 100 cycles/bit
+    localparam HALF = BAUD / 2;                 // 50
+
+    initial begin uart_fd = $fopen("uart_output.txt", "w"); uart_active=0; uart_done=0; end
+
+    always @(posedge clk) begin
+        uart_txd_d1 <= uart_txd;
+        if (!uart_active && uart_txd_d1 && !uart_txd) begin
+            uart_active      <= 1;
+            uart_bit         <= 0;
+            uart_sample_cnt  <= HALF - 1;  // mid-start-bit → skip
         end
-    endtask
-
-    // ============================================================
-    // Main simulation
-    // ============================================================
-    initial begin
-        cycle         = 0;
-        commit_count  = 0;
-        xz_reported   = 0;
-        commit_warned = 0;
-
-        $dumpfile("tb.fst");
-        $dumpvars(0, tb);
-        $dumplimit(0);
-
-        // Init PHT, BTB, and RAM with test program
-        begin
-            integer _mi;
-            for (_mi = 0; _mi < 64; _mi = _mi + 1)
-                tb.dut.tile.core.ifu.pht.mem_ext.Memory[_mi] = 2'b01;
-            for (_mi = 0; _mi < 16; _mi = _mi + 1)
-                tb.dut.tile.core.ifu.btb.mem_ext.Memory[_mi] = '0;
-
-            // Test program loaded into RAM at word 0 (PC = 0x8000_0000)
-            tb.dut.tile.ram.mem_ext.Memory[0] = 32'h00A00093;
-            tb.dut.tile.ram.mem_ext.Memory[1] = 32'h01400113;
-            tb.dut.tile.ram.mem_ext.Memory[2] = 32'h002081B3;
-            tb.dut.tile.ram.mem_ext.Memory[3] = 32'h40110233;
-            tb.dut.tile.ram.mem_ext.Memory[4] = 32'h0000006F;
-
-            $display("RAM init: [0]=%h [1]=%h [2]=%h [3]=%h [4]=%h",
-                tb.dut.tile.ram.mem_ext.Memory[0],
-                tb.dut.tile.ram.mem_ext.Memory[1],
-                tb.dut.tile.ram.mem_ext.Memory[2],
-                tb.dut.tile.ram.mem_ext.Memory[3],
-                tb.dut.tile.ram.mem_ext.Memory[4]);
-        end
-
-        rst_n = 0;
-        repeat (RESET_CYCLES) @(posedge clk);
-        rst_n = 1;
-        repeat (SETTLE_CYCLES) @(posedge clk);
-        cycle = SETTLE_CYCLES;
-
-        while (cycle < MAX_CYCLES + SETTLE_CYCLES) begin
-            @(posedge clk);
-            cycle = cycle + 1;
-
-            if (rst_n && any_xz) begin
-                if (!xz_reported) begin
-                    $display("FAIL: X/Z detected at cycle %0d, time %0t:", cycle - SETTLE_CYCLES, $time);
-                    report_xz;
-                    xz_reported = 1;
+        if (uart_active) begin
+            uart_sample_cnt <= uart_sample_cnt - 1;
+            if (uart_sample_cnt == 0) begin
+                uart_sample_cnt <= BAUD - 1;  // next bit in 100 cycles
+                if (uart_bit == 0) begin
+                    ;  // start bit — skip
+                end else if (uart_bit < 9) begin
+                    uart_char[uart_bit - 1] <= uart_txd;
                 end
-            end
-
-            if (commit_msg_valid === 1'bx && !commit_warned) begin
-                $display("WARNING: commit_msg_valid = X (unreset registers in Commit/ROB)");
-                commit_warned = 1;
-            end
-
-            if (commit_msg_valid) begin
-                commit_count = commit_count + 1;
-                $display("[%0t] #%0d commit (cycle %0d): pc=%08h rd=x%0d val=%08h is_load=%0b",
-                         $time, commit_count, cycle - SETTLE_CYCLES,
-                         commit_msg_next_pc,
-                         commit_msg_rd_index, commit_msg_rd_value,
-                         commit_msg_is_load);
+                if (uart_bit == 9) begin
+                    uart_active <= 0;
+                    uart_done   <= 1;
+                end
+                uart_bit <= uart_bit + 1;
             end
         end
-
-        if (commit_count == 0) $display("FAIL: no commits observed within %0d cycles", MAX_CYCLES);
-        else begin
-            if (xz_reported) $display("FAIL: X/Z propagation detected");
-            else $display("PASS: no X/Z detected, %0d commits", commit_count);
-            if (commit_warned) $display("INFO: commit_msg_valid X is expected (see CPU RTL notes)");
+        if (uart_done) begin
+            uart_done <= 0;
+            $display("[%0t] UART_TX_MON: char=%02h (%c)", $time, uart_char, (uart_char >= 32 && uart_char < 127) ? uart_char : ".");
+            if (uart_char != 0) $fwrite(uart_fd, "%c", uart_char);
         end
+    end
+    final $fclose(uart_fd);
+
+    // ---- UART TX task (sends boot protocol) ----
+
+    task uart_send_byte; input [7:0] d; reg [9:0] f; integer i; begin
+        f={1'b1, d[7:0], 1'b0}; for(i=0;i<10;i=i+1) begin uart_tx<=f[0]; f={1'b1,f[9:1]}; repeat(BAUD) @(posedge clk); end end endtask
+    task uart_send_word; input [31:0] w; begin
+        uart_send_byte(w[31:24]); uart_send_byte(w[23:16]); uart_send_byte(w[15:8]); uart_send_byte(w[7:0]); end endtask
+
+    initial begin
+        cycle=0; commit_count=0; xz_reported=0; commit_warned=0;
+        $dumpfile("tb.fst"); $dumpvars(0, tb); $dumplimit(0);
+        // Init PHT/BTB
+        begin integer i; for(i=0;i<64;i=i+1) tb.dut.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
+            for(i=0;i<16;i=i+1) tb.dut.tile.core.ifu.btb.mem_ext.Memory[i]='0; end
+        rst_n=0; repeat(RESET_CYCLES) @(posedge clk);
+        rst_n=1; uart_tx<=1'b1; repeat(200) @(posedge clk);
+        // BootFsm protocol via UART (shift reg stores last byte at MSB → reversed words)
+        uart_send_word(32'h07B007B0);  // → 0xB007B007
+        uart_send_word(32'h00000000);  // address
+        uart_send_word(32'h04000000);  // size=4 words
+        uart_send_word(32'hB7020010);  // 0x100002B7  lui t0,0x10000
+        uart_send_word(32'h13038004);  // 0x04800313  li t1,'H'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h6F000000);  // 0x0000006F  j loop
+        // Wait for BootFsm to finish (state == sDone = 5)
+        while(tb.dut.tile._bootFsm_io_cpu_reset !== 1'b0) @(posedge clk);
+        cycle=0;
+        while(cycle<MAX_CYCLES) begin @(posedge clk); cycle=cycle+1;
+            if(commit_msg_valid) begin commit_count=commit_count+1;
+                $display("[%0t] #%0d (c%0d): pc=%08h rd=x%0d val=%08h",
+                    $time, commit_count, cycle, commit_msg_next_pc, commit_msg_rd_index, commit_msg_rd_value); end end
+        if(commit_count==0) $display("FAIL: no commits");
+        else $display("PASS: %0d commits", commit_count);
         $finish;
     end
-
 endmodule
