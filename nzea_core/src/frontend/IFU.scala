@@ -62,7 +62,7 @@ class IFU(implicit config: CoreConfig) extends Module {
   btb.io.update_pc := io.bp_update.bits.pc
   btb.io.update_target := io.bp_update.bits.target
 
-  io.bus.req.valid := io.out.ready
+  io.bus.req.valid := io.out.ready && !reset.asBool
   io.bus.req.bits.addr := pc
   val userReq = Wire(userBundleType)
   userReq.pred_next_pc := pred_next_pc

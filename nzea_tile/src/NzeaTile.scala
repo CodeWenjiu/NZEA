@@ -42,6 +42,7 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
     val commit_msg = Output(Valid(new CommitMsg))
     val yosys_devices = new yosys.DeviceBusBundle(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
     val fpga_uart     = new hellofpga.UartIo
+    val fpga_finish   = Output(Bool())
     val boot_override = Input(Bool())
   })
   io := DontCare
@@ -120,15 +121,18 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
         val ram = Module(new hellofpga.RamFabricSlave(
           addrWidth, dataWidth, fabricUserWidth, fabricIdWidth, hellofpga.AddressMap.ram.base
         ))
-        val uart = Module(new hellofpga.FabricBusUart)
+        val uart     = Module(new hellofpga.FabricBusUart)
+        val finisher = Module(new hellofpga.SifiveTestFinisher(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
 
         fabric.io.out(0) <> ram.io.bus
         fabric.io.out(1) <> uart.io.bus
+        fabric.io.out(2) <> finisher.io.bus
         io.fpga_uart.txd       := uart.io.txd
         io.fpga_uart.rtsn      := uart.io.rtsn
         io.fpga_uart.interrupt := uart.io.interrupt
         uart.io.rxd  := io.fpga_uart.rxd
         uart.io.ctsn := io.fpga_uart.ctsn
+        io.fpga_finish := finisher.io.finished
 
         // Boot FSM: UART RX → RAM write
         bootFsm.io.rx_valid := uart.io.boot_rx_valid

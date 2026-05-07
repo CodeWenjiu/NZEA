@@ -9,10 +9,12 @@ module tb;
     wire [31:0] commit_msg_csr_data;
     wire uart_txd, uart_rtsn, uart_interrupt;
     reg  uart_rxd, uart_ctsn, boot_override;
+    wire finish_passed;
 
-    localparam MAX_CYCLES = 40000, RESET_CYCLES = 10;
+    localparam MAX_CYCLES = 40000, RESET_CYCLES = 10, FINISH_DRAIN = 2000;
     integer cycle, commit_count;
-    reg xz_reported, commit_warned;
+    reg finished_latched;
+    integer finish_cycle;
 
     initial clk = 0; always #5 clk = ~clk;
     Top dut (.clock(clk), .reset(~rst_n),
@@ -27,6 +29,7 @@ module tb;
         .uart_txd(uart_txd), .uart_rxd(uart_rxd),
         .uart_rtsn(uart_rtsn), .uart_ctsn(uart_ctsn),
         .uart_interrupt(uart_interrupt),
+        .fpga_finish(finish_passed),
         .boot_override(boot_override));
 
     assign uart_ctsn=1'b0; assign boot_override=1'b1;
@@ -51,12 +54,12 @@ module tb;
         if (!uart_active && uart_txd_d1 && !uart_txd) begin
             uart_active      <= 1;
             uart_bit         <= 0;
-            uart_sample_cnt  <= HALF - 1;  // mid-start-bit → skip
+            uart_sample_cnt  <= HALF - 1;
         end
         if (uart_active) begin
             uart_sample_cnt <= uart_sample_cnt - 1;
             if (uart_sample_cnt == 0) begin
-                uart_sample_cnt <= BAUD - 1;  // next bit in 100 cycles
+                uart_sample_cnt <= BAUD - 1;
                 if (uart_bit == 0) begin
                     ;  // start bit — skip
                 end else if (uart_bit < 9) begin
@@ -85,7 +88,7 @@ module tb;
         uart_send_byte(w[31:24]); uart_send_byte(w[23:16]); uart_send_byte(w[15:8]); uart_send_byte(w[7:0]); end endtask
 
     initial begin
-        cycle=0; commit_count=0; xz_reported=0; commit_warned=0;
+        cycle=0; commit_count=0; finished_latched=0; finish_cycle=0;
         $dumpfile("tb.fst"); $dumpvars(0, tb); $dumplimit(0);
         // Init PHT/BTB
         begin integer i; for(i=0;i<64;i=i+1) tb.dut.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
@@ -93,22 +96,33 @@ module tb;
         rst_n=0; repeat(RESET_CYCLES) @(posedge clk);
         rst_n=1; uart_tx<=1'b1; repeat(200) @(posedge clk);
         // BootFsm protocol via UART (shift reg stores last byte at MSB → reversed words)
-        uart_send_word(32'h07B007B0);  // → 0xB007B007
-        uart_send_word(32'h00000000);  // address
-        uart_send_word(32'h04000000);  // size=4 words
+        uart_send_word(32'h07B007B0);  // → 0xB007B007 magic
+        uart_send_word(32'h00000000);  // address = 0
+        uart_send_word(32'h06000000);  // size = 6 words
         uart_send_word(32'hB7020010);  // 0x100002B7  lui t0,0x10000
         uart_send_word(32'h13038004);  // 0x04800313  li t1,'H'
-        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0) → UART TX
+        uart_send_word(32'hB7031000);  // 0x001003B7  lui t2,0x00100
+        uart_send_word(32'h23A00300);  // 0x0003A023  sw x0,0(t2) → finisher
         uart_send_word(32'h6F000000);  // 0x0000006F  j loop
-        // Wait for BootFsm to finish (state == sDone = 5)
+        // Wait for BootFsm to finish
         while(tb.dut.tile._bootFsm_io_cpu_reset !== 1'b0) @(posedge clk);
         cycle=0;
         while(cycle<MAX_CYCLES) begin @(posedge clk); cycle=cycle+1;
+            if(finish_passed && !finished_latched) begin
+                $display("[%0t] Finisher triggered", $time);
+                finished_latched = 1;
+                finish_cycle = cycle + FINISH_DRAIN;
+            end
+            if(finished_latched && cycle >= finish_cycle) begin
+                cycle = MAX_CYCLES;
+            end
             if(commit_msg_valid) begin commit_count=commit_count+1;
                 $display("[%0t] #%0d (c%0d): pc=%08h rd=x%0d val=%08h",
                     $time, commit_count, cycle, commit_msg_next_pc, commit_msg_rd_index, commit_msg_rd_value); end end
-        if(commit_count==0) $display("FAIL: no commits");
-        else $display("PASS: %0d commits", commit_count);
+        if(finish_passed) $display("PASS: finisher triggered, %0d commits", commit_count);
+        else if(commit_count==0) $display("FAIL: no commits");
+        else $display("FAIL: timeout, %0d commits", commit_count);
         $finish;
     end
 endmodule

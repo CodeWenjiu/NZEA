@@ -5,9 +5,10 @@ import chisel3.util.{Cat, Enum, log2Ceil, switch, is}
 import nzea_rtl.{FabricAddrRange, FabricBusRW}
 
 object AddressMap {
-  val ram  = FabricAddrRange(base = BigInt("80000000", 16), size = BigInt("00020000", 16))
-  val uart = FabricAddrRange(base = BigInt("10000000", 16), size = BigInt("00010000", 16))
-  val ranges: Seq[FabricAddrRange] = Seq(ram, uart)
+  val ram                = FabricAddrRange(base = BigInt("80000000", 16), size = BigInt("00020000", 16))
+  val uart               = FabricAddrRange(base = BigInt("10000000", 16), size = BigInt("00010000", 16))
+  val sifiveTestFinisher = FabricAddrRange(base = BigInt("00100000", 16), size = BigInt("00000004", 16))
+  val ranges: Seq[FabricAddrRange] = Seq(ram, uart, sifiveTestFinisher)
 }
 
 class UartIo extends Bundle {
@@ -231,4 +232,39 @@ class BootFsm extends Module {
     }
     is(sDone) {}
   }
+}
+
+/** SiFive-compatible test finisher: write any value to trigger finish.
+  * Standard (0x5555 = pass) can be checked at TB level.
+  */
+class SifiveTestFinisher(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
+  val io = IO(new Bundle {
+    val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val finished = Output(Bool())
+  })
+
+  private val flush       = io.bus.resp.flush
+  private val finished    = RegInit(false.B)
+  private val busCycle    = RegInit(0.U(2.W))
+  private val respUser    = RegInit(0.U(userWidth.W))
+  private val respId      = RegInit(0.U(idWidth.W))
+
+  private val reqReady = busCycle === 0.U && !flush
+  private val reqFire  = io.bus.req.valid && reqReady
+  io.bus.req.ready := reqReady
+  io.bus.req.flush := false.B
+  io.bus.resp.valid      := busCycle === 3.U && !flush
+  io.bus.resp.bits.data  := 0.U
+  io.bus.resp.bits.user  := respUser
+  io.bus.resp.bits.id    := respId
+
+  when(reqFire) {
+    respUser := io.bus.req.bits.user; respId := io.bus.req.bits.id; busCycle := 1.U
+    when(io.bus.req.bits.wen) { finished := true.B }
+  }
+  when(busCycle === 1.U) { busCycle := 2.U }
+  when(busCycle === 2.U) { busCycle := 3.U }
+  when((busCycle === 3.U && io.bus.resp.ready) || flush) { busCycle := 0.U }
+
+  io.finished := finished
 }

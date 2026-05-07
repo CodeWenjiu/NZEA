@@ -33,6 +33,8 @@ object TileElaborate {
         case SynthPlatform.HelloFPGA =>
           val uart = IO(chiselTypeOf(tile.io.fpga_uart))
           uart <> tile.io.fpga_uart
+          val fpga_finish = IO(Output(Bool()))
+          fpga_finish := tile.io.fpga_finish
       }
     }
   }
