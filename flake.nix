@@ -39,6 +39,7 @@
             scalafmt
             yosys
             ieda
+            circt # firtool for Chisel Verilog generation
 
             verilator # for chisel svsim
             iverilog  # for 4-state simulation
@@ -54,6 +55,7 @@
           ];
 
           PDK_PATH = icsprout55;
+          CHISEL_FIRTOOL_PATH = "${pkgs.circt}/bin";
         };
       }
     );
