@@ -10,11 +10,10 @@ module tb;
     wire uart_txd, uart_rtsn, uart_interrupt;
     reg  uart_rxd, uart_ctsn, boot_override;
     wire finish_passed;
+    wire cpu_running = !tb.dut.tile._bootFsm_io_cpu_reset;
 
-    localparam MAX_CYCLES = 40000, RESET_CYCLES = 10, FINISH_DRAIN = 2000;
-    integer cycle, commit_count;
-    reg finished_latched;
-    integer finish_cycle;
+    localparam RESET_CYCLES = 10;
+    localparam BAUD = 100_000_000 / 1000000;  // 100 cycles/bit
 
     initial clk = 0; always #5 clk = ~clk;
     Top dut (.clock(clk), .reset(~rst_n),
@@ -35,60 +34,33 @@ module tb;
     assign uart_ctsn=1'b0; assign boot_override=1'b1;
     reg uart_tx=1'b1; assign uart_rxd=uart_tx;
 
-    // ---- UART TX monitor (1Mbps 8N1) ----
-    integer uart_fd;
-    reg  [7:0]  uart_char;
-    reg  [15:0] uart_sample_cnt;
-    reg  [3:0]  uart_bit;
-    reg         uart_active;
-    reg         uart_done;
-    reg         uart_txd_d1;
+    // ---- Sub-modules ----
+    uart_tx_monitor uart_mon(.clk(clk), .uart_txd(uart_txd));
 
-    localparam BAUD = 100_000_000 / 1000000;   // 100 cycles/bit
-    localparam HALF = BAUD / 2;                 // 50
-
-    initial begin uart_fd = $fopen("uart_output.txt", "w"); uart_active=0; uart_done=0; end
-
-    always @(posedge clk) begin
-        uart_txd_d1 <= uart_txd;
-        if (!uart_active && uart_txd_d1 && !uart_txd) begin
-            uart_active      <= 1;
-            uart_bit         <= 0;
-            uart_sample_cnt  <= HALF - 1;
-        end
-        if (uart_active) begin
-            uart_sample_cnt <= uart_sample_cnt - 1;
-            if (uart_sample_cnt == 0) begin
-                uart_sample_cnt <= BAUD - 1;
-                if (uart_bit == 0) begin
-                    ;  // start bit — skip
-                end else if (uart_bit < 9) begin
-                    uart_char[uart_bit - 1] <= uart_txd;
-                end
-                if (uart_bit == 9) begin
-                    uart_active <= 0;
-                    uart_done   <= 1;
-                end
-                uart_bit <= uart_bit + 1;
-            end
-        end
-        if (uart_done) begin
-            uart_done <= 0;
-            $display("[%0t] UART_TX_MON: char=%02h (%c)", $time, uart_char, (uart_char >= 32 && uart_char < 127) ? uart_char : ".");
-            if (uart_char != 0) $fwrite(uart_fd, "%c", uart_char);
-        end
-    end
-    final $fclose(uart_fd);
+    commit_tracker #(
+        .MAX_CYCLES(40000), .FINISH_DRAIN(20000),
+        .START_PC(32'h80000000), .POST_FINISHER_COMMITS(15)
+    ) tracker (
+        .clk(clk), .rst_n(rst_n), .cpu_running(cpu_running),
+        .commit_msg_valid(commit_msg_valid),
+        .commit_msg_next_pc(commit_msg_next_pc),
+        .commit_msg_rd_index(commit_msg_rd_index),
+        .commit_msg_rd_value(commit_msg_rd_value),
+        .finish_passed(finish_passed)
+    );
 
     // ---- UART TX task (sends boot protocol) ----
-
     task uart_send_byte; input [7:0] d; reg [9:0] f; integer i; begin
-        f={1'b1, d[7:0], 1'b0}; for(i=0;i<10;i=i+1) begin uart_tx<=f[0]; f={1'b1,f[9:1]}; repeat(BAUD) @(posedge clk); end end endtask
+        f={1'b1, d[7:0], 1'b0};
+        for(i=0;i<10;i=i+1) begin uart_tx<=f[0]; f={1'b1,f[9:1]}; repeat(BAUD) @(posedge clk); end
+    end endtask
     task uart_send_word; input [31:0] w; begin
-        uart_send_byte(w[31:24]); uart_send_byte(w[23:16]); uart_send_byte(w[15:8]); uart_send_byte(w[7:0]); end endtask
+        uart_send_byte(w[31:24]); uart_send_byte(w[23:16]);
+        uart_send_byte(w[15:8]);  uart_send_byte(w[7:0]);
+    end endtask
 
+    // ---- Test program (Hello_World via UART boot) ----
     initial begin
-        cycle=0; commit_count=0; finished_latched=0; finish_cycle=0;
         $dumpfile("tb.fst"); $dumpvars(0, tb); $dumplimit(0);
         // Init PHT/BTB
         begin integer i; for(i=0;i<64;i=i+1) tb.dut.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
@@ -98,31 +70,34 @@ module tb;
         // BootFsm protocol via UART (shift reg stores last byte at MSB → reversed words)
         uart_send_word(32'h07B007B0);  // → 0xB007B007 magic
         uart_send_word(32'h00000000);  // address = 0
-        uart_send_word(32'h06000000);  // size = 6 words
-        uart_send_word(32'hB7020010);  // 0x100002B7  lui t0,0x10000
-        uart_send_word(32'h13038004);  // 0x04800313  li t1,'H'
-        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0) → UART TX
-        uart_send_word(32'hB7031000);  // 0x001003B7  lui t2,0x00100
-        uart_send_word(32'h23A00300);  // 0x0003A023  sw x0,0(t2) → finisher
+        uart_send_word(32'h1A000000);  // size = 26 words
+        // Hello_World: inline writes (UART now has TX hold buffer)
+        uart_send_word(32'hB7020010);  // 0x100002B7  lui t0,0x10000       # UART base
+        uart_send_word(32'h13038004);  // 0x04800313  addi t1,zero,0x48    'H'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h13035006);  // 0x06500313  addi t1,zero,0x65    'e'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h1303C006);  // 0x06C00313  addi t1,zero,0x6C    'l'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h1303C006);  // 0x06C00313  addi t1,zero,0x6C    'l'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h1303F006);  // 0x06F00313  addi t1,zero,0x6F    'o'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h1303F005);  // 0x05F00313  addi t1,zero,0x5F    '_'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h13037005);  // 0x05700313  addi t1,zero,0x57    'W'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h1303F006);  // 0x06F00313  addi t1,zero,0x6F    'o'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h13032007);  // 0x07200313  addi t1,zero,0x72    'r'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h1303C006);  // 0x06C00313  addi t1,zero,0x6C    'l'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'h13034006);  // 0x06400313  addi t1,zero,0x64    'd'
+        uart_send_word(32'h23A06200);  // 0x0062A023  sw t1,0(t0)
+        uart_send_word(32'hB7031000);  // 0x001003B7  lui t2,0x00100       # finisher base
+        uart_send_word(32'h23A00300);  // 0x0003A023  sw zero,0(t2)        → finisher
         uart_send_word(32'h6F000000);  // 0x0000006F  j loop
-        // Wait for BootFsm to finish
-        while(tb.dut.tile._bootFsm_io_cpu_reset !== 1'b0) @(posedge clk);
-        cycle=0;
-        while(cycle<MAX_CYCLES) begin @(posedge clk); cycle=cycle+1;
-            if(finish_passed && !finished_latched) begin
-                $display("[%0t] Finisher triggered", $time);
-                finished_latched = 1;
-                finish_cycle = cycle + FINISH_DRAIN;
-            end
-            if(finished_latched && cycle >= finish_cycle) begin
-                cycle = MAX_CYCLES;
-            end
-            if(commit_msg_valid) begin commit_count=commit_count+1;
-                $display("[%0t] #%0d (c%0d): pc=%08h rd=x%0d val=%08h",
-                    $time, commit_count, cycle, commit_msg_next_pc, commit_msg_rd_index, commit_msg_rd_value); end end
-        if(finish_passed) $display("PASS: finisher triggered, %0d commits", commit_count);
-        else if(commit_count==0) $display("FAIL: no commits");
-        else $display("FAIL: timeout, %0d commits", commit_count);
-        $finish;
+        // Test completion handled by commit_tracker
     end
 endmodule

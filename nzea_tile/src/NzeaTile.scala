@@ -99,10 +99,12 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
         fabric.io.out(3) <> clint.io.bus
 
       case SynthPlatform.HelloFPGA =>
-        val ram  = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-        val uart = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+        val ram      = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+        val uart     = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+        val finisher = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
         fabric.io.out(0) <> ram.io.bus
         fabric.io.out(1) <> uart.io.bus
+        fabric.io.out(2) <> finisher.io.bus
     }
 
     val cb = Module(new CommitDpiBridge)

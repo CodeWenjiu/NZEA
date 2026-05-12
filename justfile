@@ -86,7 +86,7 @@ iv platform isa:
 # Compile testbench + RTL with iverilog.
 # Output: build/tile/<platform>/<isa>/hw/iverilog/tb.vvp
 iv-build platform isa:
-    @bash -c 'p="{{platform}}"; i="{{isa}}"; p="${p#*=}"; i="${i#*=}"; rtl="build/tile/$p/$i/hw"; if [ ! -f "$rtl/filelist.f" ]; then echo "RTL not found, generating..." && just dump --target tile --platform "$p" --isa "$i" --sim false; fi; mkdir -p "$rtl/iverilog"; cp iverilog_tb/*.hex "$rtl/iverilog/"; echo "Compiling with iverilog..." && iverilog -g2012 -Wall -Wno-timescale -o "$rtl/iverilog/tb.vvp" iverilog_tb/tb.sv "$rtl"/*.sv'
+    @bash -c 'p="{{platform}}"; i="{{isa}}"; p="${p#*=}"; i="${i#*=}"; rtl="build/tile/$p/$i/hw"; if [ ! -f "$rtl/filelist.f" ]; then echo "RTL not found, generating..." && just dump --target tile --platform "$p" --isa "$i" --sim false; fi; mkdir -p "$rtl/iverilog"; cp iverilog_tb/*.hex "$rtl/iverilog/"; echo "Compiling with iverilog..." && iverilog -g2012 -Wall -Wno-timescale -o "$rtl/iverilog/tb.vvp" iverilog_tb/*.sv "$rtl"/*.sv'
 
 # Run compiled iverilog simulation.
 iv-run platform isa:

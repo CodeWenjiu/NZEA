@@ -42,7 +42,8 @@
             circt # firtool for Chisel Verilog generation
 
             verilator # for chisel svsim
-            iverilog  # for 4-state simulation
+            iverilog # for 4-state simulation
+            veridian
 
             (rust-bin.nightly.latest.default.override {
               extensions = [

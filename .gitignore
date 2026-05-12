@@ -7,3 +7,4 @@ ssrc/out
 ssrc/.bloop
 out
 build
+/.sisyphus
