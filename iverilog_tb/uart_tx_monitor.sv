@@ -9,8 +9,8 @@ module uart_tx_monitor(input clk, input uart_txd);
     reg         uart_done;
     reg         uart_txd_d1;
 
-    localparam BAUD = 100_000_000 / 1000000;   // 100 cycles/bit
-    localparam HALF = BAUD / 2;                 // 50
+    localparam BAUD_RATE = 100_000_000 / 1000000;   // 100 cycles/bit
+    localparam HALF = BAUD_RATE / 2;                 // 50
 
     initial begin
         uart_fd    = $fopen("uart_output.txt", "w");
@@ -28,7 +28,7 @@ module uart_tx_monitor(input clk, input uart_txd);
         if (uart_active) begin
             uart_sample_cnt <= uart_sample_cnt - 1;
             if (uart_sample_cnt == 0) begin
-                uart_sample_cnt <= BAUD - 1;
+                uart_sample_cnt <= BAUD_RATE - 1;
                 if (uart_bit == 0) begin
                     ;  // start bit — skip
                 end else if (uart_bit < 9) begin

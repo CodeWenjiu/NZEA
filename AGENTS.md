@@ -89,3 +89,35 @@ Follow existing file-local style instead of reformatting unrelated code. Scala u
 
 ## Commit & Pull Request Guidelines
 Recent history uses short conventional subjects such as `feat: nnu`, `fix: DIV pre path`, and `chore: rtl split`. Prefer `type: concise summary` with imperative wording. PRs should state the affected area, list verification commands, link related issues, and attach report snippets or screenshots when the change affects generated RTL, timing, or debug tooling output.
+
+## iverilog Simulation Debugging
+
+### Timeout vs Deadlock
+When diagnosing a failing simulation, always start with a short timeout (10s) and double it. **If commit count plateaus at the same number despite increasing timeouts, the simulation is deadlocked, not slow.** Do not keep raising the timeout — investigate the last few commits.
+
+### Data Corruption Checklist
+Deadlocked simulations in this project fall into narrow categories. Check these in order:
+
+1. **X in commit trace** — `rd=xN val=0xXXXX` or `next_pc=0xXXXX` means uninitialized memory was read. Most common causes:
+   - Hex file was truncated during load (check sentinel value in `boot_from_hex` / `$readmemh`)
+   - BSS not zeroed (check `_start` code)
+   - Stack/heap overflowed past RAM end (check `x2` value vs `AddressMap.ram` range)
+
+2. **Stuck at same PC** — infinite loop. Check the ASM at that PC. Common patterns:
+   - LSR poll: `lbu aN, offset(t0); andi; beqz loop` — `offset` mismatch between driver and hardware register map
+   - Branch-to-self: `j .` — wrong instruction loaded or correct but expected to break
+
+3. **No commits at all** — CPU never started. Check:
+   - `cpu_running` wire monitors the actual core reset, not BootFsm output (BootFsm may be bypassed in direct boot mode)
+   - `boot_override` is set correctly for the boot mode
+
+### Sentinels in Verilog
+Never use `0x00000000` as a sentinel for hex loading — it is a valid RISC-V instruction. Use `0xDEADBEEF` or another value that cannot appear in compiled programs.
+
+### Modifying Existing Systems
+When adding a parameter or feature to an existing integration (e.g., passing `boot` from am-zig's `just run` through to nzea's `just iv`), the task is: **add one parameter to the call chain**. Do not:
+- Change unrelated code (hex path generation, nushell syntax, direnv flags)
+- Rewrite the runner or build system
+- Fix pre-existing issues unless they block the parameter from working
+
+If a simple parameter addition takes more than 3 edits, stop and re-read what the existing code already does. The parameter likely just needs appending to an existing command line.

@@ -46,8 +46,10 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extend
   private val respUser = RegInit(0.U(32.W)); private val respId = RegInit(0.U(8.W)); private val respData = RegInit(0.U(32.W))
 
   private val reqFire = io.bus.req.valid && io.bus.req.ready
-  private val byteSel = io.bus.req.bits.addr(2, 0)
-  private val thrWrite = io.bus.req.bits.wen && byteSel === 0x0.U && !dlab
+  private val wordLo  = io.bus.req.bits.addr(4, 2) === 0.U(3.W)
+  private val wordHi  = io.bus.req.bits.addr(4, 2) === 1.U(3.W)
+  private val wstrb   = io.bus.req.bits.wstrb
+  private val thrWrite = io.bus.req.bits.wen && wordLo && !dlab && wstrb(0)
 
   io.bus.req.ready := !busy && !flush && !(thrWrite && txBusy && thrPending)
   io.bus.req.flush := false.B
@@ -56,23 +58,20 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extend
 
   when(reqFire) {
     respUser := io.bus.req.bits.user; respId := io.bus.req.bits.id; busy := true.B
+    val w = wstrb; val d = io.bus.req.bits.wdata
     when(io.bus.req.bits.wen) {
-      switch(byteSel) {
-        is(0x0.U) { when(dlab) { dll := io.bus.req.bits.wdata(7,0); dlm := io.bus.req.bits.wdata(15,8) } .otherwise { thr := io.bus.req.bits.wdata(7,0); when(txBusy) { thrPending := true.B } } }
-        is(0x4.U) { ier := io.bus.req.bits.wdata(7,0) }
-        is(0x8.U) {}
-        is(0xc.U) { lcr := io.bus.req.bits.wdata(7,0); dlab := io.bus.req.bits.wdata(7) }
-        is(0x10.U) { mcr := io.bus.req.bits.wdata(7,0) }
+      when(wordLo) {
+        when(w(0)) { when(dlab) { dll := d(7,0) } .otherwise { thr := d(7,0); when(txBusy) { thrPending := true.B } } }
+        when(w(1)) { when(dlab) { dlm := d(15,8) } .otherwise { ier := d(15,8) } }
+        when(w(3)) { lcr := d(31,24); dlab := d(31) }
+      }.elsewhen(wordHi) {
+        when(w(0)) { mcr := d(7,0) }
       }
     }.otherwise {
-      switch(byteSel) {
-        is(0x0.U) { respData := Mux(dlab, Cat(dlm,dll), rbr) }
-        is(0x4.U) { respData := Mux(dlab, 0.U, ier) }
-        is(0x8.U) { respData := iir }
-        is(0xc.U) { respData := lcr }
-        is(0x10.U) { respData := mcr }
-        is(0x14.U) { respData := lsr }
-        is(0x18.U) { respData := msr }
+      when(wordLo) {
+        respData := Cat(lcr, iir, Mux(dlab, dlm, ier), Mux(dlab, dll, rbr))
+      }.elsewhen(wordHi) {
+        respData := Cat(0.U(8.W), msr, lsr, mcr)
       }
     }
   }
@@ -85,11 +84,11 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extend
         when(thrPending) {
           thrPending := false.B
           txSR := Cat(1.U(1.W), thr, 0.U(1.W)); txBitCnt := 0.U; txStart := true.B
-        }.otherwise { txBusy := false.B; lsr := lsr(7,1).asUInt ## true.B }
+        }.otherwise { txBusy := false.B }
       }
     }
   }.elsewhen(reqFire && thrWrite) {
-    txSR := Cat(1.U(1.W), io.bus.req.bits.wdata(7,0), 0.U(1.W)); txBitCnt := 0.U; txBusy := true.B; lsr := lsr(7,1).asUInt ## false.B; txStart := true.B
+    txSR := Cat(1.U(1.W), io.bus.req.bits.wdata(7,0), 0.U(1.W)); txBitCnt := 0.U; txBusy := true.B; txStart := true.B
   }
 
   rxdD1 := io.rxd; rxdD2 := rxdD1
@@ -100,11 +99,10 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extend
       when(rxDummy) { rxDummy := false.B }
       .otherwise {
         rxSR := Cat(rxdD2, rxSR(8,1)); rxBitCnt := rxBitCnt + 1.U
-        when(rxBitCnt === 8.U) { rxActive := false.B; rbr := rxSR(8,1); lsr := 1.U ## lsr(6,1); rxDone := true.B }
+        when(rxBitCnt === 8.U) { rxActive := false.B; rbr := rxSR(8,1); rxDone := true.B }
       }
     }
   }.elsewhen(rxdD2 && !rxdD1) { rxActive := true.B; rxBitCnt := 0.U; rxStart := true.B; rxDummy := true.B }
   io.boot_rx_valid := RegNext(rxDone, false.B)
   io.boot_rx_data  := rbr
-  when(reqFire && !io.bus.req.bits.wen && byteSel === 0x14.U) { lsr := 0.U ## lsr(6,1) }
 }

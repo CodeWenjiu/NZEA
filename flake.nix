@@ -45,6 +45,8 @@
             iverilog # for 4-state simulation
             veridian
 
+            surfer
+
             (rust-bin.nightly.latest.default.override {
               extensions = [
                 "rust-src"

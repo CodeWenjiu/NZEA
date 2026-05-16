@@ -102,9 +102,11 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
         val ram      = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
         val uart     = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
         val finisher = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+        val clint    = Module(new yosys.SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
         fabric.io.out(0) <> ram.io.bus
         fabric.io.out(1) <> uart.io.bus
         fabric.io.out(2) <> finisher.io.bus
+        fabric.io.out(3) <> clint.io.bus
     }
 
     val cb = Module(new CommitDpiBridge)
@@ -125,10 +127,12 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
         ))
         val uart     = Module(new hellofpga.FabricBusUart)
         val finisher = Module(new hellofpga.SifiveTestFinisher(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+        val clint    = Module(new hellofpga.Clint(hellofpga.AddressMap.clint.base))
 
         fabric.io.out(0) <> ram.io.bus
         fabric.io.out(1) <> uart.io.bus
         fabric.io.out(2) <> finisher.io.bus
+        fabric.io.out(3) <> clint.io.bus
         io.fpga_uart.txd       := uart.io.txd
         io.fpga_uart.rtsn      := uart.io.rtsn
         io.fpga_uart.interrupt := uart.io.interrupt

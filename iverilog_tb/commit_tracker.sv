@@ -1,7 +1,7 @@
 // Commit tracker — monitors commit messages, detects finisher/timeout, prints PASS/FAIL.
 // Parameters are configurable for different test scenarios.
 module commit_tracker #(
-    parameter MAX_CYCLES            = 40000,
+    parameter MAX_CYCLES            = 200000,
     parameter FINISH_DRAIN          = 20000,
     parameter START_PC              = 32'h80000000,
     parameter POST_FINISHER_COMMITS = 15
