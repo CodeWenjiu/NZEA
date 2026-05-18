@@ -65,8 +65,11 @@ module tb;
 
     initial begin
         if ($value$plusargs("WAVE=%s", dump_wave)) begin
-            if (dump_wave[7:0] == "1") begin
+            if (dump_wave == "1") begin
                 $dumpfile("tb.fst"); $dumpvars(0, tb);
+            end else if (dump_wave != "0") begin
+                $display("ERROR: +WAVE= must be 0 or 1, got '%s'", dump_wave);
+                $finish;
             end
         end
         // Init PHT/BTB
@@ -74,6 +77,10 @@ module tb;
             for(i=0;i<16;i=i+1) tb.dut.tile.core.ifu.btb.mem_ext.Memory[i]='0; end
         if (!$value$plusargs("HEX=%s", hex_file)) hex_file = "hello.hex";
         if (!$value$plusargs("BOOT=%s", boot_mode)) boot_mode = "dir";
+        if (boot_mode != "dir" && boot_mode != "uart") begin
+            $display("ERROR: +BOOT= must be 'dir' or 'uart', got '%s'", boot_mode);
+            $finish;
+        end
         boot_override = (boot_mode != "dir");
         // Load RAM before releasing reset (for direct mode)
         if (boot_mode == "dir") begin
