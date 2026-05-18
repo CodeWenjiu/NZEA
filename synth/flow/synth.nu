@@ -25,11 +25,12 @@ def main [
 
   mkdir $synth_dir
 
-  let script_dir = ($env.FILE_PWD? | default ($env.PWD | path join "scripts"))
+  let script_dir = ($env.FILE_PWD? | default ($env.PWD | path join "synth"))
+  let yosys_dir = $script_dir | path join ".." "yosys"
   $env.HDL_DIR = $hdl_dir
   $env.SYNTH_DIR = $synth_dir
   $env.PLATFORM = $platform
   $env.DESIGN = (if $target == "tile" { "NzeaTile" } else { "Top" })
 
-  yosys -g -l $"($synth_dir)/yosys.log" -c $"($script_dir)/yosys.tcl"
+  yosys -g -l $"($synth_dir)/yosys.log" -c $"($yosys_dir)/yosys.tcl"
 }

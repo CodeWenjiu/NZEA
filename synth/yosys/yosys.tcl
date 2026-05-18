@@ -11,7 +11,7 @@ set PDK        "icsprout55"
 set USE_PDK 0
 if {[info exists env(PDK_PATH)] && [file exists $env(PDK_PATH)]} {
   set USE_PDK 1
-  source "[file dirname [info script]]/common.tcl"
+  source "[file dirname [info script]]/../tcl/common.tcl"
   set LIBS [concat {*}[lmap lib $LIB_FILES {concat "-liberty" $lib}]]
   set EXCLUDE_CELLS [concat {*}[lmap cell $DONT_USE_CELLS {concat "-dont_use" $cell}]]
   set CLK_FREQ_MHZ [expr {[info exists env(CLK_FREQ_MHZ)] ? $env(CLK_FREQ_MHZ) : 500}]

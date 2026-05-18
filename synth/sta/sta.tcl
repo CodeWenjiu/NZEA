@@ -5,7 +5,7 @@ set DESIGN     [lindex $argv 2]
 set PDK        [lindex $argv 3]
 set RESULT_DIR [file dirname $NETLIST_V]
 
-source "[file dirname [info script]]/common.tcl"
+source "[file dirname [info script]]/../tcl/common.tcl"
 
 set_design_workspace $RESULT_DIR
 read_netlist $NETLIST_V

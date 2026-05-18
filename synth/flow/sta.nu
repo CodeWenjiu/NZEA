@@ -15,9 +15,10 @@ def main [
   let design = $design | default (if $target == "tile" { "NzeaTile" } else { "Top" })
   let pdk = $pdk | default "icsprout55"
 
-  let script_dir = ($env.FILE_PWD? | default ($env.PWD | path join "scripts"))
+  let script_dir = ($env.FILE_PWD? | default ($env.PWD | path join "synth"))
+  let sta_dir    = $script_dir | path join ".." "sta"
   let netlist_v = $synth_dir | path join $"($design).netlist.v"
-  let sdc_file = $script_dir | path join "default.sdc"
+  let sdc_file  = $sta_dir | path join "default.sdc"
 
   if not ($netlist_v | path exists) {
     print -e $"Error: ($netlist_v) not found. Run: just synth --isa ($isa)"
@@ -36,5 +37,5 @@ def main [
 
   let sta_log = $synth_dir | path join "sta.log"
   # iEDA writes to both stdout and stderr; use tee to save and print
-  ^sh -c $"iEDA -script ($script_dir)/sta.tcl ($sdc_file) ($netlist_v) ($design) ($pdk) 2>&1 | tee ($sta_log)"
+  ^sh -c $"iEDA -script ($sta_dir)/sta.tcl ($sdc_file) ($netlist_v) ($design) ($pdk) 2>&1 | tee ($sta_log)"
 }

@@ -59,8 +59,8 @@ module tb;
     reg [1023:0] hex_file;
     reg [1023:0] boot_mode;
     reg [1023:0] wave_mode;
-    reg [31:0] boot_buf [0:4095];
-    integer boot_bi;
+    reg [31:0] boot_buf [0:32767];
+    integer boot_bi, hex_size;
     reg [1023:0] dump_wave;
 
     initial begin

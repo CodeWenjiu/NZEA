@@ -2,12 +2,12 @@
 // Included inside module tb — references uart_send_word, byte_reverse.
 
 task boot_from_hex; input [1023:0] filename;
-    reg [31:0] words [0:4095];
+    reg [31:0] words [0:32767];
     integer i, count;
 begin
-    for (i = 0; i < 4096; i = i + 1) words[i] = 32'h00000000;
+    for (i = 0; i < 32768; i = i + 1) words[i] = 32'h00000000;
     $readmemh(filename, words);
-    count = 4096;
+    count = 32768;
     while (count > 0 && words[count - 1] == 32'h00000000)
         count = count - 1;
     if (count == 0) begin
