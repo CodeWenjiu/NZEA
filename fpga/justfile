@@ -1,0 +1,70 @@
+# Tang Nano 20K Open-Source Build Flow
+# Requires: yosys, nextpnr-himbaechel, gowin_pack, openFPGALoader
+
+DEVICE   := "GW2AR-LV18QN88C8/I7"
+FAMILY   := "GW2A-18C"
+BOARD    := "tangnano20k"
+CST      := "constraints/tangnano20k.cst"
+TOP      := "top"
+RTL      := "rtl/" + TOP + ".v"
+BUILD    := "build"
+
+# --- Synthesis: RTL → JSON netlist ---
+[group('build')]
+synth:
+    @mkdir -p {{BUILD}}
+    yosys \
+        -p "read_verilog {{RTL}}; synth_gowin -json {{BUILD}}/{{TOP}}.json -family gw2a -top {{TOP}}"
+
+# --- Place & Route: JSON → routed JSON ---
+[group('build')]
+pnr: synth
+    nextpnr-himbaechel \
+        --json {{BUILD}}/{{TOP}}.json \
+        --write {{BUILD}}/{{TOP}}_pnr.json \
+        --device {{DEVICE}} \
+        --vopt family={{FAMILY}} \
+        --vopt cst={{CST}} \
+        --placer heap \
+        --router router1 \
+        --timing-allow-fail
+
+# --- Bitstream: routed JSON → .fs ---
+[group('build')]
+pack: pnr
+    gowin_pack -c -d {{FAMILY}} -o {{BUILD}}/{{TOP}}.fs {{BUILD}}/{{TOP}}_pnr.json
+
+# === Top-level commands ===
+
+# Build bitstream (default)
+default: pack
+
+# Build & program to SRAM (volatile)
+prog: pack
+    openFPGALoader -b {{BOARD}} {{BUILD}}/{{TOP}}.fs
+
+# Build & program to Flash (persistent)
+flash: pack
+    openFPGALoader -b {{BOARD}} -f {{BUILD}}/{{TOP}}.fs
+
+# === Simulation ===
+
+# Simulate with iverilog
+sim:
+    @mkdir -p {{BUILD}}
+    iverilog -o {{BUILD}}/{{TOP}}_tb.vvp {{RTL}}
+    vvp {{BUILD}}/{{TOP}}_tb.vvp
+
+# View waves with gtkwave (after sim)
+waves:
+    gtkwave {{BUILD}}/{{TOP}}_tb.vcd &
+
+# === Utilities ===
+
+# Clean build artifacts
+clean:
+    rm -rf {{BUILD}}
+
+# List available commands
+list:
+    @just --list

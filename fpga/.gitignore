@@ -1,0 +1,15 @@
+# Build artifacts
+build/
+
+# Nix
+result
+result-*
+
+# Editor
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
