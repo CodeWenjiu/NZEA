@@ -38,7 +38,7 @@ module tb;
     uart_tx_monitor uart_mon(.clk(clk), .uart_txd(uart_txd));
 
     commit_tracker #(
-        .MAX_CYCLES(5000000), .FINISH_DRAIN(20000),
+        .MAX_CYCLES(50000000), .FINISH_DRAIN(20000),
         .START_PC(32'h80000000), .POST_FINISHER_COMMITS(15)
     ) tracker (
         .clk(clk), .rst_n(rst_n), .cpu_running(cpu_running),
@@ -58,11 +58,17 @@ module tb;
     // ---- Test program ----
     reg [1023:0] hex_file;
     reg [1023:0] boot_mode;
+    reg [1023:0] wave_mode;
     reg [31:0] boot_buf [0:4095];
     integer boot_bi;
+    reg [1023:0] dump_wave;
 
     initial begin
-        $dumpfile("tb.fst"); $dumpvars(0, tb); $dumplimit(0);
+        if ($value$plusargs("WAVE=%s", dump_wave)) begin
+            if (dump_wave[7:0] == "1") begin
+                $dumpfile("tb.fst"); $dumpvars(0, tb);
+            end
+        end
         // Init PHT/BTB
         begin integer i; for(i=0;i<64;i=i+1) tb.dut.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
             for(i=0;i<16;i=i+1) tb.dut.tile.core.ifu.btb.mem_ext.Memory[i]='0; end

@@ -19,10 +19,8 @@ class RamFabricSlave(
     val boot_wdata = Input(UInt(32.W))
   })
 
-  private val depth        = 1 << 15
-  private val flush        = io.bus.resp.flush
-  private val writeMaskAll = ((BigInt(1) << (dataWidth / 8)) - 1).U((dataWidth / 8).W)
-  val mem = SyncReadMem(depth, UInt(dataWidth.W), SyncReadMem.WriteFirst)
+  private val depth  = 1 << 15
+  private val flush  = io.bus.resp.flush
 
   val busCycle = RegInit(0.U(2.W))
   val isRead   = RegInit(false.B)
@@ -43,17 +41,23 @@ class RamFabricSlave(
   val wordAddr      = localByteAddr(16, 2)
   val wenClean = reqFire && io.bus.req.bits.wen
   val renClean = reqFire && !io.bus.req.bits.wen
-  when(io.boot_wen) {
-    mem.write(io.boot_addr, io.boot_wdata)
-  }.elsewhen(wenClean) {
-    mem.write(wordAddr, io.bus.req.bits.wdata)
+  val wstrb = io.bus.req.bits.wstrb
+
+  val memBytes = Seq.tabulate(4)(_ => SyncReadMem(depth, UInt(8.W), SyncReadMem.WriteFirst))
+
+  val wrAddr = Mux(io.boot_wen, io.boot_addr, wordAddr)
+  val wrEn   = io.boot_wen || wenClean
+  for (i <- 0 until 4) {
+    val wrData = Mux(io.boot_wen, io.boot_wdata(8*i+7, 8*i), io.bus.req.bits.wdata(8*i+7, 8*i))
+    val wrMask = io.boot_wen || wstrb(i)
+    when(wrEn && wrMask) { memBytes(i).write(wrAddr, wrData) }
   }
-  val memRead = mem.read(wordAddr, renClean)
-  readData := RegNext(memRead, 0.U(dataWidth.W))
+
+  val rdataBytes = VecInit.tabulate(4)(i => memBytes(i).read(wordAddr, renClean))
+  readData := RegNext(Cat(rdataBytes(3), rdataBytes(2), rdataBytes(1), rdataBytes(0)), 0.U(dataWidth.W))
 
   when(reqFire) {
     assert(io.bus.req.bits.addr(1, 0) === 0.U, "RamFabricSlave: unaligned access")
-    when(io.bus.req.bits.wen) { assert(io.bus.req.bits.wstrb === writeMaskAll, "RamFabricSlave: partial write unsupported") }
     respUser := io.bus.req.bits.user; respId := io.bus.req.bits.id; isRead := !io.bus.req.bits.wen; busCycle := 1.U
   }
   when(busCycle === 1.U) { busCycle := 2.U }
