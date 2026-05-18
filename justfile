@@ -45,26 +45,8 @@ fpga_cst := "fpga/constraints/tangnano20k.cst"
 fpga_build := "build/fpga"
 
 [group('fpga')]
-_fpga-synth:
-    @mkdir -p {{ fpga_build }}
-    yosys -l {{ fpga_build }}/{{ fpga_top }}_synth.log \
-        -p "read_verilog {{ fpga_rtl }}; synth_gowin -json {{ fpga_build }}/{{ fpga_top }}.json -family gw2a -top {{ fpga_top }}"
-
-[group('fpga')]
-_fpga-pnr: _fpga-synth
-    nextpnr-himbaechel \
-        --json {{ fpga_build }}/{{ fpga_top }}.json \
-        --write {{ fpga_build }}/{{ fpga_top }}_pnr.json \
-        --device {{ fpga_dev }} \
-        --vopt family={{ fpga_fam }} \
-        --vopt cst={{ fpga_cst }} \
-        --placer heap \
-        --router router1 \
-        --timing-allow-fail
-
-[group('fpga')]
-pack: _fpga-pnr
-    gowin_pack -c -d {{ fpga_fam }} -o {{ fpga_build }}/{{ fpga_top }}.fs {{ fpga_build }}/{{ fpga_top }}_pnr.json
+pack:
+    @nu fpga/scripts/pack.nu {{ fpga_rtl }} {{ fpga_build }} {{ fpga_top }} {{ fpga_dev }} {{ fpga_fam }} {{ fpga_cst }}
 
 [group('fpga')]
 prog: pack
