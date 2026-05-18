@@ -49,6 +49,10 @@ pack:
     @nu fpga/scripts/pack.nu {{ fpga_rtl }} {{ fpga_build }} {{ fpga_top }} {{ fpga_dev }} {{ fpga_fam }} {{ fpga_cst }}
 
 [group('fpga')]
+report:
+    @nu fpga/scripts/report.nu {{ fpga_build }} {{ fpga_top }}
+
+[group('fpga')]
 prog: pack
     openFPGALoader -b {{ fpga_board }} --verify {{ fpga_build }}/{{ fpga_top }}.fs
 

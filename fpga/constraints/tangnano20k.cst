@@ -1,5 +1,5 @@
-# Tang Nano 20K Pin Constraints
-# Device: GW2AR-LV18QN88C8/I7
+// Tang Nano 20K Pin Constraints
+// Device: GW2AR-LV18QN88C8/I7
 
 IO_LOC "clk" 4;
 IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
