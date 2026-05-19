@@ -10,26 +10,25 @@ module tb;
     wire uart_txd, uart_rtsn, uart_interrupt;
     reg  uart_rxd, uart_ctsn, boot_override;
     wire finish_passed;
-    wire cpu_running = !tb.dut.tile.core.reset;
+    wire cpu_running = !tb.tile.core.reset;
 
     localparam RESET_CYCLES = 10;
     localparam BAUD = 100_000_000 / 1000000;  // 100 cycles/bit
 
     initial clk = 0; always #5 clk = ~clk;
-    Top dut (.clock(clk), .reset(~rst_n),
-        .commit_msg_valid(commit_msg_valid),
-        .commit_msg_bits_next_pc(commit_msg_next_pc),
-        .commit_msg_bits_rd_index(commit_msg_rd_index),
-        .commit_msg_bits_rd_value(commit_msg_rd_value),
-        .commit_msg_bits_mem_count(commit_msg_mem_count),
-        .commit_msg_bits_is_load(commit_msg_is_load),
-        .commit_msg_bits_csr_type(commit_msg_csr_type),
-        .commit_msg_bits_csr_data(commit_msg_csr_data),
-        .uart_txd(uart_txd), .uart_rxd(uart_rxd),
-        .uart_rtsn(uart_rtsn), .uart_ctsn(uart_ctsn),
-        .uart_interrupt(uart_interrupt),
-        .fpga_finish(finish_passed),
-        .boot_override(boot_override));
+    NzeaTile tile (.clock(clk), .reset(~rst_n),
+        .io_commit_msg_valid(commit_msg_valid),
+        .io_commit_msg_bits_next_pc(commit_msg_next_pc),
+        .io_commit_msg_bits_rd_index(commit_msg_rd_index),
+        .io_commit_msg_bits_rd_value(commit_msg_rd_value),
+        .io_commit_msg_bits_mem_count(commit_msg_mem_count),
+        .io_commit_msg_bits_is_load(commit_msg_is_load),
+        .io_commit_msg_bits_csr_type(commit_msg_csr_type),
+        .io_commit_msg_bits_csr_data(commit_msg_csr_data),
+        .io_fpga_uart_txd(uart_txd), .io_fpga_uart_rxd(uart_rxd),
+        .io_fpga_uart_interrupt(uart_interrupt),
+        .io_fpga_finish(finish_passed),
+        .io_boot_override(boot_override));
 
     assign uart_ctsn=1'b0;
     reg uart_tx=1'b1; assign uart_rxd=uart_tx;
@@ -73,8 +72,8 @@ module tb;
             end
         end
         // Init PHT/BTB
-        begin integer i; for(i=0;i<64;i=i+1) tb.dut.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
-            for(i=0;i<16;i=i+1) tb.dut.tile.core.ifu.btb.mem_ext.Memory[i]='0; end
+        begin integer i; for(i=0;i<64;i=i+1) tb.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
+            for(i=0;i<16;i=i+1) tb.tile.core.ifu.btb.mem_ext.Memory[i]='0; end
         if (!$value$plusargs("HEX=%s", hex_file)) hex_file = "hello.hex";
         if (!$value$plusargs("BOOT=%s", boot_mode)) boot_mode = "dir";
         if (boot_mode != "dir" && boot_mode != "uart") begin

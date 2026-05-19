@@ -12,7 +12,7 @@ def main [
   pdk?: string
 ] {
   let synth_dir = $synth_dir | default $"build/($target)/($platform)/($isa)/hw/synth"
-  let design = $design | default (if $target == "tile" { "NzeaTile" } else { "Top" })
+  let design = $design | default (if $target == "tile" { "NzeaTile" } else { "NzeaCore" })
   let pdk = $pdk | default "icsprout55"
 
   let script_dir = ($env.FILE_PWD? | default ($env.PWD | path join "synth"))

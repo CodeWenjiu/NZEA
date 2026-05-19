@@ -7,7 +7,7 @@ def synth [rtl: string, build: string, top: string] {
     if ($json | path exists) { return }
     print "Synthesizing..."
     mkdir $build
-    yosys -l $"($build)/($top)_synth.log" -p $"verilog_defaults -push -defer; read_verilog ($rtl); synth_gowin -json ($json) -family gw2a -top ($top); tee -o ($build)/($top)_stat.json stat -json"
+    yosys -l $"($build)/($top)_synth.log" -p $"read_verilog ($rtl); synth_gowin -json ($json) -family gw2a -top ($top); tee -o ($build)/($top)_stat.json stat -json" o+e> /dev/null
 }
 
 def pnr [build: string, top: string, dev: string, fam: string, cst: string] {

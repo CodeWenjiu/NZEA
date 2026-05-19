@@ -9,7 +9,7 @@ object TileElaborate {
 
   /** Tile wrapper: `sim=true` enables DPI bridges; else expose tile IO as top-level ports. */
   class Top(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfig) extends Module {
-    override def desiredName = "Top"
+    override def desiredName = "NzeaTile"
 
     val tile = Module(new NzeaTile(sim, platform))
     // Drive inactive platform IO to prevent uninitialized sink errors

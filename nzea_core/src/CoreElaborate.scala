@@ -9,7 +9,7 @@ object CoreElaborate {
 
   /** Core wrapper: `sim=true` enables DPI bridges; else expose ibus/dbus/commit as top-level IO. */
   class Top(sim: Boolean)(implicit config: CoreConfig) extends Module {
-    override def desiredName = "Top"
+    override def desiredName = "NzeaCore"
 
     private val addrWidth = config.width
     private val dataWidth = config.width
@@ -38,7 +38,7 @@ object CoreElaborate {
     firtoolOpts: Array[String]
   )(implicit config: CoreConfig): Unit = {
     println(
-      s"Generating Top (isa: ${config.isa}, sim: $sim)"
+      s"Generating NzeaCore (isa: ${config.isa}, sim: $sim)"
     )
     println(s"Output: $outDir")
 

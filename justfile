@@ -54,8 +54,8 @@ report:
 
 [group('fpga')]
 prog: pack
-    openFPGALoader -b {{ fpga_board }} --verify {{ fpga_build }}/{{ fpga_top }}.fs
+    @openFPGALoader -b {{ fpga_board }} --verify {{ fpga_build }}/{{ fpga_top }}.fs
 
 [group('fpga')]
 flash: pack
-    openFPGALoader -b {{ fpga_board }} -f --verify {{ fpga_build }}/{{ fpga_top }}.fs
+    @openFPGALoader -b {{ fpga_board }} -f --verify {{ fpga_build }}/{{ fpga_top }}.fs

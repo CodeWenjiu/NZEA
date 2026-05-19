@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 # Yosys synthesis (yosys-sta style)
 # Reads build/<target>/<platform>/<isa>/hw/*.sv from filelist.f, outputs to .../hw/synth/
-#   - <Top|NzeaTile>.netlist.v (netlist)
+#   - <NzeaCore|NzeaTile>.netlist.v (netlist)
 #   - synth_stat.txt (area/cell report, transistor estimate)
 #   - synth_check.txt (check report)
 #   - yosys.log (full log)
@@ -30,7 +30,7 @@ def main [
   $env.HDL_DIR = $hdl_dir
   $env.SYNTH_DIR = $synth_dir
   $env.PLATFORM = $platform
-  $env.DESIGN = (if $target == "tile" { "NzeaTile" } else { "Top" })
+  $env.DESIGN = (if $target == "tile" { "NzeaTile" } else { "NzeaCore" })
 
   yosys -g -l $"($synth_dir)/yosys.log" -c $"($yosys_dir)/yosys.tcl"
 }

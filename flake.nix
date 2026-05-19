@@ -61,11 +61,6 @@
             nextpnr # P&R (nextpnr-himbaechel with Gowin uarch)
             python3Packages.apycula # gowin_pack, gowin_bba
             openfpgaloader # Bitstream flashing via USB-C
-
-            # === Simulation & Debug ===
-            iverilog # Verilog simulation
-            gtkwave # Waveform viewer
-            verilator # Fast Verilog simulator / lint
           ];
 
           PDK_PATH = icsprout55;
