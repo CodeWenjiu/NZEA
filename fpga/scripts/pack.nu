@@ -59,23 +59,49 @@ def synth [rtl: string, build: string, top: string, chip: record, tile_rtl: stri
     print "Synthesizing..."
     mkdir $build
 
-    let rtl_files = $"($rtl) ($tile_rtl)/*.sv"
+    let tile_sv = glob $"($tile_rtl)/*.sv"
+    let rtl_files = if ($tile_sv | length) > 0 {
+        $"($rtl) ($tile_rtl)/*.sv"
+    } else {
+        $rtl
+    }
 
-    yosys -l $"($build)/($top)_synth.log" -p $"read_verilog ($rtl_files); ($chip.synth) -json ($json) -family ($chip.synth_family) -top ($top); tee -o ($build)/($top)_stat.json stat -json" o+e> /dev/null
+    mut synth_args = $"($chip.synth) -json ($json) -family ($chip.synth_family)"
+
+    yosys -l $"($build)/($top)_synth.log" -p $"read_verilog ($rtl_files); hierarchy -top ($top); ($synth_args); tee -o ($build)/($top)_stat.json stat -json" o+e> /dev/null
 }
 
 def pnr [build: string, top: string, dev: string, chip: record] {
     let json = $"($build)/($top).json"
     let pnr_log  = $"($build)/($top)_pnr.log"
-
-    let is_bit_direct = ($chip.pack == "noop")
-    let pnr_out = if $is_bit_direct {
-        $"($build)/($top).($chip.bit_ext)"
-    } else {
-        $"($build)/($top)_pnr.json"
-    }
     let bit = $"($build)/($top).($chip.bit_ext)"
 
+    # Xilinx: nextpnr-xilinx with openXC7 chipdb
+    if $chip.synth == "synth_xilinx" {
+        if ($bit | path exists) {
+            let bit_mtime = (ls $bit | first | get modified)
+            let json_mtime = (ls $json | first | get modified)
+            if $bit_mtime > $json_mtime { return }
+        }
+        print "Placing & routing (nextpnr-xilinx)..."
+
+        let chipdb = $chip.chipdb
+        mut pnr_args = [
+            --json $json,
+            --write $bit,
+            --chipdb $chipdb,
+            --placer heap,
+            --router router1,
+            --timing-allow-fail,
+            --xdc $chip.cst,
+        ]
+
+        ^nextpnr-xilinx ...$pnr_args o+e> $pnr_log
+        return
+    }
+
+    # Gowin PnR
+    let pnr_out = $"($build)/($top)_pnr.json"
     let json_mtime = (ls $json | first | get modified)
     let cst_mtime  = (ls $chip.cst | first | get modified)
     let src_latest = if $json_mtime > $cst_mtime { $json_mtime } else { $cst_mtime }
@@ -95,24 +121,20 @@ def pnr [build: string, top: string, dev: string, chip: record] {
         --router $popts.router,
         --timing-allow-fail,
         --report $"($build)/($top)_report.json",
+        --vopt $"family=GW2A-18C",
+        --vopt $"cst=($chip.cst)",
     ]
-
-    if $chip.pack == "gowin_pack" {
-        $pnr_args = ($pnr_args | append [--vopt $"family=GW2A-18C" --vopt $"cst=($chip.cst)"])
-    }
 
     ^$chip.pnr ...$pnr_args o+e> $pnr_log
 
-    if not $is_bit_direct {
-        print "Packing bitstream..."
-        let pnr_json = $"($build)/($top)_pnr.json"
-        if ($bit | path exists) {
-            let bit_mtime = (ls $bit | first | get modified)
-            let pnr_mtime = (ls $pnr_json | first | get modified)
-            if $bit_mtime > $pnr_mtime { return }
-        }
-        ^gowin_pack -c -d GW2A-18C -o $bit $pnr_json
+    print "Packing bitstream..."
+    let pnr_json = $"($build)/($top)_pnr.json"
+    if ($bit | path exists) {
+        let bit_mtime = (ls $bit | first | get modified)
+        let pnr_mtime = (ls $pnr_json | first | get modified)
+        if $bit_mtime > $pnr_mtime { return }
     }
+    ^gowin_pack -c -d GW2A-18C -o $bit $pnr_json
 }
 
 def main [--dev: string = "GW2AR-LV18QN88C8/I7"] {
