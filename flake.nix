@@ -59,6 +59,7 @@
             # === FPGA Toolchain ===
             yosys # RTL synthesis (synth_gowin)
             nextpnr # P&R (nextpnr-himbaechel with Gowin uarch)
+            nextpnr-xilinx # P&R (nextpnr-xilinx with Xilinx uarch)
             python3Packages.apycula # gowin_pack, gowin_bba
             openfpgaloader # Bitstream flashing via USB-C
           ];

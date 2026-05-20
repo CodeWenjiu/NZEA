@@ -35,28 +35,22 @@ clean:
 clean-all: clean
     @mill mill clean
 
-# ---- FPGA (Tang Nano 20K) ----
+# ---- FPGA ----
 
 fpga_dev := "GW2AR-LV18QN88C8/I7"
-fpga_fam := "GW2A-18C"
-fpga_board := "tangnano20k"
-fpga_top := "top"
-fpga_rtl := "fpga/rtl/" + fpga_top + ".v"
-fpga_cst := "fpga/constraints/tangnano20k.cst"
-fpga_build := "build/fpga"
 
 [group('fpga')]
 pack:
-    @nu fpga/scripts/pack.nu {{ fpga_rtl }} {{ fpga_build }} {{ fpga_top }} {{ fpga_dev }} {{ fpga_fam }} {{ fpga_cst }}
+    @nu fpga/scripts/pack.nu --dev {{ fpga_dev }}
 
 [group('fpga')]
 report:
-    @nu fpga/scripts/report.nu {{ fpga_build }} {{ fpga_top }}
+    @nu fpga/scripts/report.nu build/fpga top
 
 [group('fpga')]
 prog: pack
-    @openFPGALoader -b {{ fpga_board }} --verify {{ fpga_build }}/{{ fpga_top }}.fs
+    @nu fpga/scripts/prog.nu --dev {{ fpga_dev }}
 
 [group('fpga')]
 flash: pack
-    @openFPGALoader -b {{ fpga_board }} -f --verify {{ fpga_build }}/{{ fpga_top }}.fs
+    @nu fpga/scripts/prog.nu --dev {{ fpga_dev }} --flash
