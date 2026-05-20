@@ -11,7 +11,7 @@ class UartIo extends Bundle {
   val ctsn      = Input(Bool())
 }
 
-class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extends Module {
+class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 115200) extends Module {
   val io = IO(new Bundle {
     val bus = Flipped(new FabricBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
     val txd = Output(Bool()); val rxd = Input(Bool()); val rtsn = Output(Bool())

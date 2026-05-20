@@ -8,10 +8,10 @@ import nzea_core.config.CoreConfig
 object TileElaborate {
 
   /** Tile wrapper: `sim=true` enables DPI bridges; else expose tile IO as top-level ports. */
-  class Top(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfig) extends Module {
+  class Top(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit config: CoreConfig) extends Module {
     override def desiredName = "NzeaTile"
 
-    val tile = Module(new NzeaTile(sim, platform))
+    val tile = Module(new NzeaTile(sim, platform, clockHz))
     // Drive inactive platform IO to prevent uninitialized sink errors
     tile.io.yosys_devices := DontCare
     tile.io.fpga_uart     := DontCare

@@ -9,7 +9,7 @@ module uart_tx_monitor(input clk, input uart_txd);
     reg         uart_done;
     reg         uart_txd_d1;
 
-    localparam BAUD_RATE = 100_000_000 / 1000000;   // 100 cycles/bit
+    localparam BAUD_RATE = 100_000_000 / 115200;   // ~868 cycles/bit
     localparam HALF = BAUD_RATE / 2;                 // 50
 
     initial begin

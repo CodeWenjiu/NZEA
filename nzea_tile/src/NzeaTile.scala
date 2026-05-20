@@ -31,7 +31,7 @@ object TileAddressMap {
   * `sim=true`: slaves are connected to DPI bridges (bus_read/bus_write).
   * `sim=false`: exposes platform-specific HW IO as top-level ports.
   */
-class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfig) extends Module {
+class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val ranges = TileAddressMap.forPlatform(platform)
@@ -124,7 +124,7 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
         val ram = Module(new hellofpga.RamFabricSlave(
           addrWidth, dataWidth, fabricUserWidth, fabricIdWidth, hellofpga.AddressMap.ram.base
         ))
-        val uart     = Module(new hellofpga.FabricBusUart)
+        val uart     = Module(new hellofpga.FabricBusUart(simClkHz = clockHz))
         val finisher = Module(new hellofpga.SifiveTestFinisher(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
         val clint    = Module(new hellofpga.Clint(hellofpga.AddressMap.clint.base))
 
