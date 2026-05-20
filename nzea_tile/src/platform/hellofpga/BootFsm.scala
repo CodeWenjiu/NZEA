@@ -14,15 +14,15 @@ class BootFsm extends Module {
     val cpu_reset = Output(Bool())
   })
 
-  val sIdle :: sMagic :: sAddr :: sSize :: sData :: sDone :: Nil = Enum(6)
-  val state      = RegInit(sIdle)
+  val sInit :: sIdle :: sAddr :: sSize :: sData :: sDone :: Nil = Enum(6)
+  val state      = RegInit(sInit)
   val shift      = RegInit(0.U(32.W))
   val byteCnt    = RegInit(0.U(2.W))
   val wordCnt    = RegInit(0.U(32.W))
   val totalWords = RegInit(0.U(32.W))
   val wordAddr   = RegInit(0.U(15.W))
 
-  io.cpu_reset := io.boot_en && state =/= sDone
+  io.cpu_reset := io.boot_en && (state === sAddr || state === sSize || state === sData)
 
   io.ram_wen   := false.B
   io.ram_addr  := wordAddr
@@ -39,6 +39,12 @@ class BootFsm extends Module {
   }
 
   switch(state) {
+    is(sInit) {
+      when(magicLow === "hB007B007".U) {
+        state := sAddr
+        byteCnt := 0.U
+      }
+    }
     is(sIdle) {
       when(magicLow === "hB007B007".U) {
         state := sAddr
@@ -71,6 +77,6 @@ class BootFsm extends Module {
         }
       }
     }
-    is(sDone) {}
+    is(sDone) { state := sIdle }
   }
 }

@@ -13,6 +13,7 @@ dump *ARGS:
 iv platform isa hex='hello.hex' boot='dir' wave='0':
     @nu iverilog_tb/scripts/iv-build.nu {{ platform }} {{ isa }}
     @nu iverilog_tb/scripts/iv-run.nu {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
+    @[ "{{ wave }}" = "1" ] && echo "Waveform: build/tile/{{ platform }}/{{ isa }}/hw/iverilog/tb.fst"
 
 # Run yosys synthesis
 [group('synth')]

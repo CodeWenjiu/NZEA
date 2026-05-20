@@ -8,7 +8,7 @@ module tb;
     wire [2:0]  commit_msg_csr_type;
     wire [31:0] commit_msg_csr_data;
     wire uart_txd, uart_rtsn, uart_interrupt;
-    reg  uart_rxd, uart_ctsn, boot_override;
+    reg  uart_rxd, uart_ctsn;
     wire finish_passed;
     wire cpu_running = !tb.tile.core.reset;
 
@@ -27,8 +27,7 @@ module tb;
         .io_commit_msg_bits_csr_data(commit_msg_csr_data),
         .io_fpga_uart_txd(uart_txd), .io_fpga_uart_rxd(uart_rxd),
         .io_fpga_uart_interrupt(uart_interrupt),
-        .io_fpga_finish(finish_passed),
-        .io_boot_override(boot_override));
+        .io_fpga_finish(finish_passed));
 
     assign uart_ctsn=1'b0;
     reg uart_tx=1'b1; assign uart_rxd=uart_tx;
@@ -58,7 +57,10 @@ module tb;
     reg [1023:0] hex_file;
     reg [1023:0] boot_mode;
     reg [1023:0] wave_mode;
-    reg [31:0] boot_buf [0:32767];
+    `ifndef HEX_BUF_WORDS
+    `define HEX_BUF_WORDS 256
+    `endif
+    reg [31:0] boot_buf [0:`HEX_BUF_WORDS-1];
     integer boot_bi, hex_size;
     reg [1023:0] dump_wave;
 
@@ -71,6 +73,16 @@ module tb;
                 $finish;
             end
         end
+        // Init RAM with harmless infinite loop (jal x0, 0)
+        // so Core can run safely even before UART boot completes.
+        begin integer ri;
+            for(ri=0; ri<32768; ri=ri+1) begin
+                tb.tile.ram.memBytes_0_ext.Memory[ri] = 8'h6F;
+                tb.tile.ram.memBytes_1_ext.Memory[ri] = 8'h00;
+                tb.tile.ram.memBytes_2_ext.Memory[ri] = 8'h00;
+                tb.tile.ram.memBytes_3_ext.Memory[ri] = 8'h00;
+            end
+        end
         // Init PHT/BTB
         begin integer i; for(i=0;i<64;i=i+1) tb.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
             for(i=0;i<16;i=i+1) tb.tile.core.ifu.btb.mem_ext.Memory[i]='0; end
@@ -80,7 +92,6 @@ module tb;
             $display("ERROR: +BOOT= must be 'dir' or 'uart', got '%s'", boot_mode);
             $finish;
         end
-        boot_override = (boot_mode != "dir");
         // Load RAM before releasing reset (for direct mode)
         if (boot_mode == "dir") begin
             `include "iverilog_tb/boot/direct_boot.svh"

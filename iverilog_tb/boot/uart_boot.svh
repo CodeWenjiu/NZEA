@@ -1,15 +1,20 @@
 // UART boot protocol: reads hex file, sends via BootFsm protocol over UART.
 // Included inside module tb — references uart_send_word, byte_reverse.
+// Array size set at compile time via +define+HEX_BUF_WORDS; defaults to 256.
+
+`ifndef HEX_BUF_WORDS
+`define HEX_BUF_WORDS 256
+`endif
 
 task boot_from_hex; input [1023:0] filename;
-    reg [31:0] words [0:32767];
+    reg [31:0] words [0:`HEX_BUF_WORDS-1];
     integer i, count;
 begin
-    for (i = 0; i < 32768; i = i + 1) words[i] = 32'h00000000;
+    for (i = 0; i < `HEX_BUF_WORDS; i = i + 1) words[i] = 32'hDEADBEEF;
     $readmemh(filename, words);
-    count = 32768;
-    while (count > 0 && words[count - 1] == 32'h00000000)
-        count = count - 1;
+    count = 0;
+    while (count < `HEX_BUF_WORDS && words[count] != 32'hDEADBEEF)
+        count = count + 1;
     if (count == 0) begin
         $display("ERROR: empty or all-zero hex file '%s'", filename);
         $finish;

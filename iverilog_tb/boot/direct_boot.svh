@@ -6,10 +6,10 @@ if ($value$plusargs("HEX_SIZE=%d", hex_size)) begin
     $readmemh(hex_file, boot_buf);
     $display("[%0t] Boot: direct RAM load %0d words from %s", $time, hex_size, hex_file);
 end else begin
-    for (boot_bi = 0; boot_bi < 32768; boot_bi = boot_bi + 1) boot_buf[boot_bi] = 32'hDEADBEEF;
+    for (boot_bi = 0; boot_bi < `HEX_BUF_WORDS; boot_bi = boot_bi + 1) boot_buf[boot_bi] = 32'hDEADBEEF;
     $readmemh(hex_file, boot_buf);
     hex_size = 0;
-    while (hex_size < 32768 && boot_buf[hex_size] != 32'hDEADBEEF) hex_size = hex_size + 1;
+    while (hex_size < `HEX_BUF_WORDS && boot_buf[hex_size] != 32'hDEADBEEF) hex_size = hex_size + 1;
     $display("[%0t] Boot: direct RAM load %0d words from %s", $time, hex_size, hex_file);
 end
 for (boot_bi = 0; boot_bi < hex_size; boot_bi = boot_bi + 1) begin

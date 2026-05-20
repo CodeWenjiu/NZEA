@@ -43,7 +43,6 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
     val yosys_devices = new yosys.DeviceBusBundle(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
     val fpga_uart     = new hellofpga.UartIo
     val fpga_finish   = Output(Bool())
-    val boot_override = Input(Bool())
   })
   io := DontCare
 
@@ -52,7 +51,7 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
   bootFsm.io.boot_en := true.B
   bootFsm.io.rx_valid := false.B  // default; overridden in HelloFPGA hw
   bootFsm.io.rx_data  := 0.U
-  val cpuReset = reset.asBool || (bootFsm.io.cpu_reset && io.boot_override)
+  val cpuReset = reset.asBool || bootFsm.io.cpu_reset
 
   val core = withReset(cpuReset) { Module(new nzea_core.Core) }
 

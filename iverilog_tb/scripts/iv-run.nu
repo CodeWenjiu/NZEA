@@ -20,4 +20,5 @@ def main [
     if $hsize > 0 { $hflag = $"+HEX_SIZE=($hsize)" }
 
     ^vvp tb.vvp $"+HEX=($hex)" $"+BOOT=($boot)" $wflag $hflag
+
 }
