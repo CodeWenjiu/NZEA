@@ -46,6 +46,25 @@ def main [build: string, top: string] {
         let fmax = $rpt | get fmax | transpose clock data | first
         let freq = ($fmax.data.achieved | into float | math round --precision 2)
         print $"(ansi green)($freq) MHz(ansi reset) \(clock: ($fmax.clock)\)"
+
+        let cps = $rpt | get critical_paths
+        if ($cps | length) > 0 {
+            let cp = $cps | first
+            let path = $cp.path
+            let total = $path | each {|s| $s.delay } | math sum
+            print $"\n(ansi yellow)Critical path \(($total * 1000 | math round | into int) ps\):(ansi reset)"
+            print $"  From: ($cp.from)"
+            print $"  To:   ($cp.to)"
+            print ""
+            let rows = ($path | each {|s|
+                let d = ($s.delay * 1000 | math round | into int)
+                let cell = if ($s.from.cell | str contains '.') {
+                    $s.from.cell | split row '.' | last
+                } else { $s.from.cell }
+                {Delay: $"($d) ps", Type: $s.type, Cell: $cell, "(X,Y)": $"($s.from.loc.0),($s.from.loc.1)"}
+            })
+            $rows | table -i false | print
+        }
     } else if ($pnr_log | path exists) {
         print $"(ansi yellow)No PnR report JSON(ansi reset)"
     }
