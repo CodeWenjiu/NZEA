@@ -7,7 +7,7 @@ module tb;
     wire [4:0]  commit_msg_rd_index;
     wire [2:0]  commit_msg_csr_type;
     wire [31:0] commit_msg_csr_data;
-    wire uart_txd, uart_rtsn, uart_interrupt;
+    wire uart_txd, uart_rtsn;
     reg  uart_rxd, uart_ctsn;
     wire finish_passed;
     wire cpu_running = !tb.tile.core.reset;
@@ -26,7 +26,6 @@ module tb;
         .io_commit_msg_bits_csr_type(commit_msg_csr_type),
         .io_commit_msg_bits_csr_data(commit_msg_csr_data),
         .io_fpga_uart_txd(uart_txd), .io_fpga_uart_rxd(uart_rxd),
-        .io_fpga_uart_interrupt(uart_interrupt),
         .io_fpga_finish(finish_passed));
 
     assign uart_ctsn=1'b0;

@@ -1,8 +1,8 @@
 #!/usr/bin/env nu
 # Compile testbench + RTL with iverilog.
-# Usage: nu iverilog_tb/scripts/iv-build.nu <platform> <isa>
+# Usage: nu iverilog_tb/scripts/iv-build.nu <platform> <isa> [hex]
 
-def main [platform: string, isa: string] {
+def main [platform: string, isa: string, hex?: string] {
     let rtl = $"build/tile/($platform)/($isa)/hw"
     let rtl_glob = $"($rtl)/*.sv"
     let filelist = $rtl | path join "filelist.f"
@@ -36,18 +36,13 @@ def main [platform: string, isa: string] {
     let iv_dir = $rtl | path join "iverilog"
     mkdir $iv_dir
 
-    for f in (glob iverilog_tb/*.hex) {
-        cp $f $iv_dir
+    # Copy and size the hex file (supplied as argument or defaulted by justfile)
+    mut hex_buf = 256
+    if ($hex | is-not-empty) and ($hex | path exists) {
+        cp $hex $iv_dir
+        let hsize = try { open $hex | lines | length } catch { 0 }
+        if $hsize > 0 { $hex_buf = $hsize }
     }
-
-    # Determine max hex words for $readmemh array sizing
-    let hex_files = glob iverilog_tb/*.hex
-    let hex_max = if ($hex_files | length) > 0 {
-        $hex_files | each {|f| try { open $f | lines | length } catch { 0 }} | math max
-    } else {
-        0
-    }
-    let hex_buf = if $hex_max > 0 { $hex_max } else { 256 }
 
     print "Compiling with iverilog..."
     ^iverilog -g2012 -Wall -Wno-timescale -DHEX_BUF_WORDS=($hex_buf) -o ($iv_dir | path join "tb.vvp") ...(glob iverilog_tb/*.sv) ...$rtl_sv

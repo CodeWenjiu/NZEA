@@ -9,14 +9,13 @@ class UartIo extends Bundle {
   val rxd       = Input(Bool())
   val rtsn      = Output(Bool())
   val ctsn      = Input(Bool())
-  val interrupt = Output(Bool())
 }
 
 class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extends Module {
   val io = IO(new Bundle {
     val bus = Flipped(new FabricBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
     val txd = Output(Bool()); val rxd = Input(Bool()); val rtsn = Output(Bool())
-    val ctsn = Input(Bool()); val interrupt = Output(Bool())
+    val ctsn = Input(Bool())
     val boot_rx_valid = Output(Bool())
     val boot_rx_data  = Output(UInt(8.W))
   })
@@ -40,7 +39,7 @@ class FabricBusUart(simClkHz: Int = 100_000_000, baudRate: Int = 1000000) extend
   val rxSR = RegInit(1.U(9.W)); val rxBitCnt = RegInit(0.U(4.W))
   val rxActive = RegInit(false.B); val rxdD1 = RegInit(true.B); val rxdD2 = RegInit(true.B)
 
-  io.txd := txSR(0); io.rtsn := false.B; io.interrupt := RegNext(lsr(0) && ier(0), false.B)
+  io.txd := txSR(0); io.rtsn := false.B
 
   private val flush = io.bus.resp.flush; private val busy = RegInit(false.B)
   private val respUser = RegInit(0.U(32.W)); private val respId = RegInit(0.U(8.W)); private val respData = RegInit(0.U(32.W))

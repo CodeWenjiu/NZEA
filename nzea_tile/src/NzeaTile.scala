@@ -134,7 +134,7 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform)(implicit config: CoreConfi
         fabric.io.out(3) <> clint.io.bus
         io.fpga_uart.txd       := uart.io.txd
         io.fpga_uart.rtsn      := uart.io.rtsn
-        io.fpga_uart.interrupt := uart.io.interrupt
+
         uart.io.rxd  := io.fpga_uart.rxd
         uart.io.ctsn := io.fpga_uart.ctsn
         io.fpga_finish := finisher.io.finished

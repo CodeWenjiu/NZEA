@@ -10,10 +10,10 @@ dump *ARGS:
     @mill --no-server nzea_cli.run {{ ARGS }}
 
 # 4-state iverilog simulation
-iv platform isa hex='hello.hex' boot='dir' wave='0':
-    @nu iverilog_tb/scripts/iv-build.nu {{ platform }} {{ isa }}
+iv platform isa hex='iverilog_tb/hello.hex' boot='dir' wave='0':
+    @nu iverilog_tb/scripts/iv-build.nu {{ platform }} {{ isa }} {{ hex }}
+    @[ "{{ wave }}" = "1" ] && echo "Waveform: build/tile/{{ platform }}/{{ isa }}/hw/iverilog/tb.fst" || true
     @nu iverilog_tb/scripts/iv-run.nu {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
-    @[ "{{ wave }}" = "1" ] && echo "Waveform: build/tile/{{ platform }}/{{ isa }}/hw/iverilog/tb.fst"
 
 # Run yosys synthesis
 [group('synth')]
