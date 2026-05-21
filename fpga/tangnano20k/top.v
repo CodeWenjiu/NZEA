@@ -1,5 +1,5 @@
 // Tang Nano 20K — LED demo + UART TX (hello_world every 1s)
-// 100 MHz clock (pin 13), 115200 baud
+// 100 MHz clock (pin 13), 100000 baud
 // UART: rx=69, tx=70
 
 module top(
@@ -28,8 +28,8 @@ module top(
     assign led[5]   = ~s2;
 
     // ── UART TX ────────────────────────────────────────────────
-    // 115200 baud @ 100 MHz → 868 cycles/bit
-    localparam BAUD_DIV = 868;
+    // 100000 baud @ 100 MHz → 1000 cycles/bit
+    localparam BAUD_DIV = 1000;
 
     reg [15:0] baud_cnt = 0;
     always @(posedge clk) begin

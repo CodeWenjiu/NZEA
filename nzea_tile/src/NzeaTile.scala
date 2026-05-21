@@ -124,7 +124,7 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000
         val ram = Module(new hellofpga.RamFabricSlave(
           addrWidth, dataWidth, fabricUserWidth, fabricIdWidth, hellofpga.AddressMap.ram.base
         ))
-        val uart     = Module(new hellofpga.FabricBusUart(simClkHz = clockHz))
+        val uart     = Module(new hellofpga.FabricBusUart(simClkHz = clockHz, baudRate = 100000))
         val finisher = Module(new hellofpga.SifiveTestFinisher(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
         val clint    = Module(new hellofpga.Clint(hellofpga.AddressMap.clint.base))
 

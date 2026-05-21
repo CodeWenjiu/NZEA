@@ -8,15 +8,7 @@ const raw_chips = {
         tile_platform: "hellofpga",
         tile_isa:  "riscv32i",
     },
-    "xc7a200t-sbg484-1": {
-        vendor: "xilinx",
-        board:  "nexysVideo",
-        cst:    "fpga/lxb_artix7/A7_lite.xdc",
-        vivado_part: "xc7a200tsbg484-1",
-        vivado:  "/mnt/d/Xilinx/Vivado/2023.1/bin/vivado.bat",
-        tile_platform: "hellofpga",
-        tile_isa:  "riscv32i",
-    },
+
 }
 
 def compute_chip [dev: string] {
@@ -67,6 +59,7 @@ def compute_chip [dev: string] {
         bit_ext: $bit_ext,
         pre_alu: $pre_alu,
         board: $board,
+        prog_board: (if ($raw | columns | any {|c| $c == "prog_board" }) { $raw.prog_board } else { $board }),
         board_dir: $board_dir,
         cst: $cst,
         vivado: $vivado,

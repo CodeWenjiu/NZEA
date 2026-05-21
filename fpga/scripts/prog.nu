@@ -14,10 +14,10 @@ def main [--dev: string = "GW2AR-LV18QN88C8/I7", --flash] {
     }
 
     let mode = if $flash { "-f" } else { "" }
-    print $"Programming ($dev) as ($chip.board) with ($bit)..."
+    print $"Programming ($dev) as ($chip.prog_board) with ($bit)..."
     if $mode != "" {
-        ^openFPGALoader -b $chip.board $mode --verify $bit
+        ^openFPGALoader -b $chip.prog_board $mode --verify $bit
     } else {
-        ^openFPGALoader -b $chip.board --verify $bit
+        ^openFPGALoader -b $chip.prog_board --verify $bit
     }
 }

@@ -13,7 +13,7 @@ module tb;
     wire cpu_running = !tb.tile.core.reset;
 
     localparam RESET_CYCLES = 10;
-    localparam BAUD = 100_000_000 / 115200;  // ~868 cycles/bit
+    localparam BAUD = 100_000_000 / 100000;  // 1000 cycles/bit
 
     initial clk = 0; always #5 clk = ~clk;
     NzeaTile tile (.clock(clk), .reset(~rst_n),

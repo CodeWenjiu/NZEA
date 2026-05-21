@@ -6,7 +6,7 @@
     utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
-    openxc7.url = "github:openXC7/toolchain-nix";
+
   };
 
   outputs =
@@ -14,7 +14,6 @@
       nixpkgs,
       utils,
       rust-overlay,
-      openxc7,
       ...
     }:
     utils.lib.eachDefaultSystem (
@@ -61,15 +60,13 @@
             # === FPGA Toolchain ===
             yosys # RTL synthesis (synth_gowin)
             nextpnr # P&R (nextpnr-himbaechel with Gowin uarch)
-            openxc7.packages.${system}.nextpnr-xilinx # P&R (openXC7, with chipdb)
-            openxc7.packages.${system}.nextpnr-xilinx-chipdb.artix7 # chipdb for Artix-7
+            nextpnr-xilinx # P&R (nextpnr-xilinx, retained for future use)
             python3Packages.apycula # gowin_pack, gowin_bba
             openfpgaloader # Bitstream flashing via USB-C
           ];
 
           PDK_PATH = icsprout55;
           CHISEL_FIRTOOL_PATH = "${pkgs.circt}/bin";
-          OPENXC7_CHIPDB = openxc7.packages.${system}.nextpnr-xilinx-chipdb.artix7;
         };
       }
     );
