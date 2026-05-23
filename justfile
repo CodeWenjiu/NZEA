@@ -54,3 +54,17 @@ prog: pack
 [group('fpga')]
 flash: pack
     @nu fpga/scripts/prog.nu --dev {{ fpga_dev }} --flash
+
+# Generate tile RTL for FPGA (--platform --isa --sim false --clock-hz ...)
+dump-tile platform isa clock_hz='100000000':
+    @nix develop --command bash -c 'mill --no-server nzea_cli.run --target tile --platform {{ platform }} --isa {{ isa }} --sim false --clockHz {{ clock_hz }}'
+
+# Generate Vivado project from tile RTL
+[group('fpga')]
+vivado-project dev=fpga_dev:
+    @nu fpga/scripts/vivado-project.nu --dev {{ dev }}
+
+# Send hex file to tile via UART bootloader
+[group('fpga')]
+uart-load hex port baud='100000':
+    @nix develop --command bash -c 'cd fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}'

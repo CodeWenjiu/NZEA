@@ -45,6 +45,8 @@ class RamFabricSlave(
 
   val memBytes = Seq.tabulate(4)(_ => SyncReadMem(depth, UInt(8.W), SyncReadMem.WriteFirst))
 
+
+
   val wrAddr = Mux(io.boot_wen, io.boot_addr, wordAddr)
   val wrEn   = io.boot_wen || wenClean
   for (i <- 0 until 4) {

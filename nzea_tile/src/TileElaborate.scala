@@ -40,6 +40,7 @@ object TileElaborate {
     sim: Boolean,
     platform: SynthPlatform,
     outDir: String,
+    clockHz: Int = 100_000_000,
     firtoolOpts: Array[String]
   )(implicit config: CoreConfig): Unit = {
     println(
@@ -48,7 +49,7 @@ object TileElaborate {
     println(s"Output: $outDir")
 
     ChiselStage.emitSystemVerilogFile(
-      new Top(sim, platform),
+      new Top(sim, platform, clockHz),
       args = Array("--target-dir", outDir),
       firtoolOpts = firtoolOpts
     )

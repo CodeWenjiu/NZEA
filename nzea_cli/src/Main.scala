@@ -17,6 +17,7 @@ object Main {
           sim = config.sim,
           platform = config.platform,
           outDir = config.effectiveOutDir,
+          clockHz = config.clockHz,
           firtoolOpts = config.firtoolOpts
         )
       case ElaborationTarget.Core =>

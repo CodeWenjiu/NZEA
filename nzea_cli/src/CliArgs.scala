@@ -20,7 +20,8 @@ case class CliArgs(
   @arg(doc = "Physical vector register file depth / PVR capacity (rename targets)") vrfDepth: Int = 64,
   @arg(doc = "Vector issue queue depth (RVV)") viqDepth: Int = 8,
   @arg(doc = "PHT size (power of 2)") phtSize: Int = 64,
-  @arg(doc = "BTB size (power of 2)") btbSize: Int = 16
+  @arg(doc = "BTB size (power of 2)") btbSize: Int = 16,
+  @arg(doc = "Tile clock frequency in Hz (sets UART divisor etc.)") clockHz: Int = 100_000_000,
 ) {
   def toConfig: NzeaConfig =
     NzeaConfig(
@@ -29,6 +30,7 @@ case class CliArgs(
       target = target,
       synthPlatform = platform,
       sim = sim,
+      clockHz = clockHz,
       core = CoreConfig(
         isa = isa,
         defaultPc = defaultPc,

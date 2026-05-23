@@ -62,6 +62,7 @@
             nextpnr # P&R (nextpnr-himbaechel with Gowin uarch)
             nextpnr-xilinx # P&R (nextpnr-xilinx, retained for future use)
             python3Packages.apycula # gowin_pack, gowin_bba
+            uv # python package manager
             openfpgaloader # Bitstream flashing via USB-C
           ];
 

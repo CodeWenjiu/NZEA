@@ -8,7 +8,14 @@ const raw_chips = {
         tile_platform: "hellofpga",
         tile_isa:  "riscv32i",
     },
-
+    "xc7a200t-sbg484-1": {
+        vendor: "xilinx",
+        board:  "lxb_artix7",
+        cst:    "fpga/lxb_artix7/A7_lite.xdc",
+        vivado_part: "xc7a200tsbg484-1",
+        tile_platform: "hellofpga",
+        tile_isa:  "riscv32i",
+    },
 }
 
 def compute_chip [dev: string] {
@@ -42,10 +49,12 @@ def compute_chip [dev: string] {
     let vivado = if $has_viv { $raw.vivado } else { "vivado" }
     let part   = if $has_part { $raw.vivado_part } else { "" }
 
-    # chipdb for xilinx: OPENXC7_CHIPDB/<device>.bin
+    # chipdb for xilinx: OPENXC7_CHIPDB/<device>.bin (only if env var exists)
     let chipdb = if $v == "xilinx" {
-        let pkg = ($dev | str replace -r '-[^-]+$' '' | str replace '-' '')
-        $"($env.OPENXC7_CHIPDB)/($pkg).bin"
+        try {
+            let pkg = ($dev | str replace -r '-[^-]+$' '' | str replace '-' '')
+            $"($env.OPENXC7_CHIPDB)/($pkg).bin"
+        } catch { "" }
     } else {
         ""
     }

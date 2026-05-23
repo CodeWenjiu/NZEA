@@ -8,6 +8,7 @@ case class NzeaConfig(
   target: ElaborationTarget = ElaborationTarget.Core,
   synthPlatform: String = "yosys",
   sim: Boolean = true,
+  clockHz: Int = 100_000_000,
   core: CoreConfig = CoreConfig()
 ) {
   val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Yosys)
