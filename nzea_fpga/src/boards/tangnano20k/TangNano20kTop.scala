@@ -1,7 +1,8 @@
-package nzea_fpga.boards
+package nzea_fpga.boards.tangnano20k
 
 import chisel3._
 import chisel3.util.{log2Ceil, Cat, Decoupled, MuxLookup}
+import nzea_device.UartTx
 
 /** Tang Nano 20K LED demo + UART TX ("hello_world\\n" every 1s).
   *

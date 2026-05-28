@@ -1,4 +1,4 @@
-package nzea_fpga.boards
+package nzea_fpga.boards.lxb_artix7
 
 import chisel3._
 import nzea_config.SynthPlatform

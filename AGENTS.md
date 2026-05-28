@@ -6,15 +6,18 @@
 | 模块 | 用途 |
 |--------|---------|
 | `nzea_rtl/src` | 共享 RTL 工具（FabricBus、LiteBus、crossbar、arbiter、Pipe、MuxTree） |
+| `nzea_device/src` | 可复用设备 IP（UART、定时器等），不依赖任何业务模块 |
 | `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |
 | `nzea_config/src` | 共享配置模型：`NzeaConfig`（全局生成选项）和 `CoreConfig`（微架构/ISA） |
 | `nzea_tile/src` | Tile 级 SoC 封装（NzeaTile + FabricBus crossbar + 平台设备） |
-| `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate` 或 `TileElaborate` |
+| `nzea_fpga/src` | FPGA 板级包装：板级顶层、引脚约束、综合后处理 |
+| `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |
 | `wave_tracker/` | 独立的 Rust CLI，用于 FST/VCD 波形分析和 RTL 级调试 |
 
 ### 依赖方向
 ```
-nzea_config -> nzea_rtl -> nzea_core -> nzea_tile
+nzea_rtl -> nzea_device -> nzea_fpga
+nzea_rtl -> nzea_core -> nzea_config -> nzea_tile -> nzea_fpga
 ```
 `nzea_cli` 仅依赖 `nzea_core` 和 `nzea_tile` 用于参数解析和目标路由。
 `nzea_config` 仅依赖 `nzea_core` 中的 `CoreConfig`。

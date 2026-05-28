@@ -11,7 +11,7 @@ const raw_chips = {
         vendor: "xilinx",
         board:  "lxb_artix7",
         top_module: "LxbArtix7Top",
-        cst:    "nzea_fpga/lxb_artix7/A7_lite.xdc",
+        cst:    "nzea_fpga/src/boards/lxb_artix7/A7_lite.xdc",
         vivado_part: "xc7a200tsbg484-1",
     },
 }
@@ -32,12 +32,13 @@ def compute_chip [dev: string] {
     let pnr_opts     = { placer: "heap", router: "router1" }
 
     let has_cst = ($raw | columns) | any {|c| $c == "cst" }
+    # Gowin: CST is under src/boards/<board>/
     let cst = if $has_cst {
         $raw.cst
     } else if $v == "gowin" {
-        $"($board_dir)/($board).cst"
+        $"nzea_fpga/src/boards/($board)/($board).cst"
     } else {
-        $"($board_dir)/($board).xdc"
+        $"nzea_fpga/src/boards/($board)/($board).xdc"
     }
 
     let cols = ($raw | columns)
@@ -62,8 +63,6 @@ def compute_chip [dev: string] {
         vivado: $vivado,
         part: $part,
         top_module: $raw.top_module,
-        # Gowin: ALU module name conflicts with built-in primitive; rename in post
-        pre_alu: ($v == "gowin"),
     }
 }
 

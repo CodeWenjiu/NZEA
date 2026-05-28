@@ -1,4 +1,4 @@
-package nzea_fpga.boards
+package nzea_device
 
 import chisel3._
 import chisel3.util.{log2Ceil, Cat, Decoupled, MuxLookup}

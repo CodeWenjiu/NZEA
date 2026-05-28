@@ -25,31 +25,7 @@ def dump_fpga [board: string, isa: string, clock_hz: int] {
     }
 
     if $need_gen {
-        ^just dump --target fpga --fpgaBoard $board --isa $isa --sim false --clockHz $"($clock_hz)"
-    }
-}
-
-# Gowin: rename ALU module to avoid conflict with built-in primitive.
-# Uses exact patterns to avoid double-processing on re-runs.
-def preprocess_alu [rtl_dir: string] {
-    if ($rtl_dir | path exists) {
-        print $"Pre-processing: renaming ALU → ALU_nzea in ($rtl_dir)/*.sv"
-        for f in (glob $"($rtl_dir)/*.sv") {
-            let content = open $f
-            let has_mod = ($content | str contains "module ALU(") or ($content | str contains "module ALU ")
-            let has_inst = ($content | str contains "ALU alu (")
-            if $has_mod or $has_inst {
-                mut c = $content
-                if $has_mod {
-                    $c = ($c | str replace -a "module ALU(" "module ALU_nzea(")
-                    $c = ($c | str replace -a "module ALU " "module ALU_nzea ")
-                }
-                if $has_inst {
-                    $c = ($c | str replace -a "ALU alu (" "ALU_nzea alu (")
-                }
-                $c | save -f $f
-            }
-        }
+        ^mill --no-server nzea_cli.run --target fpga --fpgaBoard $board --isa $isa --sim false --clockHz $"($clock_hz)"
     }
 }
 
@@ -135,10 +111,6 @@ def main [--dev: string = "GW2AR-LV18QN88C8/I7"] {
 
     # Ensure FPGA RTL is up-to-date
     dump_fpga $board $isa 100_000_000
-
-    if $chip.pre_alu {
-        preprocess_alu $rtl_dir
-    }
 
     synth $rtl_dir $build $top $chip
     pnr $build $top $dev $chip
