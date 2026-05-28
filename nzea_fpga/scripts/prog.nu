@@ -5,7 +5,7 @@ source ./chips.nu
 
 def main [--dev: string = "GW2AR-LV18QN88C8/I7", --flash] {
     let chip = chip_info $dev
-    let top = "top"
+    let top = $chip.top_module
     let build = "build/fpga"
     let bit = $"($build)/($top).($chip.bit_ext)"
 

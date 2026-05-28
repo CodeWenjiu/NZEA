@@ -2,7 +2,13 @@
 # FPGA build report: resource utilization, timing, warnings.
 # Reads existing outputs — always runs, never skipped.
 
-def main [build: string, top: string] {
+source ./chips.nu
+
+def main [--dev: string = "GW2AR-LV18QN88C8/I7"] {
+    let chip = chip_info $dev
+    let top = $chip.top_module
+    let build = "build/fpga"
+
     let stat_json   = $"($build)/($top)_stat.json"
     let report_json = $"($build)/($top)_report.json"
     let pnr_log     = $"($build)/($top)_pnr.log"

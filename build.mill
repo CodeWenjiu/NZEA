@@ -17,7 +17,7 @@ val sharedScalacOptions = Seq(
 object nzea_cli extends ScalaModule {
   def scalaVersion = scalaV
 
-  def moduleDeps = Seq(nzea_core, nzea_tile, nzea_config)
+  def moduleDeps = Seq(nzea_core, nzea_tile, nzea_config, nzea_fpga)
 
   override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
 }
@@ -67,6 +67,19 @@ object nzea_tile extends ScalaModule {
   def scalaVersion = scalaV
 
   def moduleDeps = Seq(nzea_core, nzea_rtl, nzea_config)
+
+  override def scalacOptions = sharedScalacOptions
+
+  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
+  override def scalacPluginMvnDeps = Seq(
+    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
+  )
+}
+
+object nzea_fpga extends ScalaModule {
+  def scalaVersion = scalaV
+
+  def moduleDeps = Seq(nzea_tile, nzea_config)
 
   override def scalacOptions = sharedScalacOptions
 

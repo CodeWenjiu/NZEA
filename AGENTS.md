@@ -1,123 +1,126 @@
-# Repository Guidelines
+# 仓库指南
 
-## Project Structure & Module Organization
-The active Scala/Chisel code is split by role:
+## 项目结构与模块组织
+活跃的 Scala/Chisel 代码按角色划分：
 
-| Module | Purpose |
+| 模块 | 用途 |
 |--------|---------|
-| `nzea_rtl/src` | Shared RTL utilities (FabricBus, LiteBus, crossbar, arbiter, Pipe, MuxTree) |
-| `nzea_core/src` | Core pipeline: frontend (IFU/IDU/ISU/RAT/PRF/CSR/BP), backend (integer/V/NNU/LSU), retire (ROB/Commit/WBU) |
-| `nzea_config/src` | Shared configuration model: `NzeaConfig` (global elaboration options) and `CoreConfig` (micro-arch/ISA) |
-| `nzea_tile/src` | Tile-level SoC wrapper (NzeaTile + FabricBus crossbar + platform devices) |
-| `nzea_cli/src` | CLI entrypoint; parses args and dispatches to `CoreElaborate` or `TileElaborate` |
-| `wave_tracker/` | Standalone Rust CLI for FST/VCD waveform analysis and RTL-level debugging |
+| `nzea_rtl/src` | 共享 RTL 工具（FabricBus、LiteBus、crossbar、arbiter、Pipe、MuxTree） |
+| `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |
+| `nzea_config/src` | 共享配置模型：`NzeaConfig`（全局生成选项）和 `CoreConfig`（微架构/ISA） |
+| `nzea_tile/src` | Tile 级 SoC 封装（NzeaTile + FabricBus crossbar + 平台设备） |
+| `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate` 或 `TileElaborate` |
+| `wave_tracker/` | 独立的 Rust CLI，用于 FST/VCD 波形分析和 RTL 级调试 |
 
-### Dependency Direction
+### 依赖方向
 ```
 nzea_config -> nzea_rtl -> nzea_core -> nzea_tile
 ```
-`nzea_cli` depends on `nzea_core` and `nzea_tile` for argument parsing and target routing only.
-`nzea_config` depends on `nzea_core` solely for `CoreConfig`.
+`nzea_cli` 仅依赖 `nzea_core` 和 `nzea_tile` 用于参数解析和目标路由。
+`nzea_config` 仅依赖 `nzea_core` 中的 `CoreConfig`。
 
-### Design Principles
-1. Keep configuration centralized in `nzea_config` to avoid duplicated CLI parsing logic.
-2. Keep scope explicit: pass `config.core` into core/tile hardware modules; keep non-core flow options in top-level `NzeaConfig`.
-3. Keep CLI concerns separate from hardware generation so elaboration remains reusable by tests and tools.
-4. Prefer small focused modules with clear ownership over large multi-purpose files.
-5. Version constants (`scalaV`, `chiselV`, etc.) are defined once in `build.mill` and reused across modules.
+### 设计原则
+1. 配置集中在 `nzea_config` 中，避免重复的 CLI 解析逻辑。
+2. 保持作用域明确：将 `config.core` 传入 core/tile 硬件模块；将非核心流程选项保留在顶层 `NzeaConfig` 中。
+3. 将 CLI 关注点与硬件生成分离，使生成过程能被测试和工具复用。
+4. 优先使用职责明确的小模块，而非多功能大文件。
+5. 版本常量（`scalaV`、`chiselV` 等）在 `build.mill` 中统一定义，各模块复用。
 
-## Working Baseline
-Use `nix develop` before build or verification work. The flake pins `mill`, `scalafmt`, `yosys`, `ieda`, JDK, and Rust nightly, and exports `PDK_PATH` for synthesis and STA flows.
+## 工作基线
+在构建或验证工作前，先执行 `nix develop`。该 flake 锁定了 `mill`、`scalafmt`、`yosys`、`ieda`、JDK 和 Rust nightly，并导出 `PDK_PATH` 用于综合和 STA 流程。
 
-## Build, Test, and Development Commands
-Prefer the repo `justfile` over ad hoc commands. Common commands:
+## 构建、测试和开发命令
+优先使用仓库的 `justfile` 而非临时命令。常用命令：
 
-- `just init`: install BSP metadata for editors.
-- `just dump <args>`: elaborate RTL into `build/<target>/<platform>/<isa>/<sim|sta>/`.
-- `just dump-tile <args>`: convenience alias for `just dump --target tile <args>`.
-- `just synth <args>`: generate synth-ready RTL, then run synthesis.
-- `just sta <args>`: run synthesis plus STA; requires `PDK_PATH` from the Nix shell.
-- `just clean-all`: clean `build/` and Mill cache.
+- `just init`：为编辑器安装 BSP 元数据。
+- `just dump <args>`：将 RTL 生成到 `build/<target>/<platform>/<isa>/<sim|sta>/`。
+- `just dump-tile <args>`：`just dump --target tile <args>` 的便捷别名。
+- `just synth <args>`：生成综合就绪的 RTL，然后运行综合。
+- `just sta <args>`：运行综合加 STA；需要 Nix shell 提供的 `PDK_PATH`。
+- `just clean-all`：清理 `build/` 和 Mill 缓存。
 
-### Quick Compile Checks
-- `mill nzea_core.compile` or `mill nzea_tile.compile`: compile a single Scala module.
+### 快速编译检查
+- `mill nzea_core.compile` 或 `mill nzea_tile.compile`：编译单个 Scala 模块。
 
-### Running Tests
-- `just test <module>`: run all tests in a module (default `nzea_rtl`; also supports `nzea_core`).
-- `just test-suites <module> <suites...>`: run specific ScalaTest suites, e.g. `just test-suites nzea_rtl FabricBusCrossbarTest FabricBusAdapterTest`.
-- `just test-match <module> <pattern>`: run suites matching a regex on `*Test.scala` filenames, e.g. `just test-match nzea_core "Vector.*Test"`.
-- `just tb <pattern>`: convenience alias for `just test-match nzea_rtl <pattern>`.
-- `mill nzea_core.test` or `mill nzea_rtl.test`: run all tests via Mill directly.
+### 运行测试
+- `just test <module>`：运行模块中的所有测试（默认 `nzea_rtl`；也支持 `nzea_core`）。
+- `just test-suites <module> <suites...>`：运行指定的 ScalaTest 套件，例如 `just test-suites nzea_rtl FabricBusCrossbarTest FabricBusAdapterTest`。
+- `just test-match <module> <pattern>`：运行文件名匹配 `*Test.scala` 正则的套件，例如 `just test-match nzea_core "Vector.*Test"`。
+- `just tb <pattern>`：`just test-match nzea_rtl <pattern>` 的便捷别名。
+- `mill nzea_core.test` 或 `mill nzea_rtl.test`：直接通过 Mill 运行所有测试。
 
 ### Wave Tracker
-- `cd wave_tracker && cargo run --release -- --help`: inspect waveform tool options.
-- `cd wave_tracker && cargo test`: run Rust tests.
-- `cd wave_tracker && cargo clippy`: run Rust lints.
-- `cd wave_tracker && cargo fmt --check`: check Rust formatting.
+- `cd wave_tracker && cargo run --release -- --help`：查看波形工具选项。
+- `cd wave_tracker && cargo test`：运行 Rust 测试。
+- `cd wave_tracker && cargo clippy`：运行 Rust lint。
+- `cd wave_tracker && cargo fmt --check`：检查 Rust 格式。
 
-### 4-State Simulation (iverilog)
-- `just iv platform=<platform> isa=<isa>`: generate RTL, compile, and run 4-state simulation.
-  - Example: `just iv platform=hellofpga isa=riscv32i`
-  - Output: `build/tile/<platform>/<isa>/hw/iverilog/tb.{vvp,fst}`
-- `just iv-build platform=<platform> isa=<isa>`: compile only.
-- `just iv-run platform=<platform> isa=<isa>`: run compiled simulation.
+### 四态仿真（iverilog）
+- `just iv platform=<platform> isa=<isa>`：生成 RTL、编译并运行四态仿真。
+  - 示例：`just iv platform=hellofpga isa=riscv32i`
+  - 输出：`build/tile/<platform>/<isa>/hw/iverilog/tb.{vvp,fst}`
+- `just iv-build platform=<platform> isa=<isa>`：仅编译。
+- `just iv-run platform=<platform> isa=<isa>`：运行已编译的仿真。
 
-Testbench sources live in `iverilog_tb/` (bus models, test programs). The `--sim false` RTL is used since it exposes bus IO without DPI bridges, and the behavioral bus models in the testbench replace DPI with pure Verilog memory models loaded via `$readmemh`.
+测试平台源码位于 `iverilog_tb/`（总线模型、测试程序）。使用 `--sim false` 生成的 RTL，因为它暴露总线 IO 而不带 DPI 桥接，测试平台中的行为总线模型通过 `$readmemh` 加载的纯 Verilog 内存模型替代 DPI。
 
-## Coding Style & Naming Conventions
-Follow existing file-local style instead of reformatting unrelated code. Scala uses `PascalCase` for classes, objects, and modules, `camelCase` for vals and methods, and test files ending in `*Test.scala`. Rust follows the standard split of `snake_case` for modules and functions and `CamelCase` for types. Keep comments and docstrings in English only. Prefer small modules and comments that explain intent or hazards, not line-by-line mechanics.
+## 编码风格与命名规范
+遵循文件现有的风格，不要重新格式化无关代码。Scala 中类、对象、模块使用 `PascalCase`，val 和方法使用 `camelCase`，测试文件以 `*Test.scala` 结尾。Rust 遵循标准惯例：模块和函数用 `snake_case`，类型用 `CamelCase`。注释和文档字符串仅使用英文。优先使用小模块，注释应解释意图或风险，而非逐行描述机制。
 
-### Formatting
-- Scala: use `scalafmt` (configured via `.scalafmt.conf` at repo root).
-- Rust: use `cargo fmt` and `cargo clippy`.
+### 格式化
+- Scala：使用 `scalafmt`（通过仓库根目录的 `.scalafmt.conf` 配置）。
+- Rust：使用 `cargo fmt` 和 `cargo clippy`。
 
-## Repository-Specific Rules
-- Do not extract JARs or archives into the repository tree. Use read-only inspection such as `jar tf`, or extract into `/tmp`.
-- Keep comments and docstrings in English only.
-- Do not reintroduce removed commands such as `just run`.
-- When changing synthesis or STA scripts, keep command examples aligned with the current `justfile`.
+## 仓库特定规则
+- 不要将 JAR 或归档文件解压到仓库目录中。使用只读检查，如 `jar tf`，或解压到 `/tmp`。
+- 注释和文档字符串仅使用英文。
+- 不要重新引入已删除的命令，如 `just run`。
+- 修改综合或 STA 脚本时，保持命令示例与当前 `justfile` 一致。
 
-### Decode & Chisel Notes
-- `DecodeTable.decode(inst)` may log Espresso failures and then fall back to QMC; this is expected unless you install Espresso. The generated RTL is valid.
-- If decode warnings appear for casting non-literal `UInt` to `ChiselEnum`, define the decode field as `UInt(enum.getWidth.W)` and convert with `EnumType.safe(...)` at use sites.
+### 解码与 Chisel 注意事项
+- `DecodeTable.decode(inst)` 可能会记录 Espresso 失败并回退到 QMC；这是预期行为，除非你安装了 Espresso。生成的 RTL 是有效的。
+- 如果出现将非字面量 `UInt` 转换为 `ChiselEnum` 的解码警告，将解码字段定义为 `UInt(enum.getWidth.W)`，并在使用处通过 `EnumType.safe(...)` 进行转换。
 
-## Testing Guidelines
-- Scala regression tests live in `nzea_core/test/src` and `nzea_rtl/test/src`.
-- Keep test names descriptive, for example `VectorBackendTest.scala` or `DbusMemBridgeTest.scala`.
-- For `wave_tracker`, add focused unit tests near the affected Rust module and run `cargo test`.
-- Changes to synthesis or STA flows should include the exact command used and the generated report path.
+## 测试指南
+- Scala 回归测试位于 `nzea_core/test/src` 和 `nzea_rtl/test/src`。
+- 测试名称应具有描述性，例如 `VectorBackendTest.scala` 或 `DbusMemBridgeTest.scala`。
+- 对于 `wave_tracker`，在受影响的 Rust 模块附近添加聚焦的单元测试，并运行 `cargo test`。
+- 修改综合或 STA 流程时，应附上使用的具体命令和生成的报告路径。
 
-## Commit & Pull Request Guidelines
-Recent history uses short conventional subjects such as `feat: nnu`, `fix: DIV pre path`, and `chore: rtl split`. Prefer `type: concise summary` with imperative wording. PRs should state the affected area, list verification commands, link related issues, and attach report snippets or screenshots when the change affects generated RTL, timing, or debug tooling output.
+## 提交与 Pull Request 指南
+近期历史使用简短的 conventional 主题格式，如 `feat: nnu`、`fix: DIV pre path` 和 `chore: rtl split`。优先使用 `类型: 简洁摘要` 的祈使语句格式。PR 应说明受影响的范围，列出验证命令，链接相关问题，当修改影响生成的 RTL、时序或调试工具输出时，应附上报告片段或截图。
 
-## iverilog Simulation Debugging
+## iverilog 仿真调试
 
-### Timeout vs Deadlock
-When diagnosing a failing simulation, always start with a short timeout (10s) and double it. **If commit count plateaus at the same number despite increasing timeouts, the simulation is deadlocked, not slow.** Do not keep raising the timeout — investigate the last few commits.
+### 超时 vs 死锁
+在诊断失败的仿真时，始终从较短的超时（10 秒）开始，然后翻倍。**如果增加超时后提交计数始终停留在相同数字，说明仿真已死锁，而非运行缓慢。** 不要继续增加超时——应调查最后几条提交。
 
-### Data Corruption Checklist
-Deadlocked simulations in this project fall into narrow categories. Check these in order:
+### 数据损坏检查清单
+本项目中的死锁仿真可归为几类。按以下顺序检查：
 
-1. **X in commit trace** — `rd=xN val=0xXXXX` or `next_pc=0xXXXX` means uninitialized memory was read. Most common causes:
-   - Hex file was truncated during load (check sentinel value in `boot_from_hex` / `$readmemh`)
-   - BSS not zeroed (check `_start` code)
-   - Stack/heap overflowed past RAM end (check `x2` value vs `AddressMap.ram` range)
+1. **提交跟踪中出现 X**——`rd=xN val=0xXXXX` 或 `next_pc=0xXXXX` 表示读取了未初始化的内存。最常见原因：
+   - Hex 文件加载时被截断（检查 `boot_from_hex` / `$readmemh` 中的哨兵值）
+   - BSS 段未清零（检查 `_start` 代码）
+   - 栈/堆溢出超出 RAM 末尾（检查 `x2` 的值与 `AddressMap.ram` 范围的比较）
 
-2. **Stuck at same PC** — infinite loop. Check the ASM at that PC. Common patterns:
-   - LSR poll: `lbu aN, offset(t0); andi; beqz loop` — `offset` mismatch between driver and hardware register map
-   - Branch-to-self: `j .` — wrong instruction loaded or correct but expected to break
+2. **卡在同一 PC**——死循环。检查该 PC 处的汇编代码。常见模式：
+   - LSR 轮询：`lbu aN, offset(t0); andi; beqz loop`——驱动程序与硬件寄存器映射之间的 `offset` 不匹配
+   - 自跳转：`j .`——加载了错误的指令，或者指令正确但预期应该跳出循环
 
-3. **No commits at all** — CPU never started. Check:
-   - `cpu_running` wire monitors the actual core reset, not BootFsm output (BootFsm may be bypassed in direct boot mode)
-   - `boot_override` is set correctly for the boot mode
+3. **完全没有提交**——CPU 从未启动。检查：
+   - `cpu_running` 信号监控的是实际核心复位，而非 BootFsm 输出（直接启动模式下 BootFsm 可能被绕过）
+   - `boot_override` 是否针对启动模式正确设置
 
-### Sentinels in Verilog
-Never use `0x00000000` as a sentinel for hex loading — it is a valid RISC-V instruction. Use `0xDEADBEEF` or another value that cannot appear in compiled programs.
+### Verilog 中的哨兵值
+切勿使用 `0x00000000` 作为 hex 加载的哨兵值——它是一个有效的 RISC-V 指令。使用 `0xDEADBEEF` 或其他不会出现在编译程序中的值。
 
-### Modifying Existing Systems
-When adding a parameter or feature to an existing integration (e.g., passing `boot` from am-zig's `just run` through to nzea's `just iv`), the task is: **add one parameter to the call chain**. Do not:
-- Change unrelated code (hex path generation, nushell syntax, direnv flags)
-- Rewrite the runner or build system
-- Fix pre-existing issues unless they block the parameter from working
+### 修改现有系统
+在向现有集成添加参数或特性时（例如，将 `boot` 从 am-zig 的 `just run` 传递到 nzea 的 `just iv`），任务就是：**在调用链中添加一个参数**。不要：
+- 修改无关代码（hex 路径生成、nushell 语法、direnv 标志）
+- 重写运行器或构建系统
+- 修复已有的问题，除非它们阻碍参数正常工作
 
-If a simple parameter addition takes more than 3 edits, stop and re-read what the existing code already does. The parameter likely just needs appending to an existing command line.
+如果一个简单的参数添加需要超过 3 处编辑，停下来重新阅读现有代码的实际逻辑。该参数很可能只需要追加到现有的命令行中。
+
+## Agent 使用规范
+Agent 在调用 `just` recipe 或其他依赖 Nix flake 环境的命令（`mill`、`yosys`、`nextpnr-*`、`nu` 等）时，必须通过 `nix develop --command bash -c '...'` 启动，因为 Agent 默认不在 nix shell 中。用户在自己终端中已事先进入 nix shell，不受此限制。

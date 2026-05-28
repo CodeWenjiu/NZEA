@@ -39,32 +39,32 @@ clean-all: clean
 
 fpga_dev := "GW2AR-LV18QN88C8/I7"
 
+# Build FPGA bitstream (synthesis + PnR). Regenerates RTL if Scala sources changed.
 [group('fpga')]
-pack:
-    @nu fpga/scripts/pack.nu --dev {{ fpga_dev }}
+pack dev=fpga_dev:
+    @nzea_fpga/scripts/pack.nu --dev {{ dev }}
 
+# Report resource utilization and timing
 [group('fpga')]
-report:
-    @nu fpga/scripts/report.nu build/fpga top
+report dev=fpga_dev:
+    @nzea_fpga/scripts/report.nu --dev {{ dev }}
 
+# Program FPGA via openFPGALoader
 [group('fpga')]
 prog: pack
-    @nu fpga/scripts/prog.nu --dev {{ fpga_dev }}
+    @nzea_fpga/scripts/prog.nu --dev {{ fpga_dev }}
 
+# Program FPGA flash via openFPGALoader
 [group('fpga')]
 flash: pack
-    @nu fpga/scripts/prog.nu --dev {{ fpga_dev }} --flash
+    @nzea_fpga/scripts/prog.nu --dev {{ fpga_dev }} --flash
 
-# Generate tile RTL for FPGA (--platform --isa --sim false --clock-hz ...)
-dump-tile platform isa clock_hz='100000000':
-    @nix develop --command bash -c 'mill --no-server nzea_cli.run --target tile --platform {{ platform }} --isa {{ isa }} --sim false --clockHz {{ clock_hz }}'
-
-# Generate Vivado project from tile RTL
+# Generate Vivado project from FPGA RTL
 [group('fpga')]
 vivado-project dev=fpga_dev:
-    @nu fpga/scripts/vivado-project.nu --dev {{ dev }}
+    @nzea_fpga/scripts/vivado-project.nu --dev {{ dev }}
 
 # Send hex file to tile via UART bootloader
 [group('fpga')]
 uart-load hex port baud='100000':
-    @nix develop --command bash -c 'cd fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}'
+    @nix develop --command bash -c 'cd nzea_fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}'

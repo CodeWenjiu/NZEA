@@ -1,16 +1,15 @@
 #!/usr/bin/env nu
-# FPGA build: RTL → JSON → routed JSON → bitstream
+# FPGA build: RTL → JSON → routed JSON → bitstream.
+#
+# Expects Chisel-generated RTL under build/fpga/<board>/<isa>/hw/.
+# Run `just dump-fpga <board> <isa>` first, or let this script do it lazily.
 
 source ./chips.nu
 
-def tile_rtl_path [chip: record] {
-    $"build/tile/($chip.tile_platform)/($chip.tile_isa)/hw"
-}
-
-# Regenerate tile RTL if Scala sources are newer
-def dump_tile [chip: record] {
-    let trtl = tile_rtl_path $chip
-    let filelist = $"($trtl)/filelist.f"
+# Regenerate FPGA RTL if Scala sources are newer than filelist
+def dump_fpga [board: string, isa: string, clock_hz: int] {
+    let rtl_dir = $"build/fpga/($board)/($isa)/hw"
+    let filelist = $"($rtl_dir)/filelist.f"
     mut need_gen = false
 
     if not ($filelist | path exists) {
@@ -20,35 +19,44 @@ def dump_tile [chip: record] {
         let scala_srcs = (glob nzea_*/src/**/*.scala)
         let scala_latest = $scala_srcs | each {|f| ls $f | first | get modified} | sort | last
         if ($scala_latest > $rtl_mtime) {
-            print "Tile RTL out of date, regenerating..."
+            print "FPGA RTL out of date, regenerating..."
             $need_gen = true
         }
     }
 
     if $need_gen {
-        ^just dump --target tile --platform $chip.tile_platform --isa $chip.tile_isa --sim false --robDepth 8 --issueQueueDepth 2
+        ^just dump --target fpga --fpgaBoard $board --isa $isa --sim false --clockHz $"($clock_hz)"
     }
 }
 
-# Per-platform RTL pre-processing
-def preprocess [chip: record, tile_rtl: string] {
-    if $chip.pre_alu and ($tile_rtl | path exists) {
-        print $"Pre-processing: renaming ALU → ALU_nzea in ($tile_rtl)/*.sv"
-        for f in (glob $"($tile_rtl)/*.sv") {
+# Gowin: rename ALU module to avoid conflict with built-in primitive.
+# Uses exact patterns to avoid double-processing on re-runs.
+def preprocess_alu [rtl_dir: string] {
+    if ($rtl_dir | path exists) {
+        print $"Pre-processing: renaming ALU → ALU_nzea in ($rtl_dir)/*.sv"
+        for f in (glob $"($rtl_dir)/*.sv") {
             let content = open $f
-            if ($content | str contains "module ALU") or ($content | str contains "ALU alu") {
-                $content
-                    | str replace -a "module ALU" "module ALU_nzea"
-                    | str replace -a "ALU alu" "ALU_nzea alu"
-                    | save -f $f
+            let has_mod = ($content | str contains "module ALU(") or ($content | str contains "module ALU ")
+            let has_inst = ($content | str contains "ALU alu (")
+            if $has_mod or $has_inst {
+                mut c = $content
+                if $has_mod {
+                    $c = ($c | str replace -a "module ALU(" "module ALU_nzea(")
+                    $c = ($c | str replace -a "module ALU " "module ALU_nzea ")
+                }
+                if $has_inst {
+                    $c = ($c | str replace -a "ALU alu (" "ALU_nzea alu (")
+                }
+                $c | save -f $f
             }
         }
     }
 }
 
-def synth [rtl: string, build: string, top: string, chip: record, tile_rtl: string] {
+def synth [rtl_dir: string, build: string, top: string, chip: record] {
     let json = $"($build)/($top).json"
-    let rtl_mtime = (ls $rtl | first | get modified)
+    let sv_files = (glob $"($rtl_dir)/*.sv")
+    let rtl_mtime = ($sv_files | each {|f| (ls $f | first | get modified)} | sort | last)
     let cst_mtime = (ls $chip.cst | first | get modified)
     let src_latest = if $rtl_mtime > $cst_mtime { $rtl_mtime } else { $cst_mtime }
 
@@ -59,20 +67,13 @@ def synth [rtl: string, build: string, top: string, chip: record, tile_rtl: stri
     print "Synthesizing..."
     mkdir $build
 
-    let tile_sv = glob $"($tile_rtl)/*.sv"
-    let rtl_files = if ($tile_sv | length) > 0 {
-        $"($rtl) ($tile_rtl)/*.sv"
-    } else {
-        $rtl
-    }
-
     let edif = $"($build)/($top).edif"
     mut synth_args = $"($chip.synth) -json ($json) -family ($chip.synth_family)"
     if $chip.synth == "synth_xilinx" {
         $synth_args = $"($synth_args) -edif ($edif)"
     }
 
-    yosys -l $"($build)/($top)_synth.log" -p $"read_verilog ($rtl_files); hierarchy -top ($top); ($synth_args); tee -o ($build)/($top)_stat.json stat -json" o+e> /dev/null
+    yosys -l $"($build)/($top)_synth.log" -p $"read_verilog ($rtl_dir)/*.sv; hierarchy -top ($top); ($synth_args); tee -o ($build)/($top)_stat.json stat -json" o+e> /dev/null
 }
 
 def pnr [build: string, top: string, dev: string, chip: record] {
@@ -125,17 +126,20 @@ def pnr [build: string, top: string, dev: string, chip: record] {
 
 def main [--dev: string = "GW2AR-LV18QN88C8/I7"] {
     let chip = chip_info $dev
-    let top = "top"
+    let top = $chip.top_module
+    let board = $chip.board
+    let isa = "riscv32i"  # default; override via --isa flag if needed
     let build = "build/fpga"
-    let rtl = $"($chip.board_dir)/($top).v"
-    let trtl = tile_rtl_path $chip
 
-    # Ensure tile RTL is up-to-date
-    if ($rtl | path exists) and (open $rtl | str contains "NzeaTile") {
-        dump_tile $chip
+    let rtl_dir = $"build/fpga/($board)/($isa)/hw"
+
+    # Ensure FPGA RTL is up-to-date
+    dump_fpga $board $isa 100_000_000
+
+    if $chip.pre_alu {
+        preprocess_alu $rtl_dir
     }
 
-    preprocess $chip $trtl
-    synth $rtl $build $top $chip $trtl
+    synth $rtl_dir $build $top $chip
     pnr $build $top $dev $chip
 }
