@@ -1,5 +1,4 @@
 package nzea_fpga.boards.tangnano20k
-
 import chisel3._
 import chisel3.util.{Cat, log2Ceil, MuxLookup}
 import nzea_device.Uart
@@ -57,9 +56,7 @@ class TangNano20kCore(clkFreq: Int, baudRate: Int) extends Module {
     val ch = uart.io.rx.bits
     buf(bufWr) := ch
     bufWr      := bufWr + 1.U
-    when(ch === 0x0d.U || ch === 0x0a.U || bufWr + 1.U === (bufLen - 1).U) {
-      echoRdy := true.B
-    }
+    when(bufWr + 1.U === (bufLen - 1).U) { echoRdy := true.B }
   }
 
   // ── Message ROM ────────────────────────────────────────────

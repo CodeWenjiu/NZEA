@@ -1,90 +1,93 @@
 package nzea_device
 
 import chisel3._
-import chisel3.util.{Cat, Decoupled, Enum, is, switch}
-import nzea_rtl.DdsNco
+import chisel3.util.{Cat, Decoupled}
 
 /** Minimal UART receiver (8N1).
   *
-  * Samples at mid-bit using [[DdsNco]] for baud timing. After detecting a start bit (1→0), waits half a bit period,
-  * then samples 8 data bits + stop bit. Outputs received bytes via `io.out` (Decoupled).
-  *
-  * @param clockHz  system clock in Hz
-  * @param baudRate desired baud rate
+  * Based on the proven [[https://github.com/ultraembedded/core_soc/blob/master/src_v/uart_lite.v uart_lite]]
+  * implementation. Uses a down-counter for baud timing with half-bit-period initial offset to sample at bit centers.
   */
 class UartRx(clockHz: Int, baudRate: Int) extends Module {
+
   val io = IO(new Bundle {
     val rxd = Input(Bool())
     val out = Decoupled(UInt(8.W))
   })
 
-  // ── Start-bit edge detection ───────────────────────────────
-  val rxdPrev = RegInit(true.B); rxdPrev := io.rxd  // match idle line
-  val startBit = rxdPrev && !io.rxd  // falling edge: idle(1) → start(0)
+  // ── Baud counter ───────────────────────────────────────────
+  private val bitDiv = clockHz / baudRate // full bit period in cycles
+  private val bitDivHalf = bitDiv / 2 // half bit for center-of-start-bit
 
-  // ── DDS baud tick (reset on start bit for mid-bit alignment) ─
-  val dds = Module(new DdsNco(clockHz, baudRate))
-  dds.io.resetPhase := startBit
-  val baudTick = dds.io.tick
+  val counter = RegInit(0.U(32.W))
+  val sampleTick = counter === 0.U
 
-  // ── RX FSM ─────────────────────────────────────────────────
-  val sIdle :: sStart :: sData :: sStop :: sDone :: Nil = Enum(5)
-  val state = RegInit(sIdle)
+  // ── Synchronize rxd ────────────────────────────────────────
+  val rxdM = RegInit(true.B); rxdM := io.rxd
+  val rxd = RegInit(true.B); rxd := rxdM
 
-  val halfTick = RegInit(false.B) // true after first tick in sStart
+  // ── RX registers ───────────────────────────────────────────
+  val busy = RegInit(false.B)
+  val shiftReg = RegInit(0.U(8.W))
+  val bitCnt = RegInit(0.U(4.W)) // 0=start, 1-8=data, 9=stop
+  val rxReady = RegInit(false.B)
+  val rxData = RegInit(0.U(8.W))
 
-  val shiftReg  = RegInit(0.U(8.W))
-  val bitCnt    = RegInit(0.U(3.W)) // 0..7 data bits
-
-  io.out.valid := false.B
-  io.out.bits  := DontCare
-
-  switch(state) {
-    is(sIdle) {
-      when(startBit) {
-        state    := sStart
-        halfTick := false.B
-      }
-    }
-    is(sStart) {
-      when(baudTick) {
-        when(halfTick) {
-          // waited 1.5 bit periods; reset DDS → sample data at bit centers
-          dds.io.resetPhase := true.B
-          state    := sData
-          bitCnt   := 0.U
-          shiftReg := 0.U
-        }.otherwise {
-          halfTick := true.B
-        }
-      }
-    }
-    is(sData) {
-      when(baudTick) {
-        shiftReg := Cat(io.rxd, shiftReg(7, 1))
-        when(bitCnt === 7.U) {
-          state := sStop
-        }.otherwise {
-          bitCnt := bitCnt + 1.U
-        }
-      }
-    }
-    is(sStop) {
-      when(baudTick) {
-        // if stop bit is 0 → framing error; discard
-        when(io.rxd) {
-          io.out.valid := true.B
-          io.out.bits  := shiftReg
-        }
-        state := sDone
-      }
-    }
-    is(sDone) {
-      io.out.valid := true.B
-      io.out.bits  := shiftReg
-      when(io.out.ready) {
-        state := sIdle
-      }
+  // ── Baud counter logic ─────────────────────────────────────
+  when(!busy) {
+    counter := bitDivHalf.U // half-bit to center of start bit
+  }.elsewhen(!sampleTick) {
+    counter := counter - 1.U // count down
+  }.otherwise { // sampleTick
+    when((bitCnt === 9.U)) {
+      counter := 0.U // done
+    }.otherwise {
+      counter := bitDiv.U // reload full bit period
     }
   }
+
+  // ── Busy / data detection ──────────────────────────────────
+  when(busy && sampleTick) {
+    when(bitCnt === 9.U) {
+      busy := false.B
+    }.elsewhen(bitCnt === 0.U) {
+      // center of start bit — should still be low
+      when(rxd) {
+        busy := false.B // false start
+      }
+    }.otherwise {
+      // data bits 1-8
+      shiftReg := Cat(rxd, shiftReg(7, 1))
+    }
+  }.elsewhen(!busy && !rxd) {
+    // start bit detected (falling edge)
+    busy := true.B
+    shiftReg := 0.U
+  }
+
+  // ── Bit counter ────────────────────────────────────────────
+  when(!busy) {
+    bitCnt := 0.U
+  }.elsewhen(sampleTick && busy) {
+    bitCnt := bitCnt + 1.U
+  }
+
+  // ── Output logic ───────────────────────────────────────────
+  when(busy && sampleTick && bitCnt === 9.U) {
+    when(rxd) {
+      // valid stop bit
+      rxData := shiftReg
+      rxReady := true.B
+    }.otherwise {
+      // framing error — discard
+      rxReady := false.B
+    }
+  }
+
+  when(io.out.ready) {
+    rxReady := false.B
+  }
+
+  io.out.valid := rxReady
+  io.out.bits := rxData
 }
