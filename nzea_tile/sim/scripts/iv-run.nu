@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # Run compiled iverilog simulation.
-# Usage: nu iverilog_tb/scripts/iv-run.nu <platform> <isa> [hex] [boot] [wave]
+# Usage: nu nzea_tile/sim/scripts/iv-run.nu <platform> <isa> [hex] [boot] [wave]
 
 def main [
     platform: string

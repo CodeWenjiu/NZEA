@@ -65,7 +65,7 @@ nzea_rtl -> nzea_core -> nzea_config -> nzea_tile -> nzea_fpga
 - `just iv-build platform=<platform> isa=<isa>`：仅编译。
 - `just iv-run platform=<platform> isa=<isa>`：运行已编译的仿真。
 
-测试平台源码位于 `iverilog_tb/`（总线模型、测试程序）。使用 `--sim false` 生成的 RTL，因为它暴露总线 IO 而不带 DPI 桥接，测试平台中的行为总线模型通过 `$readmemh` 加载的纯 Verilog 内存模型替代 DPI。
+测试平台源码位于 `nzea_tile/sim/`（总线模型、测试程序）。使用 `--sim false` 生成的 RTL，因为它暴露总线 IO 而不带 DPI 桥接，测试平台中的行为总线模型通过 `$readmemh` 加载的纯 Verilog  内存模型替代 DPI。
 
 ## 编码风格与命名规范
 遵循文件现有的风格，不要重新格式化无关代码。Scala 中类、对象、模块使用 `PascalCase`，val 和方法使用 `camelCase`，测试文件以 `*Test.scala` 结尾。Rust 遵循标准惯例：模块和函数用 `snake_case`，类型用 `CamelCase`。注释和文档字符串仅使用英文。优先使用小模块，注释应解释意图或风险，而非逐行描述机制。

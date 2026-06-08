@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # Compile testbench + RTL with iverilog.
-# Usage: nu iverilog_tb/scripts/iv-build.nu <platform> <isa> [hex]
+# Usage: nu nzea_tile/sim/scripts/iv-build.nu <platform> <isa> [hex]
 
 def main [platform: string, isa: string, hex?: string] {
     let rtl = $"build/tile/($platform)/($isa)/hw"
@@ -45,5 +45,5 @@ def main [platform: string, isa: string, hex?: string] {
     }
 
     print "Compiling with iverilog..."
-    ^iverilog -g2012 -Wall -Wno-timescale -DHEX_BUF_WORDS=($hex_buf) -o ($iv_dir | path join "tb.vvp") ...(glob iverilog_tb/*.sv) ...$rtl_sv
+    ^iverilog -g2012 -Wall -Wno-timescale -DHEX_BUF_WORDS=($hex_buf) -o ($iv_dir | path join "tb.vvp") ...(glob nzea_tile/sim/*.sv) ...$rtl_sv
 }

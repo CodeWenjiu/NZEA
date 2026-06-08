@@ -47,10 +47,10 @@ module tb;
     );
 
     // ---- UART TX tasks (boot protocol) ----
-    `include "iverilog_tb/boot/uart_tasks.svh"
+    `include "nzea_tile/sim/boot/uart_tasks.svh"
 
     // ---- UART boot protocol ----
-    `include "iverilog_tb/boot/uart_boot.svh"
+    `include "nzea_tile/sim/boot/uart_boot.svh"
 
     // ---- Test program ----
     reg [1023:0] hex_file;
@@ -93,7 +93,7 @@ module tb;
         end
         // Load RAM before releasing reset (for direct mode)
         if (boot_mode == "dir") begin
-            `include "iverilog_tb/boot/direct_boot.svh"
+            `include "nzea_tile/sim/boot/direct_boot.svh"
         end
         rst_n=0; repeat(RESET_CYCLES) @(posedge clk);
         rst_n=1; uart_tx<=1'b1; repeat(200) @(posedge clk);
