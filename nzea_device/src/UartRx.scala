@@ -72,22 +72,17 @@ class UartRx(clockHz: Int, baudRate: Int) extends Module {
     bitCnt := bitCnt + 1.U
   }
 
-  // ── Output logic ───────────────────────────────────────────
+  // ── Output logic (1-cycle pulse, like reference) ────────────
+  when(rxReady) { rxReady := false.B } // auto-clear next cycle
+
   when(busy && sampleTick && bitCnt === 9.U) {
     when(rxd) {
-      // valid stop bit
       rxData := shiftReg
       rxReady := true.B
-    }.otherwise {
-      // framing error — discard
-      rxReady := false.B
     }
-  }
-
-  when(io.out.ready) {
-    rxReady := false.B
   }
 
   io.out.valid := rxReady
   io.out.bits := rxData
+
 }
