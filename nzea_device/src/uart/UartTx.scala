@@ -1,4 +1,4 @@
-package nzea_device
+package nzea_device.uart
 
 import chisel3._
 import chisel3.util.{Cat, Decoupled}

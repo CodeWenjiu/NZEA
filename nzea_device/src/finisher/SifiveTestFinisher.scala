@@ -1,4 +1,4 @@
-package nzea_tile.platform.hellofpga
+package nzea_device.finisher
 
 import chisel3._
 import chisel3.util._

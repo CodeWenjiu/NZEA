@@ -66,7 +66,7 @@ object nzea_core extends ScalaModule {
 object nzea_tile extends ScalaModule {
   def scalaVersion = scalaV
 
-  def moduleDeps = Seq(nzea_core, nzea_rtl, nzea_config)
+  def moduleDeps = Seq(nzea_core, nzea_rtl, nzea_config, nzea_device)
 
   override def scalacOptions = sharedScalacOptions
 

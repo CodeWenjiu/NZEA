@@ -8,40 +8,42 @@ import nzea_core.config.CoreConfig
 object TileElaborate {
 
   /** Tile wrapper: `sim=true` enables DPI bridges; else expose tile IO as top-level ports. */
-  class Top(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit config: CoreConfig) extends Module {
+  class Top(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit config: CoreConfig)
+      extends Module {
     override def desiredName = "NzeaTile"
 
     val tile = Module(new NzeaTile(sim, platform, clockHz))
-    // Drive inactive platform IO to prevent uninitialized sink errors
-    tile.io.yosys_devices := DontCare
-    tile.io.fpga_uart     := DontCare
 
     if (sim) {
-      // DPI mode: nothing else exposed at Top boundary
+      // DPI mode: platform IO not exposed; tie off
+      tile.io := DontCare
     } else {
-      val commit_msg = IO(Output(chiselTypeOf(tile.io.commit_msg)))
-      commit_msg := tile.io.commit_msg
+      val commit_msg = IO(Output(chiselTypeOf(tile.io.asInstanceOf[nzea_tile.platform.HasCommitMsg].commit_msg)))
+      commit_msg := tile.io.asInstanceOf[nzea_tile.platform.HasCommitMsg].commit_msg
 
       platform match {
         case SynthPlatform.Yosys =>
-          val devices = IO(chiselTypeOf(tile.io.yosys_devices))
-          devices <> tile.io.yosys_devices
+          val io2 = tile.io.asInstanceOf[nzea_tile.platform.yosys.TileIo]
+          val devices = IO(chiselTypeOf(io2.yosys_devices))
+          devices <> io2.yosys_devices
 
         case SynthPlatform.HelloFPGA =>
-          val uart = IO(chiselTypeOf(tile.io.fpga_uart))
-          uart <> tile.io.fpga_uart
+          val io2 = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]
+          val uart = IO(chiselTypeOf(io2.fpga_uart))
+          uart <> io2.fpga_uart
           val fpga_finish = IO(Output(Bool()))
-          fpga_finish := tile.io.fpga_finish
+          fpga_finish := io2.fpga_finish
       }
     }
+
   }
 
   def elaborate(
-    sim: Boolean,
-    platform: SynthPlatform,
-    outDir: String,
-    clockHz: Int = 100_000_000,
-    firtoolOpts: Array[String]
+      sim: Boolean,
+      platform: SynthPlatform,
+      outDir: String,
+      clockHz: Int = 100_000_000,
+      firtoolOpts: Array[String]
   )(implicit config: CoreConfig): Unit = {
     println(
       s"Generating NzeaTile (isa: ${config.isa}, platform: ${platform.segment}, sim: $sim)"
@@ -54,4 +56,5 @@ object TileElaborate {
       firtoolOpts = firtoolOpts
     )
   }
+
 }

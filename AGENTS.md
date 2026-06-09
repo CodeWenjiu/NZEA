@@ -15,11 +15,23 @@
 | `wave_tracker/` | 独立的 Rust CLI，用于 FST/VCD 波形分析和 RTL 级调试 |
 
 ### 依赖方向
+```mermaid
+flowchart TD
+    rtl[nzea_rtl] --> device[nzea_device]
+    rtl --> core[nzea_core]
+    core --> config[nzea_config]
+    core --> tile[nzea_tile]
+    config --> tile
+    rtl --> tile
+    device --> tile
+    device --> fpga[nzea_fpga]
+    tile --> fpga
+    core --> cli[nzea_cli]
+    tile --> cli
+    config --> cli
+    fpga --> cli
 ```
-nzea_rtl -> nzea_device -> nzea_fpga
-nzea_rtl -> nzea_core -> nzea_config -> nzea_tile -> nzea_fpga
-```
-`nzea_cli` 仅依赖 `nzea_core` 和 `nzea_tile` 用于参数解析和目标路由。
+`nzea_cli` 依赖 `nzea_core`、`nzea_tile`、`nzea_config`、`nzea_fpga` 用于参数解析和目标分发。
 `nzea_config` 仅依赖 `nzea_core` 中的 `CoreConfig`。
 
 ### 设计原则
@@ -127,3 +139,5 @@ nzea_rtl -> nzea_core -> nzea_config -> nzea_tile -> nzea_fpga
 
 ## Agent 使用规范
 Agent 在调用 `just` recipe 或其他依赖 Nix flake 环境的命令（`mill`、`yosys`、`nextpnr-*`、`nu` 等）时，必须通过 `nix develop --command bash -c '...'` 启动，因为 Agent 默认不在 nix shell 中。用户在自己终端中已事先进入 nix shell，不受此限制。
+
+修改 Scala/Chisel 代码后，Agent 必须运行 `nix develop --command bash -c 'just dump --target tile --platform hellofpga --isa riscv32im --sim false'` 验证编译和 Chisel 生成均通过再报告完成。

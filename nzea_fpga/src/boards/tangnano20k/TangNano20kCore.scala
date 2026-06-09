@@ -2,7 +2,7 @@ package nzea_fpga.boards.tangnano20k
 
 import chisel3._
 import chisel3.util.{log2Ceil, Cat, MuxLookup}
-import nzea_device.{UartRx, UartTx}
+import nzea_device.uart.{UartRx, UartTx}
 
 /** Tang Nano 20K core logic. Uses reference UART RX (Verilog BlackBox) to isolate RX issues from data path. */
 class TangNano20kCore(clkFreq: Int, baudRate: Int) extends Module {

@@ -35,15 +35,15 @@ class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule 
     Module(new nzea_tile.NzeaTile(sim = false, platform = SynthPlatform.HelloFPGA, clockHz = clockHz))
   }
 
-  tile.io.yosys_devices := DontCare
+  val tileIo = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]
 
   // ── UART ───────────────────────────────────────────────────
-  UART_TX := tile.io.fpga_uart.txd
-  tile.io.fpga_uart.rxd := UART_RX
-  tile.io.fpga_uart.ctsn := false.B
+  UART_TX := tileIo.fpga_uart.txd
+  tileIo.fpga_uart.rxd := UART_RX
+  tileIo.fpga_uart.ctsn := false.B
 
   // ── Finish LED ─────────────────────────────────────────────
-  LED1 := tile.io.fpga_finish
+  LED1 := tileIo.fpga_finish
 
   // ── Commit activity LED (stretch 1-cycle pulse to ~0.1s) ───
   val stretchTarget = (clockHz / 10).U
@@ -54,7 +54,7 @@ class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule 
     stretchCnt := 0.U
     commitLed := false.B
   }.otherwise {
-    when(tile.io.commit_msg.valid) {
+    when(tileIo.commit_msg.valid) {
       stretchCnt := stretchTarget
     }.elsewhen(stretchCnt > 0.U) {
       stretchCnt := stretchCnt - 1.U
