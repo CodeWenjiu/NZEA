@@ -4,6 +4,13 @@ import chisel3._
 import chisel3.util.Cat
 import nzea_rtl.FabricBusRW
 
+class UartIo extends Bundle {
+  val txd = Output(Bool())
+  val rxd = Input(Bool())
+  val rtsn = Output(Bool())
+  val ctsn = Input(Bool())
+}
+
 /** FabricBus-attached UART. Internally delegates TX/RX to [[nzea_device.UartTx]] / [[nzea_device.UartRx]]. */
 class FabricBusUart(base: BigInt, simClkHz: Int = 100_000_000, baudRate: Int = 100000) extends Module {
 

@@ -1,42 +1,43 @@
 package nzea_core.backend.integer.nnu
 
 import chisel3._
-import chisel3.util.{Cat, Fill, MuxLookup, Valid}
+import chisel3.util.{is, switch, Cat, Fill, MuxLookup, Valid}
 import chisel3.util.experimental.loadMemoryFromFile
 import firrtl.annotations.MemoryLoadFileType
 import nzea_rtl.PipeIO
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
-/** WJCUS0 custom-0 NN ops; aligned with remu `OP_WJCUS0` + `mnist_infer`.
-  * Weights: row-wide [[SyncReadMem]] + parallel [[Vec.reduceTree]] dot; two-cycle row MAC (`rowDotLatch`)
-  * matches SyncReadMem read latency. `fc*_w8.hex`: one contiguous hex line per row — see [[MnistRemuWeightBin]].
+/** WJCUS0 custom-0 NN ops; aligned with remu `OP_WJCUS0` + `mnist_infer`. Weights: row-wide [[SyncReadMem]] + parallel
+  * [[Vec.reduceTree]] dot; two-cycle row MAC (`rowDotLatch`) matches SyncReadMem read latency. `fc*_w8.hex`: one
+  * contiguous hex line per row — see [[MnistRemuWeightBin]].
   */
 /** Must use sequential encodings (0,1,2): [[FuOpField]] stores `litValue` in a shared `fu_op` field and
-  * [[IntegerIssueQueue]] masks with `FuDecode.take(_, NnOp.getWidth)`. One-hot values (1,2,4) would make
-  * `Load=4` truncate to 0 when `getWidth==2`, mis-decoding NN_LOAD as LoadAct and skipping GPR writeback. */
+  * [[IntegerIssueQueue]] masks with `FuDecode.take(_, NnOp.getWidth)`. One-hot values (1,2,4) would make `Load=4`
+  * truncate to 0 when `getWidth==2`, mis-decoding NN_LOAD as LoadAct and skipping GPR writeback.
+  */
 object NnOp extends chisel3.ChiselEnum {
   val LoadAct = Value
-  val Start   = Value
-  val Load    = Value
+  val Start = Value
+  val Load = Value
 }
 
 /** One high-level step of the fixed MNIST FC inference FSM (FC1 → ReLU quant → FC2 → … → FC3 logits). */
 object InferPhase extends ChiselEnum {
   val Fc1RowDotAllRows = Value // 256× MAC: input image vs FC1 weights
-  val Fc1MaxAbs        = Value // scan FC1 sums, find max |x|
-  val Fc1ShiftAmount   = Value // normalize dynamic range (leading zeros)
-  val Fc1QuantToAct    = Value // per-neuron shift / saturate / ReLU → fc1Act
+  val Fc1MaxAbs = Value // scan FC1 sums, find max |x|
+  val Fc1ShiftAmount = Value // normalize dynamic range (leading zeros)
+  val Fc1QuantToAct = Value // per-neuron shift / saturate / ReLU → fc1Act
   val Fc2RowDotAllRows = Value
-  val Fc2MaxAbs        = Value
-  val Fc2ShiftAmount   = Value
-  val Fc2QuantToAct    = Value
-  val Fc3RowDotLogits  = Value // 10 logits
+  val Fc2MaxAbs = Value
+  val Fc2ShiftAmount = Value
+  val Fc2QuantToAct = Value
+  val Fc3RowDotLogits = Value // 10 logits
 }
 
 /** Between row dot and writing one scaled accumulator element. */
 object MacWriteStage extends ChiselEnum {
-  val Idle       = Value // issue row read or wait for next row index
+  val Idle = Value // issue row read or wait for next row index
   val MulByScale = Value // acc * per-layer Q16 scale
   val WriteAccum = Value // >>16, write fc*Out / logits
 }
@@ -44,8 +45,8 @@ object MacWriteStage extends ChiselEnum {
 /** Per-neuron quantize pipeline inside [[InferPhase.Fc1QuantToAct]] / [[InferPhase.Fc2QuantToAct]]. */
 object QuantStage extends ChiselEnum {
   val LatchSrc = Value // sample fc*Out[k], k
-  val Shift    = Value // arithmetic shift by shiftAmt
-  val SatRelu  = Value // clamp to int8-ish range, ReLU
+  val Shift = Value // arithmetic shift by shiftAmt
+  val SatRelu = Value // clamp to int8-ish range, ReLU
   val WriteAct = Value // store byte into fc*Act
 }
 
@@ -62,19 +63,20 @@ object NnuSramDims {
 }
 
 class NnInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val nnOp   = NnOp()
-  val rs1    = UInt(32.W)
-  val rs2    = UInt(32.W)
-  val pc     = UInt(32.W)
+  val nnOp = NnOp()
+  val rs1 = UInt(32.W)
+  val rs2 = UInt(32.W)
+  val pc = UInt(32.W)
   val rob_id = UInt(robIdWidth.W)
-  val p_rd   = UInt(prfAddrWidth.W)
+  val p_rd = UInt(prfAddrWidth.W)
 }
 
 class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
+
   val io = IO(new Bundle {
-    val in         = Flipped(new PipeIO(new NnInput(robIdWidth, prfAddrWidth)))
+    val in = Flipped(new PipeIO(new NnInput(robIdWidth, prfAddrWidth)))
     val rob_access = Output(Valid(new nzea_core.retire.rob.RobEntryStateUpdate(robIdWidth)))
-    val out        = new PipeIO(new PrfWriteBundle(prfAddrWidth))
+    val out = new PipeIO(new PrfWriteBundle(prfAddrWidth))
   })
 
   val (fc1MemPath, fc2MemPath, fc3MemPath) = MnistRemuWeightBin.syncReadMemInitFilePaths
@@ -93,17 +95,17 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   /** Full input image in registers so FC1 dot can use all pixels in parallel. */
   val inputAct = Reg(Vec(NnuSramDims.Fc1Cols, UInt(8.W)))
-  val fc1Out   = Reg(Vec(256, SInt(32.W)))
-  val fc1Act   = Reg(Vec(256, UInt(8.W)))
-  val fc2Out   = Reg(Vec(128, SInt(32.W)))
-  val fc2Act   = Reg(Vec(128, UInt(8.W)))
-  val logits   = Reg(Vec(10, SInt(32.W)))
+  val fc1Out = Reg(Vec(256, SInt(32.W)))
+  val fc1Act = Reg(Vec(256, UInt(8.W)))
+  val fc2Out = Reg(Vec(128, SInt(32.W)))
+  val fc2Act = Reg(Vec(128, UInt(8.W)))
+  val logits = Reg(Vec(10, SInt(32.W)))
 
   val sIdle :: sLoadActStore :: sInfer :: sDone :: Nil = chisel3.util.Enum(4)
   val state = RegInit(sIdle)
 
-  val loadActIdx   = Reg(UInt(10.W))
-  val loadActByte  = Reg(UInt(8.W))
+  val loadActIdx = Reg(UInt(10.W))
+  val loadActByte = Reg(UInt(8.W))
   val loadActValid = Reg(Bool())
 
   val inferPhase = RegInit(InferPhase.Fc1RowDotAllRows)
@@ -111,27 +113,27 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val row = Reg(UInt(9.W))
   val kScan = Reg(UInt(9.W))
 
-  val maxAbs    = Reg(UInt(32.W))
-  val shiftAmt  = Reg(UInt(6.W))
+  val maxAbs = Reg(UInt(32.W))
+  val shiftAmt = Reg(UInt(6.W))
   val shiftIter = Reg(UInt(32.W))
 
   /** false = issue SyncReadMem row read; true = dot product + kick scale (read data valid). */
   val rowDotLatch = RegInit(false.B)
 
-  val quantStage      = RegInit(QuantStage.LatchSrc)
-  val quantPipeK      = Reg(UInt(8.W))
-  val quantPipeXs     = Reg(SInt(32.W))
+  val quantStage = RegInit(QuantStage.LatchSrc)
+  val quantPipeK = Reg(UInt(8.W))
+  val quantPipeXs = Reg(SInt(32.W))
   val quantShiftedReg = Reg(SInt(32.W))
   val quantActByteReg = Reg(UInt(8.W))
 
   val macWriteStage = RegInit(MacWriteStage.Idle)
-  val macProdReg    = Reg(SInt(64.W))
-  val macScaleAcc   = Reg(SInt(32.W))
-  val macScaleRow   = Reg(UInt(9.W))
+  val macProdReg = Reg(SInt(64.W))
+  val macScaleAcc = Reg(SInt(32.W))
+  val macScaleRow = Reg(UInt(9.W))
 
   val robIdReg = Reg(UInt(robIdWidth.W))
-  val pcReg    = Reg(UInt(32.W))
-  val pRdReg   = Reg(UInt(prfAddrWidth.W))
+  val pcReg = Reg(UInt(32.W))
+  val pRdReg = Reg(UInt(prfAddrWidth.W))
   val loadData = Reg(UInt(32.W))
 
   val fire = io.in.valid && io.in.ready
@@ -139,10 +141,10 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.in.ready := (state === sIdle) && !io.out.flush && io.out.ready
 
   when(io.out.flush) {
-    state         := sIdle
-    quantStage    := QuantStage.LatchSrc
+    state := sIdle
+    quantStage := QuantStage.LatchSrc
     macWriteStage := MacWriteStage.Idle
-    rowDotLatch   := false.B
+    rowDotLatch := false.B
   }
 
   val nextPc = pcReg + 4.U
@@ -161,27 +163,31 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
 
   when(state === sIdle && fire) {
     robIdReg := io.in.bits.rob_id
-    pcReg    := io.in.bits.pc
-    pRdReg   := io.in.bits.p_rd
+    pcReg := io.in.bits.pc
+    pRdReg := io.in.bits.p_rd
 
-    when(io.in.bits.nnOp === NnOp.LoadAct) {
-      val idxS = io.in.bits.rs1.asSInt
-      loadActValid := (idxS >= 0.S) && (idxS < 784.S)
-      loadActIdx   := idxS.asUInt(9, 0)
-      loadActByte  := io.in.bits.rs2(7, 0)
-      state        := sLoadActStore
-    }.elsewhen(io.in.bits.nnOp === NnOp.Load) {
-      val kS        = io.in.bits.rs1.asSInt
-      val kClampedS = Mux(kS < 0.S, 0.S, Mux(kS > 9.S, 9.S, kS))
-      loadData := logits(kClampedS.asUInt(3, 0)).asUInt
-      state := sDone
-    }.elsewhen(io.in.bits.nnOp === NnOp.Start) {
-      row            := 0.U
-      inferPhase     := InferPhase.Fc1RowDotAllRows
-      quantStage     := QuantStage.LatchSrc
-      macWriteStage  := MacWriteStage.Idle
-      rowDotLatch    := false.B
-      state          := sInfer
+    switch(io.in.bits.nnOp) {
+      is(NnOp.LoadAct) {
+        val idxS = io.in.bits.rs1.asSInt
+        loadActValid := (idxS >= 0.S) && (idxS < 784.S)
+        loadActIdx := idxS.asUInt(9, 0)
+        loadActByte := io.in.bits.rs2(7, 0)
+        state := sLoadActStore
+      }
+      is(NnOp.Load) {
+        val kS = io.in.bits.rs1.asSInt
+        val kClampedS = Mux(kS < 0.S, 0.S, Mux(kS > 9.S, 9.S, kS))
+        loadData := logits(kClampedS.asUInt(3, 0)).asUInt
+        state := sDone
+      }
+      is(NnOp.Start) {
+        row := 0.U
+        inferPhase := InferPhase.Fc1RowDotAllRows
+        quantStage := QuantStage.LatchSrc
+        macWriteStage := MacWriteStage.Idle
+        rowDotLatch := false.B
+        state := sInfer
+      }
     }
   }
 
@@ -193,7 +199,7 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   }
 
   val inRowMacPhase = phaseIsRowDotFc1 || phaseIsRowDotFc2 || phaseIsRowDotFc3
-  val inRowMac      = inRowMacPhase && (macWriteStage === MacWriteStage.Idle)
+  val inRowMac = inRowMacPhase && (macWriteStage === MacWriteStage.Idle)
 
   /** Q16 scale for the current row-dot layer (table, not nested Mux). */
   val rowDotScaleQ16: SInt = MuxLookup(
@@ -202,13 +208,13 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   )(
     Seq(
       InferPhase.Fc2RowDotAllRows.asUInt -> scaleQ16Fc2,
-      InferPhase.Fc3RowDotLogits.asUInt  -> scaleQ16Fc3
+      InferPhase.Fc3RowDotLogits.asUInt -> scaleQ16Fc3
     )
   )
 
   /** Saturate + ReLU to unsigned 8b (shared FC1/FC2 quant). */
   def satReluToU8(shifted: SInt): UInt = {
-    val sat  = Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
+    val sat = Mux(shifted > 127.S, 127.S, Mux(shifted < (-128).S, (-128).S, shifted))
     val relu = Mux(sat < 0.S, 0.S, sat)
     relu.asUInt(7, 0)
   }
@@ -216,7 +222,7 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   /** Row-MAC pipeline: mul by Q16, then >>16 into fc*Out / logits. */
   def stepRowMacPipeline(): Unit = {
     when(macWriteStage === MacWriteStage.MulByScale) {
-      macProdReg    := (macScaleAcc * rowDotScaleQ16).asSInt
+      macProdReg := (macScaleAcc * rowDotScaleQ16).asSInt
       macWriteStage := MacWriteStage.WriteAccum
     }
     when(macWriteStage === MacWriteStage.WriteAccum) {
@@ -225,10 +231,10 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
         fc1Out(macScaleRow(7, 0)) := scaled
         macWriteStage := MacWriteStage.Idle
         when(macScaleRow === 255.U) {
-          inferPhase  := InferPhase.Fc1MaxAbs
-          kScan       := 0.U
-          maxAbs      := 0.U
-          quantStage  := QuantStage.LatchSrc
+          inferPhase := InferPhase.Fc1MaxAbs
+          kScan := 0.U
+          maxAbs := 0.U
+          quantStage := QuantStage.LatchSrc
           rowDotLatch := false.B
         }.otherwise {
           row := macScaleRow + 1.U
@@ -237,10 +243,10 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
         fc2Out(macScaleRow(6, 0)) := scaled
         macWriteStage := MacWriteStage.Idle
         when(macScaleRow === 127.U) {
-          inferPhase  := InferPhase.Fc2MaxAbs
-          kScan       := 0.U
-          maxAbs      := 0.U
-          quantStage  := QuantStage.LatchSrc
+          inferPhase := InferPhase.Fc2MaxAbs
+          kScan := 0.U
+          maxAbs := 0.U
+          quantStage := QuantStage.LatchSrc
           rowDotLatch := false.B
         }.otherwise {
           row := macScaleRow + 1.U
@@ -274,10 +280,10 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
         }.otherwise {
           dotFull := NNU.dotProducts(fc3RowVec, fc2Act)
         }
-        macScaleAcc   := dotFull(31, 0).asSInt
-        macScaleRow   := row
+        macScaleAcc := dotFull(31, 0).asSInt
+        macScaleRow := row
         macWriteStage := MacWriteStage.MulByScale
-        rowDotLatch   := false.B
+        rowDotLatch := false.B
       }
     }
   }
@@ -287,14 +293,14 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val inMax = (inferPhase === InferPhase.Fc1MaxAbs) || (inferPhase === InferPhase.Fc2MaxAbs)
     when(inMax) {
       val useFc1 = inferPhase === InferPhase.Fc1MaxAbs
-      val mag    = Mux(useFc1, NNU.absU(fc1Out(kScan(7, 0))), NNU.absU(fc2Out(kScan(6, 0))))
+      val mag = Mux(useFc1, NNU.absU(fc1Out(kScan(7, 0))), NNU.absU(fc2Out(kScan(6, 0))))
       val nextMx = Mux(mag > maxAbs, mag, maxAbs)
       maxAbs := nextMx
       val kEnd = Mux(useFc1, kScan === 255.U, kScan === 127.U)
       when(kEnd) {
         inferPhase := Mux(useFc1, InferPhase.Fc1ShiftAmount, InferPhase.Fc2ShiftAmount)
-        shiftIter  := nextMx
-        shiftAmt   := 0.U
+        shiftIter := nextMx
+        shiftAmt := 0.U
       }.otherwise {
         kScan := kScan + 1.U
       }
@@ -305,18 +311,18 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   def stepShiftAmount(): Unit = {
     val inShift = (inferPhase === InferPhase.Fc1ShiftAmount) || (inferPhase === InferPhase.Fc2ShiftAmount)
     when(inShift) {
-      val useFc1    = inferPhase === InferPhase.Fc1ShiftAmount
+      val useFc1 = inferPhase === InferPhase.Fc1ShiftAmount
       val nextQuant = Mux(useFc1, InferPhase.Fc1QuantToAct, InferPhase.Fc2QuantToAct)
       when(shiftIter === 0.U) {
         inferPhase := nextQuant
-        kScan      := 0.U
+        kScan := 0.U
         quantStage := QuantStage.LatchSrc
       }.elsewhen(shiftIter > 127.U) {
         shiftIter := shiftIter >> 1
-        shiftAmt  := shiftAmt + 1.U
+        shiftAmt := shiftAmt + 1.U
       }.otherwise {
         inferPhase := nextQuant
-        kScan      := 0.U
+        kScan := 0.U
         quantStage := QuantStage.LatchSrc
       }
     }
@@ -327,8 +333,8 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
     val inQuant = (inferPhase === InferPhase.Fc1QuantToAct) || (inferPhase === InferPhase.Fc2QuantToAct)
     when(inQuant) {
       val useFc1 = inferPhase === InferPhase.Fc1QuantToAct
-      val srcXs  = Mux(useFc1, fc1Out(kScan(7, 0)), fc2Out(kScan(6, 0)))
-      val kLast  = Mux(useFc1, kScan === 255.U, kScan === 127.U)
+      val srcXs = Mux(useFc1, fc1Out(kScan(7, 0)), fc2Out(kScan(6, 0)))
+      val kLast = Mux(useFc1, kScan === 255.U, kScan === 127.U)
       val nextRowDot =
         Mux(useFc1, InferPhase.Fc2RowDotAllRows, InferPhase.Fc3RowDotLogits)
 
@@ -338,23 +344,23 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
       )(
         Seq(
           QuantStage.LatchSrc.asUInt -> QuantStage.Shift,
-          QuantStage.Shift.asUInt    -> QuantStage.SatRelu,
-          QuantStage.SatRelu.asUInt  -> QuantStage.WriteAct
+          QuantStage.Shift.asUInt -> QuantStage.SatRelu,
+          QuantStage.SatRelu.asUInt -> QuantStage.WriteAct
         )
       )
 
       when(quantStage === QuantStage.LatchSrc) {
-        quantPipeK  := kScan(7, 0)
+        quantPipeK := kScan(7, 0)
         quantPipeXs := srcXs
-        quantStage  := nextQuantAfterLatch
+        quantStage := nextQuantAfterLatch
       }
       when(quantStage === QuantStage.Shift) {
         quantShiftedReg := quantPipeXs >> shiftAmt
-        quantStage      := nextQuantAfterLatch
+        quantStage := nextQuantAfterLatch
       }
       when(quantStage === QuantStage.SatRelu) {
         quantActByteReg := satReluToU8(quantShiftedReg)
-        quantStage      := nextQuantAfterLatch
+        quantStage := nextQuantAfterLatch
       }
       when(quantStage === QuantStage.WriteAct) {
         when(useFc1) {
@@ -364,9 +370,9 @@ class NNU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
         }
         quantStage := QuantStage.LatchSrc
         when(kLast) {
-          inferPhase  := nextRowDot
-          row         := 0.U
-          quantStage  := QuantStage.LatchSrc
+          inferPhase := nextRowDot
+          row := 0.U
+          quantStage := QuantStage.LatchSrc
           rowDotLatch := false.B
         }.otherwise {
           kScan := kScan + 1.U
@@ -417,4 +423,5 @@ object NNU {
     })
     prods.reduceTree(_ + _)
   }
+
 }

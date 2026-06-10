@@ -3,13 +3,6 @@ package nzea_device.uart
 import chisel3._
 import chisel3.util.Decoupled
 
-class UartIo extends Bundle {
-  val txd = Output(Bool())
-  val rxd = Input(Bool())
-  val rtsn = Output(Bool())
-  val ctsn = Input(Bool())
-}
-
 /** Full-duplex UART (8N1). Combines [[UartTx]] and [[UartRx]].
   *
   * @param clockHz

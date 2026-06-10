@@ -23,7 +23,9 @@ class BootFsm extends Module {
   val totalWords = RegInit(0.U(32.W))
   val wordAddr = RegInit(0.U(15.W))
 
-  io.cpu_reset := io.boot_en && (state === sAddr || state === sSize || state === sData)
+  // Hold CPU in reset during RAM init (sInit) and UART boot (sAddr/sSize/sData).
+  // Released in sIdle (safe: RAM is all jal x0,0) and sDone (program loaded).
+  io.cpu_reset := io.boot_en && (state === sInit || state === sAddr || state === sSize || state === sData)
 
   io.ram_wen := false.B
   io.ram_addr := wordAddr
@@ -42,9 +44,15 @@ class BootFsm extends Module {
 
   switch(state) {
     is(sInit) {
-      when(magicLow === "hB007B007".U) {
-        state := sAddr
-        byteCnt := 0.U
+      // Fill entire RAM with jal x0,0 (0x0000006F) to prevent X-propagation
+      // from uninitialized memory before the first UART boot sequence arrives.
+      io.ram_wen := true.B
+      io.ram_wdata := "h0000006F".U(32.W)
+      when(wordAddr === 32767.U) {
+        state := sIdle
+        wordAddr := 0.U
+      }.otherwise {
+        wordAddr := wordAddr + 1.U
       }
     }
     is(sIdle) {

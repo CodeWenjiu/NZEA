@@ -1,7 +1,7 @@
 package nzea_fpga.boards.tangnano20k
 
 import chisel3._
-import chisel3.util.{log2Ceil, Cat, MuxLookup}
+import chisel3.util.{is, log2Ceil, switch, Cat}
 import nzea_device.uart.{UartRx, UartTx}
 
 /** Tang Nano 20K core logic. Uses reference UART RX (Verilog BlackBox) to isolate RX issues from data path. */
@@ -91,34 +91,38 @@ class TangNano20kCore(clkFreq: Int, baudRate: Int) extends Module {
   uartTx.io.in.valid := false.B
   uartTx.io.in.bits := DontCare
 
-  txPhase := MuxLookup(txPhase.asUInt, WaitFire)(
-    Seq(
-      WaitFire.asUInt -> Mux(fire, Mux(echoRdy, Echo, Msg), WaitFire),
-      Echo.asUInt -> Mux(uartTx.io.in.ready && txIdx === echoLen - 1.U, Msg, Echo),
-      Msg.asUInt -> Mux(uartTx.io.in.ready && txIdx === (msgCount - 1).U, WaitFire, Msg)
-    )
-  )
-
-  when(fire) { txIdx := 0.U; echoLen := Mux(echoRdy, bufWr, 0.U) }
-
-  when(txPhase === Echo) {
-    uartTx.io.in.valid := true.B
-    uartTx.io.in.bits := buf(txIdx)
-    when(uartTx.io.in.ready) { txIdx := txIdx + 1.U }
-  }
-
-  when(txPhase === Msg) {
-    uartTx.io.in.valid := true.B
-    uartTx.io.in.bits := msg(txIdx)
-    when(uartTx.io.in.ready) { txIdx := txIdx + 1.U }
-  }
-
-  when(txPhase === Msg && uartTx.io.in.ready && txIdx === (msgCount - 1).U) { txIdx := 0.U }
-
-  when(txPhase === Echo && uartTx.io.in.ready && txIdx === echoLen - 1.U) {
-    echoRdy := false.B
-    bufWr := 0.U
-    txIdx := 0.U
+  switch(txPhase) {
+    is(WaitFire) {
+      when(fire) {
+        txIdx := 0.U
+        echoLen := Mux(echoRdy, bufWr, 0.U)
+        txPhase := Mux(echoRdy, Echo, Msg)
+      }
+    }
+    is(Echo) {
+      uartTx.io.in.valid := true.B
+      uartTx.io.in.bits := buf(txIdx)
+      when(uartTx.io.in.ready) {
+        txIdx := txIdx + 1.U
+        when(txIdx === echoLen - 1.U) {
+          echoRdy := false.B
+          bufWr := 0.U
+          txIdx := 0.U
+          txPhase := Msg
+        }
+      }
+    }
+    is(Msg) {
+      uartTx.io.in.valid := true.B
+      uartTx.io.in.bits := msg(txIdx)
+      when(uartTx.io.in.ready) {
+        txIdx := txIdx + 1.U
+        when(txIdx === (msgCount - 1).U) {
+          txIdx := 0.U
+          txPhase := WaitFire
+        }
+      }
+    }
   }
 
   // ── LED output ─────────────────────────────────────────────
