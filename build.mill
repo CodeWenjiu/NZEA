@@ -101,3 +101,19 @@ object nzea_fpga extends ScalaModule {
     mvn"org.chipsalliance:::chisel-plugin:$chiselV"
   )
 }
+
+/** Simulation target — sits above all other modules.
+  * Generates RTL into build/sim/ for iverilog simulation.
+  */
+object nzea_sim extends ScalaModule {
+  def scalaVersion = scalaV
+
+  def moduleDeps = Seq(nzea_core, nzea_tile, nzea_fpga, nzea_config)
+
+  override def scalacOptions = sharedScalacOptions
+
+  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
+  override def scalacPluginMvnDeps = Seq(
+    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
+  )
+}

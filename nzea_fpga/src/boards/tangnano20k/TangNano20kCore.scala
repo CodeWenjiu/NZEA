@@ -3,8 +3,8 @@ package nzea_fpga.boards.tangnano20k
 import chisel3._
 import chisel3.util.{is, log2Ceil, switch, Cat}
 import nzea_device.uart.{UartRx, UartTx}
+import nzea_tile.platform.BootFsm
 
-/** Tang Nano 20K core logic. Uses reference UART RX (Verilog BlackBox) to isolate RX issues from data path. */
 class TangNano20kCore(clkFreq: Int, baudRate: Int) extends Module {
 
   val io = IO(new Bundle {
@@ -14,117 +14,80 @@ class TangNano20kCore(clkFreq: Int, baudRate: Int) extends Module {
     val uart_rx = Input(Bool())
   })
 
-  // ── LED pattern ────────────────────────────────────────────
-  val halfSec = (clkFreq / 2).U
-  val ledCnt = RegInit(0.U(26.W))
-  val phase = RegInit(0.U(3.W))
-
-  when(ledCnt === halfSec) {
-    ledCnt := 0.U
-    phase := Mux(phase === 4.U, 0.U, phase + 1.U)
-  }.otherwise { ledCnt := ledCnt + 1.U }
-
-  val patterns = VecInit(Seq("b00001".U(5.W), "b00010".U(5.W), "b00100".U(5.W), "b01000".U(5.W), "b10000".U(5.W)))
-
-  val rxStretch = RegInit(0.U(27.W))
-  val rxActive = rxStretch > 0.U
-  when(rxStretch > 0.U) { rxStretch := rxStretch - 1.U }
-
-  // ── UART (TX = Chisel, RX = ref Verilog BlackBox) ──────────
   val uartTx = Module(new UartTx(clkFreq, baudRate))
-  io.uart_tx := uartTx.io.txd
-
   val uartRx = Module(new UartRx(clkFreq, baudRate))
+  io.uart_tx := uartTx.io.txd
   uartRx.io.rxd := io.uart_rx
-  uartRx.io.out.ready := true.B // always ready; byte pulses for 1 cycle
+  uartRx.io.out.ready := true.B
 
-  when(uartRx.io.out.valid) { rxStretch := (clkFreq - 1).U }
+  val bootFsm = Module(new BootFsm)
+  bootFsm.io.boot_en := true.B
+  bootFsm.io.rx_valid := uartRx.io.out.valid
+  bootFsm.io.rx_data := uartRx.io.out.bits
 
-  // ── RX line buffer ─────────────────────────────────────────
-  val bufLen = 16
-  val buf = RegInit(VecInit(Seq.fill(bufLen)(0.U(8.W))))
-  val bufWr = RegInit(0.U(log2Ceil(bufLen).W))
-  val echoRdy = RegInit(false.B)
+  val ram = SyncReadMem(1024, UInt(32.W))
+  val wrAddr = bootFsm.io.ram_addr(9, 0)
+  when(bootFsm.io.ram_wen) { ram.write(wrAddr, bootFsm.io.ram_wdata) }
 
-  val rxReady = bufWr < (bufLen - 1).U
+  val prevCpuReset = RegNext(bootFsm.io.cpu_reset)
+  val cpuResetFell = prevCpuReset && !bootFsm.io.cpu_reset
+  val bootPhase = RegInit(0.U(2.W))
+  when(cpuResetFell) { bootPhase := bootPhase + 1.U }
+  val bootDone = bootPhase >= 2.U
 
-  when(uartRx.io.out.valid && rxReady) {
-    buf(bufWr) := uartRx.io.out.bits
-    bufWr := bufWr + 1.U
-    when(bufWr + 1.U === (bufLen - 1).U) { echoRdy := true.B }
+  object State extends ChiselEnum {
+    val WaitBoot, ReadWord, WaitRead, SendBytes, Done = Value
   }
 
-  // ── Message ROM ────────────────────────────────────────────
-  val msg = VecInit(
-    Seq[UInt](
-      0x68.U(8.W),
-      0x65.U(8.W),
-      0x6c.U(8.W),
-      0x6c.U(8.W),
-      0x6f.U(8.W),
-      0x5f.U(8.W),
-      0x77.U(8.W),
-      0x6f.U(8.W),
-      0x72.U(8.W),
-      0x6c.U(8.W),
-      0x64.U(8.W),
-      0x0d.U(8.W),
-      0x0a.U(8.W)
-    )
-  )
-
-  val msgCount = msg.length
-
-  // ── 1-second timer ────────────────────────────────────────
-  val timer = RegInit(0.U(log2Ceil(clkFreq + 1).W))
-  val fire = timer === (clkFreq - 1).U
-  when(fire) { timer := 0.U }.otherwise { timer := timer + 1.U }
-
-  // ── TX feeder FSM ──────────────────────────────────────────
-  object TxPhase extends ChiselEnum { val WaitFire, Echo, Msg = Value }
-  import TxPhase._
-
-  val txPhase = RegInit(WaitFire)
-  val txIdx = RegInit(0.U(log2Ceil(bufLen.max(msgCount)).W))
-  val echoLen = RegInit(0.U(log2Ceil(bufLen).W))
+  import State._
+  val state = RegInit(WaitBoot)
+  val rdAddr = RegInit(0.U(10.W))
+  val byteIdx = RegInit(0.U(2.W))
+  val passWords = RegInit(0.U(10.W))
+  val rdData = ram.read(rdAddr)
 
   uartTx.io.in.valid := false.B
   uartTx.io.in.bits := DontCare
 
-  switch(txPhase) {
-    is(WaitFire) {
-      when(fire) {
-        txIdx := 0.U
-        echoLen := Mux(echoRdy, bufWr, 0.U)
-        txPhase := Mux(echoRdy, Echo, Msg)
+  switch(state) {
+    is(WaitBoot) {
+      when(bootDone) {
+        state := ReadWord
+        rdAddr := 0.U
+        passWords := 16.U
       }
     }
-    is(Echo) {
+    is(ReadWord) { state := WaitRead }
+    is(WaitRead) { state := SendBytes; byteIdx := 0.U }
+    is(SendBytes) {
       uartTx.io.in.valid := true.B
-      uartTx.io.in.bits := buf(txIdx)
+      uartTx.io.in.bits := (rdData >> (byteIdx * 8.U))(7, 0)
       when(uartTx.io.in.ready) {
-        txIdx := txIdx + 1.U
-        when(txIdx === echoLen - 1.U) {
-          echoRdy := false.B
-          bufWr := 0.U
-          txIdx := 0.U
-          txPhase := Msg
-        }
+        when(byteIdx === 3.U) {
+          when(passWords === 1.U) {
+            state := Done
+          }.otherwise {
+            rdAddr := rdAddr + 1.U
+            passWords := passWords - 1.U
+            state := ReadWord
+          }
+        }.otherwise { byteIdx := byteIdx + 1.U }
       }
     }
-    is(Msg) {
-      uartTx.io.in.valid := true.B
-      uartTx.io.in.bits := msg(txIdx)
-      when(uartTx.io.in.ready) {
-        txIdx := txIdx + 1.U
-        when(txIdx === (msgCount - 1).U) {
-          txIdx := 0.U
-          txPhase := WaitFire
-        }
-      }
-    }
+    is(Done) { state := WaitBoot; bootPhase := 1.U }
   }
 
-  // ── LED output ─────────────────────────────────────────────
-  io.led := Cat(rxActive.asUInt, patterns(phase))
+  val rxStretch = RegInit(0.U(log2Ceil(clkFreq + 1).W))
+  when(uartRx.io.out.valid) { rxStretch := (clkFreq - 1).U }
+  when(rxStretch > 0.U) { rxStretch := rxStretch - 1.U }
+
+  io.led := Cat(
+    state === Done,
+    state === SendBytes,
+    bootDone,
+    bootPhase === 1.U,
+    bootFsm.io.cpu_reset,
+    rxStretch > 0.U
+  )
+
 }

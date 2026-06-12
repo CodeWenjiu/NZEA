@@ -2,10 +2,20 @@ package nzea_tile
 
 import _root_.circt.stage.ChiselStage
 import chisel3._
+import chisel3.util.Valid
 import nzea_config.SynthPlatform
 import nzea_core.config.CoreConfig
+import nzea_core.retire.CommitMsg
 
 object TileElaborate {
+
+  /** Tile IO bundle exposed at top level for simulation testbenches. */
+  class TileTopIO extends Bundle {
+    val commit_msg = Output(Valid(new CommitMsg))
+    val uart_txd = Output(Bool())
+    val uart_rxd = Input(Bool())
+    val finish = Output(Bool())
+  }
 
   /** Tile wrapper: `sim=true` enables DPI bridges; else expose tile IO as top-level ports. */
   class Top(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit config: CoreConfig)
@@ -13,13 +23,13 @@ object TileElaborate {
     override def desiredName = "NzeaTile"
 
     val tile = Module(new NzeaTile(sim, platform, clockHz))
+    val io = IO(new TileTopIO)
 
     if (sim) {
-      // DPI mode: platform IO not exposed; tie off
       tile.io := DontCare
+      io := DontCare
     } else {
-      val commit_msg = IO(Output(chiselTypeOf(tile.io.asInstanceOf[nzea_tile.platform.HasCommitMsg].commit_msg)))
-      commit_msg := tile.io.asInstanceOf[nzea_tile.platform.HasCommitMsg].commit_msg
+      io.commit_msg := tile.io.asInstanceOf[nzea_tile.platform.HasCommitMsg].commit_msg
 
       platform match {
         case SynthPlatform.Yosys =>
@@ -29,10 +39,10 @@ object TileElaborate {
 
         case SynthPlatform.HelloFPGA =>
           val io2 = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]
-          val uart = IO(chiselTypeOf(io2.fpga_uart))
-          uart <> io2.fpga_uart
-          val fpga_finish = IO(Output(Bool()))
-          fpga_finish := io2.fpga_finish
+          io.uart_txd := io2.fpga_uart.txd
+          io2.fpga_uart.rxd := io.uart_rxd
+          io2.fpga_uart.ctsn := false.B // tied low (active)
+          io.finish := io2.fpga_finish
       }
     }
 

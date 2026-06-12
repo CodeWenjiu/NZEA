@@ -9,11 +9,15 @@ init:
 dump *ARGS:
     @mill --no-server nzea_cli.run {{ ARGS }}
 
-# 4-state iverilog simulation
-iv platform isa hex='nzea_tile/sim/hello.hex' boot='dir' wave='0':
-    @nu nzea_tile/sim/scripts/iv-build.nu {{ platform }} {{ isa }} {{ hex }}
-    @[ "{{ wave }}" = "1" ] && echo "Waveform: build/tile/{{ platform }}/{{ isa }}/hw/iverilog/tb.fst" || true
-    @nu nzea_tile/sim/scripts/iv-run.nu {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
+# 4-state iverilog simulation (tile)
+iv platform isa hex='nzea_sim/sim/tile/hello.hex' boot='dir' wave='0':
+    @nu nzea_sim/scripts/iv-build.nu tile {{ platform }} {{ isa }} {{ hex }}
+    @nu nzea_sim/scripts/iv-run.nu tile {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
+
+# 4-state iverilog simulation for FPGA targets
+iv-fpga platform isa hex='' boot='dir' wave='0':
+    @nu nzea_sim/scripts/iv-build.nu fpga {{ platform }} {{ isa }} {{ hex }}
+    @nu nzea_sim/scripts/iv-run.nu fpga {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
 
 # Run yosys synthesis
 [group('synth')]
@@ -42,6 +46,8 @@ fpga_dev := "GW2AR-LV18QN88C8/I7"
 # Build FPGA bitstream (synthesis + PnR). Regenerates RTL if Scala sources changed.
 [group('fpga')]
 pack dev=fpga_dev:
+    @mkdir -p build/fpga/tangnano20k/riscv32i/hw
+    @cp nzea_fpga/sim/tangnano20k/bram_1024x32.sv build/fpga/tangnano20k/riscv32i/hw/Bram1024x32.sv 2>/dev/null || true
     @nzea_fpga/scripts/pack.nu --dev {{ dev }}
 
 # Report resource utilization and timing
@@ -68,3 +74,15 @@ vivado-project dev=fpga_dev:
 [group('fpga')]
 uart-load hex port baud='100000':
     @nix develop --command bash -c 'cd nzea_fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}'
+
+# ---- Testing ----
+
+# Run all tests in a module (default: nzea_rtl)
+[group('test')]
+test module='nzea_rtl':
+    @mill --no-server {{ module }}.test
+
+# Run tests matching a class name pattern (e.g., "Vector.*Test" or "FabricBusCrossbarTest")
+[group('test')]
+test-match module pattern:
+    @mill --no-server {{ module }}.test.testOnly "*{{ pattern }}*"
