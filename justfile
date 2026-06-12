@@ -9,15 +9,10 @@ init:
 dump *ARGS:
     @mill --no-server nzea_cli.run {{ ARGS }}
 
-# 4-state iverilog simulation (tile)
-iv platform isa hex='nzea_sim/sim/tile/hello.hex' boot='dir' wave='0':
-    @nu nzea_sim/scripts/iv-build.nu tile {{ platform }} {{ isa }} {{ hex }}
-    @nu nzea_sim/scripts/iv-run.nu tile {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
-
-# 4-state iverilog simulation for FPGA targets
-iv-fpga platform isa hex='' boot='dir' wave='0':
-    @nu nzea_sim/scripts/iv-build.nu fpga {{ platform }} {{ isa }} {{ hex }}
-    @nu nzea_sim/scripts/iv-run.nu fpga {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
+# 4-state iverilog simulation
+iv target platform isa hex='' boot='dir' wave='0':
+    @nu nzea_sim/scripts/iv-build.nu {{ target }} {{ platform }} {{ isa }} {{ hex }}
+    @nu nzea_sim/scripts/iv-run.nu {{ target }} {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
 
 # Run yosys synthesis
 [group('synth')]

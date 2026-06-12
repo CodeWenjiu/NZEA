@@ -70,8 +70,8 @@ flowchart TD
 - `cd wave_tracker && cargo test` / `cargo clippy` / `cargo fmt --check`
 
 ### 仿真（iverilog）
-- `just iv <platform> <isa>`：tile 四态仿真（位置参数，不用 `=`）。
-- `just iv-fpga <platform> <isa>`：FPGA 仿真。
+- `just iv tile <platform> <isa> [hex] [boot] [wave]`：tile 四态仿真。
+- `just iv fpga <platform> <isa>`：FPGA 仿真。
 - 输出：`build/sim/<target>/<platform>/<isa>/hw/iverilog/tb.{vvp,fst}`
 - 测试平台位于 `nzea_sim/sim/`。使用 `--sim false` 生成的 RTL（暴露总线 IO，行为总线模型通过 `$readmemh` 加载内存）。
 
