@@ -48,6 +48,8 @@ flowchart TD
 ## 工作基线
 构建或验证前先执行 `nix develop`。该 flake 锁定 `mill`、`scalafmt`、`yosys`、`ieda`、JDK 和 Rust nightly，并导出 `PDK_PATH`。
 
+项目提供 `flake.nix` 作为推荐开发环境，但 **recipe 和脚本中不得内嵌 `nix develop` 调用**。协作者应该能用自己的包管理器配置好环境后正常使用 `just` 和所有脚本。
+
 ## 构建、测试和开发命令
 优先使用 `justfile` 而非临时命令。
 

@@ -33,7 +33,7 @@ object Main {
           board = config.fpgaBoard_,
           outDir = config.effectiveOutDir,
           clockHz = config.clockHz,
-          firtoolOpts = config.firtoolOpts
+          firtoolOpts = config.platform.firtoolOpts(sim = false) // FPGA always synthesis
         )
     }
   }

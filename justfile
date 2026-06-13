@@ -67,8 +67,8 @@ vivado-project dev=fpga_dev:
 
 # Send hex file to tile via UART bootloader
 [group('fpga')]
-uart-load hex port baud='100000':
-    @nix develop --command bash -c 'cd nzea_fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}'
+uart-load hex port baud='115200':
+    @cd nzea_fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}
 
 # ---- Testing ----
 
