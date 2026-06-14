@@ -14,7 +14,7 @@ module tb;
     wire [1:0]  tracker_result;
 
     localparam RESET_CYCLES = 10;
-    localparam BAUD = 100_000_000 / 100000;  // 1000 cycles/bit (matches DUT UartTx)
+    localparam BAUD = 100_000_000 / 115200;  // ~868 cycles/bit (matches DUT UartTx)
 
     initial clk = 0; always #5 clk = ~clk;
     NzeaTile tile (.clock(clk), .reset(~rst_n),
@@ -165,9 +165,6 @@ module tb;
                 tb.tile.ram.memBytes_3_ext.Memory[ri] = 8'h00;
             end
         end
-        // Init PHT/BTB
-        begin integer i; for(i=0;i<64;i=i+1) tb.tile.core.ifu.pht.mem_ext.Memory[i]=2'b01;
-            for(i=0;i<16;i=i+1) tb.tile.core.ifu.btb.mem_ext.Memory[i]='0; end
         if (!$value$plusargs("HEX=%s", hex_file)) hex_file = "hello.hex";
         if (!$value$plusargs("BOOT=%s", boot_mode)) boot_mode = "dir";
         if (boot_mode != "dir" && boot_mode != "uart") begin

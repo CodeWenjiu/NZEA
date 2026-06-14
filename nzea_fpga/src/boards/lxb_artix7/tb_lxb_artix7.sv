@@ -3,13 +3,12 @@
 module tb_lxb_artix7;
 
   reg        CLK_50M  = 0;
-  reg        RESET    = 1;   // active-low, 1 = not pressed
+  reg        RESET    = 1;
   wire       UART_TX;
-  wire       UART_RX = 1;    // idle high
+  wire       UART_RX = 1;
   wire       LED1;
   wire       LED2;
 
-  // ── DUT ────────────────────────────────────────────────────
   LxbArtix7Top dut (
     .CLK_50M (CLK_50M),
     .RESET   (RESET),
@@ -19,24 +18,30 @@ module tb_lxb_artix7;
     .LED2    (LED2)
   );
 
-  // ── Clock ──────────────────────────────────────────────────
   always #5 CLK_50M = ~CLK_50M;
 
-  // ── Stimulus ───────────────────────────────────────────────
   integer cycle;
 
   initial begin
     $display("[%0t] === Start ===", $time);
+
+    // Print first few cycles to confirm reset
+    repeat(10) begin
+      @(posedge CLK_50M);
+      $display("[%0t] RESET=%b LED1=%b LED2=%b", $time, RESET, LED1, LED2);
+    end
+
     RESET = 0;  repeat(100) @(posedge CLK_50M);
     RESET = 1;
     $display("[%0t] Reset released", $time);
 
+    // Run long enough for LED blink (~1.3s period → need 100M+ cycles)
     cycle = 0;
-    while (cycle < 10000000) begin
+    while (cycle < 200000000) begin
       @(posedge CLK_50M);
       cycle = cycle + 1;
-      if (cycle % 1000000 == 0)
-        $display("[%0t] c=%0d LED1=%b LED2=%b UART_TX=%b", $time, cycle, LED1, LED2, UART_TX);
+      if (cycle % 20000000 == 0)
+        $display("[%0t] c=%0d LED1=%b LED2=%b", $time, cycle, LED1, LED2);
     end
     $display("[%0t] === Timeout ===", $time);
   end

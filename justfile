@@ -10,7 +10,7 @@ dump *ARGS:
     @mill --no-server nzea_cli.run {{ ARGS }}
 
 # 4-state iverilog simulation
-iv target platform isa hex='' boot='dir' wave='0':
+iv target platform isa hex='nzea_sim/sim/tile/hello.hex' boot='dir' wave='0':
     @nu nzea_sim/scripts/iv-build.nu {{ target }} {{ platform }} {{ isa }} {{ hex }}
     @nu nzea_sim/scripts/iv-run.nu {{ target }} {{ platform }} {{ isa }} {{ hex }} {{ boot }} {{ wave }}
 
@@ -67,8 +67,8 @@ vivado-project dev=fpga_dev:
 
 # Send hex file to tile via UART bootloader
 [group('fpga')]
-uart-load hex port baud='115200':
-    @cd nzea_fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}
+uart-load hex port baud='100000':
+    @nix develop --command bash -c 'cd nzea_fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}'
 
 # ---- Testing ----
 

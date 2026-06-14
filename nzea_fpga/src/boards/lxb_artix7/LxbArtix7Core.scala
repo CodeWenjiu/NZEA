@@ -5,18 +5,18 @@ import chisel3.util._
 import nzea_config.SynthPlatform
 import nzea_core.config.CoreConfig
 
-/** A7-Lite FPGA core logic — instantiates NzeaTile and exposes simplified IO.
+/** A7-Lite FPGA core logic — instantiates NzeaTile.
   *
-  * Separated from Top so board-level concerns (reset sync, XDC port mapping) don't
-  * get mixed with functional logic.
+  *   - LED1: ~1.5 Hz blink (alive indicator)
+  *   - LED2: finisher triggered
   */
 class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
 
   val io = IO(new Bundle {
     val uart_tx    = Output(Bool())
     val uart_rx    = Input(Bool())
-    val led_finish = Output(Bool()) // finisher triggered
-    val led_alive  = Output(Bool()) // clock-domain alive blink
+    val led_alive  = Output(Bool())
+    val led_finish = Output(Bool())
   })
 
   // ── NzeaTile ───────────────────────────────────────────────
@@ -25,7 +25,6 @@ class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
   )
   val tileIo = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]
 
-  // ── UART ───────────────────────────────────────────────────
   io.uart_tx := tileIo.fpga_uart.txd
   tileIo.fpga_uart.rxd := io.uart_rx
   tileIo.fpga_uart.ctsn := false.B

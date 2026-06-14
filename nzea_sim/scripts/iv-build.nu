@@ -16,11 +16,16 @@ def main [target: string, platform: string, isa: string, hex?: string] {
     let iv_dir = $rtl | path join "iverilog"
     mkdir $iv_dir
 
-    # Copy hex file if provided
+    # Copy hex file: use provided hex or default hello.hex
     mut hex_buf = 256
-    if ($hex | is-not-empty) and ($hex | path exists) {
-        cp $hex $iv_dir
-        let hsize = (try { open $hex | lines | length } catch { 0 })
+    let hex_src = if ($hex | is-not-empty) and ($hex | path exists) {
+        $hex
+    } else if $target == "tile" {
+        "nzea_sim/sim/tile/hello.hex"
+    }
+    if ($hex_src | is-not-empty) and ($hex_src | path exists) {
+        cp $hex_src $iv_dir
+        let hsize = (try { open $hex_src | lines | length } catch { 0 })
         if $hsize > 0 { $hex_buf = $hsize }
     }
 

@@ -44,7 +44,7 @@ def send_boot(ser: serial.Serial, words: list[int], base_addr: int = 0):
     ser.write(header)
     print("ok")
 
-    data = b"".join(struct.pack(">I", w) for w in words)
+    data = b"".join(struct.pack("<I", w) for w in words)
     print("  writing data…", end=" ", flush=True)
     ser.write(data)
     print("ok")
@@ -54,15 +54,16 @@ def send_boot(ser: serial.Serial, words: list[int], base_addr: int = 0):
     wait_s = bits / ser.baudrate + 0.5
     time.sleep(wait_s)
 
-    # Read back FPGA response
+    # Read back initial FPGA output (time-bounded to avoid hanging
+    # on programs that loop forever printing to UART).
     print("Response:", flush=True)
-    ser.timeout = 2.0
+    ser.timeout = 0.1
+    deadline = time.monotonic() + 1.0
     buf = b""
-    while True:
+    while time.monotonic() < deadline:
         b = ser.read(1)
-        if not b:
-            break
-        buf += b
+        if b:
+            buf += b
     if not buf:
         print("  (no data)")
         return

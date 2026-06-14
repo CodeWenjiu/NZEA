@@ -43,7 +43,7 @@ object Platform {
       fabric.io.out(3) <> clint.io.bus
     } else {
       val ram = Module(new RamFabricSlave(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth, AddressMap.ram.base))
-      val uart = Module(new FabricBusUart(AddressMap.uart.base, simClkHz = clockHz, baudRate = 100000))
+      val uart = Module(new FabricBusUart(AddressMap.uart.base, simClkHz = clockHz, baudRate = 115200))
       val finisher = Module(new SifiveTestFinisher(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
       val clint = Module(new Clint(AddressMap.clint.base))
 

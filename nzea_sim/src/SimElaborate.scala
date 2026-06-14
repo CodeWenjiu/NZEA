@@ -62,7 +62,7 @@ object SimElaborate {
       case "tile" =>
         println(s"Generating tile sim modules: UartRxDisplay + CommitTracker")
         ChiselStage.emitSystemVerilogFile(
-          new UartRxDisplay(baudDiv = 1000),
+          new UartRxDisplay(baudDiv = 100_000_000 / 115200),
           args = Array("--target-dir", simOut),
           firtoolOpts = firtoolBase
         )

@@ -1,7 +1,7 @@
 package nzea_tile.platform
 
 import chisel3._
-import chisel3.util.{is, switch, Cat, Enum}
+import chisel3.util.{is, switch, Cat, Enum, MuxLookup}
 
 class BootFsm extends Module {
 
@@ -44,10 +44,15 @@ class BootFsm extends Module {
 
   switch(state) {
     is(sInit) {
-      // Fill entire RAM with jal x0,0 (0x0000006F) to prevent X-propagation
-      // from uninitialized memory before the first UART boot sequence arrives.
+      // Default program at addr 0-3: output 'H' via UART then loop.
+      // Rest of RAM: jal x0,0 (safe infinite loop).
       io.ram_wen := true.B
-      io.ram_wdata := "h0000006F".U(32.W)
+      io.ram_wdata := MuxLookup(wordAddr, "h0000006F".U(32.W))(Seq(
+        0.U  -> "h100002b7".U(32.W),  // lui  x5, 0x10000
+        1.U  -> "h04800313".U(32.W),  // addi x6, x0, 72  ('H')
+        2.U  -> "h0062a023".U(32.W),  // sw   x6, 0(x5)
+        3.U  -> "hff5ff06f".U(32.W),  // j    -12  (back to addr 1)
+      ))
       when(wordAddr === 32767.U) {
         state := sIdle
         wordAddr := 0.U

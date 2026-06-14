@@ -36,6 +36,9 @@ object TileElaborate {
           val io2 = tile.io.asInstanceOf[nzea_tile.platform.yosys.TileIo]
           val devices = IO(chiselTypeOf(io2.yosys_devices))
           devices <> io2.yosys_devices
+          io.uart_txd := DontCare
+          io.uart_rxd := DontCare
+          io.finish   := DontCare
 
         case SynthPlatform.HelloFPGA =>
           val io2 = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]

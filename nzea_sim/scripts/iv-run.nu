@@ -10,7 +10,7 @@ def main [
     boot: string = "dir"
     wave: string = "0"
 ] {
-    let hex_name = ($hex | path basename)
+    let hex_name = if ($hex | is-empty) { "hello.hex" } else { ($hex | path basename) }
     let iv_dir = $"build/sim/($target)/($platform)/($isa)/hw/iverilog"
     cd $iv_dir
 
