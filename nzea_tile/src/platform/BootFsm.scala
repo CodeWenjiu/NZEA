@@ -1,34 +1,46 @@
 package nzea_tile.platform
 
 import chisel3._
-import chisel3.util.{is, switch, Cat, Enum, MuxLookup}
+import chisel3.util.{is, switch, Cat, Enum, log2Ceil}
+import nzea_rtl.Mrom
 
-class BootFsm extends Module {
+class BootFsm(
+    ramDepth: Int = 32768,
+    defaultHex: String = "nzea_sim/sim/tile/hello.hex"
+) extends Module {
+
+  private val addrW = log2Ceil(ramDepth)
 
   val io = IO(new Bundle {
     val boot_en = Input(Bool())
     val rx_valid = Input(Bool())
     val rx_data = Input(UInt(8.W))
     val ram_wen = Output(Bool())
-    val ram_addr = Output(UInt(15.W))
+    val ram_addr = Output(UInt(addrW.W))
     val ram_wdata = Output(UInt(32.W))
     val cpu_reset = Output(Bool())
   })
 
-  val sInit :: sIdle :: sAddr :: sSize :: sData :: sDone :: Nil = Enum(6)
+  val sInit :: sPad :: sIdle :: sAddr :: sSize :: sData :: sDone :: Nil = Enum(7)
   val state = RegInit(sInit)
   val shift = RegInit(0.U(32.W))
   val byteCnt = RegInit(0.U(2.W))
   val wordCnt = RegInit(0.U(32.W))
   val totalWords = RegInit(0.U(32.W))
-  val wordAddr = RegInit(0.U(15.W))
+  val wordAddr = RegInit(0.U(addrW.W))
 
-  // Hold CPU in reset during RAM init (sInit) and UART boot (sAddr/sSize/sData).
-  // Released in sIdle (safe: RAM is all jal x0,0) and sDone (program loaded).
-  io.cpu_reset := io.boot_en && (state === sInit || state === sAddr || state === sSize || state === sData)
+  // Default program ROM — depth and dataWidth auto-detected from hex
+  val mrom = Module(new Mrom(defaultHex))
+  val initCnt = RegInit(0.U(log2Ceil(mrom.depth).W))
+  // Safety-fill counter: covers the rest of RAM after MROM region
+  val padCnt = RegInit(0.U(addrW.W))
+
+  mrom.io.addr := initCnt
+
+  io.cpu_reset := io.boot_en && (state =/= sIdle && state =/= sDone)
 
   io.ram_wen := false.B
-  io.ram_addr := wordAddr
+  io.ram_addr := Mux(state === sInit, initCnt, Mux(state === sPad, padCnt, wordAddr))
   io.ram_wdata := Cat(io.rx_data, shift(31, 8))
 
   when(io.rx_valid) {
@@ -44,20 +56,25 @@ class BootFsm extends Module {
 
   switch(state) {
     is(sInit) {
-      // Default program at addr 0-3: output 'H' via UART then loop.
-      // Rest of RAM: jal x0,0 (safe infinite loop).
+      // Phase 1: fill MROM contents (depth from hex file).
       io.ram_wen := true.B
-      io.ram_wdata := MuxLookup(wordAddr, "h0000006F".U(32.W))(Seq(
-        0.U  -> "h100002b7".U(32.W),  // lui  x5, 0x10000
-        1.U  -> "h04800313".U(32.W),  // addi x6, x0, 72  ('H')
-        2.U  -> "h0062a023".U(32.W),  // sw   x6, 0(x5)
-        3.U  -> "hff5ff06f".U(32.W),  // j    -12  (back to addr 1)
-      ))
-      when(wordAddr === 32767.U) {
+      io.ram_wdata := mrom.io.data
+      when(initCnt === (mrom.depth - 1).U) {
+        state := sPad
+        padCnt := mrom.depth.U
+      }.otherwise {
+        initCnt := initCnt + 1.U
+      }
+    }
+    is(sPad) {
+      // Phase 2: fill remaining RAM with jal x0,0 (safe infinite loop).
+      io.ram_wen := true.B
+      io.ram_wdata := "h0000006F".U(32.W)
+      when(padCnt === (ramDepth - 1).U) {
         state := sIdle
         wordAddr := 0.U
       }.otherwise {
-        wordAddr := wordAddr + 1.U
+        padCnt := padCnt + 1.U
       }
     }
     is(sIdle) {
@@ -68,7 +85,7 @@ class BootFsm extends Module {
     }
     is(sAddr) {
       when(byteCnt === 3.U && io.rx_valid) {
-        wordAddr := Cat(io.rx_data, shift(31, 8))(14, 0)
+        wordAddr := Cat(io.rx_data, shift(31, 8))
         byteCnt := 0.U
         state := sSize
       }

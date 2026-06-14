@@ -27,6 +27,10 @@ object Platform {
       clockHz: Int
   )(implicit config: CoreConfig): Unit = {
     val bootFsm = Module(new BootFsm)
+    require(
+      bootFsm.mrom.depth <= (AddressMap.ram.size / 4).toInt,
+      s"hex has ${bootFsm.mrom.depth} words, RAM holds ${AddressMap.ram.size / 4}"
+    )
     bootFsm.io.boot_en := true.B
     bootFsm.io.rx_valid := false.B
     bootFsm.io.rx_data := 0.U
