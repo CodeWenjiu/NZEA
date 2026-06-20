@@ -2,7 +2,7 @@ import mill._
 import mill.scalalib._
 
 val scalaV  = "2.13.18"
-val chiselV = "7.10.0"
+val chiselV = "7.13.0"
 val mainargsVersion = "0.5.2"
 val scalatestVersion = "3.2.19"
 
