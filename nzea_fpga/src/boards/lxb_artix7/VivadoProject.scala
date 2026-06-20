@@ -16,13 +16,34 @@ object VivadoProject {
     tcl.println(s"file mkdir $$prj_dir")
     tcl.println(s"cd $$prj_dir")
     tcl.println(s"create_project -force nzea_fpga . -part $part")
+    tcl.println(s"")
+
+    // ── Clocking Wizard IP (clk_wiz_0 → Mmcm50to200) ──
+    tcl.println(s"# ── Clocking Wizard IP ──")
+    tcl.println(s"create_ip -name clk_wiz -vendor xilinx.com -library ip -module_name clk_wiz_0")
+    tcl.println(s"set_property -dict [list \\")
+    tcl.println(s"  CONFIG.PRIMITIVE {MMCM} \\")
+    tcl.println(s"  CONFIG.PRIM_IN_FREQ {50.000} \\")
+    tcl.println(s"  CONFIG.CLKOUT1_USED {true} \\")
+    tcl.println(s"  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200.000} \\")
+    tcl.println(s"  CONFIG.CLKOUT2_USED {true} \\")
+    tcl.println(s"  CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {100.000} \\")
+    tcl.println(s"  CONFIG.USE_LOCKED {true} \\")
+    tcl.println(s"  CONFIG.USE_RESET {true} \\")
+    tcl.println(s"] [get_ips clk_wiz_0]")
+    tcl.println(s"generate_target all [get_ips clk_wiz_0]")
+    tcl.println(s"")
+
     tcl.println(s"add_files -norecurse [file join $$prj_root $xdcPath]")
     svFiles.foreach(f => tcl.println(s"add_files -norecurse [file join $$script_dir ${f.getName}]"))
     tcl.println("update_compile_order -fileset sources_1")
     // Simulation
-    tcl.println(s"add_files -fileset sim_1 -norecurse [file join $$prj_root nzea_fpga/src/boards/lxb_artix7/tb_lxb_artix7.sv]")
+    tcl.println(
+      s"add_files -fileset sim_1 -norecurse [file join $$prj_root nzea_fpga/src/boards/lxb_artix7/tb_lxb_artix7.sv]"
+    )
     tcl.println(s"set_property top tb_lxb_artix7 [get_filesets sim_1]")
     tcl.println(s"set_property top_lib xil_defaultlib [get_filesets sim_1]")
+    tcl.println(s"set_property top LxbArtix7Top [current_fileset]")
     // Auto-build + program
     tcl.println("puts \"Running synthesis…\"")
     tcl.println("launch_runs synth_1 -jobs 4")

@@ -49,12 +49,11 @@ object FpgaElaborate {
     board match {
       case FpgaBoard.LxbArtix7 =>
         ChiselStage.emitSystemVerilogFile(
-          new LxbArtix7Top(clockHz = 50_000_000),
+          new LxbArtix7Top(clockHz = 100_000_000),
           args = Array("--target-dir", outDir),
           firtoolOpts = firtoolOpts
         )
-        VivadoProject.generate(outDir, "xc7a200tsbg484-1",
-          "nzea_fpga/src/boards/lxb_artix7/A7_lite.xdc")
+        VivadoProject.generate(outDir, "xc7a200tsbg484-1", "nzea_fpga/src/boards/lxb_artix7/A7_lite.xdc")
       case FpgaBoard.TangNano20k =>
         ChiselStage.emitSystemVerilogFile(
           new TangNano20kTop(clockHz),
