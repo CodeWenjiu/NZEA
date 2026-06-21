@@ -31,8 +31,9 @@ object TileAddressMap {
   * (core ibus+dbus) and platform-selected slaves. `sim=true`: slaves are connected to DPI bridges (bus_read/bus_write).
   * `sim=false`: exposes platform-specific HW IO as top-level ports.
   */
-class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit config: CoreConfig)
-    extends Module {
+class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit
+    config: CoreConfig
+) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val ranges = TileAddressMap.forPlatform(platform)
@@ -41,7 +42,7 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000
 
   val io = IO(platform match {
     case SynthPlatform.Yosys     => new yosys.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
-    case SynthPlatform.HelloFPGA => new hellofpga.TileIo
+    case SynthPlatform.HelloFPGA => new hellofpga.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
   })
 
   io := DontCare

@@ -2,7 +2,7 @@ package nzea_device.ram
 
 import chisel3._
 import chisel3.util._
-import nzea_rtl.FabricBusRW
+import nzea_rtl.{BootReq, FabricBusRW}
 
 class RamFabricSlave(
     addrWidth: Int,
@@ -15,9 +15,7 @@ class RamFabricSlave(
 
   val io = IO(new Bundle {
     val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
-    val boot_wen = Input(Bool())
-    val boot_addr = Input(UInt(15.W))
-    val boot_wdata = Input(UInt(32.W))
+    val boot = Flipped(Valid(new BootReq(15)))
   })
 
   private val depth = 1 << 15
@@ -46,12 +44,12 @@ class RamFabricSlave(
 
   val memBytes = Seq.tabulate(4)(_ => SyncReadMem(depth, UInt(8.W), SyncReadMem.WriteFirst))
 
-  val wrAddr = Mux(io.boot_wen, io.boot_addr, wordAddr)
-  val wrEn = io.boot_wen || wenClean
+  val wrAddr = Mux(io.boot.valid, io.boot.bits.addr, wordAddr)
+  val wrEn = io.boot.valid || wenClean
 
   for (i <- 0 until 4) {
-    val wrData = Mux(io.boot_wen, io.boot_wdata(8 * i + 7, 8 * i), io.bus.req.bits.wdata(8 * i + 7, 8 * i))
-    val wrMask = io.boot_wen || wstrb(i)
+    val wrData = Mux(io.boot.valid, io.boot.bits.wdata(8 * i + 7, 8 * i), io.bus.req.bits.wdata(8 * i + 7, 8 * i))
+    val wrMask = io.boot.valid || wstrb(i)
     when(wrEn && wrMask) { memBytes(i).write(wrAddr, wrData) }
   }
 

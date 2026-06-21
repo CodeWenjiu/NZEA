@@ -22,17 +22,19 @@ class TangNano20kCore(clkFreq: Int, baudRate: Int) extends Module {
 
   val bootFsm = Module(new BootFsm)
   val ramSize = 1024
+
   require(
     bootFsm.mrom.depth <= ramSize,
     s"hex has ${bootFsm.mrom.depth} words, RAM holds $ramSize"
   )
+
   bootFsm.io.boot_en := true.B
   bootFsm.io.rx_valid := uartRx.io.out.valid
   bootFsm.io.rx_data := uartRx.io.out.bits
 
   val ram = SyncReadMem(ramSize, UInt(32.W))
-  val wrAddr = bootFsm.io.ram_addr(9, 0)
-  when(bootFsm.io.ram_wen) { ram.write(wrAddr, bootFsm.io.ram_wdata) }
+  val wrAddr = bootFsm.io.boot.bits.addr(9, 0)
+  when(bootFsm.io.boot.valid) { ram.write(wrAddr, bootFsm.io.boot.bits.wdata) }
 
   val prevCpuReset = RegNext(bootFsm.io.cpu_reset)
   val cpuResetFell = prevCpuReset && !bootFsm.io.cpu_reset

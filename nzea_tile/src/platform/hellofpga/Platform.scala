@@ -6,7 +6,6 @@ import nzea_core.config.CoreConfig
 import nzea_device.uart.FabricBusUart
 import nzea_device.clint.Clint
 import nzea_device.finisher.SifiveTestFinisher
-import nzea_device.ram.RamFabricSlave
 import nzea_rtl.FabricBusRWCrossbar
 import nzea_tile.platform.BootFsm
 import nzea_tile.platform.yosys.SimDeviceDpiBridge
@@ -26,7 +25,13 @@ object Platform {
       fabricIdWidth: Int,
       clockHz: Int
   )(implicit config: CoreConfig): Unit = {
-    val bootFsm = Module(new BootFsm)
+    // external RAM calibration done (driven by board; true when no DDR3)
+    val ddr3CalibDone = Wire(Bool())
+    ddr3CalibDone := tileIo.extRamCalibDone
+
+    // BootFsm resets when external RAM not calibrated — re-runs boot after calibration
+    val bootReset = tileReset || !ddr3CalibDone
+    val bootFsm = withReset(bootReset) { Module(new BootFsm) }
     require(
       bootFsm.mrom.depth <= (AddressMap.ram.size / 4).toInt,
       s"hex has ${bootFsm.mrom.depth} words, RAM holds ${AddressMap.ram.size / 4}"
@@ -34,24 +39,30 @@ object Platform {
     bootFsm.io.boot_en := true.B
     bootFsm.io.rx_valid := false.B
     bootFsm.io.rx_data := 0.U
-    cpuReset := tileReset || bootFsm.io.cpu_reset
+
+    cpuReset := tileReset || bootFsm.io.cpu_reset || !ddr3CalibDone
 
     if (sim) {
-      val ram = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      val uart = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      val finisher = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      val clint = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      fabric.io.out(0) <> ram.io.bus
-      fabric.io.out(1) <> uart.io.bus
-      fabric.io.out(2) <> finisher.io.bus
-      fabric.io.out(3) <> clint.io.bus
+      for (i <- 0 until 4) {
+        val d = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
+        fabric.io.out(i) <> d.io.bus
+      }
     } else {
-      val ram = Module(new RamFabricSlave(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth, AddressMap.ram.base))
+      // Fabric slot 0 → external RAM (board provides SRAM or DDR3 adapter)
+      tileIo.extRamBus.req.bits := fabric.io.out(0).req.bits
+      tileIo.extRamBus.req.valid := fabric.io.out(0).req.valid
+      fabric.io.out(0).req.ready := tileIo.extRamBus.req.ready
+      fabric.io.out(0).req.flush := tileIo.extRamBus.req.flush
+      tileIo.extRamBus.resp.ready := fabric.io.out(0).resp.ready
+      tileIo.extRamBus.resp.flush := fabric.io.out(0).resp.flush
+      fabric.io.out(0).resp.bits := tileIo.extRamBus.resp.bits
+      fabric.io.out(0).resp.valid := tileIo.extRamBus.resp.valid
+      tileIo.extRamBoot <> bootFsm.io.boot
+
       val uart = Module(new FabricBusUart(AddressMap.uart.base, simClkHz = clockHz, baudRate = 115200))
       val finisher = Module(new SifiveTestFinisher(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
       val clint = Module(new Clint(AddressMap.clint.base))
 
-      fabric.io.out(0) <> ram.io.bus
       fabric.io.out(1) <> uart.io.bus
       fabric.io.out(2) <> finisher.io.bus
       fabric.io.out(3) <> clint.io.bus
@@ -64,9 +75,6 @@ object Platform {
 
       bootFsm.io.rx_valid := uart.io.boot_rx_valid
       bootFsm.io.rx_data := uart.io.boot_rx_data
-      ram.io.boot_wen := bootFsm.io.ram_wen
-      ram.io.boot_addr := bootFsm.io.ram_addr
-      ram.io.boot_wdata := bootFsm.io.ram_wdata
     }
   }
 
