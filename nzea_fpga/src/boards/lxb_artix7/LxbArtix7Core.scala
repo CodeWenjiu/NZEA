@@ -27,7 +27,22 @@ class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
     val led_alive = Output(Bool())
     val led_finish = Output(Bool())
     val ddr3 = new Ddr3PhysIo
+    // Debug ports — probed by ILA; use dontTouch to survive synthesis
+    val dbg = new Bundle {
+      val calib_done = Output(Bool())
+      val app_rdy = Output(Bool())
+      val app_rd_data_valid = Output(Bool())
+      val app_wdf_rdy = Output(Bool())
+      val app_en = Output(Bool())
+      val tile_req_valid = Output(Bool())
+      val tile_req_ready = Output(Bool())
+      val tile_resp_valid = Output(Bool())
+      val adapter_resp_valid = Output(Bool())
+      val blink = Output(Bool())
+    }
   })
+
+  dontTouch(io.dbg)
 
   val tile = Module(new NzeaTile(sim = false, platform = SynthPlatform.HelloFPGA, clockHz = clockHz))
   val tileIo = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]
@@ -38,7 +53,7 @@ class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
 
   // ── DDR3 subsystem (board-level, not in tile) ────────────────
   val adapter = Module(new Ddr3Adapter(addrW, dataW, userW, idW))
-  val ddr3Sub = Module(new Ddr3Subsystem(addrW, dataW, userW, idW))
+  val ddr3Sub = Module(new Ddr3Subsystem)
 
   // DDR3 physical pins (subsystem ↔ board IO directly, tile unaware)
   ddr3Sub.io.ddr3.clk_200m := io.ddr3.clk_200m
@@ -56,21 +71,10 @@ class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
   adapter.io.bus.resp.ready := tileIo.extRamBus.resp.ready
   adapter.io.bus.resp.flush := tileIo.extRamBus.resp.flush
   adapter.io.boot <> tileIo.extRamBoot
-  tileIo.extRamCalibDone := ddr3Sub.io.calib_done
+  tileIo.extRamCalibDone := ddr3Sub.io.mig.calib_done
 
   // Adapter ↔ Subsystem (MIG native UI)
-  ddr3Sub.io.app_addr := adapter.io.app_addr
-  ddr3Sub.io.app_cmd := adapter.io.app_cmd
-  ddr3Sub.io.app_en := adapter.io.app_en
-  ddr3Sub.io.app_wdf_data := adapter.io.app_wdf_data
-  ddr3Sub.io.app_wdf_wren := adapter.io.app_wdf_wren
-  ddr3Sub.io.app_wdf_end := adapter.io.app_wdf_end
-  ddr3Sub.io.app_wdf_mask := adapter.io.app_wdf_mask
-  adapter.io.app_rdy := ddr3Sub.io.app_rdy
-  adapter.io.app_wdf_rdy := ddr3Sub.io.app_wdf_rdy
-  adapter.io.app_rd_data := ddr3Sub.io.app_rd_data
-  adapter.io.app_rd_data_valid := ddr3Sub.io.app_rd_data_valid
-  adapter.io.calib_done := ddr3Sub.io.calib_done
+  adapter.io.mig <> ddr3Sub.io.mig
 
   // DDR3 physical pins (subsystem ↔ board IO directly)
   io.ddr3.dq <> ddr3Sub.io.ddr3.dq
@@ -93,4 +97,16 @@ class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
   blinkCnt := blinkCnt + 1.U
   io.led_alive := blinkCnt(25) // ~1.5 Hz
   io.led_finish := tileIo.fpga_finish
+
+  // ── Debug outputs (ILA probes) ──────────────────────────────
+  io.dbg.calib_done := ddr3Sub.io.mig.calib_done
+  io.dbg.app_rdy := ddr3Sub.io.mig.app_rdy
+  io.dbg.app_rd_data_valid := ddr3Sub.io.mig.app_rd_data_valid
+  io.dbg.app_wdf_rdy := ddr3Sub.io.mig.app_wdf_rdy
+  io.dbg.app_en := adapter.io.mig.app_en
+  io.dbg.tile_req_valid := tileIo.extRamBus.req.valid
+  io.dbg.tile_req_ready := tileIo.extRamBus.req.ready
+  io.dbg.tile_resp_valid := tileIo.extRamBus.resp.valid
+  io.dbg.adapter_resp_valid := adapter.io.bus.resp.valid
+  io.dbg.blink := blinkCnt(25)
 }

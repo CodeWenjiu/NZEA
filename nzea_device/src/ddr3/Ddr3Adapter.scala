@@ -20,24 +20,13 @@ class Ddr3Adapter(
   val io = IO(new Bundle {
     val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
     val boot = Flipped(Valid(new BootReq(15)))
-    // MIG native UI (128-bit)
-    val app_addr = Output(UInt(29.W))
-    val app_cmd = Output(UInt(3.W))
-    val app_en = Output(Bool())
-    val app_rdy = Input(Bool())
-    val app_wdf_data = Output(UInt(128.W))
-    val app_wdf_wren = Output(Bool())
-    val app_wdf_end = Output(Bool())
-    val app_wdf_rdy = Input(Bool())
-    val app_wdf_mask = Output(UInt(16.W))
-    val app_rd_data = Input(UInt(128.W))
-    val app_rd_data_valid = Input(Bool())
-    val calib_done = Input(Bool())
+    val mig = Flipped(new MigUiIo) // adapter drives MIG
   })
 
   // ── Fixed outputs ──
-  io.app_wdf_mask := 0xffff.U
-  io.app_wdf_end := true.B
+  // MIG mask is active-LOW: 0=write, 1=mask. 0xFFF0 writes lower 4 bytes of the 128b bus.
+  io.mig.app_wdf_mask := 0xfff0.U
+  io.mig.app_wdf_end := true.B
 
   // ── FSM ──
   val sIdle :: sBoot :: sBusCmd :: sBusWait :: Nil = Enum(4)
@@ -51,7 +40,7 @@ class Ddr3Adapter(
   val busUser = RegInit(0.U(userWidth.W))
   val busId = RegInit(0.U(idWidth.W))
 
-  val migReady = io.app_rdy && io.app_wdf_rdy
+  val migReady = io.mig.app_rdy && io.mig.app_wdf_rdy
   val busFlush = io.bus.resp.flush
 
   // ── Defaults ──
@@ -62,15 +51,15 @@ class Ddr3Adapter(
   io.bus.resp.bits.id := 0.U
   io.bus.req.flush := false.B
 
-  io.app_en := false.B
-  io.app_cmd := "b000".U
-  io.app_addr := 0.U
-  io.app_wdf_wren := false.B
-  io.app_wdf_data := 0.U
+  io.mig.app_en := false.B
+  io.mig.app_cmd := "b000".U
+  io.mig.app_addr := 0.U
+  io.mig.app_wdf_wren := false.B
+  io.mig.app_wdf_data := 0.U
 
   switch(state) {
     is(sIdle) {
-      when(io.calib_done && !busFlush) {
+      when(io.mig.calib_done && !busFlush) {
         when(io.boot.valid) {
           bootAddr := io.boot.bits.addr
           bootWdata := io.boot.bits.wdata
@@ -86,32 +75,34 @@ class Ddr3Adapter(
       }
     }
     is(sBoot) {
-      io.app_en := migReady
-      io.app_cmd := "b000".U
-      io.app_addr := Cat(bootAddr(12, 0), 0.U(3.W))
-      io.app_wdf_wren := migReady
-      io.app_wdf_data := Cat(0.U(96.W), bootWdata)
+      io.mig.app_en := migReady
+      io.mig.app_cmd := "b000".U
+      // bootAddr is a 32b-word address; app_addr = byteAddr>>1 = (wordAddr*4)>>1 = wordAddr<<1
+      io.mig.app_addr := bootAddr << 1
+      io.mig.app_wdf_wren := migReady
+      io.mig.app_wdf_data := Cat(0.U(96.W), bootWdata)
       when(migReady) { state := sIdle }
     }
     is(sBusCmd) {
-      when(io.app_rdy && (busIsRead || io.app_wdf_rdy)) {
-        io.app_en := true.B
-        io.app_cmd := Mux(busIsRead, "b001".U, "b000".U)
-        io.app_addr := busAddr(28, 3)
+      when(io.mig.app_rdy && (busIsRead || io.mig.app_wdf_rdy)) {
+        io.mig.app_en := true.B
+        io.mig.app_cmd := Mux(busIsRead, "b001".U, "b000".U)
+        // busAddr is a byte address; app_addr = column address = byteAddr >> 1 (16b DDR = 2B/col)
+        io.mig.app_addr := busAddr >> 1
         io.bus.req.ready := true.B
         when(busIsRead) {
           state := sBusWait
         }.otherwise {
-          io.app_wdf_wren := true.B
-          io.app_wdf_data := Cat(0.U(96.W), busWdata)
+          io.mig.app_wdf_wren := true.B
+          io.mig.app_wdf_data := Cat(0.U(96.W), busWdata)
           state := sIdle
         }
       }
     }
     is(sBusWait) {
-      when(io.app_rd_data_valid) {
+      when(io.mig.app_rd_data_valid) {
         io.bus.resp.valid := true.B
-        io.bus.resp.bits.data := io.app_rd_data(31, 0)
+        io.bus.resp.bits.data := io.mig.app_rd_data(31, 0)
         io.bus.resp.bits.user := busUser
         io.bus.resp.bits.id := busId
         state := sIdle
@@ -120,7 +111,7 @@ class Ddr3Adapter(
   }
 
   // Write ack: respond same cycle as cmd accept
-  when(state === sBusCmd && io.app_rdy && !busIsRead && io.app_wdf_rdy) {
+  when(state === sBusCmd && io.mig.app_rdy && !busIsRead && io.mig.app_wdf_rdy) {
     io.bus.resp.valid := true.B
     io.bus.resp.bits.user := busUser
     io.bus.resp.bits.id := busId

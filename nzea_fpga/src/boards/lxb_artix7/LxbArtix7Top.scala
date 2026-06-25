@@ -14,8 +14,6 @@ import nzea_fpga.boards.lxb_artix7.Mmcm50to200
 class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule {
   val CLK_50M = IO(Input(Clock()))
   val RESET = IO(Input(Bool())) // active-low button
-  val UART_TX = IO(Output(Bool()))
-  val UART_RX = IO(Input(Bool()))
   val LED1 = IO(Output(Bool()))
   val LED2 = IO(Output(Bool()))
 
@@ -52,22 +50,25 @@ class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule 
   val clk_200m = mmcm.clk_out1
   val clk_100m = mmcm.clk_out2
 
-  // Hold core in reset until MMCM locked
   val coreRst = rst || !mmcm.locked
 
-  // ── Core (100 MHz) ──────────────────────────────────────────
+  // ── Ddr3TestCore (100 MHz) — minimal DDR3 validation ─────────
   val core = withClockAndReset(clk_100m, coreRst) {
-    Module(new LxbArtix7Core(clockHz))
+    Module(new Ddr3TestCore(addrW = 32, dataW = 32, userW = 64, idW = 8))
   }
 
-  UART_TX := core.io.uart_tx
-  core.io.uart_rx := UART_RX
+  core.io.rst_n := rst_n
 
-  // ── LED PWM dimming (3/4 duty, active-low LEDs) ─────────────
+  // ── LEDs ───────────────────────────────────────────────────
   val (pwmCnt, _) = withClockAndReset(clk_100m, coreRst) { Counter(true.B, 4) }
-  val pwm = pwmCnt =/= 3.U // high for 3 out of 4 cycles
-  LED1 := !(core.io.led_alive & pwm)
-  LED2 := !(core.io.led_finish & pwm)
+  val pwm = pwmCnt =/= 3.U
+
+  val blink = withClockAndReset(clk_100m, coreRst) {
+    val cnt = RegInit(0.U(26.W)); cnt := cnt + 1.U; cnt(25)
+  }
+
+  LED1 := !(blink & pwm)
+  LED2 := !(core.io.pass & pwm)
 
   // ── DDR3 ──────────────────────────────────────────────────
   core.io.ddr3.clk_200m := clk_200m
@@ -85,4 +86,20 @@ class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule 
   core.io.ddr3.odt <> ddr3_odt
   core.io.ddr3.reset_n <> ddr3_reset_n
   core.io.ddr3.dm <> ddr3_dm
+
+  // ── ILA (post-synthesis Vivado IP matches module name "u_ila_0") ──
+  val ila = Module(new IlaProbes)
+  ila.clk := clk_100m
+  ila.probe0 := core.io.dbg_calib_done
+  ila.probe1 := core.io.dbg_app_rdy
+  ila.probe2 := core.io.dbg_app_rd_data_valid
+  ila.probe3 := core.io.dbg_app_wdf_rdy
+  ila.probe4 := core.io.dbg_app_en
+  ila.probe5 := core.io.dbg_app_cmd
+  ila.probe6 := core.io.dbg_app_addr
+  ila.probe7 := core.io.dbg_rd_data
+  ila.probe8 := core.io.dbg_fsm
+  ila.probe9 := core.io.pass
+  ila.probe10 := core.io.testBits
+  dontTouch(ila.clk)
 }

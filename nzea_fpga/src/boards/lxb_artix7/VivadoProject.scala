@@ -9,10 +9,7 @@ object VivadoProject {
       outDir: String,
       part: String,
       xdcPath: String,
-      enableILA: Boolean = true,
-      ilaDepth: Int = 4096,
-      ilaSignals: Seq[String] =
-        Seq("*calib_done*", "*app_rdy* && NAME !~ *data* && NAME !~ *wdf*", "*app_rd_data_valid*", "*app_wdf_rdy*")
+      enableILA: Boolean = true
   ): Unit = {
     val svFiles = new File(outDir).listFiles().filter(_.getName.endsWith(".sv")).sorted
     val absOutDir = new File(outDir).getAbsolutePath()
@@ -61,9 +58,25 @@ object VivadoProject {
     tcl.println("")
     tcl.println("file copy -force [file join $prj_root nzea_fpga/src/boards/lxb_artix7/mig_ddr3 mig_ddr3.xci] $ip_dir")
     tcl.println("add_files -norecurse [file join $ip_dir mig_ddr3.xci]")
+    tcl.println("set_property -dict [list CONFIG.SIM_BYPASS_INIT_CAL {FAST}] [get_ips mig_ddr3]")
     tcl.println("reset_target all [get_ips mig_ddr3]")
     tcl.println("generate_target all [get_ips mig_ddr3]")
     tcl.println("")
+
+    if (enableILA) {
+      val widths = IlaProbes.widths
+      tcl.println("# ── ILA IP (matches Chisel BlackBox 'u_ila_0') ──")
+      tcl.println("create_ip -name ila -vendor xilinx.com -library ip -module_name u_ila_0")
+      tcl.println("set_property -dict [list \\")
+      tcl.println(s"  CONFIG.C_DATA_DEPTH ${IlaProbes.depth} \\")
+      tcl.println(s"  CONFIG.C_NUM_OF_PROBES ${widths.size} \\")
+      widths.zipWithIndex.foreach { case (w, i) =>
+        tcl.println(s"  CONFIG.C_PROBE${i}_WIDTH $w \\")
+      }
+      tcl.println("] [get_ips u_ila_0]")
+      tcl.println("generate_target all [get_ips u_ila_0]")
+      tcl.println("")
+    }
 
     tcl.println(s"add_files -norecurse [file join $$prj_root $xdcPath]")
     tcl.println(
@@ -78,68 +91,6 @@ object VivadoProject {
     tcl.println("launch_runs synth_1 -jobs 4")
     tcl.println("wait_on_run synth_1")
     tcl.println("")
-
-    if (enableILA && ilaSignals.nonEmpty) {
-      tcl.println("# ── Insert ILA (post-synthesis netlist) ──")
-      tcl.println("open_run synth_1")
-      tcl.println("create_debug_core u_ila_0 ila")
-      tcl.println(s"set_property C_DATA_DEPTH $ilaDepth [get_debug_cores u_ila_0]")
-      tcl.println("set_property C_CLK_INPUT_FREQ_HZ 100000000 [get_debug_cores dbg_hub]")
-      tcl.println("set_property C_ENABLE_CLK_DIVIDER true [get_debug_cores dbg_hub]")
-      tcl.println("")
-      tcl.println("# Find 100 MHz clock net for dbg_hub/clk (_mmcm_clk_out2 in Verilog)")
-      tcl.println("set dbg_clk_nets [get_nets -hier -filter {NAME =~ *mmcm*clk_out2* || NAME =~ *clk_out2*}]")
-      tcl.println("if {[llength $dbg_clk_nets] == 0} {")
-      tcl.println(
-        "  set dbg_clk_nets [get_nets -of [get_pins -hier -filter {REF_PIN_NAME == O} -of [get_cells -hier -filter {REF_NAME == BUFG}]]]"
-      )
-      tcl.println("}")
-      tcl.println("if {[llength $dbg_clk_nets] > 0} {")
-      tcl.println("  set dbg_clk [lindex $dbg_clk_nets 0]")
-      tcl.println("  connect_debug_port dbg_hub/clk $dbg_clk")
-      tcl.println("  connect_debug_port u_ila_0/clk $dbg_clk")
-      tcl.println("} else {")
-      tcl.println("  puts {FATAL: Cannot find clock net for dbg_hub/clk}")
-      tcl.println("  exit 1")
-      tcl.println("}")
-      tcl.println("")
-      tcl.println("# Connect probes")
-      tcl.println("puts \"Existing probes: [get_debug_ports u_ila_0/probe*]\"")
-      tcl.println("")
-
-      ilaSignals.zipWithIndex.foreach { case (pattern, idx) =>
-        val label = pattern.split("[*&|]").find(_.nonEmpty).getOrElse(s"sig$idx").take(20)
-        if (idx == 0) {
-          tcl.println(s"# $label (use probe0 if available)")
-          tcl.println(s"set nets [get_nets -hier -filter {NAME =~ $pattern}]")
-          tcl.println("if {[llength $nets] > 0} {")
-          tcl.println("  set net [lindex $nets 0]")
-          tcl.println(s"  puts \"$label net: $$net\"")
-          tcl.println("  if {[catch {connect_debug_port u_ila_0/probe0 $net}]} {")
-          tcl.println("    create_debug_port u_ila_0 probe")
-          tcl.println("    set port [lindex [get_debug_ports u_ila_0/probe*] end]")
-          tcl.println("    connect_debug_port $port $net")
-          tcl.println("    puts \"  => $port\"")
-          tcl.println("  } else { puts \"  => probe0\" }")
-          tcl.println(s"} else { puts {WARN: $label not found} }")
-        } else {
-          tcl.println(s"# $label")
-          tcl.println(s"set nets [get_nets -hier -filter {NAME =~ $pattern}]")
-          tcl.println("if {[llength $nets] > 0} {")
-          tcl.println("  set net [lindex $nets 0]")
-          tcl.println("  create_debug_port u_ila_0 probe")
-          tcl.println("  set port [lindex [get_debug_ports u_ila_0/probe*] end]")
-          tcl.println("  connect_debug_port $port $net")
-          tcl.println(s"  puts \"$label => $$port\"")
-          tcl.println(s"} else { puts {WARN: $label not found} }")
-        }
-        tcl.println("")
-      }
-
-      tcl.println("puts \"Final probes: [get_debug_ports u_ila_0/probe*]\"")
-      tcl.println("write_checkpoint -force [file join $prj_dir post_ila.dcp]")
-      tcl.println("")
-    }
 
     tcl.println("# ── Implementation ──")
     tcl.println("launch_runs impl_1 -to_step write_bitstream -jobs 4")
