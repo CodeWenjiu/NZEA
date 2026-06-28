@@ -21,8 +21,8 @@ class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
     val led_finish = Output(Bool())
   })
 
-  val tile = Module(new NzeaTile(sim = false, platform = SynthPlatform.HelloFPGA, clockHz = clockHz))
-  val tileIo = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]
+  val tile = Module(new NzeaTile(sim = false, platform = SynthPlatform.Fpga, clockHz = clockHz))
+  val tileIo = tile.io.asInstanceOf[nzea_tile.platform.fpga.TileIo]
 
   io.uart_tx := tileIo.fpga_uart.txd
   tileIo.fpga_uart.rxd := io.uart_rx

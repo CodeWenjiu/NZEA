@@ -102,7 +102,7 @@ flowchart TD
 
 ## Agent 使用规范
 - 调用 `just`/`mill`/`yosys`/`nextpnr-*`/`nu` 等依赖 Nix 的命令时，必须通过 `nix develop --command bash -c '...'` 启动。用户在自己终端不受此限制。
-- 修改 Scala/Chisel 代码后，必须运行 `nix develop --command bash -c 'just dump --target tile --platform hellofpga --isa riscv32im --sim false'` 验证编译和生成通过。
+- 修改 Scala/Chisel 代码后，必须运行 `nix develop --command bash -c 'just dump --target tile --platform fpga --isa riscv32im --sim false'` 验证编译和生成通过。
 - Mill 命令始终添加 `--no-server`。
 - 大输出命令（`just dump`、`mill *.run`）设置 `timeout_ms`（推荐 300000 ms）。
 - 构建验证一次通过即足够，不要重复运行"确认"。

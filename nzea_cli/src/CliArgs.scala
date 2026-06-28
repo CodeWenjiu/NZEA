@@ -12,7 +12,7 @@ case class CliArgs(
     ) outDir: Option[String] = None,
     @arg(doc = "Elaboration hierarchy: core (Top) or tile (NzeaTile)") target: ElaborationTarget =
       ElaborationTarget.Core,
-    @arg(doc = "Backend platform segment (e.g. yosys, hellofpga)") platform: String = "yosys",
+    @arg(doc = "Backend platform segment (e.g. yosys, fpga)") platform: String = "yosys",
     @arg(doc = "If true, emit simulation RTL (DPI bridges); if false, emit synthesizable top-level IO") sim: Boolean =
       true,
     @arg(doc =

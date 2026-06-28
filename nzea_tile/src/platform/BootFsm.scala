@@ -5,8 +5,8 @@ import chisel3.util.{is, log2Ceil, switch, Cat, Enum, Valid}
 import nzea_rtl.{BootReq, Mrom}
 
 class BootFsm(
-    ramDepth: Int = 32768,
-    defaultHex: String = "nzea_sim/sim/tile/hello.hex"
+    ramDepth: Int,
+    hexPath: String
 ) extends Module {
 
   private val addrW = log2Ceil(ramDepth)
@@ -27,7 +27,7 @@ class BootFsm(
   val totalWords = RegInit(0.U(32.W))
   val wordAddr = RegInit(0.U(addrW.W))
 
-  val mrom = Module(new Mrom(defaultHex))
+  val mrom = Module(new Mrom(hexPath))
   val initCnt = RegInit(0.U(log2Ceil(mrom.depth).W))
   val padCnt = RegInit(0.U(addrW.W))
 

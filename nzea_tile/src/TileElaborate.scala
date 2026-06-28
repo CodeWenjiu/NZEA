@@ -52,8 +52,8 @@ object TileElaborate {
           io.extRamBoot := DontCare
           io.extRamCalibDone := DontCare
 
-        case SynthPlatform.HelloFPGA =>
-          val io2 = tile.io.asInstanceOf[nzea_tile.platform.hellofpga.TileIo]
+        case SynthPlatform.Fpga =>
+          val io2 = tile.io.asInstanceOf[nzea_tile.platform.fpga.TileIo]
           io.uart_txd := io2.fpga_uart.txd
           io2.fpga_uart.rxd := io.uart_rxd
           io2.fpga_uart.ctsn := false.B // tied low (active)

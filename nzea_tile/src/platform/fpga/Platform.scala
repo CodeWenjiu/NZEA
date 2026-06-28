@@ -1,4 +1,4 @@
-package nzea_tile.platform.hellofpga
+package nzea_tile.platform.fpga
 
 import chisel3._
 import nzea_core.Core
@@ -25,22 +25,20 @@ object Platform {
       fabricIdWidth: Int,
       clockHz: Int
   )(implicit config: CoreConfig): Unit = {
-    // external RAM calibration done (driven by board; true when no DDR3)
-    val ddr3CalibDone = Wire(Bool())
-    ddr3CalibDone := tileIo.extRamCalibDone
-
     // BootFsm resets when external RAM not calibrated — re-runs boot after calibration
-    val bootReset = tileReset || !ddr3CalibDone
-    val bootFsm = withReset(bootReset) { Module(new BootFsm) }
+    val bootReset = tileReset || !tileIo.extRamCalibDone
+    val ramDepth = (AddressMap.ram.size / 4).toInt
+    val hexPath = "nzea_sim/sim/tile/hello.hex"
+    val bootFsm = withReset(bootReset) { Module(new BootFsm(ramDepth, hexPath)) }
     require(
-      bootFsm.mrom.depth <= (AddressMap.ram.size / 4).toInt,
-      s"hex has ${bootFsm.mrom.depth} words, RAM holds ${AddressMap.ram.size / 4}"
+      bootFsm.mrom.depth <= ramDepth,
+      s"hex has ${bootFsm.mrom.depth} words, RAM holds $ramDepth"
     )
     bootFsm.io.boot_en := true.B
     bootFsm.io.rx_valid := false.B
     bootFsm.io.rx_data := 0.U
 
-    cpuReset := tileReset || bootFsm.io.cpu_reset || !ddr3CalibDone
+    cpuReset := bootReset || bootFsm.io.cpu_reset
 
     if (sim) {
       for (i <- 0 until 4) {

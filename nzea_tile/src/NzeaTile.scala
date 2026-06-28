@@ -13,7 +13,7 @@ import nzea_rtl.{
   LiteBusROToFabricRW,
   LiteBusRWToFabricRW
 }
-import nzea_tile.platform.hellofpga
+import nzea_tile.platform.fpga
 import nzea_tile.platform.yosys
 import nzea_tile.platform.HasCommitMsg
 
@@ -21,8 +21,8 @@ import nzea_tile.platform.HasCommitMsg
 object TileAddressMap {
 
   def forPlatform(platform: SynthPlatform): Seq[FabricAddrRange] = platform match {
-    case SynthPlatform.Yosys     => yosys.AddressMap.ranges
-    case SynthPlatform.HelloFPGA => hellofpga.AddressMap.ranges
+    case SynthPlatform.Yosys => yosys.AddressMap.ranges
+    case SynthPlatform.Fpga  => fpga.AddressMap.ranges
   }
 
 }
@@ -41,8 +41,8 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000
   private val fabricIdWidth = 8
 
   val io = IO(platform match {
-    case SynthPlatform.Yosys     => new yosys.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
-    case SynthPlatform.HelloFPGA => new hellofpga.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
+    case SynthPlatform.Yosys => new yosys.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
+    case SynthPlatform.Fpga  => new fpga.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
   })
 
   io := DontCare
@@ -124,11 +124,11 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000
         fabricUserWidth,
         fabricIdWidth
       )
-    case SynthPlatform.HelloFPGA =>
-      hellofpga.Platform.connectDevices(
+    case SynthPlatform.Fpga =>
+      fpga.Platform.connectDevices(
         core,
         fabric,
-        io.asInstanceOf[hellofpga.TileIo],
+        io.asInstanceOf[fpga.TileIo],
         cpuReset,
         reset.asBool,
         sim,

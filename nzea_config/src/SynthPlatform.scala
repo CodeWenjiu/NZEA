@@ -3,11 +3,13 @@ package nzea_config
 /** Synthesis / backend platform (directory segment under `build/<target>/<segment>/<isa>/<sim|sta>/`). */
 sealed trait SynthPlatform {
   def segment: String
+
   /** CIRCT/firtool flags for this backend; [[sim]] matches [[NzeaConfig.sim]] (simulation vs synthesis RTL). */
   def firtoolOpts(sim: Boolean): Array[String]
 }
 
 object SynthPlatform {
+
   private val dpiFirtoolOpts: Array[String] = Array(
     "-disable-all-randomization",
     "-strip-debug-info",
@@ -26,19 +28,22 @@ object SynthPlatform {
 
     override def firtoolOpts(sim: Boolean): Array[String] =
       if (sim) dpiFirtoolOpts else hwFirtoolOpts
+
   }
 
   /** FPGA bring-up flow (initially aligned with Yosys firtool lowering). */
-  case object HelloFPGA extends SynthPlatform {
-    override def segment: String = "hellofpga"
+  case object Fpga extends SynthPlatform {
+    override def segment: String = "fpga"
 
     override def firtoolOpts(sim: Boolean): Array[String] =
       if (sim) dpiFirtoolOpts else hwFirtoolOpts
+
   }
 
   def fromString(s: String): Option[SynthPlatform] = s.toLowerCase match {
-    case "yosys"                    => Some(Yosys)
-    case "hellofpga" | "hello_fpga" => Some(HelloFPGA)
-    case _                          => None
+    case "yosys" => Some(Yosys)
+    case "fpga"  => Some(Fpga)
+    case _       => None
   }
+
 }

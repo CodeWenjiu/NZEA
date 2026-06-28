@@ -12,7 +12,7 @@ import nzea_tile.TileElaborate
 class TileSimTB(implicit config: CoreConfig) extends Module {
 
   val baudDiv = 100_000_000 / 100000 // matches DUT UartTx
-  val platform = SynthPlatform.HelloFPGA
+  val platform = SynthPlatform.Fpga
 
   // Hardcoded test program: writes 'H' to UART, triggers finisher, loops
   val prog = Seq[BigInt](
