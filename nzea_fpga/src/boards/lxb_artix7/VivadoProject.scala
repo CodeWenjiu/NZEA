@@ -2,8 +2,22 @@ package nzea_fpga.boards.lxb_artix7
 
 import java.io.File
 import scala.io.Source
+import scala.sys.process._
 
 object VivadoProject {
+
+  private lazy val isWsl: Boolean = {
+    new File("/proc/sys/fs/binfmt_misc/WSLInterop").exists() ||
+    (try {
+      val v = Source.fromFile("/proc/version").mkString.toLowerCase
+      v.contains("microsoft") || v.contains("wsl")
+    } catch { case _: Exception => false })
+  }
+
+  private def toHostPath(path: String): String =
+    if (isWsl) try { s"wslpath -m $path".!!.trim }
+    catch { case _: Exception => path }
+    else path
 
   def generate(
       outDir: String,
@@ -13,18 +27,26 @@ object VivadoProject {
   ): Unit = {
     val svFiles = new File(outDir).listFiles().filter(_.getName.endsWith(".sv")).sorted
     val absOutDir = new File(outDir).getAbsolutePath()
+    new File(s"$outDir/vp").mkdirs()
     val tcl = new java.io.PrintWriter(s"$outDir/create_project.tcl")
-
-    val root = { var f = new File(outDir); for (_ <- 1 to 5) f = f.getParentFile; f }
-    val prjFile = new File(root, "nzea_fpga/src/boards/lxb_artix7/mig_ddr3/mig_b.prj")
-    val prjLines: Seq[String] =
-      if (prjFile.exists()) Source.fromFile(prjFile, "UTF-8").getLines().toSeq else Nil
 
     tcl.println("set script_dir [file dirname [info script]]")
     tcl.println("set prj_root [file normalize [file join $script_dir ../../../../../]]")
-    tcl.println("set prj_dir [file join $script_dir ../../.. vp]")
+    tcl.println("")
+    tcl.println("# ── Stage to TEMP (native Windows path, avoids UNC synthesis failures) ──")
+    tcl.println("set prj_dir [file join $env(TEMP) nzea_fpga]")
+    tcl.println("catch { file delete -force $prj_dir }")
     tcl.println("file mkdir $prj_dir")
+    tcl.println("")
+    tcl.println("# Copy SV sources")
+    tcl.println("foreach f [glob -nocomplain [file join $script_dir *.sv]] {")
+    tcl.println("  file copy -force $f [file join $prj_dir [file tail $f]]")
+    tcl.println("}")
+    tcl.println("# Copy XDC")
+    tcl.println(s"file copy -force [file join $$prj_root $xdcPath] [file join $$prj_dir [file tail $xdcPath]]")
+    tcl.println("")
     tcl.println("cd $prj_dir")
+    tcl.println("close_project -quiet")
     tcl.println(s"create_project -force nzea_fpga . -part $part")
     tcl.println("")
 
@@ -43,29 +65,9 @@ object VivadoProject {
     tcl.println("generate_target all [get_ips clk_wiz_0]")
     tcl.println("")
 
-    tcl.println("# ── MIG IP ──")
-    tcl.println("set ip_dir [file join $env(TEMP) nzea_mig_ddr3]")
-    tcl.println("file delete -force $ip_dir")
-    tcl.println("file mkdir $ip_dir")
-    tcl.println("")
-    tcl.println("# Write mig_b.prj (avoids WSL 9p permission issue)")
-    tcl.println("set fd [open [file join $ip_dir mig_b.prj] w]")
-    for (line <- prjLines) {
-      val escaped = line.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
-      tcl.println(s"puts $$fd {$escaped}")
-    }
-    tcl.println("close $fd")
-    tcl.println("")
-    tcl.println("file copy -force [file join $prj_root nzea_fpga/src/boards/lxb_artix7/mig_ddr3 mig_ddr3.xci] $ip_dir")
-    tcl.println("add_files -norecurse [file join $ip_dir mig_ddr3.xci]")
-    tcl.println("set_property -dict [list CONFIG.SIM_BYPASS_INIT_CAL {FAST}] [get_ips mig_ddr3]")
-    tcl.println("reset_target all [get_ips mig_ddr3]")
-    tcl.println("generate_target all [get_ips mig_ddr3]")
-    tcl.println("")
-
     if (enableILA) {
       val widths = IlaProbes.widths
-      tcl.println("# ── ILA IP (matches Chisel BlackBox 'u_ila_0') ──")
+      tcl.println("# ── ILA IP ──")
       tcl.println("create_ip -name ila -vendor xilinx.com -library ip -module_name u_ila_0")
       tcl.println("set_property -dict [list \\")
       tcl.println(s"  CONFIG.C_DATA_DEPTH ${IlaProbes.depth} \\")
@@ -78,11 +80,9 @@ object VivadoProject {
       tcl.println("")
     }
 
-    tcl.println(s"add_files -norecurse [file join $$prj_root $xdcPath]")
-    tcl.println(
-      "add_files -fileset constrs_1 -norecurse [file join $prj_root nzea_fpga/src/boards/lxb_artix7/mig_ddr3 mig_ddr3.xdc]"
-    )
-    svFiles.foreach(f => tcl.println(s"add_files -norecurse [file join $$script_dir ${f.getName}]"))
+    tcl.println("# ── Sources (all from local TEMP copy) ──")
+    tcl.println(s"add_files -norecurse [file join $$prj_dir [file tail $xdcPath]]")
+    svFiles.foreach(f => tcl.println(s"add_files -norecurse [file join $$prj_dir ${f.getName}]"))
     tcl.println("update_compile_order -fileset sources_1")
     tcl.println("set_property top LxbArtix7Top [current_fileset]")
     tcl.println("")
@@ -97,7 +97,7 @@ object VivadoProject {
     tcl.println("wait_on_run impl_1")
     tcl.println(s"puts {Bitstream: [glob [file join $$prj_dir nzea_fpga.runs impl_1 LxbArtix7Top.bit]]}")
     tcl.close()
-    println(s"Vivado: source $absOutDir/create_project.tcl")
+    println(s"\u001b[36mVivado:\u001b[1;33m source ${toHostPath(s"$absOutDir/create_project.tcl")}\u001b[0m")
   }
 
 }

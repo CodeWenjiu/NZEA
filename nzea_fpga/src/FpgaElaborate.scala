@@ -54,7 +54,12 @@ object FpgaElaborate {
           firtoolOpts = firtoolOpts
         )
         // No separate test top — Ddr3TestCore is instantiated directly in LxbArtix7Top
-        VivadoProject.generate(outDir, "xc7a200tsbg484-1", "nzea_fpga/src/boards/lxb_artix7/A7_lite.xdc")
+        VivadoProject.generate(
+          outDir,
+          "xc7a200tsbg484-1",
+          "nzea_fpga/src/boards/lxb_artix7/A7_lite.xdc",
+          enableILA = false
+        )
       case FpgaBoard.TangNano20k =>
         ChiselStage.emitSystemVerilogFile(
           new TangNano20kTop(clockHz),
