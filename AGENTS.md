@@ -6,6 +6,7 @@
 |--------|---------|
 | `nzea_rtl/src` | 共享 RTL 工具（FabricBus、LiteBus、crossbar、arbiter、Pipe、MuxTree） |
 | `nzea_device/src` | 可复用设备 IP（UART、定时器等），不依赖任何业务模块 |
+| `nzea_cache/src` | Cache 实现（I-Cache、D-Cache），依赖 `nzea_rtl` |
 | `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |
 | `nzea_config/src` | 共享配置模型：`NzeaConfig`（全局生成选项）和 `CoreConfig`（微架构/ISA） |
 | `nzea_tile/src` | Tile 级 SoC 封装（NzeaTile + FabricBus crossbar + 平台设备） |
@@ -18,9 +19,11 @@
 ```mermaid
 flowchart TD
     rtl[nzea_rtl] --> device[nzea_device]
+    rtl --> cache[nzea_cache]
     rtl --> core[nzea_core]
     core --> config[nzea_config]
     core --> tile[nzea_tile]
+    cache --> tile
     config --> tile
     rtl --> tile
     device --> tile

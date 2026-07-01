@@ -16,6 +16,7 @@ import nzea_rtl.{
 import nzea_tile.platform.fpga
 import nzea_tile.platform.yosys
 import nzea_tile.platform.HasCommitMsg
+import nzea_cache.SetAssoc
 
 /** Tile address map dispatch. Platform-specific ranges defined in their respective packages. */
 object TileAddressMap {
@@ -58,7 +59,20 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000
     )
   )
 
-  ibusReqSlice.io.in <> core.io.ibus
+  val icache = Module(
+    new SetAssoc(
+      nSets = 16,
+      nWays = 4,
+      lineBits = 32,
+      addrWidth = addrWidth,
+      dataWidth = dataWidth,
+      userWidth = core.io.ibus.userWidth
+    )
+  )
+
+  icache.io.top <> core.io.ibus
+
+  ibusReqSlice.io.in <> icache.io.bottom
 
   val ibusToFabric = Module(
     new LiteBusROToFabricRW(

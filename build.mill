@@ -66,7 +66,7 @@ object nzea_core extends ScalaModule {
 object nzea_tile extends ScalaModule {
   def scalaVersion = scalaV
 
-  def moduleDeps = Seq(nzea_core, nzea_rtl, nzea_config, nzea_device)
+  def moduleDeps = Seq(nzea_core, nzea_rtl, nzea_config, nzea_device, nzea_cache)
 
   override def scalacOptions = sharedScalacOptions
 
@@ -77,6 +77,19 @@ object nzea_tile extends ScalaModule {
 }
 
 object nzea_device extends ScalaModule {
+  def scalaVersion = scalaV
+
+  def moduleDeps = Seq(nzea_rtl)
+
+  override def scalacOptions = sharedScalacOptions
+
+  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
+  override def scalacPluginMvnDeps = Seq(
+    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
+  )
+}
+
+object nzea_cache extends ScalaModule {
   def scalaVersion = scalaV
 
   def moduleDeps = Seq(nzea_rtl)
