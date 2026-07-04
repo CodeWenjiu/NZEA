@@ -1,0 +1,3 @@
+[submodule "wavepeek"]
+	path = wavepeek
+	url = git@github.com:CodeWenjiu/wavepeek.git
