@@ -20,7 +20,8 @@ object Main {
           platform = config.platform,
           outDir = config.effectiveOutDir,
           clockHz = config.clockHz,
-          firtoolOpts = config.firtoolOpts
+          firtoolOpts = config.firtoolOpts,
+          cache = config.cache
         )
       case ElaborationTarget.Core =>
         CoreElaborate.elaborate(

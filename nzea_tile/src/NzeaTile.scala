@@ -1,7 +1,7 @@
 package nzea_tile
 
 import chisel3._
-import nzea_config.SynthPlatform
+import nzea_config.{CacheConfig, SynthPlatform}
 import nzea_core.config.CoreConfig
 import nzea_core.dpi.CommitDpiBridge
 import nzea_rtl.{
@@ -32,7 +32,12 @@ object TileAddressMap {
   * (core ibus+dbus) and platform-selected slaves. `sim=true`: slaves are connected to DPI bridges (bus_read/bus_write).
   * `sim=false`: exposes platform-specific HW IO as top-level ports.
   */
-class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit
+class NzeaTile(
+    sim: Boolean,
+    platform: SynthPlatform,
+    clockHz: Int = 100_000_000,
+    cache: Option[CacheConfig] = Some(CacheConfig())
+)(implicit
     config: CoreConfig
 ) extends Module {
   private val addrWidth = config.width
@@ -59,20 +64,24 @@ class NzeaTile(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000
     )
   )
 
-  val icache = Module(
-    new SetAssoc(
-      nSets = 16,
-      nWays = 4,
-      lineBits = 32,
-      addrWidth = addrWidth,
-      dataWidth = dataWidth,
-      userWidth = core.io.ibus.userWidth
-    )
-  )
+  cache match {
+    case Some(cfg) =>
+      val icache = Module(
+        new SetAssoc(
+          nSets = cfg.nSets,
+          nWays = cfg.nWays,
+          lineBits = cfg.lineBits,
+          addrWidth = addrWidth,
+          dataWidth = dataWidth,
+          userWidth = core.io.ibus.userWidth
+        )
+      )
+      icache.io.top <> core.io.ibus
+      ibusReqSlice.io.in <> icache.io.bottom
 
-  icache.io.top <> core.io.ibus
-
-  ibusReqSlice.io.in <> icache.io.bottom
+    case None =>
+      ibusReqSlice.io.in <> core.io.ibus
+  }
 
   val ibusToFabric = Module(
     new LiteBusROToFabricRW(

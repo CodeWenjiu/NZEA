@@ -3,7 +3,7 @@ package nzea_tile
 import _root_.circt.stage.ChiselStage
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.SynthPlatform
+import nzea_config.{CacheConfig, SynthPlatform}
 import nzea_core.config.CoreConfig
 import nzea_core.retire.CommitMsg
 import nzea_rtl.{BootReq, FabricBusRW}
@@ -23,11 +23,16 @@ object TileElaborate {
   }
 
   /** Tile wrapper: `sim=true` enables DPI bridges; else expose tile IO as top-level ports. */
-  class Top(sim: Boolean, platform: SynthPlatform, clockHz: Int = 100_000_000)(implicit config: CoreConfig)
+  class Top(
+      sim: Boolean,
+      platform: SynthPlatform,
+      clockHz: Int = 100_000_000,
+      cache: Option[CacheConfig] = Some(CacheConfig())
+  )(implicit config: CoreConfig)
       extends Module {
     override def desiredName = "NzeaTile"
 
-    val tile = Module(new NzeaTile(sim, platform, clockHz))
+    val tile = Module(new NzeaTile(sim, platform, clockHz, cache))
     private val addrWidth = config.width
     private val dataWidth = config.width
     private val fabricUserWidth = 64
@@ -79,7 +84,8 @@ object TileElaborate {
       platform: SynthPlatform,
       outDir: String,
       clockHz: Int = 100_000_000,
-      firtoolOpts: Array[String]
+      firtoolOpts: Array[String],
+      cache: Option[CacheConfig] = Some(CacheConfig())
   )(implicit config: CoreConfig): Unit = {
     println(
       s"Generating NzeaTile (isa: ${config.isa}, platform: ${platform.segment}, sim: $sim)"
@@ -87,7 +93,7 @@ object TileElaborate {
     println(s"Output: $outDir")
 
     ChiselStage.emitSystemVerilogFile(
-      new Top(sim, platform, clockHz),
+      new Top(sim, platform, clockHz, cache),
       args = Array("--target-dir", outDir),
       firtoolOpts = firtoolOpts
     )
