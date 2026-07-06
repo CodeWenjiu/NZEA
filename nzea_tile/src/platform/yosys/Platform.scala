@@ -17,23 +17,25 @@ object Platform {
       addrWidth: Int,
       dataWidth: Int,
       fabricUserWidth: Int,
-      fabricIdWidth: Int
+      fabricIdWidth: Int,
+      clockHz: Int = 100_000_000
   )(implicit config: CoreConfig): Unit = {
     cpuReset := tileReset
-    if (sim) {
-      val ram = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      val uart = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      val finisher = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      val clint = Module(new SimDeviceDpiBridge(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      fabric.io.out(0) <> ram.io.bus
-      fabric.io.out(1) <> uart.io.bus
-      fabric.io.out(2) <> finisher.io.bus
-      fabric.io.out(3) <> clint.io.bus
-    } else {
-      fabric.io.out(0) <> tileIo.yosys_devices.ram
-      fabric.io.out(1) <> tileIo.yosys_devices.uart16550
-      fabric.io.out(2) <> tileIo.yosys_devices.sifive_test_finisher
-      fabric.io.out(3) <> tileIo.yosys_devices.clint
+
+    val hwPorts = tileIo.yosys_devices.ports
+
+    for (i <- hwPorts.indices) {
+      AccessLatency.connect(
+        sim,
+        clockHz,
+        devHz = tileIo.yosys_devices.devHz(i),
+        fabricPort = fabric.io.out(i),
+        hwPort = hwPorts(i),
+        simPortWidth = addrWidth,
+        simPortData = dataWidth,
+        simPortUser = fabricUserWidth,
+        simPortId = fabricIdWidth
+      )
     }
   }
 

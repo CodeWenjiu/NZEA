@@ -10,6 +10,12 @@ class DeviceBusBundle(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: I
   val uart16550 = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
   val sifive_test_finisher = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
   val clint = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+
+  /** Ordered port list matching crossbar output indices. */
+  def ports: Seq[FabricBusRW] = Seq(ram, uart16550, sifive_test_finisher, clint)
+
+  /** Target device frequency (Hz). `None` = passthrough, no injected latency. */
+  def devHz: Seq[Option[Double]] = Seq(None, None, None, None)
 }
 
 import nzea_tile.platform.HasCommitMsg

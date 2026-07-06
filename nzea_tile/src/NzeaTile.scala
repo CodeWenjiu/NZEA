@@ -145,7 +145,8 @@ class NzeaTile(
         addrWidth,
         dataWidth,
         fabricUserWidth,
-        fabricIdWidth
+        fabricIdWidth,
+        clockHz
       )
     case SynthPlatform.Fpga =>
       fpga.Platform.connectDevices(
