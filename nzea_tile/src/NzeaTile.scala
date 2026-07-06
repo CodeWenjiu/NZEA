@@ -43,7 +43,18 @@ class NzeaTile(
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val ranges = TileAddressMap.forPlatform(platform)
-  private val fabricUserWidth = 64
+  // fabricUserWidth covers ibus + dbus user payloads.
+  // Computed from config (no forward-reference to `core`).
+  private val ibusUserW = nzea_core.frontend.IbusUser.userWidth(config.width)
+
+  private val dbusUserW = {
+    val rw = chisel3.util.log2Ceil(config.robDepth.max(2))
+    val pw = config.prfAddrWidth
+    val upw = rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw
+    config.width.max(upw)
+  }
+
+  private val fabricUserWidth = ibusUserW.max(dbusUserW)
   private val fabricIdWidth = 8
 
   val io = IO(platform match {

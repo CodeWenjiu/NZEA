@@ -4,7 +4,6 @@ import chisel3._
 import chiseltest._
 import org.scalatest.flatspec.AnyFlatSpec
 
-/** Tiny wrapper for testing IbusUser pack/extract. */
 class IbusUserWrapper(val addrWidth: Int) extends Module {
 
   val io = IO(new Bundle {
@@ -24,40 +23,18 @@ class IbusUserWrapper(val addrWidth: Int) extends Module {
 
 class IbusUserTest extends AnyFlatSpec with ChiselScalatestTester {
   private val W = 32
+  private val E = IbusUser.epochBits
 
-  "IbusUser pack/unpack" should "round-trip at reset vector" in {
-    test(new IbusUserWrapper(W)) { dut =>
-      dut.io.pc.poke(0x80000000L)
-      dut.io.pred.poke(0x80000004L)
-      dut.io.epoch.poke(0)
-      dut.clock.step()
-      dut.io.pcOut.expect(0x80000000L)
-      dut.io.predOut.expect(0x80000004L)
-      dut.io.epochOut.expect(0)
-    }
-  }
-
-  it should "round-trip with max epoch" in {
-    test(new IbusUserWrapper(W)) { dut =>
-      dut.io.pc.poke(0x80000000L)
-      dut.io.pred.poke(0x80000004L)
-      dut.io.epoch.poke(3)
-      dut.clock.step()
-      dut.io.pcOut.expect(0x80000000L)
-      dut.io.predOut.expect(0x80000004L)
-      dut.io.epochOut.expect(3)
-    }
-  }
-
-  it should "round-trip at various addresses" in {
+  "IbusUser" should "round-trip pc/pred/epoch" in {
     test(new IbusUserWrapper(W)) { dut =>
       val cases = Seq(
-        (0x80000000L, 0x80000004L),
-        (0x80005d18L, 0x80005d1cL),
-        (0x80005e98L, 0x80005e9cL),
-        (0x8fffffc0L, 0x8fffffc4L)
+        (0x80000000L, 0x80000004L, 0),
+        (0x80005d18L, 0x80005d1cL, 1),
+        (0x80005d2cL, 0x80005d5cL, 3),
+        (0x80005e98L, 0x80005e9cL, 7),
+        (0x8fffffc0L, 0x8fffffc4L, 15)
       )
-      for (((pc, pred), e) <- cases.zipWithIndex) {
+      for ((pc, pred, e) <- cases) {
         dut.io.pc.poke(pc)
         dut.io.pred.poke(pred)
         dut.io.epoch.poke(e)
@@ -69,29 +46,20 @@ class IbusUserTest extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 
-  it should "round-trip with branch targets" in {
-    test(new IbusUserWrapper(W)) { dut =>
-      dut.io.pc.poke(0x80005d2cL)
-      dut.io.pred.poke(0x80005d5cL)
-      dut.io.epoch.poke(3)
-      dut.clock.step()
-      dut.io.pcOut.expect(0x80005d2cL)
-      dut.io.predOut.expect(0x80005d5cL)
-      dut.io.epochOut.expect(3)
-    }
-  }
-
   it should "distinguish epochs" in {
     test(new IbusUserWrapper(W)) { dut =>
       dut.io.pc.poke(0x80000000L)
       dut.io.pred.poke(0x80000004L)
-      dut.io.epoch.poke(1)
-      dut.clock.step()
-      dut.io.epochOut.expect(1)
-      dut.io.epoch.poke(2)
-      dut.clock.step()
-      dut.io.epochOut.expect(2)
+      for (e <- 0 until (1 << E)) {
+        dut.io.epoch.poke(e)
+        dut.clock.step()
+        dut.io.epochOut.expect(e)
+      }
     }
+  }
+
+  it should "use correct user width" in {
+    assert(IbusUser.userWidth(W) == W * 2 + E)
   }
 
 }

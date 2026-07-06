@@ -7,29 +7,24 @@ import nzea_core.frontend.bp.{BTB, BpUpdate, PHT}
 import nzea_rtl.LiteBusRO
 import nzea_core.config.CoreConfig
 
-/** Ibus user field (addrWidth*2 bits): {pred_next_pc, pc[31:3], epoch}.
-  *
-  * Instructions are 4‑byte aligned so pc[2:0] is always 0b000 — those 3 bits carry the epoch tag. Rocket‑Chip /
-  * XiangShan style: on redirect epoch increments; responses with a stale epoch are drained.
+/** Ibus user field layout: {pred_next_pc, pc, epoch}. epoch tags every request; on redirect it increments. Responses
+  * with a stale epoch are drained — Rocket‑Chip / XiangShan style.
   */
 object IbusUser {
-  val epochBits = 2
-  val epochMask = (1 << epochBits) - 1
+  val epochBits = 4
 
-  def pack(addrWidth: Int, pred_next_pc: UInt, pc: UInt, epoch: UInt): UInt = {
-    val pcHi = pc(addrWidth - 1, epochBits)
-    Cat(pred_next_pc, pcHi, epoch)
-  }
+  def userWidth(addrWidth: Int): Int = addrWidth * 2 + epochBits
+
+  def pack(addrWidth: Int, pred_next_pc: UInt, pc: UInt, epoch: UInt): UInt =
+    Cat(pred_next_pc, pc, epoch)
 
   def epoch(addrWidth: Int, user: UInt): UInt = user(epochBits - 1, 0)
 
-  def pc(addrWidth: Int, user: UInt): UInt = {
-    val pcHi = user(addrWidth - 1, epochBits)
-    Cat(pcHi, 0.U(epochBits.W))
-  }
+  def pc(addrWidth: Int, user: UInt): UInt =
+    user(addrWidth + epochBits - 1, epochBits)
 
   def predNextPc(addrWidth: Int, user: UInt): UInt =
-    user(addrWidth * 2 - 1, addrWidth)
+    user(addrWidth * 2 + epochBits - 1, addrWidth + epochBits)
 
 }
 
@@ -44,7 +39,7 @@ class IFUOut(width: Int) extends Bundle {
 class IFU(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
-  private val userWidth = addrWidth * 2
+  private val userWidth = IbusUser.userWidth(addrWidth)
   private val busType = new LiteBusRO(addrWidth, dataWidth, userWidth)
 
   private val pcReset =
