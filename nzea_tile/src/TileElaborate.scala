@@ -26,8 +26,8 @@ object TileElaborate {
   class Top(
       sim: Boolean,
       platform: SynthPlatform,
-      clockHz: Int = 100_000_000,
-      cache: Option[CacheConfig] = Some(CacheConfig())
+      clockHz: Int,
+      cache: Option[CacheConfig]
   )(implicit config: CoreConfig)
       extends Module {
     override def desiredName = "NzeaTile"
@@ -83,9 +83,9 @@ object TileElaborate {
       sim: Boolean,
       platform: SynthPlatform,
       outDir: String,
-      clockHz: Int = 100_000_000,
+      clockHz: Int,
       firtoolOpts: Array[String],
-      cache: Option[CacheConfig] = Some(CacheConfig())
+      cache: Option[CacheConfig]
   )(implicit config: CoreConfig): Unit = {
     println(
       s"Generating NzeaTile (isa: ${config.isa}, platform: ${platform.segment}, sim: $sim)"

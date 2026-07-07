@@ -47,6 +47,7 @@ flowchart TD
 3. 将 CLI 关注点与硬件生成分离，使生成过程能被测试和工具复用。
 4. 优先使用职责明确的小模块，而非多功能大文件。
 5. 版本常量（`scalaV`、`chiselV` 等）在 `build.mill` 中统一定义，各模块复用。
+6. **禁止关键参数有默认值**。跨模块传递的配置参数（`clockHz`、`cache`、`sim` 等）不得有 Scala 默认值；编译器必须强制每个调用点显式传参。`case class` 的默认值仅允许用于 CLI 入口层（`CliArgs`、`NzeaConfig`），且必须与所有下游签名保持一致（一处修改，全链路报错）。
 
 ## 工作基线
 构建或验证前先执行 `nix develop`。该 flake 锁定 `mill`、`scalafmt`、`yosys`、`ieda`、JDK 和 Rust nightly，并导出 `PDK_PATH`。

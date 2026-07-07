@@ -1,13 +1,9 @@
 package nzea_tile.platform.yosys
 
 import chisel3._
-import nzea_rtl.FabricBusRW
+import nzea_rtl.{FabricBusRW, FabricBusRandomStall}
 
-/** Simulation latency helpers — placeholder for future random-stall injection.
-  *
-  * Currently passthrough: `sim=true` creates DPI bridges; `sim=false` connects directly to hardware ports. No delay is
-  * injected yet.
-  */
+/** Simulation latency helpers. */
 object AccessLatency {
 
   def connect(
@@ -21,11 +17,22 @@ object AccessLatency {
       simPortUser: Int,
       simPortId: Int
   ): Unit = {
-    if (sim) {
+    val devPort = if (sim) {
       val dev = Module(new SimDeviceDpiBridge(simPortWidth, simPortData, simPortUser, simPortId))
-      fabricPort <> dev.io.bus
+      dev.io.bus
     } else {
-      fabricPort <> hwPort
+      hwPort
+    }
+
+    devHz match {
+      case Some(hz) =>
+        val pipe = Module(
+          new FabricBusRandomStall(simPortWidth, simPortData, simPortUser, simPortId, (cpuHz.toDouble / hz).max(1.0))
+        )
+        pipe.io.in <> fabricPort
+        pipe.io.out <> devPort
+      case _ =>
+        fabricPort <> devPort
     }
   }
 

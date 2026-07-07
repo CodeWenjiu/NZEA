@@ -36,7 +36,7 @@ object FpgaElaborate {
   def elaborate(
       board: FpgaBoard,
       outDir: String,
-      clockHz: Int = 100_000_000,
+      clockHz: Int,
       firtoolOpts: Array[String]
   )(implicit config: CoreConfig): Unit = {
     val topName = board match {
@@ -49,7 +49,7 @@ object FpgaElaborate {
     board match {
       case FpgaBoard.LxbArtix7 =>
         ChiselStage.emitSystemVerilogFile(
-          new LxbArtix7Top(clockHz = 100_000_000),
+          new LxbArtix7Top(clockHz),
           args = Array("--target-dir", outDir),
           firtoolOpts = firtoolOpts
         )

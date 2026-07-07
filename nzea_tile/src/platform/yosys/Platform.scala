@@ -18,7 +18,7 @@ object Platform {
       dataWidth: Int,
       fabricUserWidth: Int,
       fabricIdWidth: Int,
-      clockHz: Int = 100_000_000
+      clockHz: Int
   )(implicit config: CoreConfig): Unit = {
     cpuReset := tileReset
 

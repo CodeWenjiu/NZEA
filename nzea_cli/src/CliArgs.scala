@@ -27,7 +27,7 @@ case class CliArgs(
     @arg(doc = "Vector issue queue depth (RVV)") viqDepth: Int = 8,
     @arg(doc = "PHT size (power of 2)") phtSize: Int = 64,
     @arg(doc = "BTB size (power of 2)") btbSize: Int = 16,
-    @arg(doc = "Tile clock frequency in Hz (sets UART divisor etc.)") clockHz: Int = 100_000_000,
+    @arg(doc = "Tile clock frequency in Hz (sets UART divisor etc.)") clockHz: Int = 1_000_000_000,
     @arg(doc = "FPGA board target (lxb_artix7, tangnano20k)") fpgaBoard: String = "lxb_artix7"
 ) {
 

@@ -4,15 +4,7 @@ import chisel3._
 import nzea_config.{CacheConfig, SynthPlatform}
 import nzea_core.config.CoreConfig
 import nzea_core.dpi.CommitDpiBridge
-import nzea_rtl.{
-  FabricAddrRange,
-  FabricBusRW,
-  FabricBusRWCrossbar,
-  FabricBusRWRegisterSlice,
-  LiteBusROReqRegisterSlice,
-  LiteBusROToFabricRW,
-  LiteBusRWToFabricRW
-}
+import nzea_rtl.{FabricAddrRange, FabricBusRW, FabricBusRWCrossbar}
 import nzea_tile.platform.fpga
 import nzea_tile.platform.yosys
 import nzea_tile.platform.HasCommitMsg
@@ -35,8 +27,8 @@ object TileAddressMap {
 class NzeaTile(
     sim: Boolean,
     platform: SynthPlatform,
-    clockHz: Int = 100_000_000,
-    cache: Option[CacheConfig] = Some(CacheConfig())
+    clockHz: Int,
+    cache: Option[CacheConfig]
 )(implicit
     config: CoreConfig
 ) extends Module {
@@ -67,12 +59,8 @@ class NzeaTile(
   val cpuReset = Wire(Bool())
   val core = withReset(cpuReset) { Module(new nzea_core.Core) }
 
-  val ibusReqSlice = Module(
-    new LiteBusROReqRegisterSlice(
-      addrWidth = addrWidth,
-      dataWidth = dataWidth,
-      userWidth = core.io.ibus.userWidth
-    )
+  val ibusAdapter = Module(
+    new IbusAdapter(addrWidth, dataWidth, core.io.ibus.userWidth, fabricUserWidth, fabricIdWidth)
   )
 
   cache match {
@@ -88,35 +76,17 @@ class NzeaTile(
         )
       )
       icache.io.top <> core.io.ibus
-      ibusReqSlice.io.in <> icache.io.bottom
+      ibusAdapter.io.in <> icache.io.bottom
 
     case None =>
-      ibusReqSlice.io.in <> core.io.ibus
+      ibusAdapter.io.in <> core.io.ibus
   }
 
-  val ibusToFabric = Module(
-    new LiteBusROToFabricRW(
-      addrWidth = addrWidth,
-      dataWidth = dataWidth,
-      liteUserWidth = core.io.ibus.userWidth,
-      fabricUserWidth = fabricUserWidth,
-      idWidth = fabricIdWidth
-    )
+  val dbusAdapter = Module(
+    new DbusAdapter(addrWidth, dataWidth, core.io.dbus.userWidth, fabricUserWidth, fabricIdWidth)
   )
 
-  ibusToFabric.io.in <> ibusReqSlice.io.out
-
-  val dbusToFabric = Module(
-    new LiteBusRWToFabricRW(
-      addrWidth = addrWidth,
-      dataWidth = dataWidth,
-      liteUserWidth = core.io.dbus.userWidth,
-      fabricUserWidth = fabricUserWidth,
-      idWidth = fabricIdWidth
-    )
-  )
-
-  dbusToFabric.io.in <> core.io.dbus
+  dbusAdapter.io.in <> core.io.dbus
 
   val fabric = Module(
     new FabricBusRWCrossbar(
@@ -126,16 +96,12 @@ class NzeaTile(
       userWidth = fabricUserWidth,
       idWidth = fabricIdWidth,
       ranges = ranges,
-      perSlaveOutstanding = 8
+      perSlaveOutstanding = 1
     )
   )
 
-  val ibusSlice = Module(new FabricBusRWRegisterSlice(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-  val dbusSlice = Module(new FabricBusRWRegisterSlice(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-  ibusSlice.io.in <> ibusToFabric.io.out
-  dbusSlice.io.in <> dbusToFabric.io.out
-  fabric.io.in(0) <> ibusSlice.io.out
-  fabric.io.in(1) <> dbusSlice.io.out
+  fabric.io.in(0) <> ibusAdapter.io.out
+  fabric.io.in(1) <> dbusAdapter.io.out
 
   if (sim) {
     val cb = Module(new CommitDpiBridge)
