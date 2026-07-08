@@ -1,7 +1,7 @@
 package nzea_rtl
 
 import chisel3._
-import chisel3.util.{Cat, log2Ceil, MuxCase}
+import chisel3.util.{log2Ceil, Cat, MuxCase}
 
 /** Address window for FabricBus decode. */
 case class FabricAddrRange(base: BigInt, size: BigInt) {
@@ -12,19 +12,19 @@ case class FabricAddrRange(base: BigInt, size: BigInt) {
 
 /** FabricBus request payload: addr, wdata, wen, wstrb, user, id. */
 class FabricReq(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Bundle {
-  val addr  = UInt(addrWidth.W)
+  val addr = UInt(addrWidth.W)
   val wdata = UInt(dataWidth.W)
-  val wen   = Bool()
+  val wen = Bool()
   val wstrb = UInt((dataWidth / 8).W)
-  val user  = UInt(userWidth.W)
-  val id    = UInt(idWidth.W)
+  val user = UInt(userWidth.W)
+  val id = UInt(idWidth.W)
 }
 
 /** FabricBus response payload: data, user, id. */
 class FabricResp(dataWidth: Int, userWidth: Int, idWidth: Int) extends Bundle {
   val data = UInt(dataWidth.W)
   val user = UInt(userWidth.W)
-  val id   = UInt(idWidth.W)
+  val id = UInt(idWidth.W)
 }
 
 trait FabricBusLike { self: Bundle =>
@@ -36,10 +36,10 @@ trait FabricBusLike { self: Bundle =>
 
 /** Fabric read-write bus (supports outstanding via request ID). */
 class FabricBusRW(
-  val addrWidth: Int,
-  val dataWidth: Int,
-  val userWidth: Int,
-  val idWidth: Int
+    val addrWidth: Int,
+    val dataWidth: Int,
+    val userWidth: Int,
+    val idWidth: Int
 ) extends Bundle
     with FabricBusLike {
   require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
@@ -48,15 +48,16 @@ class FabricBusRW(
   val resp = Flipped(new PipeIO(new FabricResp(dataWidth, userWidth, idWidth)))
 }
 
-/** One-stage register slice for FabricBusRW.
-  * Cuts combinational paths on both req (master->slave) and resp (slave->master) channels.
+/** One-stage register slice for FabricBusRW. Cuts combinational paths on both req (master->slave) and resp
+  * (slave->master) channels.
   */
 class FabricBusRWRegisterSlice(
-  addrWidth: Int,
-  dataWidth: Int,
-  userWidth: Int,
-  idWidth: Int
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int
 ) extends Module {
+
   val io = IO(new Bundle {
     val in = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
     val out = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
@@ -105,17 +106,19 @@ class FabricBusRWRegisterSlice(
       )
     )
   }
+
 }
 
-/** Request-only register slice for FabricBusRW.
-  * Use when req path needs a timing cut but resp path should stay lightweight.
+/** Request-only register slice for FabricBusRW. Use when req path needs a timing cut but resp path should stay
+  * lightweight.
   */
 class FabricBusRWReqRegisterSlice(
-  addrWidth: Int,
-  dataWidth: Int,
-  userWidth: Int,
-  idWidth: Int
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int
 ) extends Module {
+
   val io = IO(new Bundle {
     val in = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
     val out = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
@@ -130,6 +133,7 @@ class FabricBusRWReqRegisterSlice(
 }
 
 private object FabricBusCast {
+
   def castWidth(x: UInt, inWidth: Int, outWidth: Int): UInt = {
     if (outWidth == inWidth) x
     else if (outWidth > inWidth) {
@@ -140,17 +144,17 @@ private object FabricBusCast {
       else x(outWidth - 1, 0)
     }
   }
+
 }
 
-/** Bridge LiteBusRO master into FabricBusRW master.
-  * Each accepted request gets an auto-assigned ID (monotonic counter).
+/** Bridge LiteBusRO master into FabricBusRW master. Each accepted request gets an auto-assigned ID (monotonic counter).
   */
 class LiteBusROToFabricRW(
-  addrWidth: Int,
-  dataWidth: Int,
-  liteUserWidth: Int,
-  fabricUserWidth: Int,
-  idWidth: Int
+    addrWidth: Int,
+    dataWidth: Int,
+    liteUserWidth: Int,
+    fabricUserWidth: Int,
+    idWidth: Int
 ) extends Module {
   private val liteBusType = new LiteBusRO(addrWidth, dataWidth, liteUserWidth)
   private val fabricBusType = new FabricBusRW(addrWidth, dataWidth, fabricUserWidth, idWidth)
@@ -182,15 +186,14 @@ class LiteBusROToFabricRW(
   io.out.resp.flush := io.in.resp.flush
 }
 
-/** Bridge LiteBusRW master into FabricBusRW master.
-  * Each accepted request gets an auto-assigned ID (monotonic counter).
+/** Bridge LiteBusRW master into FabricBusRW master. Each accepted request gets an auto-assigned ID (monotonic counter).
   */
 class LiteBusRWToFabricRW(
-  addrWidth: Int,
-  dataWidth: Int,
-  liteUserWidth: Int,
-  fabricUserWidth: Int,
-  idWidth: Int
+    addrWidth: Int,
+    dataWidth: Int,
+    liteUserWidth: Int,
+    fabricUserWidth: Int,
+    idWidth: Int
 ) extends Module {
   private val liteBusType = new LiteBusRW(addrWidth, dataWidth, liteUserWidth)
   private val fabricBusType = new FabricBusRW(addrWidth, dataWidth, fabricUserWidth, idWidth)
@@ -222,17 +225,16 @@ class LiteBusRWToFabricRW(
   io.out.resp.flush := io.in.resp.flush
 }
 
-/** Bridge FabricBusRW slave-side port into LiteBusRW slave-side port.
-  * Request ID is dropped on Lite wires, but tracked internally and restored on response.
-  * Assumes Lite side keeps request/response ordering.
+/** Bridge FabricBusRW slave-side port into LiteBusRW slave-side port. Request ID is dropped on Lite wires, but tracked
+  * internally and restored on response. Assumes Lite side keeps request/response ordering.
   */
 class FabricRWToLiteRW(
-  addrWidth: Int,
-  dataWidth: Int,
-  fabricUserWidth: Int,
-  idWidth: Int,
-  liteUserWidth: Int,
-  outstandingDepth: Int = 16
+    addrWidth: Int,
+    dataWidth: Int,
+    fabricUserWidth: Int,
+    idWidth: Int,
+    liteUserWidth: Int,
+    outstandingDepth: Int = 16
 ) extends Module {
   require(outstandingDepth >= 1, s"outstandingDepth must be >= 1, got $outstandingDepth")
   private val fabricBusType = new FabricBusRW(addrWidth, dataWidth, fabricUserWidth, idWidth)
@@ -266,19 +268,23 @@ class FabricRWToLiteRW(
   io.in.req.ready := io.out.req.ready && canEnq && !flush
   io.in.req.flush := io.out.req.flush
 
-  io.in.resp.valid := io.out.resp.valid && canDeq && !flush
+  io.in.resp.valid := io.out.resp.valid && canDeq
   io.in.resp.bits.data := io.out.resp.bits.data
   io.in.resp.bits.user := FabricBusCast.castWidth(io.out.resp.bits.user, liteUserWidth, fabricUserWidth)
   io.in.resp.bits.id := Mux(canDeq, idQ(head), 0.U)
-  io.out.resp.ready := io.in.resp.ready && canDeq && !flush
   io.out.resp.flush := io.in.resp.flush
 
-  val reqFire = io.out.req.valid && io.out.req.ready
-  val respFire = io.out.resp.valid && io.out.resp.ready
+  // Accept when canDeq and pipe has room, OR when draining stale responses.
+  io.out.resp.ready := Mux(canDeq, io.in.resp.ready, true.B)
+  // Forward to crossbar when we have a matching entry; pipe handles backpressure.
+  io.in.resp.valid := io.out.resp.valid && canDeq
 
-  when(io.out.resp.valid && !canDeq && !flush) {
-    assert(false.B, "FabricRWToLiteRW: response observed without pending request ID")
-  }
+  val reqFire = io.out.req.valid && io.out.req.ready
+  // respFire = handshake from DPI bridge. respDeq = handshake with valid queue entry.
+  // respDrain = handshake without matching entry (stale post-flush response).
+  private val respFire = io.out.resp.valid && io.out.resp.ready
+  private val respDeq = respFire && canDeq
+
   when(io.out.req.valid && io.out.req.ready && !canEnq && !flush) {
     assert(false.B, "FabricRWToLiteRW: request accepted while ID queue full")
   }
@@ -292,15 +298,16 @@ class FabricRWToLiteRW(
       idQ(tail) := io.in.req.bits.id
       tail := wrapInc(tail)
     }
-    when(respFire) {
+    when(respDeq) {
       head := wrapInc(head)
     }
     count := MuxCase(
       count,
       Seq(
-        (reqFire && !respFire) -> (count + 1.U),
-        (!reqFire && respFire) -> (count - 1.U)
+        (reqFire && !respDeq) -> (count + 1.U),
+        (!reqFire && respDeq) -> (count - 1.U)
       )
     )
   }
+
 }

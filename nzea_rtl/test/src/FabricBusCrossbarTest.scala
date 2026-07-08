@@ -6,6 +6,7 @@ import circt.stage.ChiselStage
 import org.scalatest.freespec.AnyFreeSpec
 
 class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTestHelpers {
+
   private val ranges = Seq(
     FabricAddrRange(base = BigInt("00000000", 16), size = BigInt("00010000", 16)),
     FabricAddrRange(base = BigInt("10000000", 16), size = BigInt("00010000", 16))
@@ -17,21 +18,24 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
   }
 
   private class Xbar2x2Top extends Module {
+
     val io = IO(new Bundle {
       val in = Vec(2, Flipped(new FabricBusRW(32, 32, 8, 4)))
       val out = Vec(2, new FabricBusRW(32, 32, 8, 4))
       val decodeMiss = Output(Vec(2, Bool()))
     })
 
-    val xbar = Module(new FabricBusRWCrossbar(
-      numMasters = 2,
-      addrWidth = 32,
-      dataWidth = 32,
-      userWidth = 8,
-      idWidth = 4,
-      ranges = ranges,
-      perSlaveOutstanding = 8
-    ))
+    val xbar = Module(
+      new FabricBusRWCrossbar(
+        numMasters = 2,
+        addrWidth = 32,
+        dataWidth = 32,
+        userWidth = 8,
+        idWidth = 4,
+        ranges = ranges,
+        perSlaveOutstanding = 8
+      )
+    )
 
     xbar.io.in <> io.in
     io.out <> xbar.io.out
@@ -43,7 +47,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
   }
 
   "FabricBusRWArbiter elaborates" in {
-    ChiselStage.emitSystemVerilog(new FabricBusRWArbiter(2, 32, 32, 8, 4))
+    ChiselStage.emitSystemVerilog(new FabricBusRWArbiter(2, 32, 32, 8, 4, outstanding = 4))
   }
 
   "FabricBusRWCrossbar supports multiple in-flight and out-of-order responses by id" in withSvsim {
@@ -334,4 +338,5 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
       dut.clock.step()
     }
   }
+
 }

@@ -12,18 +12,20 @@ import nzea_core.retire.rob.RobMemType
 
 /** Companion object: Rob factory and entryStateUpdate helper. */
 object Rob {
+
   /** Config-driven factory: port count derived from FuConfig.robAccessPorts. */
   def apply(depth: Int, prfAddrWidth: Int = 6)(implicit config: CoreConfig): Rob =
     Module(new Rob(depth, FuConfig.numRobAccessPorts, prfAddrWidth))
 
   def entryStateUpdate(
-    valid: Bool,
-    rob_id: UInt,
-    is_done: Bool,
-    flush: Bool = false.B,
-    next_pc: UInt = 0.U,
-    csr_type: CsrType.Type = CsrType.None,
-    csr_data: UInt = 0.U
+      valid: Bool,
+      rob_id: UInt,
+      is_done: Bool,
+      flush: Bool = false.B,
+      next_pc: UInt = 0.U,
+      is_mmio: Bool = false.B,
+      csr_type: CsrType.Type = CsrType.None,
+      csr_data: UInt = 0.U
   )(idWidth: Int): chisel3.util.Valid[RobEntryStateUpdate] = {
     val w = Wire(chisel3.util.Valid(new RobEntryStateUpdate(idWidth)))
     w.valid := valid
@@ -31,63 +33,67 @@ object Rob {
     w.bits.is_done := is_done
     w.bits.flush := flush
     w.bits.next_pc := next_pc
+    w.bits.is_mmio := is_mmio
     w.bits.csr_type := csr_type
     w.bits.csr_data := csr_data
     w
   }
+
 }
 
 // -------- Rob Module --------
 
 /** Rob: depth-entry circular buffer. rob_id = stable slot index.
-  * - Enq: ISU dispatches, writes rd_index, might_flush.
-  * - FU updates: ALU/BRU/SYSU write is_done; AGU writes next_pc. mem_type set at enq (ISU).
-  * - Mem: MemUnit holds LsBuffer; Rob issues by rob_id. rd_value from PRF(p_rd) at commit.
-  * - Commit: head done → output RobCommitPayload, advance head.
-  * - Flush: on branch mispredict, clear all.
+  *   - Enq: ISU dispatches, writes rd_index, might_flush.
+  *   - FU updates: ALU/BRU/SYSU write is_done; AGU writes next_pc. mem_type set at enq (ISU).
+  *   - Mem: MemUnit holds LsBuffer; Rob issues by rob_id. rd_value from PRF(p_rd) at commit.
+  *   - Commit: head done → output RobCommitPayload, advance head.
+  *   - Flush: on branch mispredict, clear all.
   */
 class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
   require(numAccessPorts >= 1, "Rob numAccessPorts must >= 1")
 
-  private val idWidth  = chisel3.util.log2Ceil(depth.max(2))
-  private val ptrWidth = idWidth + 1  // MSB = wrap bit for empty/full
+  private val idWidth = chisel3.util.log2Ceil(depth.max(2))
+  private val ptrWidth = idWidth + 1 // MSB = wrap bit for empty/full
 
   // -------- IO --------
 
   val enq = IO(new RobEnqIO(idWidth, prfAddrWidth))
   val mem = IO(new RobMemIO(idWidth))
+
   val io = IO(new Bundle {
-    val commit        = Valid(new RobCommitPayload(idWidth, prfAddrWidth))
-    val accessPorts   = Vec(numAccessPorts, Flipped(Valid(new RobEntryStateUpdate(idWidth))))
-    val slotReadRs1   = new RobSlotReadPort(idWidth)
-    val slotReadRs2   = new RobSlotReadPort(idWidth)
-    val do_flush      = Output(Bool())  // for IDU RMT/FreeList restore
+    val commit = Valid(new RobCommitPayload(idWidth, prfAddrWidth))
+    val accessPorts = Vec(numAccessPorts, Flipped(Valid(new RobEntryStateUpdate(idWidth))))
+    val slotReadRs1 = new RobSlotReadPort(idWidth)
+    val slotReadRs2 = new RobSlotReadPort(idWidth)
+    val do_flush = Output(Bool()) // for IDU RMT/FreeList restore
   })
 
   // -------- Pointers --------
 
-  val head_ptr  = RegInit(0.U(ptrWidth.W))
-  val tail_ptr  = RegInit(0.U(ptrWidth.W))
+  val head_ptr = RegInit(0.U(ptrWidth.W))
+  val tail_ptr = RegInit(0.U(ptrWidth.W))
   val head_phys = head_ptr(idWidth - 1, 0)
   val tail_phys = tail_ptr(idWidth - 1, 0)
-  val count     = (tail_ptr - head_ptr)(ptrWidth - 1, 0)
+  val count = (tail_ptr - head_ptr)(ptrWidth - 1, 0)
 
   val empty = head_ptr === tail_ptr
-  val full  = (head_phys === tail_phys) && (head_ptr(ptrWidth - 1) =/= tail_ptr(ptrWidth - 1))
+  val full = (head_phys === tail_phys) && (head_ptr(ptrWidth - 1) =/= tail_ptr(ptrWidth - 1))
 
   // -------- Slot State (one Reg per field for independent update) --------
 
-  val slots_rd_index    = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
-  val slots_is_done     = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_mem_type    = RegInit(VecInit(Seq.fill(depth)(RobMemType.None)))
-  val slots_next_pc     = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
-  val slots_flush       = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val slots_rd_index = RegInit(VecInit(Seq.fill(depth)(0.U(5.W))))
+  val slots_is_done = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val slots_mem_type = RegInit(VecInit(Seq.fill(depth)(RobMemType.None)))
+  val slots_next_pc = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
+  val slots_flush = RegInit(VecInit(Seq.fill(depth)(false.B)))
   val slots_might_flush = RegInit(VecInit(Seq.fill(depth)(false.B)))
-  val slots_p_rd       = Reg(Vec(depth, UInt(prfAddrWidth.W)))
-  val slots_old_p_rd   = Reg(Vec(depth, UInt(prfAddrWidth.W)))
-  val slots_csr_type   = RegInit(VecInit(Seq.fill(depth)(CsrType.None)))
-  val slots_csr_data   = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
+  val slots_p_rd = Reg(Vec(depth, UInt(prfAddrWidth.W)))
+  val slots_old_p_rd = Reg(Vec(depth, UInt(prfAddrWidth.W)))
+  val slots_csr_type = RegInit(VecInit(Seq.fill(depth)(CsrType.None)))
+  val slots_csr_data = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
+  val slots_is_mmio = RegInit(VecInit(Seq.fill(depth)(false.B)))
 
   // PRF write: FU writes directly to PRF on completion; ROB only tracks for commit ordering.
 
@@ -97,26 +103,26 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
 
   def readSlot(idx: UInt): RobSlotRead = {
     val s = Wire(new RobSlotRead)
-    s.valid       := slotValid(idx)
-    s.is_done     := MuxTree(idx, slots_is_done)
-    s.mem_type    := MuxTree(idx, slots_mem_type)
+    s.valid := slotValid(idx)
+    s.is_done := MuxTree(idx, slots_is_done)
+    s.mem_type := MuxTree(idx, slots_mem_type)
     s.might_flush := MuxTree(idx, slots_might_flush)
     s
   }
 
   // -------- Head Fields (for commit) --------
 
-  val head_is_done   = MuxTree(head_phys, slots_is_done)
-  val head_mem_type  = MuxTree(head_phys, slots_mem_type)
-  val head_need_mem  = RobMemType.needMem(head_mem_type)
-  val head_is_load   = RobMemType.isLoad(head_mem_type)
-  val head_next_pc   = MuxTree(head_phys, slots_next_pc)
-  val head_rd_index  = MuxTree(head_phys, slots_rd_index)
-  val head_p_rd      = MuxTree(head_phys, slots_p_rd)
-  val head_old_p_rd  = MuxTree(head_phys, slots_old_p_rd)
-  val head_csr_type  = MuxTree(head_phys, slots_csr_type)
-  val head_csr_data  = MuxTree(head_phys, slots_csr_data)
-  val head_flush     = MuxTree(head_phys, slots_flush)
+  val head_is_done = MuxTree(head_phys, slots_is_done)
+  val head_mem_type = MuxTree(head_phys, slots_mem_type)
+  val head_need_mem = RobMemType.needMem(head_mem_type)
+  val head_is_load = RobMemType.isLoad(head_mem_type)
+  val head_next_pc = MuxTree(head_phys, slots_next_pc)
+  val head_rd_index = MuxTree(head_phys, slots_rd_index)
+  val head_p_rd = MuxTree(head_phys, slots_p_rd)
+  val head_old_p_rd = MuxTree(head_phys, slots_old_p_rd)
+  val head_csr_type = MuxTree(head_phys, slots_csr_type)
+  val head_csr_data = MuxTree(head_phys, slots_csr_data)
+  val head_flush = MuxTree(head_phys, slots_flush)
 
   // -------- Enq --------
 
@@ -125,21 +131,22 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
 
   // -------- Commit --------
 
-  val head_done     = !empty && head_is_done
-  val do_flush_raw  = io.commit.valid && head_flush
-  val do_flush      = RegNext(do_flush_raw, false.B)  // delay 1 cycle to break ROB->IDU/IFU critical path
+  val head_done = !empty && head_is_done
+  val do_flush_raw = io.commit.valid && head_flush
+  val do_flush = RegNext(do_flush_raw, false.B) // delay 1 cycle to break ROB->IDU/IFU critical path
 
-  io.commit.valid := head_done && !do_flush  // suppress commit when flush is active (next-cycle flush)
-  io.commit.bits.rob_id    := head_phys
-  io.commit.bits.next_pc   := head_next_pc
-  io.commit.bits.rd_index  := head_rd_index
+  io.commit.valid := head_done && !do_flush // suppress commit when flush is active (next-cycle flush)
+  io.commit.bits.rob_id := head_phys
+  io.commit.bits.next_pc := head_next_pc
+  io.commit.bits.rd_index := head_rd_index
   // rd_value read from PRF(p_rd) in Commit module
-  io.commit.bits.p_rd      := head_p_rd
-  io.commit.bits.old_p_rd  := head_old_p_rd
+  io.commit.bits.p_rd := head_p_rd
+  io.commit.bits.old_p_rd := head_old_p_rd
   io.commit.bits.mem_count := Mux(head_need_mem, 1.U(32.W), 0.U(32.W))
-  io.commit.bits.is_load   := head_is_load
-  io.commit.bits.csr_type  := head_csr_type
-  io.commit.bits.csr_data  := head_csr_data
+  io.commit.bits.is_load := head_is_load
+  io.commit.bits.is_mmio := MuxTree(head_phys, slots_is_mmio)
+  io.commit.bits.csr_type := head_csr_type
+  io.commit.bits.csr_data := head_csr_data
 
   io.do_flush := do_flush
 
@@ -152,12 +159,12 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
 
   val safe_ptr = RegInit(0.U(idWidth.W))
   val safe_slot = readSlot(safe_ptr)
-  val safe_offset       = (safe_ptr - head_phys)(idWidth - 1, 0)
+  val safe_offset = (safe_ptr - head_phys)(idWidth - 1, 0)
   val safe_ptr_before_tail = safe_offset < count
 
-  val ls_head_rob_id   = mem.issue_rob_id.bits
-  val ls_head_offset   = (ls_head_rob_id - head_phys)(idWidth - 1, 0)
-  val ls_head_in_safe  = mem.issue_rob_id.valid && slotValid(ls_head_rob_id) && (ls_head_offset < safe_offset)
+  val ls_head_rob_id = mem.issue_rob_id.bits
+  val ls_head_offset = (ls_head_rob_id - head_phys)(idWidth - 1, 0)
+  val ls_head_in_safe = mem.issue_rob_id.valid && slotValid(ls_head_rob_id) && (ls_head_offset < safe_offset)
 
   mem.issue := !do_flush && ls_head_in_safe
   mem.flush := do_flush
@@ -169,16 +176,16 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
     tail_ptr := 0.U
     safe_ptr := 0.U
     for (i <- 0 until depth) {
-      slots_rd_index(i)    := 0.U
-      slots_is_done(i)     := false.B
-      slots_mem_type(i)    := RobMemType.None
-      slots_next_pc(i)     := 0.U
-      slots_flush(i)       := false.B
+      slots_rd_index(i) := 0.U
+      slots_is_done(i) := false.B
+      slots_mem_type(i) := RobMemType.None
+      slots_next_pc(i) := 0.U
+      slots_flush(i) := false.B
       slots_might_flush(i) := false.B
-      slots_p_rd(i)         := 0.U
-      slots_old_p_rd(i)     := 0.U
-      slots_csr_type(i)     := CsrType.None
-      slots_csr_data(i)     := 0.U
+      slots_p_rd(i) := 0.U
+      slots_old_p_rd(i) := 0.U
+      slots_csr_type(i) := CsrType.None
+      slots_csr_data(i) := 0.U
     }
   }.otherwise {
     when(safe_offset >= count) {
@@ -196,12 +203,12 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
   def slotUpdateEnq(): Unit = {
     when(enq.req.fire) {
       val idx = tail_phys
-      slots_rd_index(idx)    := enq.req.bits.rd_index
+      slots_rd_index(idx) := enq.req.bits.rd_index
       slots_might_flush(idx) := enq.req.bits.might_flush
-      slots_mem_type(idx)    := enq.req.bits.mem_type
-      slots_p_rd(idx)        := enq.req.bits.p_rd
-      slots_old_p_rd(idx)    := enq.req.bits.old_p_rd
-      slots_flush(idx)       := false.B
+      slots_mem_type(idx) := enq.req.bits.mem_type
+      slots_p_rd(idx) := enq.req.bits.p_rd
+      slots_old_p_rd(idx) := enq.req.bits.old_p_rd
+      slots_flush(idx) := false.B
       tail_ptr := (tail_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }
@@ -212,6 +219,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
         val idx = p.bits.rob_id
         slots_is_done(idx) := p.bits.is_done
         slots_next_pc(idx) := p.bits.next_pc
+        slots_is_mmio(idx) := p.bits.is_mmio
         slots_csr_type(idx) := p.bits.csr_type
         slots_csr_data(idx) := p.bits.csr_data
         when(p.bits.flush) {
@@ -227,6 +235,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
     when(mem.mem_access.valid) {
       val idx = mem.mem_access.bits.rob_id
       slots_is_done(idx) := mem.mem_access.bits.is_done
+      slots_is_mmio(idx) := mem.mem_access.bits.is_mmio
       when(mem.mem_access.bits.is_done) {
         slots_might_flush(idx) := false.B
       }
@@ -239,4 +248,5 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
       head_ptr := (head_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }
+
 }

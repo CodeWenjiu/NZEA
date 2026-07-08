@@ -21,7 +21,8 @@ object Main {
           outDir = config.effectiveOutDir,
           clockHz = config.clockHz,
           firtoolOpts = config.firtoolOpts,
-          cache = config.cache
+          cache = config.cache,
+          perSlaveOutstanding = config.perSlaveOutstanding
         )
       case ElaborationTarget.Core =>
         CoreElaborate.elaborate(

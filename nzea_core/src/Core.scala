@@ -7,19 +7,26 @@ import nzea_core.config.{CoreConfig, FuConfig}
 import nzea_rtl.PipelineConnect
 
 /** Core module: Rob in Core; integer cluster + LSU write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */
-class Core(implicit config: CoreConfig) extends Module {
-  private val addrWidth    = config.width
-  private val robDepth     = config.robDepth
-  private val robIdWidth   = chisel3.util.log2Ceil(robDepth.max(2))
+class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module {
+  private val addrWidth = config.width
+  private val robDepth = config.robDepth
+  private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
   private val prfAddrWidth = config.prfAddrWidth
   private val lsBufferDepth = config.effectiveLsBufferDepth
-  private val lsqIdWidth   = config.lsqIdWidth
+  private val lsqIdWidth = config.lsqIdWidth
 
   val ifu = Module(new frontend.IFU)
   val idu = Module(new frontend.IDU(addrWidth))
-  val integerIssueQueue       = Module(new backend.integer.IntegerIssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth))
-  val integerExecutionCluster = Module(new backend.integer.IntegerExecutionCluster(robIdWidth, prfAddrWidth, lsqIdWidth))
-  val lsu = Module(new backend.LSU(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth))
+
+  val integerIssueQueue = Module(
+    new backend.integer.IntegerIssueQueue(robIdWidth, prfAddrWidth, lsqIdWidth, config.iqDepth)
+  )
+
+  val integerExecutionCluster = Module(
+    new backend.integer.IntegerExecutionCluster(robIdWidth, prfAddrWidth, lsqIdWidth)
+  )
+
+  val lsu = Module(new backend.LSU(addrWidth, robIdWidth, lsBufferDepth, prfAddrWidth, mmioRanges))
 
   val rob = nzea_core.retire.rob.Rob(robDepth, prfAddrWidth)
   val commit = Module(new retire.Commit)
@@ -36,11 +43,13 @@ class Core(implicit config: CoreConfig) extends Module {
   // When ISU is removed (IDU→issue queue directly): switch to integerIssueQueue.io.in.fire (or the downstream PipeIO fire that
   // replaces isu.in), not idu.io.out.fire, unless IDU and issue queue are combinatorially connected with no reg.
   prf.io.allocClear.valid := isu.io.in.fire && isu.io.in.bits.p_rd =/= 0.U
-  prf.io.allocClear.bits  := isu.io.in.bits.p_rd
+  prf.io.allocClear.bits := isu.io.in.bits.p_rd
+
   (fuOuts zip integerIssueQueue.io.bypass_level1).foreach { case (fu, port) =>
     port.valid := fu.valid
     port.bits := fu.bits
   }
+
   commit.io.do_flush := rob.io.do_flush
   wbu.io.flush := commit.io.do_flush
   // CSR updates only on ROB commit (not on SYSU execute), so squashed uops never modify CSRs.
@@ -52,8 +61,8 @@ class Core(implicit config: CoreConfig) extends Module {
   (integerExecutionCluster.robAccessPorts zip rob.io.accessPorts).foreach { case (fu, port) => port <> fu }
 
   val io = IO(new Bundle {
-    val ibus       = chiselTypeOf(ifu.io.bus)
-    val dbus       = chiselTypeOf(lsu.io.dbus)
+    val ibus = chiselTypeOf(ifu.io.bus)
+    val dbus = chiselTypeOf(lsu.io.dbus)
     val commit_msg = Output(Valid(new retire.CommitMsg))
   })
 
@@ -66,12 +75,13 @@ class Core(implicit config: CoreConfig) extends Module {
 
   prf.io.read(0).addr := integerIssueQueue.io.in.bits.p_rs1
   prf.io.read(1).addr := integerIssueQueue.io.in.bits.p_rs2
-  integerIssueQueue.io.prf_enqueue_rs1.data  := prf.io.read(0).data
+  integerIssueQueue.io.prf_enqueue_rs1.data := prf.io.read(0).data
   integerIssueQueue.io.prf_enqueue_rs1.ready := prf.io.read(0).ready
-  integerIssueQueue.io.prf_enqueue_rs2.data  := prf.io.read(1).data
+  integerIssueQueue.io.prf_enqueue_rs2.data := prf.io.read(1).data
   integerIssueQueue.io.prf_enqueue_rs2.ready := prf.io.read(1).ready
 
   prf.io.read(2).addr := commit.io.commit_prf_read.addr
+
   commit.io.commit_prf_read.data := frontend.PrfBypass.mergeCommitData(
     commit.io.commit_prf_read.addr,
     prf.io.read(2).data,
@@ -101,7 +111,7 @@ class Core(implicit config: CoreConfig) extends Module {
   lsu.io.agu_ls_write <> integerExecutionCluster.io.agu_ls_write
   rob.io.commit <> commit.io.rob_commit
   integerIssueQueue.io.commit_rob_id := commit.io.commit_rob_id
-  integerIssueQueue.io.commit_valid  := commit.io.commit_valid
+  integerIssueQueue.io.commit_valid := commit.io.commit_valid
   rob.io.slotReadRs1.rob_id := 0.U
   rob.io.slotReadRs2.rob_id := 0.U
 
@@ -112,8 +122,8 @@ class Core(implicit config: CoreConfig) extends Module {
   rob.mem.issue_rob_id := lsu.io.issue_rob_id
   rob.mem.mem_access <> lsu.io.rob_access
 
-  io.ibus       <> ifu.io.bus
-  io.dbus       <> lsu.io.dbus
+  io.ibus <> ifu.io.bus
+  io.dbus <> lsu.io.dbus
   io.commit_msg := commit.io.commit_msg
   ifu.io.redirect_pc := commit.io.redirect_pc
   ifu.io.bp_update := integerExecutionCluster.io.bru_bp_update

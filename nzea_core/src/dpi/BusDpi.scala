@@ -7,12 +7,15 @@ import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFu
 import nzea_rtl._
 import nzea_core.retire.CommitMsg
 
-/** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect.
-  * Flush clears in-flight; req.flush/resp.flush from bus.resp.flush. */
+/** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect. Flush clears in-flight;
+  * req.flush/resp.flush from bus.resp.flush.
+  */
 class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
+
   val io = IO(new Bundle {
     val bus = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth))
   })
+
   val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
@@ -23,6 +26,7 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 
   io.bus.req.ready := internalResp.ready
   val reqFire = io.bus.req.valid && io.bus.req.ready
+
   val rdata = RawUnclockedNonVoidFunctionCall(
     "bus_read",
     Output(UInt(dataWidth.W)),
@@ -38,12 +42,15 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   PipelineConnect(stage1, io.bus.resp)
 }
 
-/** Bridges Core dbus to DPI-C bus_read and bus_write. Read and write both go through 2-cycle pipeline.
-  * Store also waits for resp (for fault handling). Flush clears in-flight. */
+/** Bridges Core dbus to DPI-C bus_read and bus_write. Read and write both go through 2-cycle pipeline. Store also waits
+  * for resp (for fault handling). Flush clears in-flight.
+  */
 class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
+
   val io = IO(new Bundle {
     val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth))
   })
+
   val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
@@ -59,7 +66,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 
   io.bus.req.ready := internalResp.ready
   val fire = io.bus.req.valid && io.bus.req.ready
-  val readFire  = fire && isRead
+  val readFire = fire && isRead
   val writeFire = fire && req.wen
 
   val rdata = RawUnclockedNonVoidFunctionCall(
@@ -89,13 +96,26 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */
 class CommitDpiBridge(implicit config: CoreConfig) extends Module {
+
   val io = IO(new Bundle {
     val commit_msg = Input(Valid(new CommitMsg))
   })
 
   val (csr_imm, csr_valid) = nzea_core.frontend.CsrType.toImmValid(io.commit_msg.bits.csr_type)
+
   RawClockedVoidFunctionCall(
     "commit_trace",
-    Some(Seq("next_pc", "csr_valid", "csr_addr", "csr_data", "gpr_addr", "gpr_data", "mem_count", "is_load"))
-  )(clock, io.commit_msg.valid, io.commit_msg.bits.next_pc, csr_valid, csr_imm.pad(32), io.commit_msg.bits.csr_data, io.commit_msg.bits.rd_index.pad(32), io.commit_msg.bits.rd_value, io.commit_msg.bits.mem_count, io.commit_msg.bits.is_load)
+    Some(Seq("next_pc", "csr_valid", "csr_addr", "csr_data", "gpr_addr", "gpr_data", "is_mmio"))
+  )(
+    clock,
+    io.commit_msg.valid,
+    io.commit_msg.bits.next_pc,
+    csr_valid,
+    csr_imm.pad(32),
+    io.commit_msg.bits.csr_data,
+    io.commit_msg.bits.rd_index.pad(32),
+    io.commit_msg.bits.rd_value,
+    io.commit_msg.bits.is_mmio
+  )
+
 }

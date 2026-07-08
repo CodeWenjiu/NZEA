@@ -27,12 +27,13 @@ object TileElaborate {
       sim: Boolean,
       platform: SynthPlatform,
       clockHz: Int,
-      cache: Option[CacheConfig]
+      cache: Option[CacheConfig],
+      perSlaveOutstanding: Int
   )(implicit config: CoreConfig)
       extends Module {
     override def desiredName = "NzeaTile"
 
-    val tile = Module(new NzeaTile(sim, platform, clockHz, cache))
+    val tile = Module(new NzeaTile(sim, platform, clockHz, cache, perSlaveOutstanding))
     private val addrWidth = config.width
     private val dataWidth = config.width
     private val fabricUserWidth = 64
@@ -85,7 +86,8 @@ object TileElaborate {
       outDir: String,
       clockHz: Int,
       firtoolOpts: Array[String],
-      cache: Option[CacheConfig]
+      cache: Option[CacheConfig],
+      perSlaveOutstanding: Int
   )(implicit config: CoreConfig): Unit = {
     println(
       s"Generating NzeaTile (isa: ${config.isa}, platform: ${platform.segment}, sim: $sim)"
@@ -93,7 +95,7 @@ object TileElaborate {
     println(s"Output: $outDir")
 
     ChiselStage.emitSystemVerilogFile(
-      new Top(sim, platform, clockHz, cache),
+      new Top(sim, platform, clockHz, cache, perSlaveOutstanding),
       args = Array("--target-dir", outDir),
       firtoolOpts = firtoolOpts
     )

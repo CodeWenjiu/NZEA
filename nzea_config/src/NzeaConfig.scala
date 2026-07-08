@@ -11,7 +11,8 @@ case class NzeaConfig(
     clockHz: Int = 1_000_000_000,
     fpgaBoard: String = "lxb_artix7",
     core: CoreConfig = CoreConfig(),
-    cache: Option[CacheConfig] = None
+    cache: Option[CacheConfig] = None,
+    perSlaveOutstanding: Int = 8
 ) {
   val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Yosys)
   val fpgaBoard_ : FpgaBoard = FpgaBoard.fromString(fpgaBoard).getOrElse(FpgaBoard.LxbArtix7)

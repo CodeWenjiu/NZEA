@@ -28,7 +28,8 @@ class NzeaTile(
     sim: Boolean,
     platform: SynthPlatform,
     clockHz: Int,
-    cache: Option[CacheConfig]
+    cache: Option[CacheConfig],
+    perSlaveOutstanding: Int
 )(implicit
     config: CoreConfig
 ) extends Module {
@@ -57,7 +58,13 @@ class NzeaTile(
   io := DontCare
 
   val cpuReset = Wire(Bool())
-  val core = withReset(cpuReset) { Module(new nzea_core.Core) }
+
+  // Extract MMIO ranges (exclude RAM at 0x80000000) for the core's is_mmio detection.
+  private val mmioRanges: Seq[(BigInt, BigInt)] = ranges.collect {
+    case r if r.base != BigInt("80000000", 16) => (r.base, r.size)
+  }
+
+  val core = withReset(cpuReset) { Module(new nzea_core.Core(mmioRanges)) }
 
   val ibusAdapter = Module(
     new IbusAdapter(addrWidth, dataWidth, core.io.ibus.userWidth, fabricUserWidth, fabricIdWidth)
@@ -96,7 +103,7 @@ class NzeaTile(
       userWidth = fabricUserWidth,
       idWidth = fabricIdWidth,
       ranges = ranges,
-      perSlaveOutstanding = 1
+      perSlaveOutstanding = perSlaveOutstanding
     )
   )
 
