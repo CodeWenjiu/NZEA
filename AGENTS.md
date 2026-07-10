@@ -104,7 +104,17 @@ flowchart TD
 ## 提交与 Pull Request 指南
 优先 `类型: 简洁摘要`（如 `feat: nnu`、`fix: DIV pre path`）。PR 应说明受影响范围、列出验证命令、链接相关问题。修改影响 RTL/时序/调试输出时附报告片段或截图。
 
-## Agent 使用规范
+### Agent 行为红线（不可违反）
+
+**0. 禁止未经明确允许修改代码。** 任何对源文件的修改（编辑、删除、sed、git 操作）必须在用户明确指令下执行。"推断用户意图"不是授权。当用户说"回滚 difftest 修改"时，你必须先列出所有受影响的文件及其分类，等待确认，不得自行判断哪些该回滚。
+
+**1. 禁止跨仓库推断一致性。** nzea 和 remu 是独立仓库，各自有各自的修改历史和约定。在一个仓库发现签名不匹配时，不得自行修改另一个仓库来"修复一致性"。必须先报告，等待指令。
+
+### Git 操作禁令
+
+**Agent 禁止执行任何 git 操作。** 包括但不限于：`commit`、`stash`、`reset`、`checkout`、`cherry-pick`、`revert`、`branch`、`merge`、`rebase`、`push`、`pull`。git 操作由用户亲自执行，Agent 只提供建议和命令文本。
+
+### Agent 使用规范
 - 调用 `just`/`mill`/`yosys`/`nextpnr-*`/`nu` 等依赖 Nix 的命令时，必须通过 `nix develop --command bash -c '...'` 启动。用户在自己终端不受此限制。
 - 修改 Scala/Chisel 代码后，必须运行 `nix develop --command bash -c 'just dump --target tile --platform fpga --isa riscv32im --sim false'` 验证编译和生成通过。
 - Mill 命令始终添加 `--no-server`。

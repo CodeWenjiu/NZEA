@@ -3,7 +3,7 @@ package nzea_tile
 import _root_.circt.stage.ChiselStage
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.{CacheConfig, SynthPlatform}
+import nzea_config.{NzeaConfigBase, SynthPlatform}
 import nzea_core.config.CoreConfig
 import nzea_core.retire.CommitMsg
 import nzea_rtl.{BootReq, FabricBusRW}
@@ -23,30 +23,32 @@ object TileElaborate {
   }
 
   /** Tile wrapper: `sim=true` enables DPI bridges; else expose tile IO as top-level ports. */
-  class Top(
-      sim: Boolean,
-      platform: SynthPlatform,
-      clockHz: Int,
-      cache: Option[CacheConfig],
-      perSlaveOutstanding: Int
-  )(implicit config: CoreConfig)
-      extends Module {
+  class Top(cfg: NzeaConfigBase)(implicit config: CoreConfig) extends Module {
     override def desiredName = "NzeaTile"
 
-    val tile = Module(new NzeaTile(sim, platform, clockHz, cache, perSlaveOutstanding))
+    val tile = Module(new NzeaTile(cfg))
     private val addrWidth = config.width
     private val dataWidth = config.width
-    private val fabricUserWidth = 64
+
+    // Compute to match NzeaTile's internal fabricUserWidth exactly.
+    private val fabricUserWidth = {
+      val ibusUW = nzea_core.frontend.IbusUser.userWidth(config.width)
+      val rw = chisel3.util.log2Ceil(config.robDepth.max(2))
+      val pw = config.prfAddrWidth
+      val dbusUW = config.width.max(rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw + 1)
+      ibusUW.max(dbusUW)
+    }
+
     private val fabricIdWidth = 8
     val io = IO(new TileTopIO(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
 
-    if (sim) {
+    if (cfg.sim) {
       tile.io := DontCare
       io := DontCare
     } else {
       io.commit_msg := tile.io.asInstanceOf[nzea_tile.platform.HasCommitMsg].commit_msg
 
-      platform match {
+      cfg.platform match {
         case SynthPlatform.Yosys =>
           val io2 = tile.io.asInstanceOf[nzea_tile.platform.yosys.TileIo]
           val devices = IO(chiselTypeOf(io2.yosys_devices))
@@ -81,23 +83,18 @@ object TileElaborate {
   }
 
   def elaborate(
-      sim: Boolean,
-      platform: SynthPlatform,
-      outDir: String,
-      clockHz: Int,
-      firtoolOpts: Array[String],
-      cache: Option[CacheConfig],
-      perSlaveOutstanding: Int
+      cfg: NzeaConfigBase,
+      outDir: String
   )(implicit config: CoreConfig): Unit = {
     println(
-      s"Generating NzeaTile (isa: ${config.isa}, platform: ${platform.segment}, sim: $sim)"
+      s"Generating NzeaTile (isa: ${config.isa}, platform: ${cfg.platform.segment}, sim: ${cfg.sim})"
     )
     println(s"Output: $outDir")
 
     ChiselStage.emitSystemVerilogFile(
-      new Top(sim, platform, clockHz, cache, perSlaveOutstanding),
+      new Top(cfg),
       args = Array("--target-dir", outDir),
-      firtoolOpts = firtoolOpts
+      firtoolOpts = cfg.firtoolOpts
     )
   }
 

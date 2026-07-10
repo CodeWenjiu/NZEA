@@ -15,7 +15,7 @@ class DeviceBusBundle(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: I
   def ports: Seq[FabricBusRW] = Seq(ram, uart16550, sifive_test_finisher, clint)
 
   /** Target device frequency (Hz). `None` = passthrough, no injected latency. */
-  def devHz: Seq[Option[Double]] = Seq(Some(100e6), None, None, None)
+  def devHz: Seq[Option[Double]] = Seq(Some(400e6), Some(100e6), Some(100e6), Some(100e6))
 }
 
 import nzea_tile.platform.HasCommitMsg

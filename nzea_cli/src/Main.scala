@@ -16,13 +16,8 @@ object Main {
     config.target match {
       case ElaborationTarget.Tile =>
         TileElaborate.elaborate(
-          sim = config.sim,
-          platform = config.platform,
-          outDir = config.effectiveOutDir,
-          clockHz = config.clockHz,
-          firtoolOpts = config.firtoolOpts,
-          cache = config.cache,
-          perSlaveOutstanding = config.perSlaveOutstanding
+          cfg = config,
+          outDir = config.effectiveOutDir
         )
       case ElaborationTarget.Core =>
         CoreElaborate.elaborate(

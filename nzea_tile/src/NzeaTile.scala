@@ -1,7 +1,7 @@
 package nzea_tile
 
 import chisel3._
-import nzea_config.{CacheConfig, SynthPlatform}
+import nzea_config.{CacheConfig, NzeaConfigBase, SynthPlatform}
 import nzea_core.config.CoreConfig
 import nzea_core.dpi.CommitDpiBridge
 import nzea_rtl.{FabricAddrRange, FabricBusRW, FabricBusRWCrossbar}
@@ -24,15 +24,14 @@ object TileAddressMap {
   * (core ibus+dbus) and platform-selected slaves. `sim=true`: slaves are connected to DPI bridges (bus_read/bus_write).
   * `sim=false`: exposes platform-specific HW IO as top-level ports.
   */
-class NzeaTile(
-    sim: Boolean,
-    platform: SynthPlatform,
-    clockHz: Int,
-    cache: Option[CacheConfig],
-    perSlaveOutstanding: Int
-)(implicit
+class NzeaTile(cfg: NzeaConfigBase)(implicit
     config: CoreConfig
 ) extends Module {
+  private val sim = cfg.sim
+  private val platform = cfg.platform
+  private val clockHz = cfg.clockHz
+  private val cache = cfg.cache
+  private val perSlaveOutstanding = cfg.perSlaveOutstanding
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val ranges = TileAddressMap.forPlatform(platform)
@@ -43,7 +42,7 @@ class NzeaTile(
   private val dbusUserW = {
     val rw = chisel3.util.log2Ceil(config.robDepth.max(2))
     val pw = config.prfAddrWidth
-    val upw = rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw
+    val upw = rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw + 1 // +1 for is_mmio
     config.width.max(upw)
   }
 

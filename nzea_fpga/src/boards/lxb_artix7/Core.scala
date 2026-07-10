@@ -2,17 +2,14 @@ package nzea_fpga.boards.lxb_artix7
 
 import chisel3._
 import chisel3.util._
-import nzea_config.SynthPlatform
 import nzea_core.config.CoreConfig
 import nzea_device.ram.RamFabricSlave
 import nzea_tile.NzeaTile
 
 /** A7-Lite FPGA core logic — NzeaTile + internal SRAM. */
-class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
+class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends Module {
   private val addrW = config.width
   private val dataW = config.width
-  private val userW = 64
-  private val idW = 8
 
   val io = IO(new Bundle {
     val uart_tx = Output(Bool())
@@ -21,11 +18,13 @@ class LxbArtix7Core(clockHz: Int)(implicit config: CoreConfig) extends Module {
     val led_finish = Output(Bool())
   })
 
-  val tile = Module(
-    new NzeaTile(sim = false, platform = SynthPlatform.Fpga, clockHz = clockHz, cache = None, perSlaveOutstanding = 1)
-  )
+  val tile = Module(new NzeaTile(cfg))
 
   val tileIo = tile.io.asInstanceOf[nzea_tile.platform.fpga.TileIo]
+
+  // Derive bus widths from the tile IO type, not hardcoded constants.
+  private val userW = tileIo.extRamBus.userWidth
+  private val idW = tileIo.extRamBus.idWidth
 
   io.uart_tx := tileIo.fpga_uart.txd
   tileIo.fpga_uart.rxd := io.uart_rx

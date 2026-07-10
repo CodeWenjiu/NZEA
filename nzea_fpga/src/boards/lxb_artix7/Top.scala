@@ -22,8 +22,10 @@ class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule 
 
   val coreRst = !rst_n || !mmcm.locked
 
+  val lxbConfig = LxbArtix7Config(clockHz)
+
   val core = withClockAndReset(clk_100m, coreRst) {
-    Module(new LxbArtix7Core(clockHz))
+    Module(new LxbArtix7Core(lxbConfig))
   }
 
   UART_TX := core.io.uart_tx

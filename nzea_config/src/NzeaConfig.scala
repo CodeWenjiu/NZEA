@@ -2,6 +2,25 @@ package nzea_config
 
 import nzea_core.config.CoreConfig
 
+/** Hardware generation parameters shared by all elaboration targets (core, tile, fpga). Concrete configs (NzeaConfig
+  * for CLI, per-board configs for FPGA) extend this.
+  */
+abstract class NzeaConfigBase {
+  def sim: Boolean
+  def synthPlatform: String
+  def clockHz: Int
+  def cache: Option[CacheConfig]
+  def perSlaveOutstanding: Int
+
+  lazy val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Yosys)
+
+  /** `dpi` or `hw` under `build/<target>/<platform>/<isa>/`. */
+  def rtlFlowSegment: String = if (sim) "dpi" else "hw"
+
+  /** firtool options from [[platform]] for current [[sim]] mode. */
+  def firtoolOpts: Array[String] = platform.firtoolOpts(sim)
+}
+
 case class NzeaConfig(
     debug: Boolean = false,
     outDir: Option[String] = None,
@@ -11,17 +30,10 @@ case class NzeaConfig(
     clockHz: Int = 1_000_000_000,
     fpgaBoard: String = "lxb_artix7",
     core: CoreConfig = CoreConfig(),
-    cache: Option[CacheConfig] = None,
+    cache: Option[CacheConfig] = Some(CacheConfig()),
     perSlaveOutstanding: Int = 8
-) {
-  val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Yosys)
+) extends NzeaConfigBase {
   val fpgaBoard_ : FpgaBoard = FpgaBoard.fromString(fpgaBoard).getOrElse(FpgaBoard.LxbArtix7)
-
-  /** `dpi` or `hw` under `build/<target>/<platform>/<isa>/`. */
-  val rtlFlowSegment: String = if (sim) "dpi" else "hw"
-
-  /** firtool options from [[platform]] for current [[sim]] mode. */
-  val firtoolOpts: Array[String] = platform.firtoolOpts(sim)
 
   /** Default and override-aware RTL output directory. */
   val effectiveOutDir: String = target match {
