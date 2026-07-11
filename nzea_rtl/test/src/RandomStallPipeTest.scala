@@ -47,6 +47,34 @@ class RandomStallPipeTest extends AnyFlatSpec with ChiselScalatestTester {
     assert(mean >= 8.5 && mean <= 11.5, s"mean=$mean, expected ~10.0")
   }
 
+  "LFSR E=1000" should "produce fires throughout full period of 65535" in {
+    test(new RandomStallPipe(UInt(8.W), 1000.0)) { dut =>
+      dut.io.in.valid.poke(true.B)
+      dut.io.in.bits.poke(0.U)
+      dut.io.out.ready.poke(true.B)
+      dut.io.flush.poke(false.B)
+      dut.clock.setTimeout(66000)
+
+      var fireCount = 0L
+      var cyclesSinceLastFire = 0L
+      var maxGap = 0L
+
+      for (_ <- 0L until 65536L) {
+        cyclesSinceLastFire += 1
+        if (dut.io.out.valid.peek().litToBoolean) {
+          fireCount += 1
+          if (cyclesSinceLastFire > maxGap) maxGap = cyclesSinceLastFire
+          cyclesSinceLastFire = 0L
+        }
+        dut.clock.step()
+      }
+
+      assert(fireCount > 0, "LFSR should produce fires in 65536 cycles")
+      // E=1000 → ~65 fires expected; max gap should be < 65535 (not stuck)
+      assert(maxGap < 65535, s"LFSR stuck: max gap=$maxGap cycles")
+    }
+  }
+
   it should "clear buffer on flush" in {
     test(new RandomStallPipe(UInt(8.W), 1000.0)) { dut =>
       // Fill the pipe
