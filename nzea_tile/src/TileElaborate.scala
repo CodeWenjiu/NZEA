@@ -3,7 +3,7 @@ package nzea_tile
 import _root_.circt.stage.ChiselStage
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.{SynthPlatform}
+import nzea_config.SynthPlatform
 import nzea_tile.TileConfig
 import nzea_core.config.CoreConfig
 import nzea_core.retire.CommitMsg
@@ -49,7 +49,7 @@ object TileElaborate {
     } else {
       io.commit_msg := tile.io.asInstanceOf[nzea_tile.platform.HasCommitMsg].commit_msg
 
-      cfg.platform match {
+      cfg.synthPlatform match {
         case SynthPlatform.Yosys =>
           val io2 = tile.io.asInstanceOf[nzea_tile.platform.yosys.TileIo]
           val devices = IO(chiselTypeOf(io2.yosys_devices))
@@ -88,14 +88,14 @@ object TileElaborate {
       outDir: String
   )(implicit config: CoreConfig): Unit = {
     println(
-      s"Generating NzeaTile (isa: ${config.isa}, platform: ${cfg.platform.segment}, sim: ${cfg.sim})"
+      s"Generating NzeaTile (isa: ${config.isa}, platform: ${cfg.synthPlatform.segment}, sim: ${cfg.sim})"
     )
     println(s"Output: $outDir")
 
     ChiselStage.emitSystemVerilogFile(
       new Top(cfg),
       args = Array("--target-dir", outDir),
-      firtoolOpts = cfg.firtoolOpts
+      firtoolOpts = cfg.synthPlatform.firtoolOpts(cfg.sim)
     )
   }
 

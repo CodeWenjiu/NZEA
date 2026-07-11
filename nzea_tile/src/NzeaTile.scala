@@ -29,7 +29,7 @@ class NzeaTile(cfg: TileConfig)(implicit
     config: CoreConfig
 ) extends Module {
   private val sim = cfg.sim
-  private val platform = cfg.platform
+  private val platform = cfg.synthPlatform
   private val clockHz = cfg.clockHz
   private val cache = cfg.cache
   private val perSlaveOutstanding = cfg.perSlaveOutstanding

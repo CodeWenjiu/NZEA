@@ -1,7 +1,7 @@
 package nzea_cli
 
 import mainargs.arg
-import nzea_config.{ElaborationTarget}
+import nzea_config.{ElaborationTarget, FpgaBoard, SynthPlatform}
 import nzea_tile.TileConfig
 import nzea_core.config.CoreConfig
 
@@ -32,15 +32,14 @@ case class CliArgs(
     @arg(doc = "FPGA board target (lxb_artix7, tangnano20k)") fpgaBoard: String = "lxb_artix7"
 ) {
 
-  def toConfig: TileConfig =
+  val synthPlatform: SynthPlatform = SynthPlatform.fromString(platform).getOrElse(SynthPlatform.Yosys)
+  val fpgaBoard_ : FpgaBoard = FpgaBoard.fromString(fpgaBoard).getOrElse(FpgaBoard.LxbArtix7)
+
+  def tileConfig: TileConfig =
     TileConfig(
-      debug = debug,
-      outDir = outDir,
-      target = target,
-      synthPlatform = platform,
       sim = sim,
+      synthPlatform = synthPlatform,
       clockHz = clockHz,
-      fpgaBoard = fpgaBoard,
       core = CoreConfig(
         isa = isa,
         defaultPc = defaultPc,
@@ -54,5 +53,21 @@ case class CliArgs(
         btbSize = btbSize
       )
     )
+
+  /** `dpi` or `hw` under `build/<target>/<platform>/<isa>/`. */
+  def rtlFlowSegment: String = if (sim) "dpi" else "hw"
+
+  /** firtool options for current [[sim]] mode. */
+  def firtoolOpts: Array[String] = synthPlatform.firtoolOpts(sim)
+
+  /** Default and override-aware RTL output directory. */
+  val effectiveOutDir: String = target match {
+    case ElaborationTarget.Fpga =>
+      outDir.getOrElse(s"build/fpga/${fpgaBoard_.segment}/${tileConfig.core.isa}/hw")
+    case _ =>
+      outDir.getOrElse(
+        s"build/${target.segment}/${synthPlatform.segment}/${tileConfig.core.isa}/${rtlFlowSegment}"
+      )
+  }
 
 }

@@ -29,7 +29,7 @@ object SimElaborate {
         TileElaborate.elaborate(
           cfg = TileConfig(
             sim = false,
-            synthPlatform = plat.segment,
+            synthPlatform = plat,
             clockHz = 100_000_000,
             cache = None,
             perSlaveOutstanding = 1
