@@ -7,14 +7,14 @@ import nzea_rtl._
 /** Dbus bridge using SyncReadMem (no DPI). Same pipeline structure as DbusDpiBridge, for testing. */
 class DbusMemBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
   val io = IO(new Bundle {
-    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth))
+    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, 1))
   })
   val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
   val req = io.bus.req.bits
   val isRead = !req.wen
-  val respType = new LiteResp(dataWidth, userWidth)
+  val respType = new LiteResp(dataWidth, userWidth, 1)
 
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))

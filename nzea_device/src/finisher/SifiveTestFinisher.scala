@@ -2,11 +2,11 @@ package nzea_device.finisher
 
 import chisel3._
 import chisel3.util._
-import nzea_rtl.FabricBusRW
+import nzea_rtl.LiteBusRW
 
 class SifiveTestFinisher(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
   val io = IO(new Bundle {
-    val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
     val finished = Output(Bool())
   })
 

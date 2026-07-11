@@ -3,10 +3,11 @@ package nzea_tile
 import _root_.circt.stage.ChiselStage
 import chisel3._
 import chisel3.util.Valid
-import nzea_config.{NzeaConfigBase, SynthPlatform}
+import nzea_config.{SynthPlatform}
+import nzea_tile.TileConfig
 import nzea_core.config.CoreConfig
 import nzea_core.retire.CommitMsg
-import nzea_rtl.{BootReq, FabricBusRW}
+import nzea_rtl.{BootReq, LiteBusRW}
 
 object TileElaborate {
 
@@ -17,13 +18,13 @@ object TileElaborate {
     val uart_rxd = Input(Bool())
     val finish = Output(Bool())
     // External RAM interface for board-level DDR3/SRAM adapter
-    val extRamBus = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+    val extRamBus = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
     val extRamBoot = Output(Valid(new BootReq(15)))
     val extRamCalibDone = Input(Bool())
   }
 
   /** Tile wrapper: `sim=true` enables DPI bridges; else expose tile IO as top-level ports. */
-  class Top(cfg: NzeaConfigBase)(implicit config: CoreConfig) extends Module {
+  class Top(cfg: TileConfig)(implicit config: CoreConfig) extends Module {
     override def desiredName = "NzeaTile"
 
     val tile = Module(new NzeaTile(cfg))
@@ -83,7 +84,7 @@ object TileElaborate {
   }
 
   def elaborate(
-      cfg: NzeaConfigBase,
+      cfg: TileConfig,
       outDir: String
   )(implicit config: CoreConfig): Unit = {
     println(

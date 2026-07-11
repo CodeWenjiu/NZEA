@@ -3,13 +3,13 @@ package nzea_tile.platform.yosys
 import chisel3._
 import nzea_core.Core
 import nzea_core.config.CoreConfig
-import nzea_rtl.FabricBusRWCrossbar
+import nzea_rtl.LiteBusCrossbar
 
 object Platform {
 
   def connectDevices(
       core: Core,
-      fabric: FabricBusRWCrossbar,
+      fabric: LiteBusCrossbar,
       tileIo: TileIo,
       cpuReset: Bool,
       tileReset: Bool,

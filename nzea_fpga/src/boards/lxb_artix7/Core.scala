@@ -18,7 +18,7 @@ class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends M
     val led_finish = Output(Bool())
   })
 
-  val tile = Module(new NzeaTile(cfg))
+  val tile = Module(new NzeaTile(cfg.tile))
 
   val tileIo = tile.io.asInstanceOf[nzea_tile.platform.fpga.TileIo]
 

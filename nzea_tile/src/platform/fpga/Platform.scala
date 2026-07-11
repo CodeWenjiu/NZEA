@@ -6,7 +6,7 @@ import nzea_core.config.CoreConfig
 import nzea_device.uart.FabricBusUart
 import nzea_device.clint.Clint
 import nzea_device.finisher.SifiveTestFinisher
-import nzea_rtl.FabricBusRWCrossbar
+import nzea_rtl.LiteBusCrossbar
 import nzea_tile.platform.BootFsm
 import nzea_tile.platform.yosys.SimDeviceDpiBridge
 
@@ -14,7 +14,7 @@ object Platform {
 
   def connectDevices(
       core: Core,
-      fabric: FabricBusRWCrossbar,
+      fabric: LiteBusCrossbar,
       tileIo: TileIo,
       cpuReset: Bool,
       tileReset: Bool,

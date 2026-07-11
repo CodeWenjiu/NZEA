@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_core.retire.CommitMsg
 import nzea_device.uart.UartIo
-import nzea_rtl.{BootReq, FabricBusRW}
+import nzea_rtl.{BootReq, LiteBusRW}
 import nzea_tile.platform.HasCommitMsg
 
 class TileIo(
@@ -19,7 +19,7 @@ class TileIo(
   val fpga_finish = Output(Bool())
 
   // Generic external RAM interface — board instantiates SRAM or DDR3 adapter
-  val extRamBus = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  val extRamBus = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
   val extRamBoot = Output(Valid(new BootReq(15)))
   val extRamCalibDone = Input(Bool())
 }

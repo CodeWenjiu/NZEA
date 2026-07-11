@@ -22,7 +22,7 @@ class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule 
 
   val coreRst = !rst_n || !mmcm.locked
 
-  val lxbConfig = LxbArtix7Config(clockHz)
+  val lxbConfig = LxbArtix7Config()
 
   val core = withClockAndReset(clk_100m, coreRst) {
     Module(new LxbArtix7Core(lxbConfig))

@@ -5,11 +5,11 @@ import chisel3.simulator.scalatest.ChiselSim
 
 import scala.sys.process.Process
 
-trait FabricBusTestHelpers { this: ChiselSim =>
+trait LiteBusTestHelpers { this: ChiselSim =>
   protected lazy val hasVerilator: Boolean =
     Process(Seq("bash", "-lc", "command -v verilator >/dev/null 2>&1")).! == 0
 
-  protected def initMaster(bus: FabricBusRW, respReady: Boolean = true): Unit = {
+  protected def initMaster(bus: LiteBusRW, respReady: Boolean = true): Unit = {
     bus.req.valid.poke(false.B)
     bus.req.bits.addr.poke(0.U)
     bus.req.bits.wdata.poke(0.U)
@@ -21,7 +21,7 @@ trait FabricBusTestHelpers { this: ChiselSim =>
     bus.resp.flush.poke(false.B)
   }
 
-  protected def initEndpoint(bus: FabricBusRW, reqReady: Boolean, respValid: Boolean = false): Unit = {
+  protected def initEndpoint(bus: LiteBusRW, reqReady: Boolean, respValid: Boolean = false): Unit = {
     bus.req.ready.poke(if (reqReady) true.B else false.B)
     bus.req.flush.poke(false.B)
     bus.resp.valid.poke(if (respValid) true.B else false.B)
@@ -31,7 +31,7 @@ trait FabricBusTestHelpers { this: ChiselSim =>
   }
 
   protected def driveReq(
-    bus: FabricBusRW,
+    bus: LiteBusRW,
     addr: BigInt,
     user: BigInt,
     id: BigInt,
@@ -48,14 +48,14 @@ trait FabricBusTestHelpers { this: ChiselSim =>
     bus.req.bits.wstrb.poke(wstrb.U)
   }
 
-  protected def clearReq(bus: FabricBusRW): Unit = bus.req.valid.poke(false.B)
+  protected def clearReq(bus: LiteBusRW): Unit = bus.req.valid.poke(false.B)
 
-  protected def driveResp(bus: FabricBusRW, data: BigInt, user: BigInt, id: BigInt): Unit = {
+  protected def driveResp(bus: LiteBusRW, data: BigInt, user: BigInt, id: BigInt): Unit = {
     bus.resp.valid.poke(true.B)
     bus.resp.bits.data.poke(data.U)
     bus.resp.bits.user.poke(user.U)
     bus.resp.bits.id.poke(id.U)
   }
 
-  protected def clearResp(bus: FabricBusRW): Unit = bus.resp.valid.poke(false.B)
+  protected def clearResp(bus: LiteBusRW): Unit = bus.resp.valid.poke(false.B)
 }

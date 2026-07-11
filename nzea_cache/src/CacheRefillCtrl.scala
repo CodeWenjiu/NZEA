@@ -2,7 +2,7 @@ package nzea_cache
 
 import chisel3._
 import chisel3.util._
-import nzea_rtl.LiteBusRO
+import nzea_rtl.LiteBusRW
 
 /** Refill controller for set-associative cache miss handling.
   *
@@ -40,7 +40,7 @@ class CacheRefillCtrl(
     val busy = Output(Bool())
 
     // ── Memory-side bus ──
-    val bottom = new LiteBusRO(addrWidth, lineBits, userWidth)
+    val bottom = new LiteBusRW(addrWidth, lineBits, userWidth, 1)
 
     // ── Storage write port (asserted 1 cycle on refill completion) ──
     val wrValid = Output(Bool())

@@ -2,7 +2,7 @@ package nzea_device.clint
 
 import chisel3._
 import chisel3.util.{switch, is, Cat}
-import nzea_rtl.FabricBusRW
+import nzea_rtl.LiteBusRW
 
 /** RISC-V CLINT: mtime counter + mtimecmp with timer interrupt.
   * Memory map (relative to base = 0x0200_0000):
@@ -14,7 +14,7 @@ import nzea_rtl.FabricBusRW
   */
 class Clint(base: BigInt) extends Module {
   val io = IO(new Bundle {
-    val bus             = Flipped(new FabricBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
+    val bus             = Flipped(new LiteBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
     val timer_interrupt = Output(Bool())
   })
 

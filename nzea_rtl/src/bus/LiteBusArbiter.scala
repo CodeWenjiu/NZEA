@@ -2,12 +2,12 @@ package nzea_rtl
 
 import chisel3._
 
-/** Round-robin multi-master arbiter for FabricBusRW.
+/** Round-robin multi-master arbiter for LiteBusRW.
   *
-  * This is a thin wrapper over [[FabricBusRWCrossbar]] with one downstream target. All addresses are accepted (single
+  * This is a thin wrapper over [[LiteBusCrossbar]] with one downstream target. All addresses are accepted (single
   * full-range slave).
   */
-class FabricBusRWArbiter(
+class LiteBusArbiter(
     numMasters: Int,
     addrWidth: Int,
     dataWidth: Int,
@@ -17,15 +17,15 @@ class FabricBusRWArbiter(
 ) extends Module {
 
   val io = IO(new Bundle {
-    val in = Vec(numMasters, Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)))
-    val out = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+    val in = Vec(numMasters, Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)))
+    val out = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
     val decodeMiss = Output(Vec(numMasters, Bool()))
   })
 
-  private val fullRange = Seq(FabricAddrRange(base = 0, size = BigInt(1) << addrWidth))
+  private val fullRange = Seq(LiteAddrRange(base = 0, size = BigInt(1) << addrWidth))
 
   private val xbar = Module(
-    new FabricBusRWCrossbar(
+    new LiteBusCrossbar(
       numMasters = numMasters,
       addrWidth = addrWidth,
       dataWidth = dataWidth,

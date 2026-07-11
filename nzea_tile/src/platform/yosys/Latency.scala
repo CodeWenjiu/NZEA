@@ -1,7 +1,7 @@
 package nzea_tile.platform.yosys
 
 import chisel3._
-import nzea_rtl.{FabricBusRW, FabricBusRandomStall}
+import nzea_rtl.{LiteBusRW, LiteBusRandomStall}
 
 /** Simulation latency helpers. */
 object AccessLatency {
@@ -10,8 +10,8 @@ object AccessLatency {
       sim: Boolean,
       cpuHz: Int,
       devHz: Option[Double],
-      fabricPort: FabricBusRW,
-      hwPort: FabricBusRW,
+      fabricPort: LiteBusRW,
+      hwPort: LiteBusRW,
       simPortWidth: Int,
       simPortData: Int,
       simPortUser: Int,
@@ -27,7 +27,7 @@ object AccessLatency {
     devHz match {
       case Some(hz) =>
         val pipe = Module(
-          new FabricBusRandomStall(simPortWidth, simPortData, simPortUser, simPortId, (cpuHz.toDouble / hz).max(1.0))
+          new LiteBusRandomStall(simPortWidth, simPortData, simPortUser, simPortId, (cpuHz.toDouble / hz).max(1.0))
         )
         pipe.io.in <> fabricPort
         pipe.io.out <> devPort

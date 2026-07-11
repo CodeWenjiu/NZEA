@@ -1,27 +1,10 @@
-package nzea_config
+package nzea_tile
 
+import nzea_config.{CacheConfig, ElaborationTarget, FpgaBoard, SynthPlatform}
 import nzea_core.config.CoreConfig
 
-/** Hardware generation parameters shared by all elaboration targets (core, tile, fpga). Concrete configs (NzeaConfig
-  * for CLI, per-board configs for FPGA) extend this.
-  */
-abstract class NzeaConfigBase {
-  def sim: Boolean
-  def synthPlatform: String
-  def clockHz: Int
-  def cache: Option[CacheConfig]
-  def perSlaveOutstanding: Int
-
-  lazy val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Yosys)
-
-  /** `dpi` or `hw` under `build/<target>/<platform>/<isa>/`. */
-  def rtlFlowSegment: String = if (sim) "dpi" else "hw"
-
-  /** firtool options from [[platform]] for current [[sim]] mode. */
-  def firtoolOpts: Array[String] = platform.firtoolOpts(sim)
-}
-
-case class NzeaConfig(
+/** Tile-level hardware generation parameters. Wraps [[CoreConfig]] and adds tile/SoC-level options. */
+case class TileConfig(
     debug: Boolean = false,
     outDir: Option[String] = None,
     target: ElaborationTarget = ElaborationTarget.Core,
@@ -32,8 +15,15 @@ case class NzeaConfig(
     core: CoreConfig = CoreConfig(),
     cache: Option[CacheConfig] = Some(CacheConfig()),
     perSlaveOutstanding: Int = 8
-) extends NzeaConfigBase {
+) {
+  val platform: SynthPlatform = SynthPlatform.fromString(synthPlatform).getOrElse(SynthPlatform.Yosys)
   val fpgaBoard_ : FpgaBoard = FpgaBoard.fromString(fpgaBoard).getOrElse(FpgaBoard.LxbArtix7)
+
+  /** `dpi` or `hw` under `build/<target>/<platform>/<isa>/`. */
+  def rtlFlowSegment: String = if (sim) "dpi" else "hw"
+
+  /** firtool options from [[platform]] for current [[sim]] mode. */
+  def firtoolOpts: Array[String] = platform.firtoolOpts(sim)
 
   /** Default and override-aware RTL output directory. */
   val effectiveOutDir: String = target match {

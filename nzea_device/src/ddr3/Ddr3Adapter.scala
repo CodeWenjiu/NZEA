@@ -2,9 +2,9 @@ package nzea_device.ddr3
 
 import chisel3._
 import chisel3.util._
-import nzea_rtl.{BootReq, FabricBusRW}
+import nzea_rtl.{BootReq, LiteBusRW}
 
-/** Bridges FabricBusRW + BootReq to MIG native UI (128-bit, 100 MHz).
+/** Bridges LiteBusRW + BootReq to MIG native UI (128-bit, 100 MHz).
   *
   * Boot writes have priority. Bus reads and writes share bandwidth. Width adaptation: 32-bit FabricBus → 128-bit DDR
   * (lower 32 bits used).
@@ -18,7 +18,7 @@ class Ddr3Adapter(
   require(dataWidth == 32)
 
   val io = IO(new Bundle {
-    val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
     val boot = Flipped(Valid(new BootReq(15)))
     val mig = Flipped(new MigUiIo) // adapter drives MIG
   })

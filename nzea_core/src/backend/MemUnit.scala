@@ -27,8 +27,9 @@ class MemUnit(
     mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty
 ) extends Module {
   private val userPayloadWidth = robIdWidth + LsuOp.getWidth + 2 + prfAddrWidth + 1 // +1 for is_mmio
+  private val idWidth = 1
   private val userWidth = width.max(userPayloadWidth)
-  private val dbusType = new LiteBusRW(width, width, userWidth)
+  private val dbusType = new LiteBusRW(width, width, userWidth, idWidth)
   private val userBundleType = new DbusUserBundle(robIdWidth, prfAddrWidth)
 
   val io = IO(new Bundle {
@@ -69,6 +70,7 @@ class MemUnit(
   io.dbus.req.bits.wen := isStore
   io.dbus.req.bits.wstrb := req.wstrb
   io.dbus.req.bits.user := userReq.asUInt
+  io.dbus.req.bits.id := 0.U
 
   io.dbus.resp.ready := !io.out.flush
   io.dbus.resp.flush := io.out.flush

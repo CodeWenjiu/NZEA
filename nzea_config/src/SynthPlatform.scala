@@ -4,7 +4,7 @@ package nzea_config
 sealed trait SynthPlatform {
   def segment: String
 
-  /** CIRCT/firtool flags for this backend; [[sim]] matches [[NzeaConfig.sim]] (simulation vs synthesis RTL). */
+  /** CIRCT/firtool flags for this backend; [[sim]] matches [[TileConfig.sim]] (simulation vs synthesis RTL). */
   def firtoolOpts(sim: Boolean): Array[String]
 }
 

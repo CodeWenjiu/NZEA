@@ -1,7 +1,8 @@
 package nzea_sim
 
 import circt.stage.ChiselStage
-import nzea_config.{FpgaBoard, NzeaConfigBase, SynthPlatform}
+import nzea_config.{CacheConfig, FpgaBoard, SynthPlatform}
+import nzea_tile.TileConfig
 import nzea_core.config.CoreConfig
 import nzea_tile.TileElaborate
 import nzea_fpga.FpgaElaborate
@@ -26,13 +27,13 @@ object SimElaborate {
             throw new IllegalArgumentException(s"Unknown platform: $platform")
           )
         TileElaborate.elaborate(
-          cfg = new NzeaConfigBase {
-            val sim: Boolean = false
-            val synthPlatform: String = plat.segment
-            val clockHz: Int = 100_000_000
-            val cache: Option[nzea_config.CacheConfig] = None
-            val perSlaveOutstanding: Int = 1
-          },
+          cfg = TileConfig(
+            sim = false,
+            synthPlatform = plat.segment,
+            clockHz = 100_000_000,
+            cache = None,
+            perSlaveOutstanding = 1
+          ),
           outDir = simOut
         )
       case "fpga" =>

@@ -5,7 +5,7 @@ import chisel3.reflect.DataMirror
 import chisel3.util.{log2Ceil, Mux1H, MuxCase, OHToUInt, PopCount, PriorityEncoder, PriorityEncoderOH, UIntToOH}
 import scala.collection.mutable.ArrayBuffer
 
-/** MxN FabricBusRW crossbar with per-slave round-robin arbitration.
+/** MxN LiteBusRW crossbar with per-slave round-robin arbitration.
   *
   * Properties:
   *   - Parallel issue to different slaves is supported.
@@ -14,13 +14,13 @@ import scala.collection.mutable.ArrayBuffer
   *   - Responses are routed by request ID, so out-of-order responses are supported.
   *   - Decode miss is accepted per master and returns zero data with req.user/req.id echoed.
   */
-class FabricBusRWCrossbar(
+class LiteBusCrossbar(
     numMasters: Int,
     addrWidth: Int,
     dataWidth: Int,
     userWidth: Int,
     idWidth: Int,
-    ranges: Seq[FabricAddrRange],
+    ranges: Seq[LiteAddrRange],
     perSlaveOutstanding: Int,
     perMasterRespDepth: Int = 8
 ) extends Module {
@@ -33,7 +33,7 @@ class FabricBusRWCrossbar(
     s"perSlaveOutstanding($perSlaveOutstanding) must fit idWidth($idWidth)"
   )
 
-  FabricBusXbarUtil.validateRanges(addrWidth, ranges)
+  LiteBusXbarUtil.validateRanges(addrWidth, ranges)
 
   private val numSlaves = ranges.length
   private val mIdxWidth = log2Ceil(numMasters.max(2))
@@ -43,8 +43,8 @@ class FabricBusRWCrossbar(
   private val respQCntWidth = log2Ceil(perMasterRespDepth + 1)
 
   val io = IO(new Bundle {
-    val in = Vec(numMasters, Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)))
-    val out = Vec(numSlaves, new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val in = Vec(numMasters, Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)))
+    val out = Vec(numSlaves, new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
     val decodeMiss = Output(Vec(numMasters, Bool()))
   })
 
@@ -80,7 +80,7 @@ class FabricBusRWCrossbar(
     }
     hasHit(m) := hits(m).asUInt.orR
     when(io.in(m).req.valid) {
-      assert(PopCount(hits(m).asUInt) <= 1.U, s"FabricBusRWCrossbar: address ranges overlap for master $m")
+      assert(PopCount(hits(m).asUInt) <= 1.U, s"LiteBusCrossbar: address ranges overlap for master $m")
     }
   }
 
@@ -183,7 +183,7 @@ class FabricBusRWCrossbar(
       matchVec(e) := ownerValid(s)(e) && respTagValid && respTagIdx === e.U
     }
     when(io.out(s).resp.valid) {
-      assert(PopCount(matchVec.asUInt) <= 1.U, s"FabricBusRWCrossbar: duplicate outstanding IDs on slave $s")
+      assert(PopCount(matchVec.asUInt) <= 1.U, s"LiteBusCrossbar: duplicate outstanding IDs on slave $s")
     }
     respMatchOH(s) := matchVec.asUInt
     respMatched(s) := matchVec.asUInt.orR
@@ -321,7 +321,7 @@ class FabricBusRWCrossbar(
     val allocId = Mux1H((0 until numMasters).map(m => issueGrantOH(s)(m) -> io.in(m).req.bits.id))
 
     when(alloc) {
-      assert(freeOH.orR, s"FabricBusRWCrossbar: slave $s accepted req without free outstanding slot")
+      assert(freeOH.orR, s"LiteBusCrossbar: slave $s accepted req without free outstanding slot")
       ownerValid(s)(allocIdx) := true.B
       ownerId(s)(allocIdx) := allocId
       ownerMaster(s)(allocIdx) := issueGrantIdx(s)
@@ -359,34 +359,34 @@ class FabricBusRWCrossbar(
 
 }
 
-object FabricBusRWCrossbar {
+object LiteBusCrossbar {
 
   /** Auto-link builder: infer bus shape and number of masters from incremental `<>` links, then build xbar once.
     */
-  final class AutoLinkBuilder private[FabricBusRWCrossbar] (
-      ranges: Seq[FabricAddrRange],
+  final class AutoLinkBuilder private[LiteBusCrossbar] (
+      ranges: Seq[LiteAddrRange],
       perSlaveOutstanding: Int
   ) {
-    private val masters = ArrayBuffer.empty[FabricBusRW]
-    private val slaves = ArrayBuffer.empty[FabricBusRW]
+    private val masters = ArrayBuffer.empty[LiteBusRW]
+    private val slaves = ArrayBuffer.empty[LiteBusRW]
     private var shape: Option[(Int, Int, Int, Int)] = None
-    private var builtXbar: Option[FabricBusRWCrossbar] = None
+    private var builtXbar: Option[LiteBusCrossbar] = None
 
-    private def captureShape(bus: FabricBusRW): Unit = {
+    private def captureShape(bus: LiteBusRW): Unit = {
       shape match {
         case None =>
           shape = Some((bus.addrWidth, bus.dataWidth, bus.userWidth, bus.idWidth))
         case Some((aw, dw, uw, iw)) =>
           require(
             bus.addrWidth == aw && bus.dataWidth == dw && bus.userWidth == uw && bus.idWidth == iw,
-            s"inconsistent FabricBusRW shape: expected ($aw, $dw, $uw, $iw), " +
+            s"inconsistent LiteBusRW shape: expected ($aw, $dw, $uw, $iw), " +
               s"got (${bus.addrWidth}, ${bus.dataWidth}, ${bus.userWidth}, ${bus.idWidth})"
           )
       }
     }
 
     /** Incrementally collect one bus endpoint. */
-    def <>(bus: FabricBusRW): this.type = {
+    def <>(bus: LiteBusRW): this.type = {
       require(builtXbar.isEmpty, "cannot add links after xbar is built")
       captureShape(bus)
       DataMirror.directionOf(bus.req.valid) match {
@@ -402,7 +402,7 @@ object FabricBusRWCrossbar {
     }
 
     /** Materialize the crossbar and apply all captured links. */
-    def build(): FabricBusRWCrossbar = {
+    def build(): LiteBusCrossbar = {
       builtXbar.getOrElse {
         require(masters.nonEmpty, "at least one master must be linked before build")
         require(slaves.nonEmpty, "at least one slave must be linked before build")
@@ -412,7 +412,7 @@ object FabricBusRWCrossbar {
         }
 
         val xbar = Module(
-          new FabricBusRWCrossbar(
+          new LiteBusCrossbar(
             masters.length,
             addrWidth,
             dataWidth,
@@ -435,7 +435,7 @@ object FabricBusRWCrossbar {
     *
     * Example:
     * {{{
-    * val xbar = FabricBusRWCrossbar(ranges) { x =>
+    * val xbar = LiteBusCrossbar(ranges) { x =>
     *   x <> cpu.io.ibus
     *   x <> cpu.io.dbus
     *   x <> uart.io.bus
@@ -444,9 +444,9 @@ object FabricBusRWCrossbar {
     * }}}
     */
   def apply(
-      ranges: Seq[FabricAddrRange],
+      ranges: Seq[LiteAddrRange],
       perSlaveOutstanding: Int
-  )(link: AutoLinkBuilder => Unit): FabricBusRWCrossbar = {
+  )(link: AutoLinkBuilder => Unit): LiteBusCrossbar = {
     val builder = new AutoLinkBuilder(ranges, perSlaveOutstanding)
     link(builder)
     builder.build()
@@ -454,9 +454,9 @@ object FabricBusRWCrossbar {
 
 }
 
-private object FabricBusXbarUtil {
+private object LiteBusXbarUtil {
 
-  def validateRanges(addrWidth: Int, ranges: Seq[FabricAddrRange]): Unit = {
+  def validateRanges(addrWidth: Int, ranges: Seq[LiteAddrRange]): Unit = {
     require(ranges.nonEmpty, "at least one slave range is required")
     val addrSpaceEnd = BigInt(1) << addrWidth
     ranges.foreach { r =>

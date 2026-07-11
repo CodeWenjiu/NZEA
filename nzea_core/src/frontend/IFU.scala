@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, Valid}
 import nzea_rtl.PipeIO
 import nzea_core.frontend.bp.{BTB, BpUpdate, PHT}
-import nzea_rtl.LiteBusRO
+import nzea_rtl.LiteBusRW
 import nzea_core.config.CoreConfig
 
 /** Ibus user field layout: {pred_next_pc, pc, epoch}. epoch tags every request; on redirect it increments. Responses
@@ -40,7 +40,8 @@ class IFU(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val userWidth = IbusUser.userWidth(addrWidth)
-  private val busType = new LiteBusRO(addrWidth, dataWidth, userWidth)
+  private val idWidth = 1
+  private val busType = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
 
   private val pcReset =
     (config.defaultPc & ((1L << addrWidth) - 1)).U(addrWidth.W)
@@ -82,6 +83,10 @@ class IFU(implicit config: CoreConfig) extends Module {
   io.bus.req.valid := io.out.ready && !reset.asBool
   io.bus.req.bits.addr := pc
   io.bus.req.bits.user := IbusUser.pack(addrWidth, pred_next_pc, pc, epoch)
+  io.bus.req.bits.wdata := 0.U
+  io.bus.req.bits.wen := false.B
+  io.bus.req.bits.wstrb := 0.U
+  io.bus.req.bits.id := 0.U
 
   when(io.out.flush) { pc := io.redirect_pc }
     .elsewhen(pc_update) { pc := pred_next_pc }

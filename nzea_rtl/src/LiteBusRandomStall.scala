@@ -2,12 +2,12 @@ package nzea_rtl
 
 import chisel3._
 
-/** Random-stall latency wrapper for a [[FabricBusRW]] channel.
+/** Random-stall latency wrapper for a [[LiteBusRW]] channel.
   *
   * Inserts independent MCG backpressure on req and resp directions. Flush signals bypass the stall pipes (passthrough),
   * leaving epoch matching in the IFU to drain unwanted responses.
   */
-class FabricBusRandomStall(
+class LiteBusRandomStall(
     addrWidth: Int,
     dataWidth: Int,
     userWidth: Int,
@@ -16,8 +16,8 @@ class FabricBusRandomStall(
 ) extends Module {
 
   val io = IO(new Bundle {
-    val in = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
-    val out = new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth)
+    val in = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val out = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
   })
 
   // ── Request direction ──

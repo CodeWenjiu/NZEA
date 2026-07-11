@@ -32,8 +32,8 @@ class SetAssoc(
   private val tagBits = addrWidth - indexBits - offsetBits
 
   val io = IO(new Bundle {
-    val top = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth))
-    val bottom = new LiteBusRO(addrWidth, lineBits, userWidth)
+    val top = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, 1))
+    val bottom = new LiteBusRW(addrWidth, lineBits, userWidth, 1)
   })
 
   // ── Submodules ──
@@ -57,7 +57,7 @@ class SetAssoc(
     val user = UInt(userWidth.W)
   })))
 
-  private val t1Resp = RegInit(0.U.asTypeOf(Valid(new LiteResp(dataWidth, userWidth))))
+  private val t1Resp = RegInit(0.U.asTypeOf(Valid(new LiteResp(dataWidth, userWidth, 1))))
 
   // ═══════════════════════════════════════════════════════════════
   // T0: trigger SRAM read on new request

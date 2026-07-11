@@ -1,7 +1,8 @@
 package nzea_cli
 
 import mainargs.arg
-import nzea_config.{ElaborationTarget, NzeaConfig}
+import nzea_config.{ElaborationTarget}
+import nzea_tile.TileConfig
 import nzea_core.config.CoreConfig
 
 /** Flat CLI arguments for backward-compatible command-line flags. */
@@ -31,8 +32,8 @@ case class CliArgs(
     @arg(doc = "FPGA board target (lxb_artix7, tangnano20k)") fpgaBoard: String = "lxb_artix7"
 ) {
 
-  def toConfig: NzeaConfig =
-    NzeaConfig(
+  def toConfig: TileConfig =
+    TileConfig(
       debug = debug,
       outDir = outDir,
       target = target,

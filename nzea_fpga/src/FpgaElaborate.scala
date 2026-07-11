@@ -1,7 +1,7 @@
 package nzea_fpga
 
 import _root_.circt.stage.ChiselStage
-import nzea_config.{FpgaBoard, NzeaConfigBase}
+import nzea_config.FpgaBoard
 import nzea_core.config.CoreConfig
 import nzea_fpga.boards.lxb_artix7.{LxbArtix7Config, LxbArtix7Top, VivadoProject}
 import nzea_fpga.boards.tangnano20k.TangNano20kTop

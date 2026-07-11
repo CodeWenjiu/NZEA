@@ -5,11 +5,11 @@ import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.freespec.AnyFreeSpec
 
-class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTestHelpers {
+class LiteBusCrossbarTest extends AnyFreeSpec with ChiselSim with LiteBusTestHelpers {
 
   private val ranges = Seq(
-    FabricAddrRange(base = BigInt("00000000", 16), size = BigInt("00010000", 16)),
-    FabricAddrRange(base = BigInt("10000000", 16), size = BigInt("00010000", 16))
+    LiteAddrRange(base = BigInt("00000000", 16), size = BigInt("00010000", 16)),
+    LiteAddrRange(base = BigInt("10000000", 16), size = BigInt("00010000", 16))
   )
 
   private def withSvsim(body: => Unit): Unit = {
@@ -20,13 +20,13 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
   private class Xbar2x2Top extends Module {
 
     val io = IO(new Bundle {
-      val in = Vec(2, Flipped(new FabricBusRW(32, 32, 8, 4)))
-      val out = Vec(2, new FabricBusRW(32, 32, 8, 4))
+      val in = Vec(2, Flipped(new LiteBusRW(32, 32, 8, 4)))
+      val out = Vec(2, new LiteBusRW(32, 32, 8, 4))
       val decodeMiss = Output(Vec(2, Bool()))
     })
 
     val xbar = Module(
-      new FabricBusRWCrossbar(
+      new LiteBusCrossbar(
         numMasters = 2,
         addrWidth = 32,
         dataWidth = 32,
@@ -42,15 +42,15 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     io.decodeMiss := xbar.io.decodeMiss
   }
 
-  "FabricBusRWCrossbar elaborates" in {
+  "LiteBusCrossbar elaborates" in {
     ChiselStage.emitSystemVerilog(new Xbar2x2Top)
   }
 
-  "FabricBusRWArbiter elaborates" in {
-    ChiselStage.emitSystemVerilog(new FabricBusRWArbiter(2, 32, 32, 8, 4, outstanding = 4))
+  "LiteBusArbiter elaborates" in {
+    ChiselStage.emitSystemVerilog(new LiteBusArbiter(2, 32, 32, 8, 4, outstanding = 4))
   }
 
-  "FabricBusRWCrossbar supports multiple in-flight and out-of-order responses by id" in withSvsim {
+  "LiteBusCrossbar supports multiple in-flight and out-of-order responses by id" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0))
       initMaster(dut.io.in(1))
@@ -84,7 +84,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     }
   }
 
-  "FabricBusRWCrossbar routes parallel requests to different slaves" in withSvsim {
+  "LiteBusCrossbar routes parallel requests to different slaves" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0))
       initMaster(dut.io.in(1))
@@ -113,7 +113,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     }
   }
 
-  "FabricBusRWCrossbar returns decode-miss response with original id/user and zero data" in withSvsim {
+  "LiteBusCrossbar returns decode-miss response with original id/user and zero data" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0))
       initMaster(dut.io.in(1))
@@ -137,7 +137,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     }
   }
 
-  "FabricBusRWCrossbar arbitrates when one master receives two slave responses in same cycle" in withSvsim {
+  "LiteBusCrossbar arbitrates when one master receives two slave responses in same cycle" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0))
       initMaster(dut.io.in(1))
@@ -178,7 +178,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     }
   }
 
-  "FabricBusRWCrossbar decouples per-master resp backpressure on shared slave" in withSvsim {
+  "LiteBusCrossbar decouples per-master resp backpressure on shared slave" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0), respReady = false) // stalled owner master
       initMaster(dut.io.in(1), respReady = true)
@@ -220,7 +220,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     }
   }
 
-  "FabricBusRWCrossbar round-robin on same slave avoids starvation" in withSvsim {
+  "LiteBusCrossbar round-robin on same slave avoids starvation" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0))
       initMaster(dut.io.in(1))
@@ -258,7 +258,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     }
   }
 
-  "FabricBusRWCrossbar survives 100-cycle full backpressure and recovers both masters" in withSvsim {
+  "LiteBusCrossbar survives 100-cycle full backpressure and recovers both masters" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0))
       initMaster(dut.io.in(1))
@@ -299,7 +299,7 @@ class FabricBusCrossbarTest extends AnyFreeSpec with ChiselSim with FabricBusTes
     }
   }
 
-  "FabricBusRWCrossbar flush clears outstanding ownership and later recovers with new requests" in withSvsim {
+  "LiteBusCrossbar flush clears outstanding ownership and later recovers with new requests" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0))
       initMaster(dut.io.in(1))

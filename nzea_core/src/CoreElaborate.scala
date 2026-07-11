@@ -8,16 +8,21 @@ import nzea_core.config.CoreConfig
 object CoreElaborate {
 
   /** Core wrapper: `sim=true` enables DPI bridges; else expose ibus/dbus/commit as top-level IO. */
-  class Top(sim: Boolean)(implicit config: CoreConfig) extends Module {
+  class Top(sim: Boolean, mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module {
     override def desiredName = "NzeaCore"
 
     private val addrWidth = config.width
     private val dataWidth = config.width
 
-    val core = Module(new Core)
+    val core = Module(new Core(mmioRanges))
+
     if (sim) {
-      val ib = Module(new nzea_core.dpi.IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth))
-      val db = Module(new nzea_core.dpi.DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth))
+      val ib = Module(
+        new nzea_core.dpi.IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth, core.io.ibus.idWidth)
+      )
+      val db = Module(
+        new nzea_core.dpi.DbusDpiBridge(addrWidth, dataWidth, core.io.dbus.userWidth, core.io.dbus.idWidth)
+      )
       val cb = Module(new nzea_core.dpi.CommitDpiBridge)
       core.io.ibus <> ib.io.bus
       core.io.dbus <> db.io.bus
@@ -30,23 +35,26 @@ object CoreElaborate {
       dbus <> core.io.dbus
       commit_msg := core.io.commit_msg
     }
+
   }
 
   def elaborate(
-    sim: Boolean,
-    outDir: String,
-    firtoolOpts: Array[String]
+      sim: Boolean,
+      outDir: String,
+      firtoolOpts: Array[String],
+      mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty
   )(implicit config: CoreConfig): Unit = {
     println(
       s"Generating NzeaCore (isa: ${config.isa}, sim: $sim)"
     )
     println(s"Output: $outDir")
 
-    lazy val topModule = new Top(sim)
+    lazy val topModule = new Top(sim, mmioRanges)
     ChiselStage.emitSystemVerilogFile(
       topModule,
       args = Array("--target-dir", outDir),
       firtoolOpts = firtoolOpts
     )
   }
+
 }

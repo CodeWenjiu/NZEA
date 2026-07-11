@@ -10,16 +10,16 @@ import nzea_core.retire.CommitMsg
 /** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect. Flush clears in-flight;
   * req.flush/resp.flush from bus.resp.flush.
   */
-class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
+class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
 
   val io = IO(new Bundle {
-    val bus = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth))
+    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
   })
 
   val flush = io.bus.resp.flush
   io.bus.req.flush := flush
 
-  val respType = new LiteResp(dataWidth, userWidth)
+  val respType = new LiteResp(dataWidth, userWidth, idWidth)
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))
   stage1.flush := flush
@@ -37,6 +37,7 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   internalResp.valid := reqFire
   internalResp.bits.data := rdata
   internalResp.bits.user := io.bus.req.bits.user
+  internalResp.bits.id := io.bus.req.bits.id
 
   PipelineConnect(internalResp, stage1)
   PipelineConnect(stage1, io.bus.resp)
@@ -45,10 +46,10 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 /** Bridges Core dbus to DPI-C bus_read and bus_write. Read and write both go through 2-cycle pipeline. Store also waits
   * for resp (for fault handling). Flush clears in-flight.
   */
-class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends Module {
+class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
 
   val io = IO(new Bundle {
-    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth))
+    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
   })
 
   val flush = io.bus.resp.flush
@@ -56,7 +57,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
 
   val req = io.bus.req.bits
   val isRead = !req.wen
-  val respType = new LiteResp(dataWidth, userWidth)
+  val respType = new LiteResp(dataWidth, userWidth, idWidth)
 
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))
@@ -84,6 +85,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   internalResp.valid := fire
   internalResp.bits.data := Mux(readFire, rdata, 0.U(dataWidth.W))
   internalResp.bits.user := req.user
+  internalResp.bits.id := req.id
 
   PipelineConnect(internalResp, stage1)
   PipelineConnect(stage1, readRespOut)
@@ -92,6 +94,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   io.bus.resp.valid := readRespOut.valid
   io.bus.resp.bits.data := readRespOut.bits.data
   io.bus.resp.bits.user := readRespOut.bits.user
+  io.bus.resp.bits.id := readRespOut.bits.id
 }
 
 /** Bridges Core commit_msg to DPI-C commit_trace. Called on each committed instruction. */

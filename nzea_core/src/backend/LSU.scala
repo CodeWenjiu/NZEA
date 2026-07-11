@@ -18,6 +18,7 @@ class LSU(
 ) extends Module {
   private val lsqIdWidth = chisel3.util.log2Ceil(lsBufferDepth.max(2))
   private val userPayloadWidth = robIdWidth + nzea_core.backend.integer.LsuOp.getWidth + 2 + prfAddrWidth
+  private val idWidth = 1
   private val userWidth = width.max(userPayloadWidth)
 
   val io = IO(new Bundle {
@@ -34,7 +35,7 @@ class LSU(
 
     /** To write-back path: load responses only. */
     val out = new PipeIO(new PrfWriteBundle(prfAddrWidth))
-    val dbus = new LiteBusRW(width, width, userWidth)
+    val dbus = new LiteBusRW(width, width, userWidth, idWidth)
   })
 
   private val lsq = Module(new LSQ(robIdWidth, lsBufferDepth, prfAddrWidth))

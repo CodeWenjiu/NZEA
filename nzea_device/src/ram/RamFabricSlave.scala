@@ -2,7 +2,7 @@ package nzea_device.ram
 
 import chisel3._
 import chisel3.util._
-import nzea_rtl.{BootReq, FabricBusRW}
+import nzea_rtl.{BootReq, LiteBusRW}
 
 class RamFabricSlave(
     addrWidth: Int,
@@ -14,7 +14,7 @@ class RamFabricSlave(
   require(dataWidth == 32, s"RamFabricSlave expects 32-bit data, got $dataWidth")
 
   val io = IO(new Bundle {
-    val bus = Flipped(new FabricBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
     val boot = Flipped(Valid(new BootReq(15)))
   })
 

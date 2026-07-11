@@ -2,7 +2,7 @@ package nzea_device.uart
 
 import chisel3._
 import chisel3.util.Cat
-import nzea_rtl.FabricBusRW
+import nzea_rtl.LiteBusRW
 
 class UartIo extends Bundle {
   val txd = Output(Bool())
@@ -15,7 +15,7 @@ class UartIo extends Bundle {
 class FabricBusUart(base: BigInt, simClkHz: Int = 100_000_000, baudRate: Int = 100000) extends Module {
 
   val io = IO(new Bundle {
-    val bus = Flipped(new FabricBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
+    val bus = Flipped(new LiteBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
     val txd = Output(Bool()); val rxd = Input(Bool()); val rtsn = Output(Bool())
     val ctsn = Input(Bool())
     val boot_rx_valid = Output(Bool())
