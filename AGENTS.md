@@ -112,7 +112,9 @@ flowchart TD
 
 ### Git 操作禁令
 
-**Agent 禁止执行任何 git 操作。** 包括但不限于：`commit`、`stash`、`reset`、`checkout`、`cherry-pick`、`revert`、`branch`、`merge`、`rebase`、`push`、`pull`。git 操作由用户亲自执行，Agent 只提供建议和命令文本。
+**Agent 禁止执行任何 git 写操作。** 包括但不限于：`commit`、`stash`、`reset`、`checkout`、`cherry-pick`、`revert`、`branch`、`merge`、`rebase`、`push`、`pull`。所有写操作由用户亲自执行。
+
+读取操作（`log`、`status`、`diff`、`show`、`blame`）属于信息收集，允许执行，但须始终附加 `--no-pager` 避免阻塞。
 
 ### Agent 使用规范
 - 调用 `just`/`mill`/`yosys`/`nextpnr-*`/`nu` 等依赖 Nix 的命令时，必须通过 `nix develop --command bash -c '...'` 启动。用户在自己终端不受此限制。

@@ -82,7 +82,7 @@ class CacheRefillCtrl(
 
   io.bottom.req.valid := false.B
   io.bottom.req.bits := DontCare
-  io.bottom.resp.ready := io.flush // drain in-flight response on flush
+  io.bottom.resp.ready := true.B // always drain; only sWait triggers storage write
   io.bottom.resp.flush := false.B
 
   // ── FSM ──

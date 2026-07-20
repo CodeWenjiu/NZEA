@@ -39,6 +39,12 @@ class SetAssoc(
   // ── Submodules ──
   private val storage = Module(new CacheStorage(nSets, nWays, tagBits, lineBits))
 
+  // Tree-PLRU replacement state, per set. Drives `refill.io.startWay` when no
+  // free way is available; otherwise the allocator falls back to the first
+  // invalid way (PriorityMux). The previous code used only PriorityMux, which
+  // collapses onto `way = nWays - 1` once the set is full (issue #5).
+  private val repl = new SetAssocPLRU(nSets, nWays)
+
   private val refill = Module(
     new CacheRefillCtrl(
       addrWidth,
@@ -85,6 +91,14 @@ class SetAssoc(
   private val hit = hits.asUInt.orR
   private val hitWay = OHToUInt(hits)
 
+  // Touch the hit way on PLRU so recently-used ways stay resident. Miss
+  // paths are touched separately when the refill completes (see `wrValid`
+  // block below) — touching the not-yet-installed way here would corrupt
+  // PLRU state before the data actually lands.
+  when(t0Req.valid && hit) {
+    repl.access(t1SetIdx, hitWay)
+  }
+
   private val wordOff =
     if (offsetBits > log2Ceil(dataWidth / 8))
       t0Req.bits.addr(offsetBits - 1, log2Ceil(dataWidth / 8))
@@ -104,8 +118,18 @@ class SetAssoc(
   refill.io.startSetIdx := t1SetIdx
   refill.io.startTag := t1Tag
 
-  refill.io.startWay := PriorityMux(
-    (0 until nWays).map(i => (!storage.io.vdBits(i), i.U(wayBits.W)))
+  // Allocator: prefer an invalid way; only consult PLRU once the set is full.
+  // `storage.io.vdBits` is the combinational read of `validArray(t1SetIdx)`,
+  // so it reflects whatever the most recent refill write has already
+  // committed (the storage write itself is synchronous, so an update landed
+  // last cycle is visible this cycle).
+  private val freeWayVec = VecInit((0 until nWays).map(i => !storage.io.vdBits(i)))
+  private val freeWayOH = PriorityEncoderOH(freeWayVec.asUInt)
+  private val hasFreeWay = freeWayVec.asUInt.orR
+  refill.io.startWay := Mux(
+    hasFreeWay,
+    OHToUInt(freeWayOH),
+    repl.way(t1SetIdx)
   )
 
   refill.io.startUser := t0Req.bits.user
@@ -121,6 +145,15 @@ class SetAssoc(
   storage.io.wrWay := refill.io.wrWay
   storage.io.wrTag := refill.io.wrTag
   storage.io.wrData := refill.io.wrData
+
+  // Touch the freshly-installed line on PLRU so the new way is recognized as
+  // most-recently-used once `wrValid` fires. (SetAssocPLRU.access performs a
+  // synchronous write to `state_vec(set)`; calling it on the same cycle as the
+  // storage write ensures the new line is durably recorded before the next
+  // request in this set arrives.)
+  when(refill.io.wrValid) {
+    repl.access(refill.io.wrSetIdx, refill.io.wrWay)
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // Top-side IO
