@@ -222,6 +222,46 @@ Optionally re-run Step 2 to confirm the root event no longer appears.
 
 ---
 
+## Step 5b — Verify timing (STA)
+
+**Goal**: If the fix modified combinational paths, confirm the critical path
+improved (or at least did not regress). Skip this step for purely functional
+fixes (FSM state, control logic, etc.).
+
+### Entry
+Step 5 passed. The fix touched at least one of: bus adapter, register slice,
+cache pipeline, crossbar arbitration, or any `:=` connection that was on the
+pre-fix critical path.
+
+### Execution
+
+Run STA before and after the fix, and compare the top-5 critical paths.
+
+```sh
+# After fix:
+just sta --target tile  # or --target core
+```
+
+Read the generated `.rpt` at:
+`build/<target>/yosys/riscv32i/hw/synth/<NzeaTile|NzeaCore>.rpt`
+
+Compare against the pre-fix report:
+
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| endpoint (top of .rpt) | | | |
+| Path Delay | | | |
+| Slack | | | |
+| Freq(MHz) | | | |
+
+### Exit gating
+- [ ] The critical-path endpoint **changed** (indicating the combinational path
+  was effectively cut) **or** the existing endpoint's slack improved
+- [ ] Path Delay and Slack did not regress on any of the top-5 endpoints
+- [ ] No new `clock_gating_default` violations introduced
+
+---
+
 ## Coordinating with other skills
 
 | Skill | Used in step |
@@ -232,9 +272,16 @@ Optionally re-run Step 2 to confirm the root event no longer appears.
 Load each when entering its step; they carry the exact CLI syntax and
 discovery patterns.
 
+Also: after any fix that touches combinational RTL paths, **always** run
+`just sta --target tile` (Step 5b) to validate the critical path shortened
+or at minimum did not regress. Do not skip this even if IPC is unchanged —
+IPC measures CPU cycles, not clock period.
+
 ## Self-checks before declaring "done"
 
 - [ ] Every step's exit gating items are checked off
 - [ ] The testbench from Step 3 is committed alongside the fix
 - [ ] The numeric delta (IPC, cycle count, hit ratio) is recorded in the
   commit message or PR description
+- [ ] If the fix touched combinational paths, the STA before/after delta
+  (Path Delay, Slack, Freq) is recorded alongside the functional metrics

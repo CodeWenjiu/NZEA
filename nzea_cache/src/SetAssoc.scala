@@ -65,6 +65,15 @@ class SetAssoc(
 
   private val t1Resp = RegInit(0.U.asTypeOf(Valid(new LiteResp(dataWidth, userWidth, 1))))
 
+  // Bypass pipeline register: cuts the combinational path from ibusSlice
+  // through the refill controller's bypass mux to io.top.resp (STA critical
+  // path, fanout 65). The refill controller fires `io.bypassValid` for 1
+  // cycle in sWait; we capture it here and deliver the response in the next
+  // cycle, so the bypass data path is fully register-broken.
+  private val bypassPending = RegInit(false.B)
+  private val bypassDataReg = RegInit(0.U(dataWidth.W))
+  private val bypassUserReg = RegInit(0.U(userWidth.W))
+
   // ═══════════════════════════════════════════════════════════════
   // T0: trigger SRAM read on new request
   // ═══════════════════════════════════════════════════════════════
@@ -159,7 +168,7 @@ class SetAssoc(
   // Top-side IO
   // ═══════════════════════════════════════════════════════════════
 
-  io.top.req.ready := !refill.io.busy && !t1Resp.valid && !t0Req.valid
+  io.top.req.ready := !refill.io.busy && !t1Resp.valid && !t0Req.valid && !bypassPending
   io.top.resp.valid := t1Resp.valid
   io.top.resp.bits := t1Resp.bits
 
@@ -176,12 +185,14 @@ class SetAssoc(
     t0Req.bits.user := io.top.req.bits.user
   }
 
-  // T1: on hit, form response; on refill bypass, form response; otherwise clear
-  when(refill.io.bypassValid) {
+  // T1: on hit, form response; on registered bypass, form response; otherwise clear.
+  // The direct `refill.io.bypassValid` path has been replaced by `bypassPending`
+  // (registered one cycle earlier) to break the ibusSlice → icache combinational
+  // timing path.
+  when(bypassPending) {
     t1Resp.valid := true.B
-    t1Resp.bits.data := refill.io.bypassData
-    t1Resp.bits.user := refill.io.bypassUser
-    t0Req.valid := false.B
+    t1Resp.bits.data := bypassDataReg
+    t1Resp.bits.user := bypassUserReg
   }.elsewhen(t0Req.valid && hit) {
     t1Resp.valid := true.B
     t1Resp.bits.data := rdWord
@@ -190,9 +201,18 @@ class SetAssoc(
     t1Resp.valid := false.B
   }
 
-  // Consume
+  // Capture bypass on the cycle it fires; clear the request immediately so
+  // the miss does not re-trigger (storage write already committed this cycle).
+  when(refill.io.bypassValid) {
+    bypassPending := true.B
+    bypassDataReg := refill.io.bypassData
+    bypassUserReg := refill.io.bypassUser
+    t0Req.valid := false.B
+  }
+
   when(t0Req.valid && hit) { t0Req.valid := false.B }
   when(t1Resp.valid && io.top.resp.ready) { t1Resp.valid := false.B }
+  when(bypassPending && t1Resp.valid && io.top.resp.ready) { bypassPending := false.B }
 
   // ═══════════════════════════════════════════════════════════════
   // Flush: clear pipeline state
@@ -201,6 +221,7 @@ class SetAssoc(
   when(io.top.resp.flush) {
     t0Req.valid := false.B
     t1Resp.valid := false.B
+    bypassPending := false.B
   }
 
 }
