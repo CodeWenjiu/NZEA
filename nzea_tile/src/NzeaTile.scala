@@ -5,7 +5,7 @@ import nzea_config.{CacheConfig, SynthPlatform}
 import nzea_tile.TileConfig
 import nzea_core.config.CoreConfig
 import nzea_core.dpi.CommitDpiBridge
-import nzea_rtl.{LiteAddrRange, LiteBusCrossbar, LiteBusRW, LiteBusRegisterSlice}
+import nzea_rtl.{LiteAddrRange, LiteBusCrossbar, LiteBusRegisterSlice, LiteBusRW, LiteBusWidthConverter}
 import nzea_tile.platform.fpga
 import nzea_tile.platform.yosys
 import nzea_tile.platform.HasCommitMsg
@@ -84,7 +84,22 @@ class NzeaTile(cfg: TileConfig)(implicit
         )
       )
       icache.io.top <> core.io.ibus
-      ibusSlice.io.in <> icache.io.bottom
+
+      if (cfg.lineBits == dataWidth) {
+        ibusSlice.io.in <> icache.io.bottom
+      } else {
+        val iwidth = Module(
+          new LiteBusWidthConverter(
+            wideDataWidth = cfg.lineBits,
+            narrowDataWidth = dataWidth,
+            addrWidth = addrWidth,
+            userWidth = core.io.ibus.userWidth,
+            idWidth = 1
+          )
+        )
+        iwidth.io.wide <> icache.io.bottom
+        ibusSlice.io.in <> iwidth.io.narrow
+      }
 
     case None =>
       ibusSlice.io.in <> core.io.ibus

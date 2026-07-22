@@ -7,6 +7,6 @@ package nzea_config
   */
 case class CacheConfig(
     nSets: Int = 16,
-    nWays: Int = 4,
+    nWays: Int = 8,
     lineBits: Int = 32
 )

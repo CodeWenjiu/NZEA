@@ -74,9 +74,14 @@ Do not mix `--scope top.cpu` with references like `top.cpu.clk` in the same `val
 ## Nzea project specifics
 
 - Waveform files are generated under `build/sim/` by `just iv tile` or `just iv fpga`. Typical path: `build/sim/tile/<platform>/<isa>/hw/iverilog/tb.fst`
+- For remu verilator simulations, waveforms land at `../remu/target/trace.fst`
 - Scope hierarchy follows Chisel module nesting. Use `TOP` as root for Verilator/iverilog dumps.
 - Clock signals: typically `clock` at tile level; core-internal clocks vary by module.
-- Agent must run wavepeek via `nix develop --command bash -c 'wavepeek ...'` (same as project rule for all Nix-dependent tools).
+- Agent must run wavepeek via `nix develop` (same as project rule for all Nix-dependent tools). However, **do NOT use `just wp` when piping to Python** — `just` strips single quotes from multi-word expressions like `'posedge clock'`. Use the direct cargo invocation instead:
+
+  ```sh
+  cargo run --release --manifest-path wavepeek/Cargo.toml -- <wavepeek args> 2>/dev/null | python3 -c "..."
+  ```
 - For the `iverilog-debug` skill, use wavepeek to inspect deadlocked simulation waveforms. See that skill for the diagnostic checklist.
 
 ## RTL event model
@@ -168,6 +173,10 @@ Diagnostics do not necessarily change the exit code. In human mode, diagnostics 
 
 Use `info` to get `time_start`, `time_end`, and the dump time unit before time-range queries. Use explicit units such as `10ns`; do not use bare numbers.
 
+When `--from` or `--to` is omitted, the full dump range is used. Use `--to end` to explicitly specify the dump's end without looking up the exact value from `info`.
+
+If `--to` exceeds the dump's `time_end`, the value is automatically clamped with a diagnostic warning (`WPK-W0004`), so you can safely use a generous upper bound without an exact `info` query.
+
 For count-like questions, make the covered interval explicit. If no user window is given, cover the full dump or state that a narrower window was used. Before finalizing, ensure the final query reaches the intended `time_end` or user-specified `--to`.
 
 ## Self-checks before the final answer
@@ -191,3 +200,14 @@ If a command fails with an expression or trigger error, read `wavepeek help prop
 If results are empty, check `diagnostics`, widen the time window, remove filters, simplify the trigger/predicate, and consult `troubleshooting/empty-results` or `troubleshooting/scoped-vs-canonical-names`.
 
 If results are too large, narrow the scope, filter signal names, reduce the time window, or use `property` to compute the predicate before sampling payloads.
+
+## Feature requests
+
+wavepeek is actively developed. While using it, note any friction or missing
+feature that slows down the debugging cycle — especially in the agent workflow
+where `--json | python3` pipelines are the primary interface. When you
+encounter something, describe the concrete scenario (what you were trying to
+do, what command you ran, what the output or error was) and propose it to the
+user as a feature request. Examples of past improvements driven by agent
+feedback: `--to end` + automatic clamping, and the pipe-friendly invocation
+pattern via direct `cargo run`.

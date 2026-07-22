@@ -87,11 +87,14 @@ Load the `wavepeek` skill for command syntax. Typical discovery sequence:
 4. **Count events** (requests, misses, responses, writes):
    ```sh
    wavepeek property \
-     --waves <FILE> --scope <SCOPE> --from <START> --to <END> \
-     --on "posedge clock" \
+     --waves <FILE> --scope <SCOPE> --from <START> --to end \
+     --on "posedge <CLK>" \
      --eval "<VALID && READY>" --capture match \
      --max 200000 --json
    ```
+   Use `--to end` to automatically cover the full dump range without
+   needing the exact `time_end` value from `info`. If you overshoot,
+   wavepeek clamps to `time_end` with a `WPK-W0004` diagnostic.
    Run this for request fires, miss fires, and response fires separately.
    Compare counts: any discrepancy is a lead (e.g. req count ≠ resp count).
 
@@ -262,11 +265,52 @@ Compare against the pre-fix report:
 
 ---
 
+## Step 5c — Long-run verification
+
+**Goal**: Catch bugs that only manifest after extended execution (accumulated
+state corruption, resource leaks, rare race conditions). Step 5 only runs
+60,000 instructions — enough for performance measurement but **insufficient**
+for thorough correctness validation.
+
+### Entry
+Step 5 passed (short run clean).
+
+### Execution
+
+Run the full test suite **without** waveform capture to avoid I/O throttling.
+Use `continue` to run to completion rather than `step N` — the program's own
+exit is the pass/fail signal.
+
+```sh
+just run-app microbench riscv32im --platform remu --app-args test \
+  -- --batch --difftest remu --platform nzea \
+  --sim-opt "target=tile watchdog=30" \
+  --startup '{' continue '}'
+```
+
+Key differences from Step 5:
+- **No `step N`** — let the program run to natural completion
+- **Watchdog = 30s** — long-running program may be legitimately busy
+- **No waveform** — file I/O slows simulation and may mask timing-sensitive bugs
+
+If the test suite has multiple sub-tests (e.g. microbench runs qsort, queen,
+bf, etc.), ensure ALL of them pass. A difftest mismatch in the 3rd sub-test
+after passing the first 2 is the classic signature of a state-leak bug that
+Step 5 missed.
+
+### Exit gating
+- [ ] Full test suite completes without difftest mismatch
+- [ ] `GOOD EXIT` (not `BAD EXIT`, not watchdog timeout)
+- [ ] If any sub-test fails: **return to Step 2** with the new failure as the
+  root symptom
+
+---
+
 ## Coordinating with other skills
 
 | Skill | Used in step |
 |-------|-------------|
-| `remu` | Step 1 (simulation invocation), Step 5 (re-verification) |
+| `remu` | Step 1 (simulation), Step 5 (short verify), Step 5c (long-run verify) |
 | `wavepeek` | Step 2 (waveform analysis) |
 
 Load each when entering its step; they carry the exact CLI syntax and
