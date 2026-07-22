@@ -6,7 +6,6 @@
     utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
-
   };
 
   outputs =
@@ -56,6 +55,7 @@
                 "llvm-tools-preview"
               ];
             })
+            sccache
 
             # === FPGA Toolchain ===
             yosys # RTL synthesis (synth_gowin)
