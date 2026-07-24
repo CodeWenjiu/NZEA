@@ -1,0 +1,15 @@
+[package]
+name = "pulse_wave"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pulse_macro = { path = "../pulse_macro" }
+
+thiserror = { workspace = true }
+serde_json = { workspace = true }
+wellen = "0.25.6"
+clap = { workspace = true, features = [ "derive", "color", "env" ] }
+
+[lints]
+workspace = true
