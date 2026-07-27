@@ -1,4 +1,1 @@
-mod info;
-mod scope;
-mod signal;
-mod value;
+pulse_macro::mod_flat!(info, property, scope, signal, value);

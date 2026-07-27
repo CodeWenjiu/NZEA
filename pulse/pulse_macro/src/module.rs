@@ -1,4 +1,13 @@
 #[macro_export]
+macro_rules! mods {
+    [ $( $name:ident $(,)? )+ ] => {
+        $(
+            mod $name;
+        )+
+    };
+}
+
+#[macro_export]
 macro_rules! mod_pub {
     [ $( $name:ident $(,)? )+ ] => {
         $(

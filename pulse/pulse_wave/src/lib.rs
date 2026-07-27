@@ -1,6 +1,7 @@
 use wellen::{ItemRef, simple};
 
-pulse_macro::mod_flat!(cmd, command, error);
+pulse_macro::mod_flat!(command, error, tree);
+pulse_macro::mod_pub!(cmd, expr);
 
 pub struct Pulse {
     wav: simple::Waveform,
@@ -16,17 +17,55 @@ impl Pulse {
         })
     }
 
+    fn emit<T: serde::Serialize + std::fmt::Display>(&self, out: &T) {
+        if self.json {
+            println!("{}", serde_json::to_string(out).unwrap_or_default());
+        } else {
+            println!("{out}");
+        }
+    }
+
     pub fn run(mut self, cmd: Command) -> Result<(), WaveError> {
         match cmd {
             Command::Info => self.info(),
-            Command::Scope(args) => self.scope(args.filter.as_deref()),
+            Command::Scope(args) => self.scope(
+                args.depth,
+                args.filter.as_deref(),
+                args.flat,
+                args.root.as_deref(),
+            ),
             Command::Signal(args) => self.signal(&args.scope, args.filter.as_deref()),
             Command::Value(args) => self.value(&args.scope, &args.at, &args.signals),
+            Command::Property(args) => {
+                self.property(&args.scope, &args.on, &args.eval, args.cycles.as_deref())
+            }
         }
     }
 }
 
 // --- shared helpers used by signal / value ---
+
+/// Return the single top-level scope name. Errors if there are zero or multiple.
+fn top_scope(h: &wellen::Hierarchy) -> Result<String, WaveError> {
+    let scopes: Vec<String> = h
+        .items()
+        .filter_map(|r| {
+            if matches!(r, ItemRef::Scope(_)) {
+                Some(r.name(h).to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    match scopes.len() {
+        0 => Err(WaveError::Parse("no top-level scope found".into())),
+        1 => Ok(scopes.into_iter().next().unwrap()),
+        n => Err(WaveError::Parse(format!(
+            "expected exactly 1 top-level scope, found {n}: {}",
+            scopes.join(", ")
+        ))),
+    }
+}
 
 /// Resolve a scope path: return as-is, or read from stdin if `-`.
 fn resolve_scope(scope_path: &str) -> Result<String, WaveError> {

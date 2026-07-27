@@ -1,49 +1,69 @@
+use serde::Serialize;
 use wellen::TimescaleUnit;
 
 use crate::WaveError;
+
+/// Newtype for wellen::Timescale with Display + Serialize.
+#[derive(Copy, Clone)]
+struct TimeScale(wellen::Timescale);
+
+impl Serialize for TimeScale {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(&format_args!("{} {}", self.0.factor, unit_str(self.0.unit)))
+    }
+}
+
+impl std::fmt::Display for TimeScale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.0.factor, unit_str(self.0.unit))
+    }
+}
+
+#[derive(Serialize)]
+struct InfoOut {
+    time_scale: Option<TimeScale>,
+    time_start: u64,
+    time_end: u64,
+    top: String,
+}
+
+impl std::fmt::Display for InfoOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "time_scale:   {}",
+            self.time_scale
+                .as_ref()
+                .map_or("unknown".to_string(), |ts| ts.to_string())
+        )?;
+        write!(f, "\ntime_start:   {}", self.time_start)?;
+        write!(f, "\ntime_end:     {}", self.time_end)?;
+        write!(f, "\ntop:          {}", self.top)?;
+        Ok(())
+    }
+}
 
 impl crate::Pulse {
     pub(crate) fn info(&self) -> Result<(), WaveError> {
         let h = self.wav.hierarchy();
         let tt = self.wav.time_table();
 
-        let ts = h.timescale();
-        let t_start = tt.first().copied().unwrap_or(0);
-        let t_end = tt.last().copied().unwrap_or(0);
-        let top_scopes: Vec<String> = h.items().map(|r| r.name(h).to_string()).collect();
+        let time_scale = h.timescale().map(TimeScale);
+        let time_start = tt.first().copied().unwrap_or(0);
+        let time_end = tt.last().copied().unwrap_or(0);
+        let top = crate::top_scope(h)?;
 
-        if self.json {
-            let ts_obj = ts.map(|ts| {
-                serde_json::json!({
-                    "factor": ts.factor,
-                    "unit": timescale_unit_str(ts.unit),
-                })
-            });
-            let output = serde_json::json!({
-                "time_scale": ts_obj,
-                "time_start": t_start,
-                "time_end": t_end,
-                "top_scopes": top_scopes,
-            });
-            println!("{}", serde_json::to_string(&output).unwrap_or_default());
-        } else {
-            let ts_str = ts.map_or("unknown".into(), |ts| {
-                format!("{} {}", ts.factor, timescale_unit_str(ts.unit))
-            });
-            println!("time_scale:   {ts_str}");
-            println!("time_start:   {t_start}");
-            println!("time_end:     {t_end}");
-            println!("top scopes:");
-            for s in &top_scopes {
-                println!("  {s}");
-            }
-        }
-
+        self.emit(&InfoOut {
+            time_scale,
+            time_start,
+            time_end,
+            top,
+        });
         Ok(())
     }
 }
 
-fn timescale_unit_str(unit: TimescaleUnit) -> &'static str {
+fn unit_str(unit: TimescaleUnit) -> &'static str {
     match unit {
         TimescaleUnit::Seconds => "s",
         TimescaleUnit::MilliSeconds => "ms",

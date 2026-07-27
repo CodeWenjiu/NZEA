@@ -1,103 +1,131 @@
+use serde::Serialize;
 use wellen::ItemRef;
 
 use crate::WaveError;
 
-impl crate::Pulse {
-    /// List scopes (modules) in the hierarchy.
-    pub(crate) fn scope(&self, filter: Option<&str>) -> Result<(), WaveError> {
-        let h = self.wav.hierarchy();
+struct ScopeOut {
+    flat: bool,
+    tree: ScopeTree,
+}
 
-        if self.json {
-            let scopes: Vec<serde_json::Value> = match filter {
-                Some(f) => collect_filtered_json(h, h.items(), String::new(), f),
-                None => collect_tree_json(h, h.items(), 0),
-            };
-            let output = serde_json::json!({ "scopes": scopes });
-            println!("{}", serde_json::to_string(&output).unwrap_or_default());
-        } else {
-            match filter {
-                Some(f) => walk_filtered(h, h.items(), String::new(), f),
-                None => walk_tree(h, h.items(), 0),
+impl serde::Serialize for ScopeOut {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.tree.serialize(s)
+    }
+}
+
+type ScopeTree = crate::tree::Tree<ScopeItem>;
+
+#[derive(Serialize)]
+struct ScopeItem {
+    name: String,
+    path: String,
+    #[serde(skip)]
+    truncated: bool,
+}
+
+impl std::fmt::Display for ScopeOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.flat {
+            for item in self.tree.preorder() {
+                writeln!(f, "{}", item.path)?;
             }
+        } else {
+            write_node(f, &self.tree, 0)?;
         }
-
         Ok(())
     }
 }
 
-fn walk_tree(h: &wellen::Hierarchy, items: impl Iterator<Item = ItemRef>, depth: u32) {
-    for r in items {
-        if let ItemRef::Scope(sr) = r {
-            let indent = "  ".repeat(depth as usize);
-            println!("{indent}{}", r.name(h));
-            let children = h[sr].items(h);
-            walk_tree(h, children, depth + 1);
-        }
+fn write_node(f: &mut std::fmt::Formatter<'_>, node: &ScopeTree, depth: u32) -> std::fmt::Result {
+    let indent = "  ".repeat(depth as usize);
+    let mark = if node.value.truncated { " +" } else { "" };
+    writeln!(f, "{indent}{}{mark}", node.value.name)?;
+    for child in &node.children {
+        write_node(f, child, depth + 1)?;
     }
+    Ok(())
 }
 
-fn walk_filtered(
-    h: &wellen::Hierarchy,
-    items: impl Iterator<Item = ItemRef>,
-    path: String,
-    filter: &str,
-) {
-    for r in items {
-        let name = r.name(h).to_string();
-        let full_path = if path.is_empty() {
-            name.clone()
-        } else {
-            format!("{path}.{name}")
+impl crate::Pulse {
+    pub(crate) fn scope(
+        &self,
+        max_depth: u32,
+        filter: Option<&str>,
+        flat: bool,
+        root_path: Option<&str>,
+    ) -> Result<(), WaveError> {
+        let h = self.wav.hierarchy();
+
+        let root_path = match root_path {
+            Some(p) => p.to_string(),
+            None => crate::top_scope(h)?,
         };
-        if let ItemRef::Scope(sr) = r {
-            if name.contains(filter) {
-                println!("{full_path}");
+
+        let root = match crate::find_scope(h, &root_path) {
+            Some(sr) => sr,
+            None => {
+                return Err(WaveError::Parse(format!("scope '{root_path}' not found")));
             }
-            let children = h[sr].items(h);
-            walk_filtered(h, children, full_path, filter);
-        }
+        };
+
+        let filter = filter.unwrap_or("");
+        let root_name = root_path
+            .rsplit('.')
+            .next()
+            .unwrap_or(&root_path)
+            .to_string();
+        let children = collect_children(h, h[root].items(h), &root_path, 1, max_depth, filter);
+
+        let tree = crate::tree::Tree {
+            value: ScopeItem {
+                name: root_name,
+                path: root_path.to_string(),
+                truncated: false,
+            },
+            children,
+        };
+
+        self.emit(&ScopeOut { flat, tree });
+        Ok(())
     }
 }
 
-fn collect_tree_json(
+fn collect_children(
     h: &wellen::Hierarchy,
     items: impl Iterator<Item = ItemRef>,
+    parent_path: &str,
     depth: u32,
-) -> Vec<serde_json::Value> {
-    let mut out = Vec::new();
-    for r in items {
-        if let ItemRef::Scope(sr) = r {
-            out.push(serde_json::json!({
-                "name": r.name(h),
-                "depth": depth,
-            }));
-            let children = h[sr].items(h);
-            out.extend(collect_tree_json(h, children, depth + 1));
-        }
-    }
-    out
-}
-
-fn collect_filtered_json(
-    h: &wellen::Hierarchy,
-    items: impl Iterator<Item = ItemRef>,
-    path: String,
+    max_depth: u32,
     filter: &str,
-) -> Vec<serde_json::Value> {
+) -> Vec<ScopeTree> {
     let mut out = Vec::new();
     for r in items {
-        let name = r.name(h).to_string();
-        let full_path = if path.is_empty() {
-            name.clone()
-        } else {
-            format!("{path}.{name}")
-        };
         if let ItemRef::Scope(sr) = r {
-            if name.contains(filter) {
-                out.push(serde_json::json!({ "path": full_path }));
+            let name = r.name(h).to_string();
+            let path = format!("{parent_path}.{name}");
+
+            let has_children = h[sr].items(h).any(|c| matches!(c, ItemRef::Scope(_)));
+            let at_limit = depth >= max_depth;
+
+            let children = if at_limit {
+                Vec::new()
+            } else {
+                collect_children(h, h[sr].items(h), &path, depth + 1, max_depth, filter)
+            };
+
+            let truncated = has_children && at_limit;
+
+            if name.contains(filter) || !children.is_empty() {
+                out.push(crate::tree::Tree {
+                    value: ScopeItem {
+                        name,
+                        path,
+                        truncated,
+                    },
+                    children,
+                });
             }
-            let children = h[sr].items(h);
-            out.extend(collect_filtered_json(h, children, full_path, filter));
         }
     }
     out

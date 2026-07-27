@@ -1,10 +1,24 @@
+use serde::Serialize;
 use wellen::ItemRef;
 
 use crate::WaveError;
 
+#[derive(Serialize)]
+struct SignalOut {
+    scope: String,
+    signals: Vec<String>,
+}
+
+impl std::fmt::Display for SignalOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for name in &self.signals {
+            writeln!(f, "{name}")?;
+        }
+        Ok(())
+    }
+}
+
 impl crate::Pulse {
-    /// List signals (vars) within a scope, with optional name filter.
-    /// Use `--scope -` to read the scope path from stdin (for piping).
     pub(crate) fn signal(&self, scope_path: &str, filter: Option<&str>) -> Result<(), WaveError> {
         let scope_path = crate::resolve_scope(scope_path)?;
         let h = self.wav.hierarchy();
@@ -32,18 +46,10 @@ impl crate::Pulse {
             })
             .collect();
 
-        if self.json {
-            let output = serde_json::json!({
-                "scope": scope_path,
-                "signals": signals,
-            });
-            println!("{}", serde_json::to_string(&output).unwrap_or_default());
-        } else {
-            for name in &signals {
-                println!("{name}");
-            }
-        }
-
+        self.emit(&SignalOut {
+            scope: scope_path,
+            signals,
+        });
         Ok(())
     }
 }
