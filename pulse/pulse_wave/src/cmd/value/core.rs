@@ -1,79 +1,16 @@
-use serde::Serialize;
-use serde::ser::SerializeMap;
 use wellen::{Item, SignalRef};
 
+use crate::SerdeRange;
 use crate::WaveError;
-
-struct ValueOut {
-    scope: String,
-    signal_names: Vec<String>,
-    samples: Vec<Sample>,
-}
-
-struct Sample {
-    time: u64,
-    values: Vec<String>,
-}
-
-impl Serialize for ValueOut {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let samples: Vec<serde_json::Value> = self
-            .samples
-            .iter()
-            .map(|row| {
-                let mut map = serde_json::Map::new();
-                map.insert("time".into(), row.time.into());
-                for (i, v) in row.values.iter().enumerate() {
-                    let val: serde_json::Value = if v == "0" || v == "1" {
-                        serde_json::Value::Number(v.parse::<u8>().unwrap().into())
-                    } else {
-                        v.clone().into()
-                    };
-                    map.insert(self.signal_names[i].clone(), val);
-                }
-                serde_json::Value::Object(map)
-            })
-            .collect();
-
-        let mut out = s.serialize_map(Some(3))?;
-        out.serialize_entry("scope", &self.scope)?;
-        out.serialize_entry("signals", &self.signal_names)?;
-        out.serialize_entry("samples", &samples)?;
-        out.end()
-    }
-}
-
-impl std::fmt::Display for ValueOut {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "time")?;
-        for sig in &self.signal_names {
-            write!(f, "  {sig}")?;
-        }
-        writeln!(f)?;
-        for row in &self.samples {
-            write!(f, "{}", row.time)?;
-            for v in &row.values {
-                write!(f, "  {v}")?;
-            }
-            writeln!(f)?;
-        }
-        Ok(())
-    }
-}
 
 impl crate::Pulse {
     pub(crate) fn value(
         &mut self,
         scope_path: &str,
-        at_times: &[String],
+        at_times: &[SerdeRange<u64>],
         signal_names: &[String],
     ) -> Result<(), WaveError> {
-        let scope_path = crate::resolve_scope(scope_path)?;
-
-        let times: Vec<u64> = at_times
-            .iter()
-            .map(|t| crate::expr::eval::parse_time(t, &self.wav))
-            .collect::<Result<Vec<_>, _>>()?;
+        let times: Vec<u64> = at_times.iter().flat_map(|ts| ts.resolve()).collect();
 
         let name_to_sref = {
             let h = self.wav.hierarchy();
@@ -122,7 +59,7 @@ impl crate::Pulse {
             .collect();
 
         let tt = self.wav.time_table();
-        let samples: Vec<Sample> = times
+        let samples: Vec<super::output::Sample> = times
             .iter()
             .map(|&t| {
                 let tt_idx: u32 = tt
@@ -130,16 +67,16 @@ impl crate::Pulse {
                     .unwrap_or_else(|i| i.saturating_sub(1))
                     .try_into()
                     .unwrap_or(0);
-                let values: Vec<String> = signals
+                let values: Vec<super::output::Val> = signals
                     .iter()
-                    .map(|(_, sig)| fmt_val(sig, tt_idx))
+                    .map(|(_, sig)| sig_val(sig, tt_idx))
                     .collect();
-                Sample { time: t, values }
+                super::output::Sample { time: t, values }
             })
             .collect();
 
-        self.emit(&ValueOut {
-            scope: scope_path,
+        self.emit(&super::output::ValueOut {
+            scope: scope_path.to_string(),
             signal_names: signal_names.to_vec(),
             samples,
         });
@@ -147,17 +84,17 @@ impl crate::Pulse {
     }
 }
 
-fn fmt_val(sig: &wellen::Signal, tt_idx: u32) -> String {
+fn sig_val(sig: &wellen::Signal, tt_idx: u32) -> super::output::Val {
     let val = sig.get_offset(tt_idx).map(|off| sig.get_value_at(&off, 0));
     match val {
         Some(v) => {
             if v.width() == Some(1) {
                 let s = format!("{v}");
-                s.chars().next().unwrap_or('?').to_string()
+                super::output::Val::Bit(s.starts_with('1'))
             } else {
-                format!("{v}")
+                super::output::Val::Hex(format!("{v}"))
             }
         }
-        None => "?".into(),
+        None => super::output::Val::Unknown,
     }
 }

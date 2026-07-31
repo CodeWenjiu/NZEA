@@ -1,4 +1,4 @@
-use crate::expr::ast::Expr;
+use super::expr::ast::Expr;
 
 /// Collect all signal names referenced in an AST.
 pub(super) fn collect_signals(expr: &Expr) -> Vec<String> {

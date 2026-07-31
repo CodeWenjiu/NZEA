@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::builder::styling::{AnsiColor, Styles};
 
+use crate::SerdeRange;
+
 #[derive(clap::Parser, Debug)]
 #[command(
     author,
@@ -65,24 +67,20 @@ pub struct ScopeArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct SignalArgs {
-    /// Target scope path (e.g. "TOP.NzeaTile.icache"), or "-" to read from stdin
+    /// Target scope path (e.g. "TOP.NzeaTile.icache")
     #[arg(long, value_name = "SCOPE")]
     pub scope: String,
-
-    /// Substring filter for signal names
-    #[arg(long, value_name = "TERM")]
-    pub filter: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct ValueArgs {
-    /// Target scope path, or "-" to read from stdin
+    /// Target scope path
     #[arg(long, value_name = "SCOPE")]
     pub scope: String,
 
-    /// Comma-separated timestamps (e.g. "100ns,200ns,1us")
-    #[arg(long, value_name = "TIMES", value_delimiter = ',')]
-    pub at: Vec<String>,
+    /// Sample ticks: "100,200,100-200"
+    #[arg(long, value_name = "TICKS", value_delimiter = ',')]
+    pub at: Vec<SerdeRange<u64>>,
 
     /// Comma-separated signal names to sample
     #[arg(long, value_name = "NAMES", value_delimiter = ',')]
@@ -91,7 +89,7 @@ pub struct ValueArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct PropertyArgs {
-    /// Target scope path, or "-" to read from stdin
+    /// Target scope path
     #[arg(long, value_name = "SCOPE")]
     pub scope: String,
 

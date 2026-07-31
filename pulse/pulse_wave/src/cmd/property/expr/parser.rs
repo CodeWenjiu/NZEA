@@ -12,7 +12,7 @@ use winnow::token::take_while;
 use super::ast::{Expr, SequenceStep};
 use crate::WaveError;
 
-pub fn parse(input: &str) -> Result<Expr, WaveError> {
+pub(crate) fn parse(input: &str) -> Result<Expr, WaveError> {
     let mut s = input.trim();
     let expr = expr(&mut s).map_err(|e| WaveError::Parse(e.to_string()))?;
     s = s.trim();

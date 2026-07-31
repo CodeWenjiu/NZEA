@@ -13,7 +13,7 @@
 /// atom     = NAME | NAME "[" INT "]" | "(" event ")"
 /// ```
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub(crate) enum Expr {
     /// `A && B`
     And(Box<Expr>, Box<Expr>),
     /// `A || B`
@@ -43,7 +43,7 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SequenceStep {
+pub(crate) struct SequenceStep {
     pub expr: Box<Expr>,
     pub delay: u32,
 }

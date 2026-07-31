@@ -19,11 +19,10 @@ impl std::fmt::Display for SignalOut {
 }
 
 impl crate::Pulse {
-    pub(crate) fn signal(&self, scope_path: &str, filter: Option<&str>) -> Result<(), WaveError> {
-        let scope_path = crate::resolve_scope(scope_path)?;
+    pub(crate) fn signal(&self, scope_path: &str) -> Result<(), WaveError> {
         let h = self.wav.hierarchy();
 
-        let target = match crate::find_scope(h, &scope_path) {
+        let target = match crate::find_scope(h, scope_path) {
             Some(sr) => sr,
             None => {
                 return Err(WaveError::Parse(format!("scope '{scope_path}' not found")));
@@ -34,12 +33,7 @@ impl crate::Pulse {
             .items(h)
             .filter_map(|r| {
                 if let ItemRef::Var(_) = r {
-                    let name = r.name(h).to_string();
-                    if filter.map_or(true, |f| name.contains(f)) {
-                        Some(name)
-                    } else {
-                        None
-                    }
+                    Some(r.name(h).to_string())
                 } else {
                     None
                 }
@@ -47,7 +41,7 @@ impl crate::Pulse {
             .collect();
 
         self.emit(&SignalOut {
-            scope: scope_path,
+            scope: scope_path.to_string(),
             signals,
         });
         Ok(())

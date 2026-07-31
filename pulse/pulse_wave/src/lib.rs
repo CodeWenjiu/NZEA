@@ -1,7 +1,7 @@
 use wellen::{ItemRef, simple};
 
-pulse_macro::mod_flat!(command, error, tree);
-pulse_macro::mod_pub!(cmd, expr);
+pulse_macro::mod_flat!(command, error, time_spec, tree);
+pulse_macro::mod_pub!(cmd);
 
 pub struct Pulse {
     wav: simple::Waveform,
@@ -34,7 +34,7 @@ impl Pulse {
                 args.flat,
                 args.root.as_deref(),
             ),
-            Command::Signal(args) => self.signal(&args.scope, args.filter.as_deref()),
+            Command::Signal(args) => self.signal(&args.scope),
             Command::Value(args) => self.value(&args.scope, &args.at, &args.signals),
             Command::Property(args) => {
                 self.property(&args.scope, &args.on, &args.eval, args.cycles.as_deref())
@@ -43,7 +43,7 @@ impl Pulse {
     }
 }
 
-// --- shared helpers used by signal / value ---
+// --- shared helpers ---
 
 /// Return the single top-level scope name. Errors if there are zero or multiple.
 fn top_scope(h: &wellen::Hierarchy) -> Result<String, WaveError> {
@@ -64,23 +64,6 @@ fn top_scope(h: &wellen::Hierarchy) -> Result<String, WaveError> {
             "expected exactly 1 top-level scope, found {n}: {}",
             scopes.join(", ")
         ))),
-    }
-}
-
-/// Resolve a scope path: return as-is, or read from stdin if `-`.
-fn resolve_scope(scope_path: &str) -> Result<String, WaveError> {
-    if scope_path == "-" {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_line(&mut buf)
-            .map_err(WaveError::Io)?;
-        let trimmed = buf.trim().to_string();
-        if trimmed.is_empty() {
-            return Err(WaveError::Parse("no scope path received on stdin".into()));
-        }
-        Ok(trimmed)
-    } else {
-        Ok(scope_path.to_string())
     }
 }
 

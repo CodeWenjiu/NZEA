@@ -1,72 +1,21 @@
-/// Shared evaluation utilities used by `value` and `property`.
-use crate::WaveError;
-
-pub fn parse_time(s: &str, wav: &wellen::simple::Waveform) -> Result<u64, WaveError> {
-    let s = s.trim();
-    if let Ok(n) = s.parse::<u64>() {
-        return Ok(n);
-    }
-    let split_at = s
-        .find(|c: char| !c.is_ascii_digit() && c != '.')
-        .unwrap_or(s.len());
-    let (num_str, unit) = s.split_at(split_at);
-    if unit.is_empty() {
-        return Err(WaveError::Parse(format!("invalid time: '{}'", s)));
-    }
-    let num: f64 = num_str
-        .parse()
-        .map_err(|_| WaveError::Parse(format!("invalid time: '{}'", s)))?;
-    let factor = unit_factor(unit)?;
-    let ts = wav
-        .hierarchy()
-        .timescale()
-        .ok_or_else(|| WaveError::Parse("no timescale in waveform".into()))?;
-    let ts_secs = timescale_to_seconds(ts.unit, ts.factor as f64);
-    Ok((num * factor / ts_secs) as u64)
-}
-
-fn unit_factor(unit: &str) -> Result<f64, WaveError> {
-    match unit {
-        "s" => Ok(1.0),
-        "ms" => Ok(1e-3),
-        "us" => Ok(1e-6),
-        "ns" => Ok(1e-9),
-        "ps" => Ok(1e-12),
-        "fs" => Ok(1e-15),
-        _ => Err(WaveError::Parse(format!("unknown time unit: '{}'", unit))),
-    }
-}
-
-fn timescale_to_seconds(unit: wellen::TimescaleUnit, factor: f64) -> f64 {
-    match unit {
-        wellen::TimescaleUnit::Seconds => factor,
-        wellen::TimescaleUnit::MilliSeconds => factor * 1e-3,
-        wellen::TimescaleUnit::MicroSeconds => factor * 1e-6,
-        wellen::TimescaleUnit::NanoSeconds => factor * 1e-9,
-        wellen::TimescaleUnit::PicoSeconds => factor * 1e-12,
-        wellen::TimescaleUnit::FemtoSeconds => factor * 1e-15,
-        wellen::TimescaleUnit::AttoSeconds => factor * 1e-18,
-        wellen::TimescaleUnit::ZeptoSeconds => factor * 1e-21,
-        wellen::TimescaleUnit::Unknown => 1.0,
-    }
-}
-
-// ── temporal evaluator ─────────────────────────────────────
-
 use super::ast::Expr;
+use crate::SerdeRange;
 
 /// Evaluate an AST over a series of clock cycles.
 ///
 /// `cycles` is the list of posedge clock timestamps.
 /// `read_signal(name, tt_idx)` returns the boolean value of a signal at a given time-table index.
-pub fn eval_temporal(
+pub(crate) fn eval_temporal(
     ast: &Expr,
-    cycles: &[(usize, u64)], // (tt_idx, time)
+    cycles: &[(usize, u64)],
     read_signal: &dyn Fn(&str, usize) -> bool,
-) -> Vec<u64> {
+) -> Vec<SerdeRange<u64>> {
     match eval_impl(ast, cycles, read_signal) {
-        EvalOut::Matches(ts) => ts,
-        EvalOut::Intervals(intervals) => intervals.into_iter().map(|(_, t)| t).collect(),
+        EvalOut::Matches(ts) => ts.into_iter().map(|t| SerdeRange(t..=t)).collect(),
+        EvalOut::Intervals(intervals) => intervals
+            .into_iter()
+            .map(|(from, to)| SerdeRange(from..=to))
+            .collect(),
     }
 }
 

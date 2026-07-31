@@ -1,30 +1,8 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
 use wellen::{Item, SignalRef};
 
 use crate::WaveError;
-
-#[derive(Serialize)]
-struct PropertyOut {
-    scope: String,
-    clock: String,
-    expr: String,
-    from_cycle: usize,
-    to_cycle: usize,
-    total_cycles: usize,
-    n_cycles: usize,
-    matches: Vec<u64>,
-}
-
-impl std::fmt::Display for PropertyOut {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for t in &self.matches {
-            writeln!(f, "{t}")?;
-        }
-        Ok(())
-    }
-}
 
 impl crate::Pulse {
     pub(crate) fn property(
@@ -34,9 +12,8 @@ impl crate::Pulse {
         eval: &str,
         cycles: Option<&str>,
     ) -> Result<(), WaveError> {
-        let scope_path = crate::resolve_scope(scope_path)?;
         let clock_name = super::clock::parse_clock(on)?;
-        let ast = crate::expr::parser::parse(eval)?;
+        let ast = super::expr::parser::parse(eval)?;
         let signal_names = super::signals::collect_signals(&ast);
 
         let target = {
@@ -119,12 +96,11 @@ impl crate::Pulse {
         // Output
         if from >= all_cycles.len() {
             // Past end of trace — no cycles to evaluate
-            self.emit(&PropertyOut {
-                scope: scope_path,
+            self.emit(&super::output::PropertyOut {
+                scope: scope_path.to_string(),
                 clock: clock_name.to_string(),
                 expr: eval.to_string(),
-                from_cycle: from,
-                to_cycle: to,
+                cycles: crate::SerdeRange(from..=from),
                 total_cycles: all_cycles.len(),
                 n_cycles: 0,
                 matches: Vec::new(),
@@ -148,14 +124,13 @@ impl crate::Pulse {
             }
         };
 
-        let matches = crate::expr::eval::eval_temporal(&ast, cycles, &read_signal);
+        let matches = super::expr::eval::eval_temporal(&ast, cycles, &read_signal);
 
-        self.emit(&PropertyOut {
-            scope: scope_path,
+        self.emit(&super::output::PropertyOut {
+            scope: scope_path.to_string(),
             clock: clock_name.to_string(),
             expr: eval.to_string(),
-            from_cycle: from,
-            to_cycle: to,
+            cycles: crate::SerdeRange(from..=to),
             total_cycles: all_cycles.len(),
             n_cycles: cycles.len(),
             matches,
