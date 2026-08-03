@@ -44,6 +44,9 @@ pub enum Command {
 
     /// Find timestamps where an event expression is true
     Property(PropertyArgs),
+
+    /// Print the packaged agent skill markdown
+    Skill,
 }
 
 #[derive(Debug, clap::Args)]
@@ -106,10 +109,10 @@ pub struct PropertyArgs {
     #[arg(long, value_name = "EXPR")]
     pub eval: String,
 
-    /// Event definitions: "SOURCE SCOPE NAME" (repeatable). SOURCE is a .pulse file
-    /// or an inline "name = expr" string.
-    #[arg(long, value_name = "SOURCE SCOPE NAME")]
-    pub event: Vec<EventDef>,
+    /// Event definitions: SOURCE SCOPE NAME (repeatable). SOURCE is a .pulse file
+    /// or an inline "name = expr" string; quote it when it contains spaces.
+    #[arg(long, num_args = 3, value_names = ["SOURCE", "SCOPE", "NAME"])]
+    pub event: Vec<String>,
 
     /// Cycle range, e.g. "0-100", "500-", "-100" (default: full trace)
     #[arg(long, value_name = "FROM-TO", allow_hyphen_values = true)]
@@ -127,36 +130,26 @@ pub struct EventDef {
     pub name: String,
 }
 
-impl std::str::FromStr for EventDef {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use winnow::ascii::multispace1;
-        use winnow::error::ContextError;
-        use winnow::prelude::*;
-        use winnow::token::take_till;
-
-        fn field<'a>(input: &mut &'a str) -> winnow::Result<&'a str, ContextError> {
-            take_till(1.., |c: char| c.is_whitespace()).parse_next(input)
+impl EventDef {
+    /// Group flat `--event` tokens into `(source, scope, name)` triples.
+    ///
+    /// clap consumes three values per `--event` occurrence; the source value
+    /// may contain spaces when quoted, so splitting happens here rather than
+    /// in a `FromStr`.
+    pub fn from_tokens(tokens: &[String]) -> Result<Vec<EventDef>, String> {
+        if !tokens.len().is_multiple_of(3) {
+            return Err(format!(
+                "expected SOURCE SCOPE NAME triples, got {} --event values",
+                tokens.len()
+            ));
         }
-
-        fn sep<'a>(input: &mut &'a str) -> winnow::Result<&'a str, ContextError> {
-            multispace1.parse_next(input)
-        }
-
-        let mut input = s;
-        let source = field(&mut input).map_err(|_| "missing SOURCE in --event".to_string())?;
-        sep(&mut input).map_err(|_| "missing SCOPE in --event".to_string())?;
-        let scope = field(&mut input).map_err(|_| "missing SCOPE in --event".to_string())?;
-        sep(&mut input).map_err(|_| "missing NAME in --event".to_string())?;
-        let name = field(&mut input).map_err(|_| "missing NAME in --event".to_string())?;
-        if !input.trim().is_empty() {
-            return Err(format!("expected 'SOURCE SCOPE NAME', got '{s}'"));
-        }
-        Ok(EventDef {
-            source: source.to_string(),
-            scope: scope.to_string(),
-            name: name.to_string(),
-        })
+        Ok(tokens
+            .chunks(3)
+            .map(|t| EventDef {
+                source: t[0].clone(),
+                scope: t[1].clone(),
+                name: t[2].clone(),
+            })
+            .collect())
     }
 }

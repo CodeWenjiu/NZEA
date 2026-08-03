@@ -1,6 +1,6 @@
 ---
 name: nzea-debug-loop
-description: Five-step debugging cycle for nzea RTL bugs — simulate with remu, inspect waveforms with wavepeek, write a minimal testbench to reproduce, fix the RTL, then re-simulate to confirm. Use when a simulation fails, difftest mismatches, or performance anomalies are observed.
+description: Five-step debugging cycle for nzea RTL bugs — simulate with remu, inspect waveforms with pulse, write a minimal testbench to reproduce, fix the RTL, then re-simulate to confirm. Use when a simulation fails, difftest mismatches, or performance anomalies are observed.
 ---
 
 # nzea Debug Loop
@@ -58,7 +58,7 @@ and any error messages.
 
 ## Step 2 — Observe (find the root event)
 
-**Goal**: Use wavepeek to drill into the waveform and locate the exact cycle
+**Goal**: Use pulse to drill into the waveform and locate the exact cycle
 and signal state that constitutes the bug.
 
 ### Entry
@@ -67,45 +67,46 @@ crossbar, LSU, etc.).
 
 ### Execution
 
-Load the `wavepeek` skill for command syntax. Typical discovery sequence:
+Load the `pulse` skill for command syntax. Typical discovery sequence:
 
 1. **Dump metadata**:
    ```sh
-   wavepeek info --waves <FILE> --json
+   pulse info --json
    ```
 
-2. **Scope discovery** (find the relevant module):
+2. **Scope discovery** (find the relevant module; `--filter` is a substring
+   match, run it per block):
    ```sh
-   wavepeek scope --waves <FILE> --filter '.*Cache.*|.*crossbar.*' --max 30 --json
+   pulse scope --filter cache --flat --json
    ```
 
 3. **Signal discovery** inside the target scope:
    ```sh
-   wavepeek signal --waves <FILE> --scope <SCOPE> --max 60 --json
+   pulse signal --scope <SCOPE> --json
    ```
 
 4. **Count events** (requests, misses, responses, writes):
    ```sh
-   wavepeek property \
-     --waves <FILE> --scope <SCOPE> --from <START> --to end \
-     --on "posedge <CLK>" \
-     --eval "<VALID && READY>" --capture match \
-     --max 200000 --json
+   pulse property --scope <SCOPE> --eval "<VALID && READY>" \
+     --cycles <START>- --max 200000 --json
    ```
-   Use `--to end` to automatically cover the full dump range without
-   needing the exact `time_end` value from `info`. If you overshoot,
-   wavepeek clamps to `time_end` with a `WPK-W0004` diagnostic.
+   `--cycles <START>-` covers from `<START>` to the end of the trace; the
+   window is in **cycles** (posedge-clock counts), not ticks, and the default
+   `--on` is `posedge clock`. Count with `matches.len()` in the JSON envelope
+   (or `| wc -l` on text output).
    Run this for request fires, miss fires, and response fires separately.
    Compare counts: any discrepancy is a lead (e.g. req count ≠ resp count).
 
-5. **Trace state transitions** to pinpoint the offending cycle:
+5. **Sample key signals** around the suspect cycles to pinpoint the offending
+   state (pulse has no `change` command; locate event cycles with `property`,
+   then sample payload/state signals there):
    ```sh
-   wavepeek change \
-     --waves <FILE> --scope <SCOPE> --from <START> --to <END> \
-     --on "posedge clock" \
-     --signals <KEY_SIGNALS> \
-     --max <N> --json
+   pulse property --scope <SCOPE> --eval "<KEY_SIGNAL>" \
+     --cycles <START>- --max <N> --json
+   pulse value --scope <SCOPE> --at <T1,T2,...> --signals <KEY_SIGNALS> --json
    ```
+   `value --at` accepts a comma-separated mix of points and ranges, e.g.
+   `100,200-210`.
 
 ### Exit gating
 - [ ] A precise description of the root event: "At time T, signal X has
@@ -203,7 +204,7 @@ All tests passing from Step 4.
 Re-run the same invocation from Step 1. Compare:
 - IPC before/after
 - Cycle count before/after
-- Hit/miss counts before/after (via wavepeek)
+- Hit/miss counts before/after (via pulse)
 - Any difftest mismatches still present
 
 ```sh
@@ -311,7 +312,7 @@ Step 5 missed.
 | Skill | Used in step |
 |-------|-------------|
 | `remu` | Step 1 (simulation), Step 5 (short verify), Step 5c (long-run verify) |
-| `wavepeek` | Step 2 (waveform analysis) |
+| `pulse` | Step 2 (waveform analysis) |
 
 Load each when entering its step; they carry the exact CLI syntax and
 discovery patterns.

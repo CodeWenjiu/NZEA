@@ -72,11 +72,6 @@ uart-load hex port baud='115200':
 
 # ---- Testing ----
 
-# Run wavepeek from submodule (auto-builds on first use). Paths relative to nzea root.
-[group('utility')]
-wp *ARGS:
-    @cargo run --release --manifest-path wavepeek/Cargo.toml -- {{ ARGS }}
-
 # Run all tests in a module (default: nzea_rtl)
 [group('test')]
 test module='nzea_rtl':

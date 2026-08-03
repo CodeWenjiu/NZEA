@@ -74,17 +74,19 @@ named-event composition in the middle, and a minimal query CLI at the top.
 - [ ] ~~`query` / `timeline` / `--count`~~ — rejected: primitives + pipe composition
   (count = `| wc -l`, timeline = property's `{from,to}` list; kept out to
   keep the CLI surface minimal)
-- [ ] Search-speed guidance: strong `--cycles` window constraint documented in
-  skills instead of streaming/early-exit eval optimization
+- [x] Search-speed guidance: strong `--cycles` window constraint documented in
+  the pulse skill instead of streaming/early-exit eval optimization
 
 ### Phase 5 — nzea integration
 
-- [ ] Events files alongside RTL modules
-  - `nzea_cache/events/cache.events`
+- [x] `nzea_cache/cache.pulse`, `nzea_core/core.pulse` event files
+- [ ] Module-level event files
   - `nzea_core/events/ifu.events`, `lsu.events`, `rob.events`
   - `nzea_rtl/events/crossbar.events`
-- [ ] Replace wavepeek in the `nzea-debug-loop` skill
-- [ ] Replace wavepeek in the `wavepeek` skill (or retire it)
+- [x] `pulse skill` command packages the agent skill in the binary
+- [x] `pulse` skill installed at `.agents/skills/pulse/`
+- [x] `nzea-debug-loop` skill updated to use pulse
+- [x] `wavepeek` skill retired; wavepeek submodule removed
 - [ ] Agent auto-discovers events from module directory layout
 
 ## Design decisions captured

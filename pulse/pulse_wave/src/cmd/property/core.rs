@@ -10,11 +10,13 @@ impl crate::Pulse {
         scope_path: Option<&str>,
         on: &str,
         eval: &str,
-        events: &[crate::command::EventDef],
+        event_tokens: &[String],
         cycles: Option<crate::SerdeRange<u64>>,
         max: Option<usize>,
     ) -> Result<(), WaveError> {
         let clock_name = super::clock::parse_clock(on)?;
+        let events =
+            crate::command::EventDef::from_tokens(event_tokens).map_err(WaveError::Parse)?;
 
         // Resolve default scope to the top-level module
         let scope_path = match scope_path {

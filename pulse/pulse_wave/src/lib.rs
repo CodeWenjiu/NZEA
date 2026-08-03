@@ -1,6 +1,6 @@
 use wellen::simple;
 
-pulse_macro::mod_flat!(command, error, time_spec, tree);
+pulse_macro::mod_flat!(command, error, skill, time_spec, tree);
 pulse_macro::mod_pub!(cmd);
 
 pub struct Pulse {
@@ -44,6 +44,10 @@ impl Pulse {
                 args.cycles,
                 args.max,
             ),
+            Command::Skill => {
+                print!("{}", SKILL_MARKDOWN);
+                Ok(())
+            }
         }
     }
 }

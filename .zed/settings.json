@@ -4,9 +4,6 @@
       "initialization_options": {
         "linkedProjects": [
           "pulse/Cargo.toml"
-        ],
-        "excludeGlobs": [
-          "wavepeek/**"
         ]
       }
     }
