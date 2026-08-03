@@ -59,10 +59,10 @@ impl crate::Pulse {
 
         let root_path = match root_path {
             Some(p) => p.to_string(),
-            None => crate::top_scope(h)?,
+            None => super::hierarchy::top_scope(h)?,
         };
 
-        let root = match crate::find_scope(h, &root_path) {
+        let root = match super::hierarchy::find_scope(h, &root_path) {
             Some(sr) => sr,
             None => {
                 return Err(WaveError::Parse(format!("scope '{root_path}' not found")));

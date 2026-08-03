@@ -13,16 +13,37 @@ use super::ast::{Expr, SequenceStep};
 use crate::WaveError;
 
 pub(crate) fn parse(input: &str) -> Result<Expr, WaveError> {
-    let mut s = input.trim();
-    let expr = expr(&mut s).map_err(|e| WaveError::Parse(e.to_string()))?;
-    s = s.trim();
+    let original = input;
+    let mut s = input.trim_start();
+    let expr = expr(&mut s).map_err(|e| locate(original, s, e.to_string()))?;
+    s = s.trim_start();
     if !s.is_empty() {
-        return Err(WaveError::Parse(format!(
-            "unexpected trailing input: '{}'",
-            s
-        )));
+        return Err(locate(
+            original,
+            s,
+            format!("unexpected trailing input: '{s}'"),
+        ));
     }
     Ok(expr)
+}
+
+/// Attach a line/column position to a parse error.
+///
+/// `remaining` is always a suffix slice of `original` (every parser helper
+/// only ever consumes from the front), so the pointer delta yields the exact
+/// consumed length — including leading whitespace — and the offset can be
+/// converted into a 1-based line/column pair over the original input.
+fn locate(original: &str, remaining: &str, msg: String) -> WaveError {
+    let off = remaining.as_ptr() as usize - original.as_ptr() as usize;
+    let (line, col) = line_col(original, off);
+    WaveError::Parse(format!("at line {line}, column {col}: {msg}"))
+}
+
+fn line_col(input: &str, off: usize) -> (usize, usize) {
+    let before = &input[..off];
+    let line = before.bytes().filter(|&b| b == b'\n').count() + 1;
+    let col = off - before.rfind('\n').map_or(0, |i| i + 1) + 1;
+    (line, col)
 }
 
 // ── low-level input helpers ────────────────────────────────
@@ -61,14 +82,16 @@ fn eat_char(input: &mut &str, c: char) -> bool {
 fn name(input: &mut &str) -> Result<String, WaveError> {
     let s = input.trim_start();
     let mut s2 = s;
-    let result: winnow::Result<&str, ContextError> =
-        take_while(1.., |c: char| c.is_ascii_alphanumeric() || c == '_')
-            .verify(|s: &str| {
-                s.chars()
-                    .next()
-                    .map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
-            })
-            .parse_next(&mut s2);
+    // Allow dots for namespaced references like "Core.instruction_fetch"
+    let result: winnow::Result<&str, ContextError> = take_while(1.., |c: char| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '.'
+    })
+    .verify(|s: &str| {
+        s.chars()
+            .next()
+            .map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+    })
+    .parse_next(&mut s2);
     match result {
         Ok(name) => {
             *input = s2;
@@ -182,14 +205,17 @@ fn term(input: &mut &str) -> Result<Expr, WaveError> {
     Ok(left)
 }
 
-/// factor = "!"? atom
+/// factor = "!"* atom
 fn factor(input: &mut &str) -> Result<Expr, WaveError> {
-    if eat_char(input, '!') {
-        let inner = atom(input)?;
-        Ok(Expr::Not(Box::new(inner)))
-    } else {
-        atom(input)
+    let mut nots = 0;
+    while eat_char(input, '!') {
+        nots += 1;
     }
+    let mut inner = atom(input)?;
+    for _ in 0..nots {
+        inner = Expr::Not(Box::new(inner));
+    }
+    Ok(inner)
 }
 
 /// atom = NAME "[" INT "]" | "(" expr ")" | NAME
@@ -219,6 +245,8 @@ fn atom(input: &mut &str) -> Result<Expr, WaveError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::collection::vec;
+    use proptest::prelude::*;
 
     fn p(s: &str) -> Expr {
         parse(s).unwrap()
@@ -251,6 +279,14 @@ mod tests {
                 Box::new(Expr::Not(Box::new(Expr::Signal("a".into())))),
                 Box::new(Expr::Signal("b".into())),
             )
+        );
+    }
+
+    #[test]
+    fn double_not() {
+        assert_eq!(
+            p("!!a"),
+            Expr::Not(Box::new(Expr::Not(Box::new(Expr::Signal("a".into())))))
         );
     }
 
@@ -394,5 +430,96 @@ mod tests {
         assert!(parse("(a").is_err());
         assert!(parse("").is_err());
         assert!(parse("a ~>").is_err());
+    }
+
+    #[test]
+    fn error_location() {
+        let err = parse("a &&\n!").unwrap_err().to_string();
+        assert!(err.contains("line 2"), "got: {err}");
+
+        let err = parse("a ->").unwrap_err().to_string();
+        assert!(err.contains("column"), "got: {err}");
+
+        let err = parse("a && b )").unwrap_err().to_string();
+        assert!(err.contains("trailing"), "got: {err}");
+        assert!(err.contains("line 1"), "got: {err}");
+    }
+
+    // ── property-based round-trip ────────────────────────
+
+    /// Signal names, including namespaced ones (`Core.instruction_fetch`).
+    fn name_strategy() -> impl Strategy<Value = String> {
+        "[a-zA-Z_][a-zA-Z0-9_.]*"
+    }
+
+    fn delay() -> impl Strategy<Value = u32> {
+        0..10u32
+    }
+
+    /// Leaves: signals and `NAME[N]` repetitions (the grammar only allows
+    /// `NAME[N]`, so `Repeat` never wraps a composite expression).
+    fn leaf() -> impl Strategy<Value = Expr> {
+        prop_oneof![
+            name_strategy().prop_map(Expr::Signal),
+            (name_strategy(), delay())
+                .prop_map(|(n, c)| Expr::Repeat(Box::new(Expr::Signal(n)), c)),
+        ]
+    }
+
+    fn sequence_arb(inner: impl Strategy<Value = Expr> + Clone) -> impl Strategy<Value = Expr> {
+        (inner.clone(), vec((delay(), inner), 1..4)).prop_map(|(first, rest)| {
+            let mut steps = vec![SequenceStep {
+                expr: Box::new(first),
+                delay: 0,
+            }];
+            for (d, e) in rest {
+                steps.push(SequenceStep {
+                    expr: Box::new(e),
+                    delay: d,
+                });
+            }
+            Expr::Sequence(steps)
+        })
+    }
+
+    fn arb(depth: u32) -> impl Strategy<Value = Expr> {
+        leaf().prop_recursive(depth, 64, 16, |inner| {
+            prop_oneof![
+                (inner.clone(), inner.clone())
+                    .prop_map(|(a, b)| Expr::And(Box::new(a), Box::new(b))),
+                (inner.clone(), inner.clone())
+                    .prop_map(|(a, b)| Expr::Or(Box::new(a), Box::new(b))),
+                (inner.clone(), inner.clone())
+                    .prop_map(|(a, b)| Expr::FirstAfter(Box::new(a), Box::new(b))),
+                (inner.clone(), inner.clone())
+                    .prop_map(|(a, b)| Expr::Overlapping(Box::new(a), Box::new(b))),
+                (inner.clone(), inner.clone())
+                    .prop_map(|(a, b)| Expr::Interval(Box::new(a), Box::new(b))),
+                (inner.clone(), inner.clone())
+                    .prop_map(|(a, b)| Expr::Implication(Box::new(a), Box::new(b))),
+                (inner.clone(), delay(), inner.clone()).prop_map(|(a, n, b)| Expr::FixedDelay(
+                    Box::new(a),
+                    n,
+                    Box::new(b)
+                )),
+                (inner.clone(), delay(), inner.clone()).prop_map(|(a, n, b)| Expr::Within(
+                    Box::new(a),
+                    n,
+                    Box::new(b)
+                )),
+                inner.clone().prop_map(|a| Expr::Not(Box::new(a))),
+                sequence_arb(inner.clone()),
+            ]
+        })
+    }
+
+    proptest! {
+        /// `Display` output must re-parse to an identical AST.
+        #[test]
+        fn display_roundtrip(expr in arb(4)) {
+            let s = expr.to_string();
+            let parsed = parse(&s).unwrap_or_else(|e| panic!("failed to reparse '{s}': {e}"));
+            prop_assert_eq!(parsed, expr);
+        }
     }
 }

@@ -1,0 +1,23 @@
+-- Core 事件定义。
+-- 信号相对于 scope: TOP.NzeaTile.core
+
+-- 指令退休
+commit_fire = io_commit_msg_valid
+
+-- ibus 接受取指请求
+i_fetch = io_ibus_req_valid && io_ibus_req_ready
+
+-- 取指响应返回
+i_resp = io_ibus_resp_valid
+
+-- dbus 接受数据访问请求
+d_access = io_dbus_req_valid && io_dbus_req_ready
+
+-- 数据写（store）
+d_write = d_access && io_dbus_req_bits_wen
+
+-- 数据读（load）
+d_read = d_access && !io_dbus_req_bits_wen
+
+-- 数据访问响应返回
+d_resp = io_dbus_resp_valid

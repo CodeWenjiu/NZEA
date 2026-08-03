@@ -78,8 +78,13 @@ pub struct ValueArgs {
     #[arg(long, value_name = "SCOPE")]
     pub scope: String,
 
-    /// Sample ticks: "100,200,100-200"
-    #[arg(long, value_name = "TICKS", value_delimiter = ',')]
+    /// Sample ticks: "100,200,100-200,-100,100-"
+    #[arg(
+        long,
+        value_name = "TICKS",
+        value_delimiter = ',',
+        allow_hyphen_values = true
+    )]
     pub at: Vec<SerdeRange<u64>>,
 
     /// Comma-separated signal names to sample
@@ -89,9 +94,9 @@ pub struct ValueArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct PropertyArgs {
-    /// Target scope path
+    /// Target scope path (default: top-level scope)
     #[arg(long, value_name = "SCOPE")]
-    pub scope: String,
+    pub scope: Option<String>,
 
     /// Clock edge expression (default: "posedge clock")
     #[arg(long, value_name = "EDGE", default_value = "posedge clock")]
@@ -101,7 +106,57 @@ pub struct PropertyArgs {
     #[arg(long, value_name = "EXPR")]
     pub eval: String,
 
-    /// Cycle range, e.g. "0-100", "500-" (default: full trace)
-    #[arg(long, value_name = "FROM-TO")]
-    pub cycles: Option<String>,
+    /// Event definitions: "SOURCE SCOPE NAME" (repeatable). SOURCE is a .pulse file
+    /// or an inline "name = expr" string.
+    #[arg(long, value_name = "SOURCE SCOPE NAME")]
+    pub event: Vec<EventDef>,
+
+    /// Cycle range, e.g. "0-100", "500-", "-100" (default: full trace)
+    #[arg(long, value_name = "FROM-TO", allow_hyphen_values = true)]
+    pub cycles: Option<SerdeRange<u64>>,
+
+    /// Return at most the first N matches (truncated after evaluation)
+    #[arg(long, value_name = "N")]
+    pub max: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventDef {
+    pub source: String,
+    pub scope: String,
+    pub name: String,
+}
+
+impl std::str::FromStr for EventDef {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use winnow::ascii::multispace1;
+        use winnow::error::ContextError;
+        use winnow::prelude::*;
+        use winnow::token::take_till;
+
+        fn field<'a>(input: &mut &'a str) -> winnow::Result<&'a str, ContextError> {
+            take_till(1.., |c: char| c.is_whitespace()).parse_next(input)
+        }
+
+        fn sep<'a>(input: &mut &'a str) -> winnow::Result<&'a str, ContextError> {
+            multispace1.parse_next(input)
+        }
+
+        let mut input = s;
+        let source = field(&mut input).map_err(|_| "missing SOURCE in --event".to_string())?;
+        sep(&mut input).map_err(|_| "missing SCOPE in --event".to_string())?;
+        let scope = field(&mut input).map_err(|_| "missing SCOPE in --event".to_string())?;
+        sep(&mut input).map_err(|_| "missing NAME in --event".to_string())?;
+        let name = field(&mut input).map_err(|_| "missing NAME in --event".to_string())?;
+        if !input.trim().is_empty() {
+            return Err(format!("expected 'SOURCE SCOPE NAME', got '{s}'"));
+        }
+        Ok(EventDef {
+            source: source.to_string(),
+            scope: scope.to_string(),
+            name: name.to_string(),
+        })
+    }
 }

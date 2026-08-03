@@ -9,7 +9,7 @@
 ///          | term ("->" INT term)? | term ("--" INT term)?
 ///          | term
 /// term     = factor (("&&" | "||") factor)*
-/// factor   = "!"? atom
+/// factor   = "!"* atom
 /// atom     = NAME | NAME "[" INT "]" | "(" event ")"
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -46,4 +46,36 @@ pub(crate) enum Expr {
 pub(crate) struct SequenceStep {
     pub expr: Box<Expr>,
     pub delay: u32,
+}
+
+/// Canonical rendering of an expression.
+///
+/// Every binary/temporal operator is parenthesized so that `Display` output
+/// always re-parses to an identical AST (`parse(expr.to_string()) == expr`),
+/// which the proptest round-trip suite relies on. `Repeat`'s inner expression
+/// is printed without parentheses because the grammar only accepts `NAME[N]`.
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::And(a, b) => write!(f, "({a} && {b})"),
+            Expr::Or(a, b) => write!(f, "({a} || {b})"),
+            Expr::Not(a) => write!(f, "!{a}"),
+            Expr::Signal(name) => write!(f, "{name}"),
+            Expr::Repeat(a, n) => write!(f, "{a}[{n}]"),
+            Expr::FirstAfter(a, b) => write!(f, "({a} -> {b})"),
+            Expr::FixedDelay(a, n, b) => write!(f, "({a} ->{n} {b})"),
+            Expr::Within(a, n, b) => write!(f, "({a} --{n} {b})"),
+            Expr::Overlapping(a, b) => write!(f, "({a} ~> {b})"),
+            Expr::Interval(a, b) => write!(f, "({a} ~~ {b})"),
+            Expr::Implication(a, b) => write!(f, "({a} |-> {b})"),
+            Expr::Sequence(steps) => {
+                let (first, rest) = steps.split_first().expect("sequence is never empty");
+                write!(f, "({}", first.expr)?;
+                for step in rest {
+                    write!(f, " >>{} {}", step.delay, step.expr)?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
 }

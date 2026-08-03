@@ -51,7 +51,7 @@ impl crate::Pulse {
         let time_scale = h.timescale().map(TimeScale);
         let time_start = tt.first().copied().unwrap_or(0);
         let time_end = tt.last().copied().unwrap_or(0);
-        let top = crate::top_scope(h)?;
+        let top = super::hierarchy::top_scope(h)?;
 
         self.emit(&InfoOut {
             time_scale,

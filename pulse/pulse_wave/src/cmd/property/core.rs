@@ -1,65 +1,85 @@
 use std::collections::BTreeMap;
 
-use wellen::{Item, SignalRef};
+use wellen::SignalRef;
 
 use crate::WaveError;
 
 impl crate::Pulse {
     pub(crate) fn property(
         &mut self,
-        scope_path: &str,
+        scope_path: Option<&str>,
         on: &str,
         eval: &str,
-        cycles: Option<&str>,
+        events: &[crate::command::EventDef],
+        cycles: Option<crate::SerdeRange<u64>>,
+        max: Option<usize>,
     ) -> Result<(), WaveError> {
         let clock_name = super::clock::parse_clock(on)?;
+
+        // Resolve default scope to the top-level module
+        let scope_path = match scope_path {
+            Some(p) => p.to_string(),
+            None => super::super::hierarchy::top_scope(&self.wav.hierarchy())?,
+        };
+
+        // ── Load event definitions ──────────────────────────────
+        let mut event_defs: BTreeMap<String, super::expr::ast::Expr> = BTreeMap::new();
+        let mut event_scopes: BTreeMap<String, String> = BTreeMap::new();
+        for def in events {
+            let defs = super::event::load(&def.source)?;
+            for (local, expr) in defs {
+                event_defs.insert(format!("{}.{}", def.name, local), expr);
+            }
+            event_scopes.insert(def.name.clone(), def.scope.clone());
+        }
+
+        // ── Parse and normalize eval expression ─────────────────
         let ast = super::expr::parser::parse(eval)?;
-        let signal_names = super::signals::collect_signals(&ast);
+        let ast = super::event::normalize(&ast, "", &event_defs);
 
-        let target = {
-            let h = self.wav.hierarchy();
-            match crate::find_scope(h, &scope_path) {
-                Some(sr) => sr,
-                None => {
-                    return Err(WaveError::Parse(format!("scope '{scope_path}' not found")));
-                }
-            }
-        };
+        // ── Collect referenced signals per scope ────────────────
+        let mut refs: Vec<(Option<String>, String)> = Vec::new();
+        super::event::collect_signal_refs(&ast, &mut refs);
+        refs.sort();
+        refs.dedup();
 
-        let name_to_sref = {
+        // Resolve signals: main scope + each event set's scope
+        let mut name_to_sref: BTreeMap<String, SignalRef> = BTreeMap::new();
+        {
             let h = self.wav.hierarchy();
-            let all_names: Vec<&str> = signal_names
+
+            // Main scope signals
+            let main_names: Vec<String> = refs
                 .iter()
-                .map(|s| s.as_str())
-                .chain(std::iter::once(clock_name))
+                .filter(|(ns, _)| ns.is_none())
+                .map(|(_, n)| n.clone())
                 .collect();
+            if !main_names.is_empty() {
+                let map = super::super::hierarchy::resolve_signals(h, &scope_path, &main_names)?;
+                name_to_sref.extend(map);
+            }
 
-            let mut map: BTreeMap<String, SignalRef> = BTreeMap::new();
-            for r in h[target].items(h) {
-                let item = r.deref(h);
-                if let Item::Var(var) = item {
-                    let name = var.name(h).to_string();
-                    if all_names.iter().any(|s| *s == name) {
-                        map.insert(name, var.signal_ref());
-                    }
+            // Per event-set signals, qualified with the set name
+            for (ns, names) in group_by_namespace(&refs) {
+                let scope = event_scopes
+                    .get(&ns)
+                    .ok_or_else(|| WaveError::Parse(format!("undefined event set '{ns}'")))?;
+                let map = super::super::hierarchy::resolve_signals(h, scope, &names)?;
+                for (local, sr) in map {
+                    name_to_sref.insert(format!("{ns}.{local}"), sr);
                 }
             }
 
-            let missing: Vec<String> = all_names
-                .into_iter()
-                .filter(|s| !map.contains_key(*s))
-                .map(|s| s.to_string())
-                .collect();
-            if !missing.is_empty() {
-                return Err(WaveError::Parse(format!(
-                    "signal(s) not found in scope '{scope_path}': {}",
-                    missing.join(", ")
-                )));
-            }
+            // Clock signal (main scope)
+            let clock_map = super::super::hierarchy::resolve_signals(
+                h,
+                &scope_path,
+                &[clock_name.to_string()],
+            )?;
+            name_to_sref.extend(clock_map);
+        }
 
-            map
-        };
-
+        // ── Load signal data ────────────────────────────────────
         let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
         self.wav.load_signals(&srefs);
 
@@ -76,8 +96,8 @@ impl crate::Pulse {
             })
             .collect();
 
+        // ── Build cycle list from clock posedges ────────────────
         let tt = self.wav.time_table();
-
         let mut all_cycles: Vec<(usize, u64)> = Vec::new();
         let mut prev_clk = false;
         for (ti, &t) in tt.iter().enumerate() {
@@ -89,20 +109,19 @@ impl crate::Pulse {
             prev_clk = clk_val;
         }
 
+        // ── Slice cycles per --cycles ───────────────────────────
         let (from, to) = match cycles {
-            Some(s) => super::clock::parse_range(s)?,
+            Some(r) => (
+                *r.0.start() as usize,
+                (*r.0.end() as usize).min(all_cycles.len()),
+            ),
             None => (0, all_cycles.len()),
         };
-        // Output
         if from >= all_cycles.len() {
-            // Past end of trace — no cycles to evaluate
             self.emit(&super::output::PropertyOut {
-                scope: scope_path.to_string(),
-                clock: clock_name.to_string(),
-                expr: eval.to_string(),
                 cycles: crate::SerdeRange(from..=from),
                 total_cycles: all_cycles.len(),
-                n_cycles: 0,
+                max,
                 matches: Vec::new(),
             });
             return Ok(());
@@ -115,6 +134,7 @@ impl crate::Pulse {
         }
         let cycles = &all_cycles[from..to];
 
+        // ── Evaluate ────────────────────────────────────────────
         let read_signal = |name: &str, cycle_idx: usize| -> bool {
             if let Some(sig) = signal_sigs.get(name) {
                 let (tt_idx, _) = cycles[cycle_idx];
@@ -124,18 +144,29 @@ impl crate::Pulse {
             }
         };
 
-        let matches = super::expr::eval::eval_temporal(&ast, cycles, &read_signal);
+        let mut matches = super::expr::eval::eval_temporal(&ast, cycles, &read_signal);
+        if let Some(n) = max {
+            matches.truncate(n);
+        }
 
         self.emit(&super::output::PropertyOut {
-            scope: scope_path.to_string(),
-            clock: clock_name.to_string(),
-            expr: eval.to_string(),
             cycles: crate::SerdeRange(from..=to),
             total_cycles: all_cycles.len(),
-            n_cycles: cycles.len(),
+            max,
             matches,
         });
 
         Ok(())
     }
+}
+
+/// Group signal references by namespace: `(ns, [signal names])`.
+fn group_by_namespace(refs: &[(Option<String>, String)]) -> Vec<(String, Vec<String>)> {
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (ns, name) in refs {
+        if let Some(ns) = ns {
+            groups.entry(ns.clone()).or_default().push(name.clone());
+        }
+    }
+    groups.into_iter().collect()
 }

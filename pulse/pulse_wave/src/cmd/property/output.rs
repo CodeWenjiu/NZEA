@@ -4,13 +4,12 @@ use crate::SerdeRange;
 
 #[derive(Serialize)]
 pub(super) struct PropertyOut {
-    pub(super) scope: String,
-    pub(super) clock: String,
-    pub(super) expr: String,
     #[serde(flatten)]
     pub(super) cycles: SerdeRange<usize>,
     pub(super) total_cycles: usize,
-    pub(super) n_cycles: usize,
+    /// Requested match limit; present when `--max` truncated the output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) max: Option<usize>,
     pub(super) matches: Vec<SerdeRange<u64>>,
 }
 

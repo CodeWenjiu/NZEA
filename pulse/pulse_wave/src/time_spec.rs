@@ -45,22 +45,34 @@ impl FromStr for SerdeRange<u64> {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use winnow::ascii::digit1;
+        use winnow::combinator::{alt, opt};
         use winnow::prelude::*;
 
         fn integer(input: &mut &str) -> winnow::Result<u64, winnow::error::ContextError> {
             digit1.try_map(|s: &str| s.parse()).parse_next(input)
         }
 
-        let s = s.trim();
-        let mut input = s;
-        let from = integer(&mut input).map_err(|_| format!("expected tick number, got '{}'", s))?;
-
-        if input.starts_with('-') {
-            input = &input[1..];
-            let to = integer(&mut input).map_err(|e| format!("{e}"))?;
-            Ok(SerdeRange(from..=to))
-        } else {
-            Ok(SerdeRange(from..=from))
+        fn dash<'a>(input: &mut &'a str) -> winnow::Result<&'a str, winnow::error::ContextError> {
+            "-".parse_next(input)
         }
+
+        let mut input = s.trim();
+        let spec = alt((
+            // "-100" → 0..=100
+            (dash, integer).map(|(_, to)| SerdeRange(0..=to)),
+            // "100" | "100-" | "100-200"
+            (integer, opt((dash, opt(integer)))).map(|(from, trailing)| match trailing {
+                None => SerdeRange(from..=from),
+                Some((_, None)) => SerdeRange(from..=u64::MAX),
+                Some((_, Some(to))) => SerdeRange(from..=to),
+            }),
+        ))
+        .parse_next(&mut input)
+        .map_err(|e| format!("{e}"))?;
+        input = input.trim();
+        if !input.is_empty() {
+            return Err(format!("unexpected trailing input: '{input}'"));
+        }
+        Ok(spec)
     }
 }

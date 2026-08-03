@@ -66,11 +66,16 @@ named-event composition in the middle, and a minimal query CLI at the top.
 
 ### Phase 4 — Query CLI (pulse_cli)
 
-- [ ] `pulse info --waves tb.fst`
-- [ ] `pulse scope --waves tb.fst --filter '.*cache.*'`
-- [ ] `pulse signal --waves tb.fst --scope TOP.icache`
-- [ ] `pulse query --def cache.events --scope TOP.NzeaTile.icache --waves tb.fst --select miss --count`
-- [ ] `pulse timeline --def cache.events --scope TOP.NzeaTile.icache --waves tb.fst --select miss_latency --json`
+- [x] `pulse info --waves tb.fst`
+- [x] `pulse scope --waves tb.fst --filter '.*cache.*'`
+- [x] `pulse signal --waves tb.fst --scope TOP.icache`
+- [x] `property` with `--event` definitions + `--eval` cross-module composition
+- [x] `property --max N` (post-eval truncation)
+- [ ] ~~`query` / `timeline` / `--count`~~ — rejected: primitives + pipe composition
+  (count = `| wc -l`, timeline = property's `{from,to}` list; kept out to
+  keep the CLI surface minimal)
+- [ ] Search-speed guidance: strong `--cycles` window constraint documented in
+  skills instead of streaming/early-exit eval optimization
 
 ### Phase 5 — nzea integration
 

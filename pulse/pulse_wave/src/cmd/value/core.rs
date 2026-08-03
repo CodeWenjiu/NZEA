@@ -1,4 +1,4 @@
-use wellen::{Item, SignalRef};
+use wellen::SignalRef;
 
 use crate::SerdeRange;
 use crate::WaveError;
@@ -10,41 +10,19 @@ impl crate::Pulse {
         at_times: &[SerdeRange<u64>],
         signal_names: &[String],
     ) -> Result<(), WaveError> {
-        let times: Vec<u64> = at_times.iter().flat_map(|ts| ts.resolve()).collect();
+        let last_tick = self.wav.time_table().last().copied().unwrap_or(0);
+        let times: Vec<u64> = at_times
+            .iter()
+            .flat_map(|ts| {
+                // Clamp open-ended ranges to the last dump tick
+                let end = (*ts.0.end()).min(last_tick);
+                SerdeRange(*ts.0.start()..=end).resolve()
+            })
+            .collect();
 
         let name_to_sref = {
             let h = self.wav.hierarchy();
-            let target = match crate::find_scope(h, &scope_path) {
-                Some(sr) => sr,
-                None => {
-                    return Err(WaveError::Parse(format!("scope '{scope_path}' not found")));
-                }
-            };
-
-            let mut map: Vec<(String, SignalRef)> = Vec::new();
-            for r in h[target].items(h) {
-                let item = r.deref(h);
-                if let Item::Var(var) = item {
-                    let name = var.name(h).to_string();
-                    if signal_names.iter().any(|s| s == &name) {
-                        map.push((name, var.signal_ref()));
-                    }
-                }
-            }
-
-            let missing: Vec<String> = signal_names
-                .iter()
-                .filter(|s| !map.iter().any(|(n, _)| n == s.as_str()))
-                .cloned()
-                .collect();
-            if !missing.is_empty() {
-                return Err(WaveError::Parse(format!(
-                    "signal(s) not found in scope '{scope_path}': {}",
-                    missing.join(", ")
-                )));
-            }
-
-            map
+            super::super::hierarchy::resolve_signals(h, scope_path, signal_names)?
         };
 
         let srefs: Vec<SignalRef> = name_to_sref.iter().map(|(_, sr)| *sr).collect();

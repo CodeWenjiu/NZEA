@@ -1,0 +1,20 @@
+-- I-Cache 事件定义。
+-- 信号相对于 scope: TOP.NzeaTile.icache
+
+-- CPU 请求被接受
+req_fire = io_top_req_valid && io_top_req_ready
+
+-- 响应送达 CPU
+resp_fire = io_top_resp_valid && io_top_resp_ready
+
+-- 向内存发起 refill 请求（miss 路径）
+refill_req_fire = io_bottom_req_valid && io_bottom_req_ready
+
+-- 内存返回 refill 响应
+refill_resp_fire = io_bottom_resp_valid
+
+-- 触发 refill 的请求（miss），按 first-after 配对
+miss = req_fire -> refill_req_fire
+
+-- 从 refill 请求到响应的周期数
+refill_latency = refill_req_fire -> refill_resp_fire
