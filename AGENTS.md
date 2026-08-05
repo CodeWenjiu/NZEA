@@ -13,6 +13,7 @@
 | `nzea_fpga/src` | FPGA 板级包装：板级顶层、引脚约束、综合后处理 |
 | `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |
 | `nzea_sim/src` | 仿真层模块，为 tile/fpga 生成独立仿真 RTL + TB，输出到 `build/sim/` |
+| `pulse/` | 波形分析 CLI（info/scope/signal/value/property + 事件文件跨模块组合），替代 wavepeek；用法见 `.agents/skills/pulse/` |
 | `wave_tracker/` | 独立的 Rust CLI，用于 FST/VCD 波形分析和 RTL 级调试 |
 
 ### 依赖方向
@@ -95,6 +96,7 @@ flowchart TD
 - 注释和文档仅英文。
 - 禁止重新引入已删除的命令（如 `just run`）。
 - 修改综合或 STA 脚本时，保持命令示例与 `justfile` 一致。
+- **事件文件按需添加**：`.pulse` 事件文件遵循“用到再说”原则——调试到某个具体问题、确认事件确实被查询需要时，才为对应模块添加并留在该模块目录（`nzea_cache/cache.pulse`、`nzea_core/core.pulse` 即此原则的历史产物，可作示例模板）。禁止提前为未调试模块批量创建事件文件。
 
 ### 解码与 Chisel 注意事项
 - `DecodeTable.decode(inst)` 的 Espresso 失败回退 QMC 是预期行为，生成 RTL 有效。

@@ -11,7 +11,9 @@ case class CoreConfig(
     vrfDepth: Int = 64,
     viqDepth: Int = 8,
     phtSize: Int = 64,
-    btbSize: Int = 16
+    btbSize: Int = 16,
+    /** Simulation mode: enables sim-only logic such as branch-prediction statistics registers. */
+    sim: Boolean = false
 ) {
   val prfAddrWidth: Int = Iterator.from(0).find(i => (1 << i) >= prfDepth).getOrElse(6)
 

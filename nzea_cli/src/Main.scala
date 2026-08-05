@@ -25,7 +25,6 @@ object Main {
           case r if r.base != BigInt("80000000", 16) => (r.base, r.size)
         }
         CoreElaborate.elaborate(
-          sim = cfg.sim,
           outDir = cliArgs.effectiveOutDir,
           firtoolOpts = cliArgs.firtoolOpts,
           mmioRanges = mmioRanges

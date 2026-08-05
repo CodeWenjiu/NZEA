@@ -43,7 +43,7 @@ object TileElaborate {
     private val fabricIdWidth = 8
     val io = IO(new TileTopIO(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
 
-    if (cfg.sim) {
+    if (config.sim) {
       tile.io := DontCare
       io := DontCare
     } else {
@@ -88,14 +88,14 @@ object TileElaborate {
       outDir: String
   )(implicit config: CoreConfig): Unit = {
     println(
-      s"Generating NzeaTile (isa: ${config.isa}, platform: ${cfg.synthPlatform.segment}, sim: ${cfg.sim})"
+      s"Generating NzeaTile (isa: ${config.isa}, platform: ${cfg.synthPlatform.segment}, sim: ${config.sim})"
     )
     println(s"Output: $outDir")
 
     ChiselStage.emitSystemVerilogFile(
       new Top(cfg),
       args = Array("--target-dir", outDir),
-      firtoolOpts = cfg.synthPlatform.firtoolOpts(cfg.sim)
+      firtoolOpts = cfg.synthPlatform.firtoolOpts(config.sim)
     )
   }
 

@@ -37,7 +37,6 @@ case class CliArgs(
 
   def tileConfig: TileConfig =
     TileConfig(
-      sim = sim,
       synthPlatform = synthPlatform,
       clockHz = clockHz,
       core = CoreConfig(
@@ -50,7 +49,8 @@ case class CliArgs(
         vrfDepth = vrfDepth,
         viqDepth = viqDepth,
         phtSize = phtSize,
-        btbSize = btbSize
+        btbSize = btbSize,
+        sim = sim
       )
     )
 

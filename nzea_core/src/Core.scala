@@ -4,9 +4,12 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
 import nzea_core.config.{CoreConfig, FuConfig}
-import nzea_rtl.PipelineConnect
+import nzea_rtl.{PipelineConnect, StatsRegs}
 
-/** Core module: Rob in Core; integer cluster + LSU write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit. */
+/** Core module: Rob in Core; integer cluster + LSU write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit.
+  * `config.sim` enables simulation-only logic (branch-prediction statistics registers);
+  * FPGA builds use `sim = false` and carry no extra state.
+  */
 class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
   private val robDepth = config.robDepth
@@ -127,4 +130,18 @@ class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreC
   io.commit_msg := commit.io.commit_msg
   ifu.io.redirect_pc := commit.io.redirect_pc
   ifu.io.bp_update := integerExecutionCluster.io.bru_bp_update
+
+  // Simulation-only execution statistics: total cycles and committed instructions.
+  // Same StatsRegs mechanism as BRU's BpStats (VPI contract: stat_* leaf names).
+  if (config.sim) {
+    val stats = Module(
+      new StatsRegs("CoreStats", Seq("stat_cycle" -> 64, "stat_inst_commit" -> 64))
+    )
+    stats.clock := clock
+    stats.reset := reset
+    stats.ports("stat_cycle").en := true.B
+    stats.ports("stat_cycle").data := stats.ports("stat_cycle").value + 1.U
+    stats.ports("stat_inst_commit").en := commit.io.rob_commit.valid
+    stats.ports("stat_inst_commit").data := stats.ports("stat_inst_commit").value + 1.U
+  }
 }

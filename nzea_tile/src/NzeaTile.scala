@@ -28,7 +28,7 @@ object TileAddressMap {
 class NzeaTile(cfg: TileConfig)(implicit
     config: CoreConfig
 ) extends Module {
-  private val sim = cfg.sim
+  private val sim = config.sim
   private val platform = cfg.synthPlatform
   private val clockHz = cfg.clockHz
   private val cache = cfg.cache

@@ -7,8 +7,8 @@ import nzea_core.config.CoreConfig
 
 object CoreElaborate {
 
-  /** Core wrapper: `sim=true` enables DPI bridges; else expose ibus/dbus/commit as top-level IO. */
-  class Top(sim: Boolean, mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module {
+  /** Core wrapper: `config.sim=true` enables DPI bridges; else expose ibus/dbus/commit as top-level IO. */
+  class Top(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module {
     override def desiredName = "NzeaCore"
 
     private val addrWidth = config.width
@@ -16,7 +16,7 @@ object CoreElaborate {
 
     val core = Module(new Core(mmioRanges))
 
-    if (sim) {
+    if (config.sim) {
       val ib = Module(
         new nzea_core.dpi.IbusDpiBridge(addrWidth, dataWidth, core.io.ibus.userWidth, core.io.ibus.idWidth)
       )
@@ -39,17 +39,16 @@ object CoreElaborate {
   }
 
   def elaborate(
-      sim: Boolean,
       outDir: String,
       firtoolOpts: Array[String],
       mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty
   )(implicit config: CoreConfig): Unit = {
     println(
-      s"Generating NzeaCore (isa: ${config.isa}, sim: $sim)"
+      s"Generating NzeaCore (isa: ${config.isa}, sim: ${config.sim})"
     )
     println(s"Output: $outDir")
 
-    lazy val topModule = new Top(sim, mmioRanges)
+    lazy val topModule = new Top(mmioRanges)
     ChiselStage.emitSystemVerilogFile(
       topModule,
       args = Array("--target-dir", outDir),

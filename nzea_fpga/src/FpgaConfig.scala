@@ -13,12 +13,12 @@ class FpgaConfig(
 ) {
 
   def tile: TileConfig = TileConfig(
-    sim = false,
     synthPlatform = SynthPlatform.Fpga,
     clockHz = clockHz,
     cache = cache,
     perSlaveOutstanding = perSlaveOutstanding,
-    core = core
+    // FPGA builds never instantiate simulation-only logic.
+    core = core.copy(sim = false)
   )
 
 }
