@@ -17,6 +17,7 @@ class IDUOut(width: Int, prfAddrWidth: Int) extends Bundle {
   val imm           = UInt(32.W)
   val rd_index      = UInt(5.W)
   val pred_next_pc  = UInt(width.W)
+  val is_ret        = Bool() // JALR returning via x1 (RAS pop + BRU ret stats)
   val p_rs1         = UInt(prfAddrWidth.W)
   val p_rs2         = UInt(prfAddrWidth.W)
   val old_p_rd      = UInt(prfAddrWidth.W)
@@ -137,6 +138,11 @@ class IDU(addrWidth: Int)(implicit config: CoreConfig) extends Module {
   io.out.bits.imm          := imm
   io.out.bits.rd_index     := rd_index
   io.out.bits.p_rs1        := p_rs1
+  // RAS classification from the raw inst fields (JAL/JALR opcodes).
+  val isJalr = io.in.bits.inst(6, 0) === 0x67.U(7.W)
+  val rs1Idx = io.in.bits.inst(19, 15)
+  val rdIdx  = io.in.bits.inst(11, 7)
+  io.out.bits.is_ret  := isJalr && rs1Idx === 1.U && rdIdx =/= 1.U
   io.out.bits.p_rs2        := p_rs2
   io.out.bits.p_rd         := p_rd
   io.out.bits.old_p_rd     := old_p_rd_out

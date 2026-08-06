@@ -57,6 +57,7 @@ class ISU(addrWidth: Int)(implicit config: CoreConfig) extends Module {
   )
   io.rob_enq.req.bits.p_rd := io.in.bits.p_rd
   io.rob_enq.req.bits.old_p_rd := io.in.bits.old_p_rd
+  io.rob_enq.req.bits.is_ret := io.in.bits.is_ret
 
   io.out.valid := can_push
   io.out.bits.fu_type      := fu_type
@@ -75,6 +76,7 @@ class ISU(addrWidth: Int)(implicit config: CoreConfig) extends Module {
   io.out.bits.p_rd         := io.in.bits.p_rd
   io.out.bits.old_p_rd     := io.in.bits.old_p_rd
   io.out.bits.rd_index     := io.in.bits.rd_index
+  io.out.bits.is_ret       := io.in.bits.is_ret
   io.out.bits.lsq_id := Mux(fu_type === FuType.LSU, io.ls_alloc.lsq_id, 0.U(lsqIdWidth.W))
   io.out.bits.mem_type := Mux(
     fu_type === FuType.LSU,

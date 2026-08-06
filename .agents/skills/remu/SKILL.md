@@ -79,6 +79,27 @@ just run-app microbench riscv32im --platform spike
 | `--app-args ARGS` | none | Arguments passed to the embedded app |
 | `-- …` | — | All remaining args forwarded to `remu_cli` after `--` |
 
+#### RTL simulation (nzea backend)
+
+To run against nzea RTL instead of a built-in simulator, pass `--platform nzea` to
+`remu_cli` **after** `--` (the `--platform` before `--` selects the host flow and
+only accepts remu/qemu/spike/host):
+
+```sh
+just run-app microbench riscv32im --platform remu --app-args test -- \
+  --platform nzea --sim-opt target=tile --sim-opt watchdog=10 \
+  --batch --startup '{' continue '}' and '{' stat print '}'
+```
+
+Notes:
+- `--app-args` is baked into the ELF at build time (`REMU_APP_ARGS` env) —
+  always rebuild via `just run-app` after changing it; invoking `remu_cli`
+  directly reuses the stale ELF.
+- RTL simulation is ~40-50x slower than the built-in simulator: microbench
+  `ref` takes about an hour on RTL; use `test` (~10s) for RTL runs.
+- The nzea watchdog (`--sim-opt watchdog=N`) interrupts programs with no
+  observed progress for `3×N` seconds; long RTL runs may need a large N.
+
 #### `build-app APP [target]`
 
 Build an embedded app without running it.
@@ -179,7 +200,10 @@ remu_cli --elf app.elf --isa riscv32im --platform nzea --batch \
 | `state bus ...` | Memory read/write operations |
 | `func trace instruction on/off` | Toggle instruction tracing |
 | `func trace wave-form on/off` | Toggle waveform tracing |
-| `stat print` | Print all statistics |
+| `stat print` | Print all statistics (raw counters + derived entries) |
+| `stat raw` | Print raw counters only |
+| `stat ipc` | Print IPC statistics (inst/cycle counters + derived IPC) |
+| `stat bp` | Print branch-predictor statistics (branch/mispred counters + derived rate) |
 | `breakpoint set ADDR` | Set breakpoint |
 | `breakpoint del ADDR` | Delete breakpoint |
 | `quit` | Exit |
@@ -190,6 +214,10 @@ Commands can be chained with `and` / `or` (**required** between blocks — adjac
 { step 10 } and { state reg gpr read x5 }
 { state reg pc write 0x80000000 } and { continue }
 ```
+
+Note: `stat` counters are platform-owned — nzea reports RTL VPI signals
+(`stat_inst_commit`, `stat_cycle`, `stat_bp_*`); other platforms may print
+`no statistics`.
 
 ### Exit Codes
 

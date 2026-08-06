@@ -17,6 +17,7 @@ class RobCommitPayload(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val is_mmio = Bool()
   val csr_type = CsrType()
   val csr_data = UInt(32.W)
+  val is_ret = Bool()
 }
 
 /** Commit logical state (external): only architectural state changes. */
@@ -27,6 +28,7 @@ class CommitMsg extends Bundle {
   val is_mmio = Bool() // set by LSU when committing a device (MMIO) load or store
   val csr_type = CsrType()
   val csr_data = UInt(32.W)
+  val is_ret = Bool()
 }
 
 /** IDU commit input: rd_index, p_rd, old_p_rd. */
@@ -65,6 +67,7 @@ class Commit(implicit config: CoreConfig) extends Module {
   io.commit_msg.bits.is_mmio := c.is_mmio
   io.commit_msg.bits.csr_type := c.csr_type
   io.commit_msg.bits.csr_data := c.csr_data
+  io.commit_msg.bits.is_ret := c.is_ret
   io.redirect_pc := RegNext(c.next_pc, 0.U(32.W))
 
   io.idu_commit.valid := any_commit

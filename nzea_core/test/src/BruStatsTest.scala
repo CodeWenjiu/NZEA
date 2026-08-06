@@ -2,14 +2,14 @@ package nzea_core
 
 import circt.stage.ChiselStage
 import nzea_core.backend.integer.BRUStage0
-import nzea_core.config.CoreConfig
+import nzea_core.config.{BpuConfig, CoreConfig}
 import org.scalatest.freespec.AnyFreeSpec
 
 /** BRU stats counters: instantiated as a StatsRegs black box iff sim=true. */
 class BruStatsTest extends AnyFreeSpec {
 
   private def chirrtl(sim: Boolean): String = {
-    implicit val config: CoreConfig = CoreConfig(sim = sim)
+    implicit val config: CoreConfig = CoreConfig(sim = sim, bpu = BpuConfig(64, 16, Some(8)))
     ChiselStage.emitCHIRRTL(new BRUStage0(4, 6))
   }
 

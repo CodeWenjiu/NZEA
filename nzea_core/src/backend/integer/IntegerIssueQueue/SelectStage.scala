@@ -152,6 +152,7 @@ class IntegerIssueQueueSelectStage(
   e.p_rd      := Mux1H(selOneHot, rawEntryFor.map(_.p_rd))
   e.old_p_rd  := Mux1H(selOneHot, rawEntryFor.map(_.old_p_rd))
   e.rd_index  := Mux1H(selOneHot, rawEntryFor.map(_.rd_index))
+  e.is_ret    := Mux1H(selOneHot, rawEntryFor.map(_.is_ret))
   e.lsq_id    := Mux1H(selOneHot, rawEntryFor.map(_.lsq_id))
 
   for (i <- 0 until FuConfig.numIssuePorts) {

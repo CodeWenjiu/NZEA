@@ -3,7 +3,7 @@ package nzea_sim
 import circt.stage.ChiselStage
 import nzea_config.{CacheConfig, FpgaBoard, SynthPlatform}
 import nzea_tile.TileConfig
-import nzea_core.config.CoreConfig
+import nzea_core.config.{BpuConfig, CoreConfig}
 import nzea_tile.TileElaborate
 import nzea_fpga.FpgaElaborate
 
@@ -16,7 +16,7 @@ object SimElaborate {
     val isa = args(2)
     val simOut = s"build/sim/$target/$platform/$isa/hw"
 
-    implicit val coreConfig: CoreConfig = CoreConfig(isa = isa)
+    implicit val coreConfig: CoreConfig = CoreConfig(isa = isa, bpu = BpuConfig(phtSize = 64, btbSize = 16, rasDepth = Some(8)))
 
     // Step 1: generate DUT RTL
     target match {

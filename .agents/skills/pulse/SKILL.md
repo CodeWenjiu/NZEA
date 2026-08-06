@@ -49,6 +49,11 @@ When names are unknown, use built-in discovery before shell filtering large outp
 markers for unexpanded children. Use `--root <PATH>` to start from a specific
 scope and `--depth <N>` to limit expansion.
 
+`--depth` (default 2) also bounds `--filter`/`--root` traversal: deep scopes
+like `TOP.NzeaTile.core.ifu.btb` (depth 4) are silently invisible at the
+default depth. For full-hierarchy searches pass a large depth explicitly:
+`--depth 10 --flat`.
+
 ## Naming discipline
 
 Choose one naming mode per command:
@@ -105,9 +110,17 @@ All temporal operators are composable: `miss ->3 (resp && !err)`, `(a -> b) && c
 - Prefer a strong `--cycles` window over `--max`: evaluation scans the whole
   window, so a narrow window is the primary speed lever. `--max` only truncates
   the output afterwards; it does not speed up the search.
+- Before a full-trace query, validate names and syntax on a narrow window
+  first (e.g. `--cycles 0-1000`): a typo otherwise costs a full scan of a
+  large dump.
+- Batch several queries into one shell invocation — each pulse process parses
+  the dump header anew, so one trace serves many cheap queries.
 - `value --at` takes ticks with optional units: `100`, `200-400`, `100-`
   (open-ended, clamped to the last tick), `-100` (from start), or a
   comma-separated mix. `200-400` emits one row per tick in the range.
+- To inspect state at event times: run `property --eval <cond> --max 5` to
+  get timestamps, then `value --at <t1,t2,...>` for the values at those
+  points.
 
 ## RTL event model
 
@@ -131,7 +144,9 @@ Every command supports `--json`:
 
 `property` matches are scalar ticks for point events and `{from,to}` objects
 for interval events (`~~`). Count matches with `matches.len()`, or pipe text
-output to `wc -l`.
+output to `wc -l`. The nix shell has no `jq` — do not pipe pulse output into
+tools that may not exist (a closed pipe panics the CLI with a broken-pipe
+error).
 
 ## Recovery patterns
 
@@ -142,6 +157,9 @@ output to `wc -l`.
   signal names with `signal`.
 - If an `--event` source is not found, it is treated as an inline definition
   and fails with `expected 'name = expr'` — pass the correct relative path.
+- When sampling multiple signals with `value`, sanity-check one row against a
+  known invariant (e.g. `pc` advancing by 4) before trusting the output; a
+  1-bit signal displaying a 32-bit value signals misalignment.
 
 ## Nzea project specifics
 
@@ -153,3 +171,11 @@ output to `wc -l`.
   bind with `--event`.
 - Agent must run pulse via `nix develop --command bash -c '...'` (same as all
   Nix-dependent tools).
+- For rates (mispredict, hit rate), prefer RTL `stat_*` counters (StatsRegs,
+  read via remu `stat print`) over scanning the whole trace: one run yields
+  exact branch-granularity numbers. Waveform `property` counts include stall
+  cycles for free-running signals (PHT/BTB outputs sampled every cycle), so
+  gate them with fetch-enable signals (e.g. IFU `pred_next_pc_REG_1`) or
+  count on the consumer side (e.g. BRU `io_bp_update_valid`) to approximate
+  event counts; expect a residual mismatch with stat (valid-cycle vs
+  passed-register counting through PipelineConnect).

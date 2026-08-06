@@ -3,7 +3,7 @@ package nzea_cli
 import mainargs.arg
 import nzea_config.{ElaborationTarget, FpgaBoard, SynthPlatform}
 import nzea_tile.TileConfig
-import nzea_core.config.CoreConfig
+import nzea_core.config.{BpuConfig, CoreConfig}
 
 /** Flat CLI arguments for backward-compatible command-line flags. */
 case class CliArgs(
@@ -26,8 +26,6 @@ case class CliArgs(
     @arg(doc = "Vector register width in bits when ISA has no zvl*N*b token (fallback VLEN)") vlen: Int = 128,
     @arg(doc = "Physical vector register file depth / PVR capacity (rename targets)") vrfDepth: Int = 64,
     @arg(doc = "Vector issue queue depth (RVV)") viqDepth: Int = 8,
-    @arg(doc = "PHT size (power of 2)") phtSize: Int = 64,
-    @arg(doc = "BTB size (power of 2)") btbSize: Int = 16,
     @arg(doc = "Tile clock frequency in Hz (sets UART divisor etc.)") clockHz: Int = 1_000_000_000,
     @arg(doc = "FPGA board target (lxb_artix7, tangnano20k)") fpgaBoard: String = "lxb_artix7"
 ) {
@@ -48,8 +46,8 @@ case class CliArgs(
         vlen = vlen,
         vrfDepth = vrfDepth,
         viqDepth = viqDepth,
-        phtSize = phtSize,
-        btbSize = btbSize,
+        // BPU sizing lives in BpuConfig; defaults live here at the CLI layer.
+        bpu = BpuConfig(phtSize = 64, btbSize = 16, rasDepth = Some(8)),
         sim = sim
       )
     )

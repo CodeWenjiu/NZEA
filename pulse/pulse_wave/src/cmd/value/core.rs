@@ -28,11 +28,15 @@ impl crate::Pulse {
         let srefs: Vec<SignalRef> = name_to_sref.iter().map(|(_, sr)| *sr).collect();
         self.wav.load_signals(&srefs);
 
-        let signals: Vec<(String, &wellen::Signal)> = name_to_sref
-            .into_iter()
-            .map(|(name, sr)| {
+        let signals: Vec<(String, &wellen::Signal)> = signal_names
+            .iter()
+            .map(|name| {
+                // name_to_sref is a BTreeMap (alphabetical); iterate in the
+                // requested order so that values align with signal_names in
+                // the output (JSON keys and text columns).
+                let sr = name_to_sref[name];
                 let sig = self.wav.get_signal(sr).expect("signal not loaded");
-                (name, sig)
+                (name.clone(), sig)
             })
             .collect();
 

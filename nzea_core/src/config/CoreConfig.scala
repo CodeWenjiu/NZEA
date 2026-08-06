@@ -10,8 +10,8 @@ case class CoreConfig(
     vlen: Int = 128,
     vrfDepth: Int = 64,
     viqDepth: Int = 8,
-    phtSize: Int = 64,
-    btbSize: Int = 16,
+    /** Branch-prediction unit configuration (PHT/BTB/RAS sizing). */
+    bpu: BpuConfig,
     /** Simulation mode: enables sim-only logic such as branch-prediction statistics registers. */
     sim: Boolean = false
 ) {

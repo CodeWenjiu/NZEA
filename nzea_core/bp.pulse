@@ -1,0 +1,26 @@
+-- 分支预测（BPU）事件定义。
+-- 信号相对于 scope: TOP.NzeaTile.core.ifu
+--
+-- PHT/BTB 输出在子模块 scope 中，跨模块组合时配合内联事件使用：
+--   pulse property --scope <IFU> \
+--     --event ../nzea_core/bp.pulse <IFU> BP \
+--     --event "taken = io_pred_taken" <PHT> PHT \
+--     --event "hit = io_pred_hit" <BTB> BTB \
+--     --eval "BP.fetch_continue && PHT.taken && BTB.hit"
+-- 其中 <IFU>/<PHT>/<BTB> 为 TOP.NzeaTile.core.ifu 及其实例的完整路径。
+
+-- 取指请求被接受（每拍一个请求）
+fetch_fire = io_bus_req_valid && io_bus_req_ready
+
+-- 连续取指：上一拍 fire 成功，预测管道对应当前 pc。
+-- PHT/BTB 的自由运行输出只有在此门控下才是针对当前取指地址的预测。
+fetch_continue = pred_next_pc_REG_1
+
+-- 分支更新到达（BRU 解析结果）
+bp_update = io_bp_update_valid
+
+-- 分支更新且实际 taken（仅 taken 分支会写入 BTB）
+bp_update_taken = io_bp_update_valid && io_bp_update_bits_taken
+
+-- 取指重定向（flush/redirect，epoch 递增）
+redirect = io_out_flush

@@ -16,6 +16,7 @@ class IntegerIssueQueueEntry(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int
   val p_rd           = UInt(prfAddrWidth.W)
   val old_p_rd       = UInt(prfAddrWidth.W)
   val rd_index       = UInt(5.W)
+  val is_ret         = Bool()
   val imm            = UInt(32.W)
   val pc             = UInt(32.W)
   val pred_next_pc   = UInt(32.W)

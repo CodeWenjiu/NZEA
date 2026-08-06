@@ -18,16 +18,6 @@ object RobMemType extends chisel3.ChiselEnum {
 
 // -------- Bundles --------
 
-/** One entry in the Rob. Mem addr/wdata/wstrb in MemUnit LsBuffer. */
-class RobEntry extends Bundle {
-  val rd_index = UInt(5.W)
-  val is_done = Bool()
-  val mem_type = RobMemType()
-  val rd_value = UInt(32.W)
-  val next_pc = UInt(32.W)
-  val flush = Bool()
-}
-
 /** Rob enq payload: rd_index, might_flush, mem_type, p_rd, old_p_rd. Pure data; no valid/ready. rob_id is separate
   * (Output from Rob) because Decoupled bits are producer-only.
   */
@@ -37,6 +27,7 @@ class RobEnqPayload(prfAddrWidth: Int) extends Bundle {
   val mem_type = RobMemType()
   val p_rd = UInt(prfAddrWidth.W)
   val old_p_rd = UInt(prfAddrWidth.W)
+  val is_ret = Bool()
 }
 
 /** Rob enq connection: req (Decoupled) + rob_id (from Rob). Module adds Decoupled at req. */

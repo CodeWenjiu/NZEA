@@ -3,15 +3,22 @@ package nzea_core.frontend.bp
 import chisel3._
 import chisel3.util._
 
+/** Classic 2-bit saturating-counter direction predictor indexed by PC.
+  *
+  * A branch's counter saturates toward taken/not-taken as it resolves; the
+  * high bit of the counter is the prediction. The update is a two-cycle
+  * read-modify-write through `readWrite` with a 1-deep pending queue (updates
+  * arriving while the RMW is in flight are dropped).
+  */
 class PHT(size: Int) extends Module {
   require(size > 0 && (size & (size - 1)) == 0, "PHT size must be power of 2")
   private val indexBits = log2Ceil(size)
 
   val io = IO(new Bundle {
-    val pc          = Input(UInt(32.W))
-    val pred_taken  = Output(Bool())
-    val update      = Input(Bool())
-    val update_pc   = Input(UInt(32.W))
+    val pc           = Input(UInt(32.W))
+    val pred_taken   = Output(Bool())
+    val update       = Input(Bool())
+    val update_pc    = Input(UInt(32.W))
     val update_taken = Input(Bool())
   })
 

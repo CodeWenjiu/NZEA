@@ -94,6 +94,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
   val slots_csr_type = RegInit(VecInit(Seq.fill(depth)(CsrType.None)))
   val slots_csr_data = RegInit(VecInit(Seq.fill(depth)(0.U(32.W))))
   val slots_is_mmio = RegInit(VecInit(Seq.fill(depth)(false.B)))
+  val slots_is_ret = RegInit(VecInit(Seq.fill(depth)(false.B)))
 
   // PRF write: FU writes directly to PRF on completion; ROB only tracks for commit ordering.
 
@@ -123,6 +124,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
   val head_csr_type = MuxTree(head_phys, slots_csr_type)
   val head_csr_data = MuxTree(head_phys, slots_csr_data)
   val head_flush = MuxTree(head_phys, slots_flush)
+  val head_is_ret = MuxTree(head_phys, slots_is_ret)
 
   // -------- Enq --------
 
@@ -147,6 +149,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
   io.commit.bits.is_mmio := MuxTree(head_phys, slots_is_mmio)
   io.commit.bits.csr_type := head_csr_type
   io.commit.bits.csr_data := head_csr_data
+  io.commit.bits.is_ret := head_is_ret
 
   io.do_flush := do_flush
 
@@ -186,6 +189,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
       slots_old_p_rd(i) := 0.U
       slots_csr_type(i) := CsrType.None
       slots_csr_data(i) := 0.U
+      slots_is_ret(i) := false.B
     }
   }.otherwise {
     when(safe_offset >= count) {
@@ -209,6 +213,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
       slots_p_rd(idx) := enq.req.bits.p_rd
       slots_old_p_rd(idx) := enq.req.bits.old_p_rd
       slots_flush(idx) := false.B
+      slots_is_ret(idx) := enq.req.bits.is_ret
       tail_ptr := (tail_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }

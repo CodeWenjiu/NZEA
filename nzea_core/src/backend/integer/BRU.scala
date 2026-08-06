@@ -30,6 +30,8 @@ class BruInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val bruOp        = BruOp()
   val rob_id       = UInt(robIdWidth.W)
   val p_rd         = UInt(prfAddrWidth.W)
+  val rd_index     = UInt(5.W)
+  val is_ret       = Bool()
 }
 
 /** BRU stage-1 payload: resolved next_pc, flush (mispredict), is_taken; pc_plus_4 for JAL/JALR; for ROB and IFU. */
@@ -41,6 +43,7 @@ class BruS1Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val pc_plus_4 = UInt(32.W)
   val flush     = Bool()
   val is_taken  = Bool()
+  val is_call   = Bool()
 }
 
 /** BRU Stage 0: computes target, is_taken, flush (mispredict). Outputs PipeIO(BruS1Out). */
@@ -67,6 +70,13 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   val is_taken   = is_jmp || branchTaken
   val next_pc    = Mux(is_taken, target, b.pc + 4.U)
   val mispredict = b.pred_next_pc =/= next_pc
+  // Direction of the fetch-side prediction (BTB hit && PHT taken) vs actual outcome.
+  // pred_taken implies the IFU redirected to the BTB target; dir_mispred splits
+  // mispredict into direction errors; the remainder are target errors (JALR etc.).
+  val pred_taken  = b.pred_next_pc =/= b.pc + 4.U
+  val dir_mispred = pred_taken =/= is_taken
+  // ret classification for RAS effectiveness counters (carried from IDU decode).
+  val isRetS0   = b.is_ret
 
   // Simulation-only branch-prediction statistics. Counter state lives in a
   // StatsRegs black box whose stat_* regs carry /*verilator public_flat_rd*/
@@ -74,7 +84,18 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   // are execution-side: branches of squashed instructions are included.
   if (config.sim) {
     val stats = Module(
-      new StatsRegs("BpStats", Seq("stat_bp_branch" -> 32, "stat_bp_mispred" -> 32))
+      new StatsRegs(
+        "BpStats",
+        Seq(
+          "stat_bp_branch"       -> 32,
+          "stat_bp_mispred"      -> 32,
+          "stat_bp_pred_taken"   -> 32,
+          "stat_bp_actual_taken" -> 32,
+          "stat_bp_dir_mispred"  -> 32,
+          "stat_bp_ret"          -> 32,
+          "stat_bp_ret_mispred"  -> 32
+        )
+      )
     )
     stats.clock := clock
     stats.reset := reset
@@ -82,6 +103,16 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
     stats.ports("stat_bp_branch").data := stats.ports("stat_bp_branch").value + 1.U
     stats.ports("stat_bp_mispred").en := io.in.valid && mispredict
     stats.ports("stat_bp_mispred").data := stats.ports("stat_bp_mispred").value + 1.U
+    stats.ports("stat_bp_pred_taken").en := io.in.valid && pred_taken
+    stats.ports("stat_bp_pred_taken").data := stats.ports("stat_bp_pred_taken").value + 1.U
+    stats.ports("stat_bp_actual_taken").en := io.in.valid && is_taken
+    stats.ports("stat_bp_actual_taken").data := stats.ports("stat_bp_actual_taken").value + 1.U
+    stats.ports("stat_bp_dir_mispred").en := io.in.valid && dir_mispred
+    stats.ports("stat_bp_dir_mispred").data := stats.ports("stat_bp_dir_mispred").value + 1.U
+    stats.ports("stat_bp_ret").en := io.in.valid && isRetS0
+    stats.ports("stat_bp_ret").data := stats.ports("stat_bp_ret").value + 1.U
+    stats.ports("stat_bp_ret_mispred").en := io.in.valid && isRetS0 && mispredict
+    stats.ports("stat_bp_ret_mispred").data := stats.ports("stat_bp_ret_mispred").value + 1.U
   }
 
   io.out.valid := io.in.valid
@@ -92,6 +123,12 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   io.out.bits.pc_plus_4 := b.pc + 4.U
   io.out.bits.flush     := mispredict
   io.out.bits.is_taken  := is_taken
+  // RAS push classification at the input stage: JAL/JALR linking to x1.
+  // PIC-style calls encode as `jalr x1, x1, off` (jump-and-link through the
+  // link register), so JALR is a call whenever rd==x1, regardless of rs1.
+  val isJalr = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JALR
+  val isJal  = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JAL
+  io.out.bits.is_call := (isJal || isJalr) && b.rd_index === 1.U
   io.in.ready := io.out.ready
   io.in.flush := io.out.flush
 }
@@ -123,6 +160,10 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   io.bp_update.bits.pc := b.pc
   io.bp_update.bits.taken := b.is_taken
   io.bp_update.bits.target := b.next_pc
+  // RAS push on the execution side: a call that reaches the BRU is a real
+  // call (wrong-path calls never get here), and push happens ~0 cycles after
+  // resolution — early enough for the ret fetch to read it.
+  io.bp_update.bits.is_call := b.is_call
 
   io.in.ready := io.out.ready
   io.in.flush := io.flush
