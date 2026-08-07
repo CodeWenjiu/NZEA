@@ -1,16 +1,19 @@
-use super::ast::Expr;
+use super::ast::{CmpOp, Expr};
 use crate::SerdeRange;
 
 /// Evaluate an AST over a series of clock cycles.
 ///
 /// `cycles` is the list of posedge clock timestamps.
 /// `read_signal(name, tt_idx)` returns the boolean value of a signal at a given time-table index.
+/// `read_value(name, tt_idx)` returns the integer value of a signal (for comparisons);
+/// `None` means unknown (X/Z, missing, or non-numeric).
 pub(crate) fn eval_temporal(
     ast: &Expr,
     cycles: &[(usize, u64)],
     read_signal: &dyn Fn(&str, usize) -> bool,
+    read_value: &dyn Fn(&str, usize) -> Option<u64>,
 ) -> Vec<SerdeRange<u64>> {
-    match eval_impl(ast, cycles, read_signal) {
+    match eval_impl(ast, cycles, read_signal, read_value) {
         EvalOut::Matches(ts) => ts.into_iter().map(|t| SerdeRange(t..=t)).collect(),
         EvalOut::Intervals(intervals) => intervals
             .into_iter()
@@ -33,6 +36,7 @@ fn eval_impl(
     ast: &Expr,
     cycles: &[(usize, u64)],
     read_signal: &dyn Fn(&str, usize) -> bool,
+    read_value: &dyn Fn(&str, usize) -> Option<u64>,
 ) -> EvalOut {
     match ast {
         Expr::Signal(name) => {
@@ -44,9 +48,34 @@ fn eval_impl(
             }
             EvalOut::Matches(matches)
         }
+        Expr::Const(v) => {
+            // A constant as a boolean expression: true when non-zero.
+            let mut matches = Vec::new();
+            if *v != 0 {
+                for &(_tt_idx, time) in cycles {
+                    matches.push(time);
+                }
+            }
+            EvalOut::Matches(matches)
+        }
+        Expr::Cmp(a, op, b) => {
+            // Compare the integer values of both operands cycle by cycle.
+            // An unknown operand (None) makes the comparison false for that cycle.
+            let mut matches = Vec::new();
+            for ci in 0..n_cycles(cycles) {
+                let av = operand_u64(a, ci, cycles, read_signal, read_value);
+                let bv = operand_u64(b, ci, cycles, read_signal, read_value);
+                if let (Some(av), Some(bv)) = (av, bv)
+                    && apply_cmp(*op, av, bv)
+                {
+                    matches.push(cycles[ci].1);
+                }
+            }
+            EvalOut::Matches(matches)
+        }
         Expr::And(a, b) => {
-            let a_matches = eval_impl(a, cycles, read_signal);
-            let b_matches = eval_impl(b, cycles, read_signal);
+            let a_matches = eval_impl(a, cycles, read_signal, read_value);
+            let b_matches = eval_impl(b, cycles, read_signal, read_value);
             let a_bool = to_bool_array(&a_matches, n_cycles(cycles), cycles);
             let b_bool = to_bool_array(&b_matches, n_cycles(cycles), cycles);
             let mut matches = Vec::new();
@@ -58,8 +87,8 @@ fn eval_impl(
             EvalOut::Matches(matches)
         }
         Expr::Or(a, b) => {
-            let a_matches = eval_impl(a, cycles, read_signal);
-            let b_matches = eval_impl(b, cycles, read_signal);
+            let a_matches = eval_impl(a, cycles, read_signal, read_value);
+            let b_matches = eval_impl(b, cycles, read_signal, read_value);
             let a_bool = to_bool_array(&a_matches, n_cycles(cycles), cycles);
             let b_bool = to_bool_array(&b_matches, n_cycles(cycles), cycles);
             let mut matches = Vec::new();
@@ -71,7 +100,7 @@ fn eval_impl(
             EvalOut::Matches(matches)
         }
         Expr::Not(a) => {
-            let inner = eval_impl(a, cycles, read_signal);
+            let inner = eval_impl(a, cycles, read_signal, read_value);
             let inner_bool = to_bool_array(&inner, n_cycles(cycles), cycles);
             let mut matches = Vec::new();
             for ci in 0..n_cycles(cycles) {
@@ -83,8 +112,8 @@ fn eval_impl(
         }
         Expr::FirstAfter(a, b) => {
             // A -> B: first B after each A (non-overlapping)
-            let a_bool = to_bool_array_direct(a, cycles, read_signal);
-            let b_bool = to_bool_array_direct(b, cycles, read_signal);
+            let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
+            let b_bool = to_bool_array_direct(b, cycles, read_signal, read_value);
             let mut matches = Vec::new();
             let mut pending_a: Vec<usize> = Vec::new();
 
@@ -103,8 +132,8 @@ fn eval_impl(
         }
         Expr::Overlapping(a, b) => {
             // A ~> B: each B after A (A persists until matched or superseded)
-            let a_bool = to_bool_array_direct(a, cycles, read_signal);
-            let b_bool = to_bool_array_direct(b, cycles, read_signal);
+            let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
+            let b_bool = to_bool_array_direct(b, cycles, read_signal, read_value);
             let mut matches = Vec::new();
             let mut has_pending = false;
 
@@ -120,8 +149,8 @@ fn eval_impl(
         }
         Expr::FixedDelay(a, n, b) => {
             // A ->N B: B exactly N cycles after A
-            let a_bool = to_bool_array_direct(a, cycles, read_signal);
-            let b_bool = to_bool_array_direct(b, cycles, read_signal);
+            let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
+            let b_bool = to_bool_array_direct(b, cycles, read_signal, read_value);
             let mut matches = Vec::new();
             let n = *n as usize;
 
@@ -134,8 +163,8 @@ fn eval_impl(
         }
         Expr::Within(a, n, b) => {
             // A --N B: B within N cycles after A
-            let a_bool = to_bool_array_direct(a, cycles, read_signal);
-            let b_bool = to_bool_array_direct(b, cycles, read_signal);
+            let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
+            let b_bool = to_bool_array_direct(b, cycles, read_signal, read_value);
             let mut matches = Vec::new();
             let n = *n as usize;
 
@@ -151,8 +180,8 @@ fn eval_impl(
         }
         Expr::Interval(a, b) => {
             // A ~~ B: interval from A to B
-            let a_bool = to_bool_array_direct(a, cycles, read_signal);
-            let b_bool = to_bool_array_direct(b, cycles, read_signal);
+            let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
+            let b_bool = to_bool_array_direct(b, cycles, read_signal, read_value);
             let mut intervals = Vec::new();
             let mut pending_a: Vec<usize> = Vec::new();
 
@@ -171,8 +200,8 @@ fn eval_impl(
         }
         Expr::Implication(a, b) => {
             // A |-> B: on cycles where A is true, B must also be true (same cycle)
-            let a_bool = to_bool_array_direct(a, cycles, read_signal);
-            let b_bool = to_bool_array_direct(b, cycles, read_signal);
+            let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
+            let b_bool = to_bool_array_direct(b, cycles, read_signal, read_value);
             let mut matches = Vec::new();
             for ci in 0..n_cycles(cycles) {
                 if a_bool[ci] && b_bool[ci] {
@@ -183,7 +212,7 @@ fn eval_impl(
         }
         Expr::Repeat(a, cnt) => {
             // A[N]: true for N consecutive cycles
-            let a_bool = to_bool_array_direct(a, cycles, read_signal);
+            let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
             let cnt = *cnt as usize;
             let mut matches = Vec::new();
             for ci in 0..n_cycles(cycles) {
@@ -205,7 +234,7 @@ fn eval_impl(
             // Evaluate each step to a bool array
             let step_bools: Vec<Vec<bool>> = steps
                 .iter()
-                .map(|s| to_bool_array_direct(&s.expr, cycles, read_signal))
+                .map(|s| to_bool_array_direct(&s.expr, cycles, read_signal, read_value))
                 .collect();
 
             let mut matches = Vec::new();
@@ -262,7 +291,38 @@ fn to_bool_array_direct(
     ast: &Expr,
     cycles: &[(usize, u64)],
     read_signal: &dyn Fn(&str, usize) -> bool,
+    read_value: &dyn Fn(&str, usize) -> Option<u64>,
 ) -> Vec<bool> {
-    let out = eval_impl(ast, cycles, read_signal);
+    let out = eval_impl(ast, cycles, read_signal, read_value);
     to_bool_array(&out, cycles.len(), cycles)
+}
+
+/// Value of an operand at cycle `ci` for a comparison: literals as-is,
+/// signals via `read_value`, composite expressions as 0/1 boolean.
+fn operand_u64(
+    e: &Expr,
+    ci: usize,
+    cycles: &[(usize, u64)],
+    read_signal: &dyn Fn(&str, usize) -> bool,
+    read_value: &dyn Fn(&str, usize) -> Option<u64>,
+) -> Option<u64> {
+    match e {
+        Expr::Const(v) => Some(*v),
+        Expr::Signal(name) => read_value(name, ci),
+        _ => {
+            let bools = to_bool_array_direct(e, cycles, read_signal, read_value);
+            bools.get(ci).copied().map(|b| b as u64)
+        }
+    }
+}
+
+fn apply_cmp(op: CmpOp, a: u64, b: u64) -> bool {
+    match op {
+        CmpOp::Eq => a == b,
+        CmpOp::Ne => a != b,
+        CmpOp::Lt => a < b,
+        CmpOp::Le => a <= b,
+        CmpOp::Gt => a > b,
+        CmpOp::Ge => a >= b,
+    }
 }

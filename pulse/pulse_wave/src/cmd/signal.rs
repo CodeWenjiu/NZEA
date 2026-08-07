@@ -22,12 +22,7 @@ impl crate::Pulse {
     pub(crate) fn signal(&self, scope_path: &str) -> Result<(), WaveError> {
         let h = self.wav.hierarchy();
 
-        let target = match super::hierarchy::find_scope(h, scope_path) {
-            Some(sr) => sr,
-            None => {
-                return Err(WaveError::Parse(format!("scope '{scope_path}' not found")));
-            }
-        };
+        let target = super::hierarchy::find_scope_unique(h, scope_path)?;
 
         let signals: Vec<String> = h[target]
             .items(h)

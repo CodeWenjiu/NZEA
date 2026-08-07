@@ -1,26 +1,31 @@
-/// Event expression parser.
-///
-/// Uses winnow for primitives (name, integer), manual token matching
-/// via `starts_with` for operators to keep the parser simple and correct.
-use std::str::FromStr;
+/// Event expression parser (winnow combinators).
 
-use winnow::ascii::digit1;
+use winnow::ascii::{digit1, hex_digit1, multispace0};
+use winnow::combinator::{alt, not, terminated};
 use winnow::error::ContextError;
 use winnow::prelude::*;
-use winnow::token::take_while;
+use winnow::token::{literal as lit, one_of, take_while};
 
-use super::ast::{Expr, SequenceStep};
+use super::ast::{CmpOp, Expr, SequenceStep};
 use crate::WaveError;
+
+type PResult<T> = winnow::Result<T, ContextError>;
 
 pub(crate) fn parse(input: &str) -> Result<Expr, WaveError> {
     let original = input;
-    let mut s = input.trim_start();
-    let expr = expr(&mut s).map_err(|e| locate(original, s, e.to_string()))?;
+    let mut s = input;
+    // On failure the combinators restore `s` to the failing position, so the
+    // pointer delta yields the exact offset of the error.
+    let expr = expr(&mut s).map_err(|e| {
+        let off = s.as_ptr() as usize - original.as_ptr() as usize;
+        locate(original, off, e.to_string())
+    })?;
     s = s.trim_start();
     if !s.is_empty() {
+        let off = s.as_ptr() as usize - original.as_ptr() as usize;
         return Err(locate(
             original,
-            s,
+            off,
             format!("unexpected trailing input: '{s}'"),
         ));
     }
@@ -28,18 +33,13 @@ pub(crate) fn parse(input: &str) -> Result<Expr, WaveError> {
 }
 
 /// Attach a line/column position to a parse error.
-///
-/// `remaining` is always a suffix slice of `original` (every parser helper
-/// only ever consumes from the front), so the pointer delta yields the exact
-/// consumed length — including leading whitespace — and the offset can be
-/// converted into a 1-based line/column pair over the original input.
-fn locate(original: &str, remaining: &str, msg: String) -> WaveError {
-    let off = remaining.as_ptr() as usize - original.as_ptr() as usize;
+fn locate(original: &str, off: usize, msg: String) -> WaveError {
     let (line, col) = line_col(original, off);
     WaveError::Parse(format!("at line {line}, column {col}: {msg}"))
 }
 
 fn line_col(input: &str, off: usize) -> (usize, usize) {
+    let off = off.min(input.len());
     let before = &input[..off];
     let line = before.bytes().filter(|&b| b == b'\n').count() + 1;
     let col = off - before.rfind('\n').map_or(0, |i| i + 1) + 1;
@@ -48,84 +48,86 @@ fn line_col(input: &str, off: usize) -> (usize, usize) {
 
 // ── low-level input helpers ────────────────────────────────
 
-fn eat(input: &mut &str, token: &str) -> bool {
-    let t = input.trim_start();
-    if t.starts_with(token) {
-        *input = &t[token.len()..];
-        true
-    } else {
-        false
-    }
+/// A literal token with optional leading whitespace.
+fn ws_tag<'a>(token: &'a str) -> impl Parser<&'a str, &'a str, ContextError> {
+    preceded_by_ws(lit(token))
 }
 
-fn eat_any(input: &mut &str, tokens: &[&str]) -> bool {
-    let t = input.trim_start();
-    for tok in tokens {
-        if t.starts_with(tok) {
-            *input = &t[tok.len()..];
-            return true;
-        }
-    }
-    false
+fn preceded_by_ws<'a>(
+    p: impl Parser<&'a str, &'a str, ContextError>,
+) -> impl Parser<&'a str, &'a str, ContextError> {
+    (multispace0, p).map(|(_, t)| t)
 }
 
-fn eat_char(input: &mut &str, c: char) -> bool {
-    let t = input.trim_start();
-    if t.starts_with(c) {
-        *input = &t[c.len_utf8()..];
-        true
-    } else {
-        false
-    }
-}
-
-fn name(input: &mut &str) -> Result<String, WaveError> {
+fn name(input: &mut &str) -> PResult<String> {
     let s = input.trim_start();
     let mut s2 = s;
     // Allow dots for namespaced references like "Core.instruction_fetch"
-    let result: winnow::Result<&str, ContextError> = take_while(1.., |c: char| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '.'
-    })
-    .verify(|s: &str| {
-        s.chars()
-            .next()
-            .map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
-    })
-    .parse_next(&mut s2);
+    let result = take_while(1.., |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        .verify(|s: &str| {
+            s.chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        })
+        .parse_next(&mut s2);
     match result {
         Ok(name) => {
             *input = s2;
             Ok(name.to_string())
         }
-        Err(e) => Err(WaveError::Parse(format!("expected name: {}", e))),
+        Err(e) => Err(e),
     }
 }
 
-fn integer(input: &mut &str) -> Result<u32, WaveError> {
+fn integer(input: &mut &str) -> PResult<u32> {
     let s = input.trim_start();
     let mut s2 = s;
-    let result: winnow::Result<&str, ContextError> = digit1.parse_next(&mut s2);
-    match result {
-        Ok(digits) => {
-            let n =
-                u32::from_str(digits).map_err(|_| WaveError::Parse("integer overflow".into()))?;
-            *input = s2;
-            Ok(n)
-        }
-        Err(e) => Err(WaveError::Parse(format!("expected integer: {}", e))),
+    // A number running into identifier characters belongs to a literal or
+    // name ("0x...", "3abc"), so the caller can fall back instead of
+    // mis-splitting the token.
+    let n = terminated(
+        digit1.try_map(|d: &str| d.parse::<u32>()),
+        not(one_of(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')),
+    )
+    .parse_next(&mut s2)?;
+    *input = s2;
+    Ok(n)
+}
+
+/// Integer literal: decimal digits, or `0x`/`0X` hex digits.
+fn literal(input: &mut &str) -> PResult<Option<u64>> {
+    let s = input.trim_start();
+    if s.starts_with("0x") || s.starts_with("0X") {
+        // "0x" must be followed by at least one hex digit.
+        let mut s2 = &s[2..];
+        let v = hex_digit1
+            .try_map(|d: &str| u64::from_str_radix(d, 16))
+            .parse_next(&mut s2)?;
+        *input = s2;
+        return Ok(Some(v));
     }
+    if !s.starts_with(|c: char| c.is_ascii_digit()) {
+        return Ok(None);
+    }
+    let mut s2 = s;
+    let v = digit1
+        .try_map(|d: &str| d.parse::<u64>())
+        .parse_next(&mut s2)?;
+    *input = s2;
+    Ok(Some(v))
 }
 
 // ── grammar ────────────────────────────────────────────────
 
-fn expr(input: &mut &str) -> Result<Expr, WaveError> {
+/// event = implication
+fn expr(input: &mut &str) -> PResult<Expr> {
     implication(input)
 }
 
-/// implication = sequence ("|->" sequence)?
-fn implication(input: &mut &str) -> Result<Expr, WaveError> {
+/// implication = sequence (("|->" | "|>") sequence)?
+fn implication(input: &mut &str) -> PResult<Expr> {
     let left = sequence(input)?;
-    if eat_any(input, &["|->", "|>"]) {
+    if ws_tag("|->").parse_next(input).is_ok() || ws_tag("|>").parse_next(input).is_ok() {
         let right = sequence(input)?;
         Ok(Expr::Implication(Box::new(left), Box::new(right)))
     } else {
@@ -134,13 +136,13 @@ fn implication(input: &mut &str) -> Result<Expr, WaveError> {
 }
 
 /// sequence = delay (">>" INT delay)*
-fn sequence(input: &mut &str) -> Result<Expr, WaveError> {
+fn sequence(input: &mut &str) -> PResult<Expr> {
     let first = delay(input)?;
     let mut steps = vec![SequenceStep {
         expr: Box::new(first),
         delay: 0,
     }];
-    while eat(input, ">>") {
+    while ws_tag(">>").parse_next(input).is_ok() {
         let n = integer(input)?;
         let e = delay(input)?;
         steps.push(SequenceStep {
@@ -156,30 +158,27 @@ fn sequence(input: &mut &str) -> Result<Expr, WaveError> {
     }
 }
 
-/// delay = term (op term)?
-fn delay(input: &mut &str) -> Result<Expr, WaveError> {
+/// delay = term (("->" INT)? term | "~>" term | "~~" term | "--" INT term)?
+fn delay(input: &mut &str) -> PResult<Expr> {
     let left = term(input)?;
 
-    // ->N term (longest match first, rewind on failure)
-    let saved = *input;
-    if eat(input, "->") {
+    // ->N term (longest match first; on non-integer fall back to -> term)
+    if ws_tag("->").parse_next(input).is_ok() {
         if let Ok(n) = integer(input) {
             let right = term(input)?;
             return Ok(Expr::FixedDelay(Box::new(left), n, Box::new(right)));
         }
-        *input = saved;
+        let right = term(input)?;
+        return Ok(Expr::FirstAfter(Box::new(left), Box::new(right)));
     }
 
-    if eat(input, "->") {
-        let right = term(input)?;
-        Ok(Expr::FirstAfter(Box::new(left), Box::new(right)))
-    } else if eat(input, "~>") {
+    if ws_tag("~>").parse_next(input).is_ok() {
         let right = term(input)?;
         Ok(Expr::Overlapping(Box::new(left), Box::new(right)))
-    } else if eat(input, "~~") {
+    } else if ws_tag("~~").parse_next(input).is_ok() {
         let right = term(input)?;
         Ok(Expr::Interval(Box::new(left), Box::new(right)))
-    } else if eat(input, "--") {
+    } else if ws_tag("--").parse_next(input).is_ok() {
         let n = integer(input)?;
         let right = term(input)?;
         Ok(Expr::Within(Box::new(left), n, Box::new(right)))
@@ -188,15 +187,15 @@ fn delay(input: &mut &str) -> Result<Expr, WaveError> {
     }
 }
 
-/// term = factor (("&&" | "||") factor)*
-fn term(input: &mut &str) -> Result<Expr, WaveError> {
-    let mut left = factor(input)?;
+/// term = comparison (("&&" | "||") comparison)*
+fn term(input: &mut &str) -> PResult<Expr> {
+    let mut left = comparison(input)?;
     loop {
-        if eat(input, "&&") {
-            let right = factor(input)?;
+        if ws_tag("&&").parse_next(input).is_ok() {
+            let right = comparison(input)?;
             left = Expr::And(Box::new(left), Box::new(right));
-        } else if eat(input, "||") {
-            let right = factor(input)?;
+        } else if ws_tag("||").parse_next(input).is_ok() {
+            let right = comparison(input)?;
             left = Expr::Or(Box::new(left), Box::new(right));
         } else {
             break;
@@ -205,10 +204,42 @@ fn term(input: &mut &str) -> Result<Expr, WaveError> {
     Ok(left)
 }
 
+/// comparison = factor (("==" | "!=" | ">=" | "<=" | ">" | "<") factor)?
+fn comparison(input: &mut &str) -> PResult<Expr> {
+    let left = factor(input)?;
+    if let Some(op) = cmp_op(input)? {
+        let right = factor(input)?;
+        Ok(Expr::Cmp(Box::new(left), op, Box::new(right)))
+    } else {
+        Ok(left)
+    }
+}
+
+/// Comparison operator, or `None` if the input does not start with one.
+/// A bare `>` is a comparison, but `>>` opens a sequence step.
+fn cmp_op(input: &mut &str) -> PResult<Option<CmpOp>> {
+    if input.trim_start().starts_with(">>") {
+        return Ok(None);
+    }
+    let op = alt((
+        ws_tag("==").value(CmpOp::Eq),
+        ws_tag("!=").value(CmpOp::Ne),
+        ws_tag(">=").value(CmpOp::Ge),
+        ws_tag("<=").value(CmpOp::Le),
+        ws_tag(">").value(CmpOp::Gt),
+        ws_tag("<").value(CmpOp::Lt),
+    ))
+    .parse_next(input);
+    match op {
+        Ok(op) => Ok(Some(op)),
+        Err(_) => Ok(None),
+    }
+}
+
 /// factor = "!"* atom
-fn factor(input: &mut &str) -> Result<Expr, WaveError> {
+fn factor(input: &mut &str) -> PResult<Expr> {
     let mut nots = 0;
-    while eat_char(input, '!') {
+    while ws_tag("!").parse_next(input).is_ok() {
         nots += 1;
     }
     let mut inner = atom(input)?;
@@ -218,22 +249,22 @@ fn factor(input: &mut &str) -> Result<Expr, WaveError> {
     Ok(inner)
 }
 
-/// atom = NAME "[" INT "]" | "(" expr ")" | NAME
-fn atom(input: &mut &str) -> Result<Expr, WaveError> {
-    if eat_char(input, '(') {
+/// atom = "(" event ")" | INT | NAME ("[" INT "]")?
+fn atom(input: &mut &str) -> PResult<Expr> {
+    if ws_tag("(").parse_next(input).is_ok() {
         let e = expr(input)?;
-        if !eat_char(input, ')') {
-            return Err(WaveError::Parse("expected ')'".into()));
-        }
+        ws_tag(")").parse_next(input)?;
         return Ok(e);
     }
 
+    if let Some(v) = literal(input)? {
+        return Ok(Expr::Const(v));
+    }
+
     let n = name(input)?;
-    if eat_char(input, '[') {
+    if ws_tag("[").parse_next(input).is_ok() {
         let cnt = integer(input)?;
-        if !eat_char(input, ']') {
-            return Err(WaveError::Parse("expected ']'".into()));
-        }
+        ws_tag("]").parse_next(input)?;
         Ok(Expr::Repeat(Box::new(Expr::Signal(n)), cnt))
     } else {
         Ok(Expr::Signal(n))
@@ -400,6 +431,97 @@ mod tests {
     }
 
     #[test]
+    fn comparison() {
+        assert_eq!(
+            p("addr >= 0x80000000 && addr < 0x88000000"),
+            Expr::And(
+                Box::new(Expr::Cmp(
+                    Box::new(Expr::Signal("addr".into())),
+                    CmpOp::Ge,
+                    Box::new(Expr::Const(0x8000_0000)),
+                )),
+                Box::new(Expr::Cmp(
+                    Box::new(Expr::Signal("addr".into())),
+                    CmpOp::Lt,
+                    Box::new(Expr::Const(0x8800_0000)),
+                )),
+            )
+        );
+    }
+
+    #[test]
+    fn comparison_all_ops() {
+        for (s, op) in [
+            ("a == 1", CmpOp::Eq),
+            ("a != 1", CmpOp::Ne),
+            ("a > 1", CmpOp::Gt),
+            ("a < 1", CmpOp::Lt),
+            ("a >= 1", CmpOp::Ge),
+            ("a <= 1", CmpOp::Le),
+        ] {
+            assert_eq!(
+                p(s),
+                Expr::Cmp(
+                    Box::new(Expr::Signal("a".into())),
+                    op,
+                    Box::new(Expr::Const(1))
+                ),
+                "{s}"
+            );
+        }
+    }
+
+    #[test]
+    fn comparison_precedence() {
+        // Comparison binds tighter than &&, so `a == b && c` is `(a == b) && c`.
+        assert_eq!(
+            p("a == b && c"),
+            Expr::And(
+                Box::new(Expr::Cmp(
+                    Box::new(Expr::Signal("a".into())),
+                    CmpOp::Eq,
+                    Box::new(Expr::Signal("b".into())),
+                )),
+                Box::new(Expr::Signal("c".into())),
+            )
+        );
+        // `->` is a temporal operator, not a comparison.
+        assert_eq!(
+            p("a -> b"),
+            Expr::FirstAfter(
+                Box::new(Expr::Signal("a".into())),
+                Box::new(Expr::Signal("b".into())),
+            )
+        );
+    }
+
+    #[test]
+    fn decimal_and_hex_literals() {
+        assert_eq!(p("42"), Expr::Const(42));
+        assert_eq!(p("0xdeadbeef"), Expr::Const(0xdead_beef));
+        assert_eq!(p("0Xff"), Expr::Const(255));
+    }
+
+    #[test]
+    fn literal_in_comparison_chain() {
+        assert_eq!(
+            p("a > 5 && b > 3"),
+            Expr::And(
+                Box::new(Expr::Cmp(
+                    Box::new(Expr::Signal("a".into())),
+                    CmpOp::Gt,
+                    Box::new(Expr::Const(5)),
+                )),
+                Box::new(Expr::Cmp(
+                    Box::new(Expr::Signal("b".into())),
+                    CmpOp::Gt,
+                    Box::new(Expr::Const(3)),
+                )),
+            )
+        );
+    }
+
+    #[test]
     fn complex_delay_chain() {
         let expected = Expr::FixedDelay(
             Box::new(Expr::Signal("miss".into())),
@@ -456,13 +578,26 @@ mod tests {
         0..10u32
     }
 
-    /// Leaves: signals and `NAME[N]` repetitions (the grammar only allows
-    /// `NAME[N]`, so `Repeat` never wraps a composite expression).
+    /// Leaves: signals, `NAME[N]` repetitions, and integer literals (the
+    /// grammar only allows `NAME[N]`, so `Repeat` never wraps a composite
+    /// expression).
     fn leaf() -> impl Strategy<Value = Expr> {
         prop_oneof![
             name_strategy().prop_map(Expr::Signal),
             (name_strategy(), delay())
                 .prop_map(|(n, c)| Expr::Repeat(Box::new(Expr::Signal(n)), c)),
+            (0..10000u64).prop_map(Expr::Const),
+        ]
+    }
+
+    fn cmp_op() -> impl Strategy<Value = CmpOp> {
+        prop_oneof![
+            Just(CmpOp::Eq),
+            Just(CmpOp::Ne),
+            Just(CmpOp::Lt),
+            Just(CmpOp::Le),
+            Just(CmpOp::Gt),
+            Just(CmpOp::Ge),
         ]
     }
 
@@ -507,6 +642,8 @@ mod tests {
                     n,
                     Box::new(b)
                 )),
+                (inner.clone(), cmp_op(), inner.clone())
+                    .prop_map(|(a, op, b)| Expr::Cmp(Box::new(a), op, Box::new(b))),
                 inner.clone().prop_map(|a| Expr::Not(Box::new(a))),
                 sequence_arb(inner.clone()),
             ]

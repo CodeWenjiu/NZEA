@@ -105,12 +105,13 @@ pub struct PropertyArgs {
     #[arg(long, value_name = "EDGE", default_value = "posedge clock")]
     pub on: String,
 
-    /// Event expression to evaluate
+    /// Event expressions to evaluate (repeatable: one column per expression)
     #[arg(long, value_name = "EXPR")]
-    pub eval: String,
+    pub eval: Vec<String>,
 
     /// Event definitions: SOURCE SCOPE NAME (repeatable). SOURCE is a .pulse file
     /// or an inline "name = expr" string; quote it when it contains spaces.
+    /// SCOPE accepts a '*' pattern that must match exactly one scope.
     #[arg(long, num_args = 3, value_names = ["SOURCE", "SCOPE", "NAME"])]
     pub event: Vec<String>,
 
@@ -121,6 +122,10 @@ pub struct PropertyArgs {
     /// Return at most the first N matches (truncated after evaluation)
     #[arg(long, value_name = "N")]
     pub max: Option<usize>,
+
+    /// Print match counts instead of ranges (mutually exclusive with --max)
+    #[arg(long)]
+    pub count: bool,
 }
 
 #[derive(Debug, Clone)]

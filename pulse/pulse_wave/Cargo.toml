@@ -12,6 +12,7 @@ serde_json = { workspace = true }
 winnow = { workspace = true }
 wellen = "0.25.6"
 clap = { workspace = true, features = [ "derive", "color", "env" ] }
+tabled = { workspace = true }
 
 [lints]
 workspace = true

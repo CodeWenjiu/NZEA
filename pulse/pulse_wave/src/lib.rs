@@ -43,6 +43,7 @@ impl Pulse {
                 &args.event,
                 args.cycles,
                 args.max,
+                args.count,
             ),
             Command::Skill => {
                 print!("{}", SKILL_MARKDOWN);

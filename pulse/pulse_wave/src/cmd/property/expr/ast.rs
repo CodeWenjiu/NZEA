@@ -8,9 +8,10 @@
 /// delay    = term ("->" term)? | term ("~>" term)? | term ("~~" term)?
 ///          | term ("->" INT term)? | term ("--" INT term)?
 ///          | term
-/// term     = factor (("&&" | "||") factor)*
+/// term     = comparison (("&&" | "||") comparison)*
+/// comparison = factor (("==" | "!=" | ">=" | "<=" | ">" | "<") factor)?
 /// factor   = "!"* atom
-/// atom     = NAME | NAME "[" INT "]" | "(" event ")"
+/// atom     = NAME | NAME "[" INT "]" | INT | "0x" HEX | "(" event ")"
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Expr {
@@ -36,6 +37,11 @@ pub(crate) enum Expr {
     /// `A ~~ B` — interval from A to B
     Interval(Box<Expr>, Box<Expr>),
 
+    /// `A == B` / `A != B` / `A < B` / ... — value comparison (multi-bit operands)
+    Cmp(Box<Expr>, CmpOp, Box<Expr>),
+    /// Integer literal (decimal or `0x` hex)
+    Const(u64),
+
     /// `A |-> B` — A implies B same cycle
     Implication(Box<Expr>, Box<Expr>),
     /// `A >>N B` — pipeline sequence
@@ -46,6 +52,31 @@ pub(crate) enum Expr {
 pub(crate) struct SequenceStep {
     pub expr: Box<Expr>,
     pub delay: u32,
+}
+
+/// Value comparison operators for `Expr::Cmp`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CmpOp {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl std::fmt::Display for CmpOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            CmpOp::Eq => "==",
+            CmpOp::Ne => "!=",
+            CmpOp::Lt => "<",
+            CmpOp::Le => "<=",
+            CmpOp::Gt => ">",
+            CmpOp::Ge => ">=",
+        };
+        write!(f, "{s}")
+    }
 }
 
 /// Canonical rendering of an expression.
@@ -68,6 +99,8 @@ impl std::fmt::Display for Expr {
             Expr::Overlapping(a, b) => write!(f, "({a} ~> {b})"),
             Expr::Interval(a, b) => write!(f, "({a} ~~ {b})"),
             Expr::Implication(a, b) => write!(f, "({a} |-> {b})"),
+            Expr::Cmp(a, op, b) => write!(f, "({a} {op} {b})"),
+            Expr::Const(v) => write!(f, "0x{v:x}"),
             Expr::Sequence(steps) => {
                 let (first, rest) = steps.split_first().expect("sequence is never empty");
                 write!(f, "({}", first.expr)?;

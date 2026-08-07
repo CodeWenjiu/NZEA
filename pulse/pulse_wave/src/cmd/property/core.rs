@@ -5,15 +5,26 @@ use wellen::SignalRef;
 use crate::WaveError;
 
 impl crate::Pulse {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn property(
         &mut self,
         scope_path: Option<&str>,
         on: &str,
-        eval: &str,
+        evals: &[String],
         event_tokens: &[String],
         cycles: Option<crate::SerdeRange<u64>>,
         max: Option<usize>,
+        count: bool,
     ) -> Result<(), WaveError> {
+        if evals.is_empty() {
+            return Err(WaveError::Parse("at least one --eval is required".into()));
+        }
+        if count && max.is_some() {
+            return Err(WaveError::Parse(
+                "--count and --max are mutually exclusive".into(),
+            ));
+        }
+
         let clock_name = super::clock::parse_clock(on)?;
         let events =
             crate::command::EventDef::from_tokens(event_tokens).map_err(WaveError::Parse)?;
@@ -21,7 +32,7 @@ impl crate::Pulse {
         // Resolve default scope to the top-level module
         let scope_path = match scope_path {
             Some(p) => p.to_string(),
-            None => super::super::hierarchy::top_scope(&self.wav.hierarchy())?,
+            None => super::super::hierarchy::top_scope(self.wav.hierarchy())?,
         };
 
         // ── Load event definitions ──────────────────────────────
@@ -35,13 +46,19 @@ impl crate::Pulse {
             event_scopes.insert(def.name.clone(), def.scope.clone());
         }
 
-        // ── Parse and normalize eval expression ─────────────────
-        let ast = super::expr::parser::parse(eval)?;
-        let ast = super::event::normalize(&ast, "", &event_defs);
+        // ── Parse and normalize every eval expression ───────────
+        let mut asts: Vec<(String, super::expr::ast::Expr)> = Vec::new();
+        for e in evals {
+            let ast = super::expr::parser::parse(e)?;
+            let ast = super::event::normalize(&ast, "", &event_defs);
+            asts.push((e.clone(), ast));
+        }
 
-        // ── Collect referenced signals per scope ────────────────
+        // ── Collect referenced signals per scope (all evals) ────
         let mut refs: Vec<(Option<String>, String)> = Vec::new();
-        super::event::collect_signal_refs(&ast, &mut refs);
+        for (_, ast) in &asts {
+            super::event::collect_signal_refs(ast, &mut refs);
+        }
         refs.sort();
         refs.dedup();
 
@@ -120,12 +137,20 @@ impl crate::Pulse {
             None => (0, all_cycles.len()),
         };
         if from >= all_cycles.len() {
-            self.emit(&super::output::PropertyOut {
-                cycles: crate::SerdeRange(from..=from),
-                total_cycles: all_cycles.len(),
+            // No cycles in the requested window: empty matches, rendered in
+            // the requested shape (single/multi × ranges/count).
+            let columns: Vec<(String, Vec<crate::SerdeRange<u64>>)> = asts
+                .iter()
+                .map(|(name, _)| (name.clone(), Vec::new()))
+                .collect();
+            let out = super::output::render(
+                &columns,
+                count,
+                crate::SerdeRange(from..=from),
+                all_cycles.len(),
                 max,
-                matches: Vec::new(),
-            });
+            );
+            self.emit(&out);
             return Ok(());
         }
         let to = to.min(all_cycles.len());
@@ -136,7 +161,7 @@ impl crate::Pulse {
         }
         let cycles = &all_cycles[from..to];
 
-        // ── Evaluate ────────────────────────────────────────────
+        // ── Evaluate all expressions ────────────────────────────
         let read_signal = |name: &str, cycle_idx: usize| -> bool {
             if let Some(sig) = signal_sigs.get(name) {
                 let (tt_idx, _) = cycles[cycle_idx];
@@ -145,18 +170,36 @@ impl crate::Pulse {
                 false
             }
         };
+        let read_value = |name: &str, cycle_idx: usize| -> Option<u64> {
+            if let Some(sig) = signal_sigs.get(name) {
+                let (tt_idx, _) = cycles[cycle_idx];
+                super::signals::read_u64(sig, tt_idx as u32)
+            } else {
+                None
+            }
+        };
 
-        let mut matches = super::expr::eval::eval_temporal(&ast, cycles, &read_signal);
-        if let Some(n) = max {
-            matches.truncate(n);
-        }
+        let columns: Vec<(String, Vec<crate::SerdeRange<u64>>)> = asts
+            .iter()
+            .map(|(name, ast)| {
+                let mut matches =
+                    super::expr::eval::eval_temporal(ast, cycles, &read_signal, &read_value);
+                if let Some(n) = max {
+                    matches.truncate(n);
+                }
+                (name.clone(), matches)
+            })
+            .collect();
 
-        self.emit(&super::output::PropertyOut {
-            cycles: crate::SerdeRange(from..=to),
-            total_cycles: all_cycles.len(),
+        // ── Output ──────────────────────────────────────────────
+        let out = super::output::render(
+            &columns,
+            count,
+            crate::SerdeRange(from..=to),
+            all_cycles.len(),
             max,
-            matches,
-        });
+        );
+        self.emit(&out);
 
         Ok(())
     }

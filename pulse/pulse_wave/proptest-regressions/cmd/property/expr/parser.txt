@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 5119351cf8921713d81f8d706fc7c7c8500a8f1d8ad2fb2207ad69a9f4415bed # shrinks to expr = Not(Not(Signal("_")))
+cc 051be0d546aac5a4ec754f1e5873cd4f08d8f1f692bdec337adf71b9ebc89d62 # shrinks to expr = FirstAfter(Signal("A"), Const(0))
+cc 39d31f3733be5f17f99d83cab46cbd4253c5890ee589682f8b968bee98e95f04 # shrinks to expr = Sequence([SequenceStep { expr: Signal("_"), delay: 0 }, SequenceStep { expr: Signal("a"), delay: 0 }])

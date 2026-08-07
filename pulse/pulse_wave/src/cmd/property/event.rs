@@ -99,6 +99,12 @@ pub(super) fn normalize(expr: &Expr, ns: &str, events: &BTreeMap<String, Expr>) 
             Box::new(normalize(a, ns, events)),
             Box::new(normalize(b, ns, events)),
         ),
+        Expr::Cmp(a, op, b) => Expr::Cmp(
+            Box::new(normalize(a, ns, events)),
+            *op,
+            Box::new(normalize(b, ns, events)),
+        ),
+        Expr::Const(_) => expr.clone(),
         Expr::Implication(a, b) => Expr::Implication(
             Box::new(normalize(a, ns, events)),
             Box::new(normalize(b, ns, events)),
@@ -131,11 +137,13 @@ pub(super) fn collect_signal_refs(expr: &Expr, out: &mut Vec<(Option<String>, St
         | Expr::FirstAfter(a, b)
         | Expr::Overlapping(a, b)
         | Expr::Interval(a, b)
-        | Expr::Implication(a, b) => {
+        | Expr::Implication(a, b)
+        | Expr::Cmp(a, _, b) => {
             collect_signal_refs(a, out);
             collect_signal_refs(b, out);
         }
         Expr::Not(a) | Expr::Repeat(a, _) => collect_signal_refs(a, out),
+        Expr::Const(_) => {}
         Expr::FixedDelay(a, _, b) | Expr::Within(a, _, b) => {
             collect_signal_refs(a, out);
             collect_signal_refs(b, out);

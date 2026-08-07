@@ -33,6 +33,7 @@ Before using any command in a nontrivial way, read `pulse help <command>`. Do th
 - State at explicit timestamp(s) or ranges: `value`.
 - Timestamps/ranges where a boolean or temporal event expression is true: `property`.
 - Event files and cross-module composition: `property --event` + `--eval` (see below).
+- Counting event occurrences (match counts, no range lists): `property --count`.
 - Machine parsing or aggregation: `--json` on every command.
 
 Start most investigations with:
@@ -57,6 +58,16 @@ Choose one naming mode per command:
 - Do not mix `--scope TOP.NzeaTile.icache` with references like `TOP.NzeaTile.icache.clock` in the same query.
 - If name lookup fails, run `scope`, then `signal --scope <SCOPE>`, then rewrite the query in one naming mode.
 
+SCOPE accepts a `*` glob pattern that must match **exactly one** scope in the
+whole hierarchy — hierarchy-agnostic, so the same query works for tile-level
+and core-level dumps:
+
+    pulse signal --scope '*icache'          # TOP.NzeaTile.icache or TOP.icache
+    pulse value  --scope '*.core.ifu.ras'   # unique match required
+
+Zero matches and multiple matches are both errors (multiple lists the
+candidates). Prefer `*` patterns over hardcoding `TOP.NzeaTile...` paths.
+
 ## Event definitions and cross-module composition
 
 Named events make queries reusable and let one `--eval` span multiple scopes.
@@ -72,6 +83,7 @@ An event set binds a source to a scope and gives it a namespace name:
 - `--event SOURCE SCOPE NAME` consumes **three separate arguments** (repeatable).
   SOURCE is either a `.pulse` file or an inline `name = expr` string; quote the
   inline source when it contains spaces: `--event "bus_transfer = req_valid && req_ready -> resp_valid" TOP.NzeaTile.icache Icache`.
+  SCOPE accepts the same `*` unique-match glob as `--scope`.
 - Inside the eval expression, `Namespace.name` references a defined event;
   bare names resolve to the `--scope` (default: top-level module).
 - Inline sources also work, but must be written **without spaces** (the tuple
@@ -96,6 +108,21 @@ temporal operators binding tighter:
 | `a >>N b` | pipeline sequence: `a`, then `b` after N cycles |
 | `sig[N]` | `sig` true for N consecutive cycles |
 
+Value comparisons bind tighter than `&&`/`||`; operands are signals or
+integer literals (decimal or `0x` hex):
+
+| Syntax | Meaning |
+|--------|---------|
+| `a == b` / `a != b` | integer equality / inequality |
+| `a < b` / `a <= b` / `a > b` / `a >= b` | integer comparison |
+
+    pulse property --scope '*icache' \
+        --eval 'io_top_req_valid && io_top_req_bits_addr >= 0x80000000 && io_top_req_bits_addr < 0x88000000'
+
+Comparisons read multi-bit signals as unsigned integers; X/Z values make the
+comparison false for that cycle. Composite boolean expressions are usable as
+operands too (0/1).
+
 All temporal operators are composable: `miss ->3 (resp && !err)`, `(a -> b) && c`.
 
 ## Time windows and search speed
@@ -116,6 +143,20 @@ cycle:
 
     pulse property --scope <SCOPE> --on "posedge clock" --eval "<cond>" --cycles FROM-TO
 
+`--eval` is repeatable: each expression becomes one column of a union table
+(rows are time segments partitioned by all match endpoints, cells are 0/1),
+so several events can be aligned cycle-by-cycle in a single scan:
+
+    pulse property --scope '*icache' \
+        --eval 'io_top_req_valid && io_top_req_ready' \
+        --eval 'io_top_resp_valid' \
+        --cycles 0-3000
+
+`--count` prints match counts instead of ranges (single `--eval`: one number;
+multiple: an expr/count table). It is mutually exclusive with `--max` and
+counts **all** matches in the window, so it is the cheap way to quantify an
+event (e.g. cross-checking `stat_*` counters).
+
 `--on` defaults to `posedge clock`; only `posedge` is supported for now.
 Temporal operators such as `->` and `~~` do their own pairing; they are not
 `change`-style edge scans.
@@ -127,11 +168,13 @@ Every command supports `--json`:
 - `info`: `time_scale`, `time_start`, `time_end`, `top_scopes`
 - `scope`: tree nodes `{name, depth, expanded?}` or flat `{path}` list
 - `value`: `{scope, signals, samples: [{time, <sig>: value, ...}]}`
-- `property`: `{from, to, total_cycles, max?, matches: [<t> | {from,to}]}`
+- `property` (single `--eval`): `{from, to, total_cycles, max?, matches: [<t> | {from,to}]}`
+- `property --count` (single `--eval`): `{from, to, total_cycles, count}`
+- `property` (multiple `--eval`): `{from, to, total_cycles, max?, columns: [{name, matches}]}`
+- `property --count` (multiple `--eval`): `{from, to, total_cycles, columns: [{name, count}]}`
 
 `property` matches are scalar ticks for point events and `{from,to}` objects
-for interval events (`~~`). Count matches with `matches.len()`, or pipe text
-output to `wc -l`.
+for interval events (`~~`).
 
 ## Recovery patterns
 
