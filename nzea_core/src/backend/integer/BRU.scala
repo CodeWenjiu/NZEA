@@ -3,7 +3,7 @@ package nzea_core.backend.integer
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect, StatsRegs}
-import nzea_core.config.CoreConfig
+import nzea_core.config.{CoreConfig, PayloadSpec}
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.Rob
@@ -20,8 +20,11 @@ object BruOp extends chisel3.ChiselEnum {
   val BGEU = Value((1 << 7).U)
 }
 
-/** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; rob_id, p_rd from IS. */
-class BruInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
+/** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; rob_id, p_rd from IS.
+  * `rd_index`/`is_ret` are RAS-driven information units (see PayloadSpec): they vanish when RAS is
+  * disabled and no sim ret-statistics are requested.
+  */
+class BruInput(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Bundle {
   val pc           = UInt(32.W)
   val pred_next_pc = UInt(32.W)
   val offset       = UInt(32.W)
@@ -30,12 +33,14 @@ class BruInput(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val bruOp        = BruOp()
   val rob_id       = UInt(robIdWidth.W)
   val p_rd         = UInt(prfAddrWidth.W)
-  val rd_index     = UInt(5.W)
-  val is_ret       = Bool()
+  val rd_index     = if (PayloadSpec.enabled(PayloadSpec.CallExec)) Some(UInt(5.W)) else None
+  val is_ret       = if (PayloadSpec.enabled(PayloadSpec.RetExec)) Some(Bool()) else None
 }
 
-/** BRU stage-1 payload: resolved next_pc, flush (mispredict), is_taken; pc_plus_4 for JAL/JALR; for ROB and IFU. */
-class BruS1Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
+/** BRU stage-1 payload: resolved next_pc, flush (mispredict), is_taken; pc_plus_4 for JAL/JALR; for ROB and IFU.
+  * `is_call` exists iff RAS is enabled (PayloadSpec.CallExec).
+  */
+class BruS1Out(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Bundle {
   val rob_id    = UInt(robIdWidth.W)
   val p_rd      = UInt(prfAddrWidth.W)
   val pc        = UInt(32.W)
@@ -43,7 +48,7 @@ class BruS1Out(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
   val pc_plus_4 = UInt(32.W)
   val flush     = Bool()
   val is_taken  = Bool()
-  val is_call   = Bool()
+  val is_call   = if (PayloadSpec.enabled(PayloadSpec.CallExec)) Some(Bool()) else None
 }
 
 /** BRU Stage 0: computes target, is_taken, flush (mispredict). Outputs PipeIO(BruS1Out). */
@@ -76,7 +81,7 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   val pred_taken  = b.pred_next_pc =/= b.pc + 4.U
   val dir_mispred = pred_taken =/= is_taken
   // ret classification for RAS effectiveness counters (carried from IDU decode).
-  val isRetS0   = b.is_ret
+  val isRetS0   = b.is_ret.getOrElse(false.B)
 
   // Simulation-only branch-prediction statistics. Counter state lives in a
   // StatsRegs black box whose stat_* regs carry /*verilator public_flat_rd*/
@@ -128,13 +133,13 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   // link register), so JALR is a call whenever rd==x1, regardless of rs1.
   val isJalr = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JALR
   val isJal  = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JAL
-  io.out.bits.is_call := (isJal || isJalr) && b.rd_index === 1.U
+  io.out.bits.is_call.foreach(_ := (isJal || isJalr) && b.rd_index.getOrElse(0.U) === 1.U)
   io.in.ready := io.out.ready
   io.in.flush := io.out.flush
 }
 
 /** BRU Stage 1: receives BruS1Out, outputs to ROB, PRF, IFU. */
-class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
+class BRUStage1(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
   val io = IO(new Bundle {
     val in         = Flipped(new PipeIO(new BruS1Out(robIdWidth, prfAddrWidth)))
     val flush      = Input(Bool())
@@ -163,7 +168,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   // RAS push on the execution side: a call that reaches the BRU is a real
   // call (wrong-path calls never get here), and push happens ~0 cycles after
   // resolution — early enough for the ret fetch to read it.
-  io.bp_update.bits.is_call := b.is_call
+  io.bp_update.bits.is_call.foreach(_ := b.is_call.getOrElse(false.B))
 
   io.in.ready := io.out.ready
   io.in.flush := io.flush

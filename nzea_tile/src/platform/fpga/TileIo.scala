@@ -2,6 +2,7 @@ package nzea_tile.platform.fpga
 
 import chisel3._
 import chisel3.util.Valid
+import nzea_core.config.CoreConfig
 import nzea_core.retire.CommitMsg
 import nzea_device.uart.UartIo
 import nzea_rtl.{BootReq, LiteBusRW}
@@ -12,7 +13,8 @@ class TileIo(
     dataWidth: Int,
     userWidth: Int,
     idWidth: Int
-) extends Bundle
+)(implicit config: CoreConfig)
+    extends Bundle
     with HasCommitMsg {
   val commit_msg = Output(Valid(new CommitMsg))
   val fpga_uart = new UartIo

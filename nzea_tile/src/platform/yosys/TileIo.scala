@@ -2,6 +2,7 @@ package nzea_tile.platform.yosys
 
 import chisel3._
 import chisel3.util.Valid
+import nzea_core.config.CoreConfig
 import nzea_core.retire.CommitMsg
 import nzea_rtl.LiteBusRW
 
@@ -20,7 +21,9 @@ class DeviceBusBundle(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: I
 
 import nzea_tile.platform.HasCommitMsg
 
-class TileIo(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Bundle with HasCommitMsg {
+class TileIo(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int)(implicit config: CoreConfig)
+    extends Bundle
+    with HasCommitMsg {
   val commit_msg = Output(Valid(new CommitMsg))
   val yosys_devices = new DeviceBusBundle(addrWidth, dataWidth, userWidth, idWidth)
 }

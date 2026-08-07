@@ -12,7 +12,8 @@ import nzea_rtl.{BootReq, LiteBusRW}
 object TileElaborate {
 
   /** Tile IO bundle exposed at top level for simulation testbenches and FPGA board wrappers. */
-  class TileTopIO(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Bundle {
+  class TileTopIO(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int)(implicit config: CoreConfig)
+      extends Bundle {
     val commit_msg = Output(Valid(new CommitMsg))
     val uart_txd = Output(Bool())
     val uart_rxd = Input(Bool())

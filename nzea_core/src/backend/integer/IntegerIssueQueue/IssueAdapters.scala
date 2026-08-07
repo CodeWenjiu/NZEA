@@ -53,8 +53,8 @@ object IssueAdapters {
       out.bits.bruOp        := BruOp.safe(FuDecode.take(entry.fu_op, BruOp.getWidth))._1
       out.bits.rob_id       := entry.rob_id
       out.bits.p_rd         := entry.p_rd
-      out.bits.rd_index     := entry.rd_index
-      out.bits.is_ret       := entry.is_ret
+      out.bits.rd_index.foreach(_ := entry.rd_index.getOrElse(0.U))
+      out.bits.is_ret.foreach(_ := entry.is_ret.getOrElse(false.B))
     }
   }
 

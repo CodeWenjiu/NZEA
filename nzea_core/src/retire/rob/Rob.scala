@@ -50,7 +50,7 @@ object Rob {
   *   - Commit: head done → output RobCommitPayload, advance head.
   *   - Flush: on branch mispredict, clear all.
   */
-class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module {
+class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6)(implicit config: CoreConfig) extends Module {
   require(depth >= 1, "Rob depth must >= 1")
   require(numAccessPorts >= 1, "Rob numAccessPorts must >= 1")
 
@@ -149,7 +149,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
   io.commit.bits.is_mmio := MuxTree(head_phys, slots_is_mmio)
   io.commit.bits.csr_type := head_csr_type
   io.commit.bits.csr_data := head_csr_data
-  io.commit.bits.is_ret := head_is_ret
+  io.commit.bits.is_ret.foreach(_ := head_is_ret)
 
   io.do_flush := do_flush
 
@@ -213,7 +213,7 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int = 6) extends Module
       slots_p_rd(idx) := enq.req.bits.p_rd
       slots_old_p_rd(idx) := enq.req.bits.old_p_rd
       slots_flush(idx) := false.B
-      slots_is_ret(idx) := enq.req.bits.is_ret
+      slots_is_ret(idx) := enq.req.bits.is_ret.getOrElse(false.B)
       tail_ptr := (tail_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }

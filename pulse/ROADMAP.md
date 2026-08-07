@@ -4,97 +4,101 @@ pulse is a waveform event engine and query tool for RTL debugging.
 It replaces wavepeek with a simpler, layered design: signal queries at the bottom,
 named-event composition in the middle, and a minimal query CLI at the top.
 
+Status: **implemented as of 2026-08**; the sections below record what exists
+today.
+
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────┐
 │  Query layer   (pulse_cli)              │
-│  $ pulse query --def cache.events       │
-│      --scope TOP.NzeaTile.icache        │
-│      --waves tb.fst --select miss       │
+│  $ pulse property --event cache.pulse  │
+│      --scope '*icache' --eval 'miss'   │
+│      --cycles 0-3000 --count --json    │
 └──────────────────┬──────────────────────┘
-                   │ resolves named events
+                   │ parses/normalizes, binds scopes
 ┌──────────────────▼──────────────────────┐
-│  Event layer    (events/*.events)        │
-│  YAML files per RTL module.             │
-│  Composes boolean + temporal events.    │
+│  Expression layer (pulse_wave)          │
+│  ast / parser (winnow) / walk / eval    │
+│  stdlib = std.pulse templates           │
+│  .pulse files per RTL module            │
 └──────────────────┬──────────────────────┘
-                   │ compiles to atomic properties
+                   │ reads signal values via wellen
 ┌──────────────────▼──────────────────────┐
-│  Engine layer   (pulse_engine)          │
-│  Opens FST/VCD, runs property queries,  │
-│  temporal post-processing, JSON output. │
+│  Engine layer   (wellen)                │
+│  Opens FST/VCD, per-signal value access │
 └─────────────────────────────────────────┘
 ```
 
 ## Phases
 
-### Phase 1 — Engine (pulse_engine)
+### Phase 1 — Core commands (pulse_wave)
 
-- [ ] Open FST/VCD waveforms (wellen backend)
-- [ ] Scope hierarchy discovery (`info`, `scope`, `signal`)
-- [ ] Point value sampling at explicit timestamps (`value`)
-- [ ] Boolean property match over a time window (`property`)
-  - `--on` trigger expression (posedge clk, signal edge)
-  - `--eval` boolean condition
-  - `--capture match` mode
-  - `--max`, `--to end`, clamp support (lessons from wavepeek)
-- [ ] JSON output contract (`--json`)
-- [ ] Per-module scope-relative signal binding
+- [x] Open FST/VCD waveforms (wellen backend)
+- [x] `info`: time scale, bounds, top-level scopes
+- [x] `scope`: tree / flat listing, substring filter, `*` glob unique-match
+- [x] `signal`: signal names within a scope
+- [x] `value`: point/range sampling (`--at 100,200-400,-100,100-`)
+- [x] JSON output contract (`--json` on every command)
 
-### Phase 2 — Events (pulse_event)
+### Phase 2 — Property engine
 
-- [ ] YAML event-definition file format
-  ```yaml
-  event req_fire = req_valid & req_ready
-  event hit      = req_fire & (way0_hit | way1_hit | way2_hit | way3_hit)
-  event miss     = req_fire & !hit
-  ```
-- [ ] Scope applied at query time (`--scope` flag), not in the file
-- [ ] Boolean event composition (`&`, `|`, `!`)
-- [ ] Cross-module event reference via `import` + namespace prefix
-- [ ] Fail-fast on undefined signals (no silent empty results)
+- [x] `.pulse` event-definition files (`name = expr` per line, `--` comments)
+- [x] Scope applied at query time (`--scope` / `--event SCOPE`), not in the file
+- [x] Boolean event composition (`&&`, `||`, `!`)
+- [x] Value comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`; dec/`0x` literals)
+- [x] Cross-module event reference via namespace prefix (`Cache.miss`)
+- [x] Fail-fast on undefined signals/namespaces (no silent empty results)
+- [x] Repeatable `--eval`: one scan, multi-column union table
+- [x] `--count` (match counts), `--max` (post-eval truncation), `--cycles`
+  (window constraint — the primary speed lever)
 
-### Phase 3 — Temporal events
+### Phase 3 — Temporal operators
 
-- [ ] `A -> B` : A followed by B (any cycles later)
-- [ ] `A -N> B` : A followed by B exactly N cycles later
-- [ ] `A -> B within N` : A followed by B within N cycles
-- [ ] Temporal events are terminal (not composable with `&`/`|`)
-- [ ] Post-processing layer: two property queries + time-series correlation
-  (not per-cycle waveform scanning)
+- [x] `A -> B` : first B after A (FIFO pairing)
+- [x] `A ->N B` : B exactly N cycles after A
+- [x] `A --N B` / `A N-- B` / `A N--M B` : B within [N before, M after] A
+  (single origin semantics; degenerate forms are shorthand)
+- [x] `A ~> B` : every B after A (overlapping)
+- [x] `A ~~ B` : interval from A to B
+- [x] `A |-> B` : A implies B same cycle
+- [x] `A >>N B` : pipeline sequence
+- [x] `sig[N]` : true for N consecutive cycles
+- [x] Operators are composable with `&&`/`||`/`!` and each other
+- [x] Stdlib function calls (`name(args)`) expanded from `std.pulse`
+  templates: `rise`, `fall`, `stable` — no evaluator built-ins
 
 ### Phase 4 — Query CLI (pulse_cli)
 
-- [x] `pulse info --waves tb.fst`
-- [x] `pulse scope --waves tb.fst --filter '.*cache.*'`
-- [x] `pulse signal --waves tb.fst --scope TOP.icache`
-- [x] `property` with `--event` definitions + `--eval` cross-module composition
-- [x] `property --max N` (post-eval truncation)
-- [ ] ~~`query` / `timeline` / `--count`~~ — rejected: primitives + pipe composition
-  (count = `| wc -l`, timeline = property's `{from,to}` list; kept out to
-  keep the CLI surface minimal)
-- [x] Search-speed guidance: strong `--cycles` window constraint documented in
-  the pulse skill instead of streaming/early-exit eval optimization
+- [x] `pulse info` / `scope` / `signal` / `value` / `property` / `skill`
+- [x] `property --event` definitions + `--eval` cross-module composition
+- [x] `--max` (post-eval truncation), `--count` (match counts)
+- [x] `--cycles` window guidance documented in the pulse skill
+- [ ] ~~`query` / `timeline`~~ — rejected: primitives + pipe composition
+  (timeline = property's `{from,to}` list; kept out to keep the CLI surface
+  minimal)
 
 ### Phase 5 — nzea integration
 
-- [x] `nzea_cache/cache.pulse`, `nzea_core/core.pulse` event files
-- [ ] Module-level event files
-  - `nzea_core/events/ifu.events`, `lsu.events`, `rob.events`
-  - `nzea_rtl/events/crossbar.events`
+- [x] `nzea_cache/cache.pulse`, `nzea_core/core.pulse`, `nzea_core/bp.pulse`
+  event files (added on demand — 用到再说 principle)
+- [ ] Module-level event files under `events/` subdirectories (not needed so
+  far; per-module `*.pulse` files at module root serve the same purpose)
 - [x] `pulse skill` command packages the agent skill in the binary
 - [x] `pulse` skill installed at `.agents/skills/pulse/`
 - [x] `nzea-debug-loop` skill updated to use pulse
 - [x] `wavepeek` skill retired; wavepeek submodule removed
-- [ ] Agent auto-discovers events from module directory layout
 
 ## Design decisions captured
 
 | Decision | Rationale |
 |----------|-----------|
-| No scope in `.events` file | Same events file reusable across tile/core/fpga hierarchies |
-| Temporal events are terminal | `A -> B` produces pairs, not a boolean; can't `&` it |
-| No expression engine | Wellen provides value changes; bool ops are post-filter |
-| Single Rust crate per layer | `pulse_engine`, `pulse_event`, `pulse_cli` + `pulse_macro` |
-| JSON output by default | Agent pipeline depends on machine-readable output |
+| No scope in `.pulse` file | Same events file reusable across tile/core/fpga hierarchies; scope bound via `--event SCOPE` (supports `*` unique-match) |
+| Temporal operators are composable | They reduce to per-cycle booleans; `(a -> b) && c` is valid — supersedes the early "terminal" design |
+| Full expression engine | Parser (winnow) + AST + generic walkers (`walk::map`/`visit`); all passes are node-level callbacks |
+| Stdlib as `.pulse` templates | Text substitution before parsing; parameters may sit in any syntactic position; evaluator knows no built-in functions (`&&` aliases are noise) |
+| History sampling via `->n` | `x ->1 1` reads one cycle back; no `prev` function — the window operator `n--m` covers ranges |
+| Window operator `n--m` | One origin semantics: A is the origin, B within [n before, m after]; `--n`/`n--` are degenerate forms; lookahead is free on a loaded waveform |
+| Single Rust crate per layer | `pulse_wave` (library) + `pulse_cli` + `pulse_macro` |
+| JSON output on demand | `--json` flag on every command; text output stays the default for humans |
+| Search speed | Strong `--cycles` window is the primary lever; `--max` only truncates afterwards |

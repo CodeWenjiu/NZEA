@@ -132,7 +132,7 @@ class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreC
   ifu.io.bp_update := integerExecutionCluster.io.bru_bp_update
   // Commit-side RAS update: ret classification (RAS pop).
   ifu.io.ras_update.valid := commit.io.commit_msg.valid
-  ifu.io.ras_update.bits.is_ret := commit.io.commit_msg.bits.is_ret
+  ifu.io.ras_update.bits.is_ret := commit.io.commit_msg.bits.is_ret.getOrElse(false.B)
 
   // Simulation-only execution statistics: total cycles and committed instructions.
   // Same StatsRegs mechanism as BRU's BpStats (VPI contract: stat_* leaf names).

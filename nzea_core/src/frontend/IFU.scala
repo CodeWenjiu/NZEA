@@ -64,7 +64,7 @@ class IFU(implicit config: CoreConfig) extends Module {
   // exactly once, so a mispredicted ret that re-executes cannot double-pop).
   private val ras = config.bpu.rasDepth.map { d =>
     val r = Module(new RAS(d))
-    r.io.push := io.bp_update.valid && io.bp_update.bits.is_call
+    r.io.push := io.bp_update.valid && io.bp_update.bits.is_call.getOrElse(false.B)
     r.io.push_data := io.bp_update.bits.pc + 4.U
     r.io.pop := io.ras_update.valid && io.ras_update.bits.is_ret
     r
