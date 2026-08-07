@@ -1,1 +1,1 @@
-pulse_macro::mod_pub_flat!(ast, eval, parser);
+pulse_macro::mod_pub_flat!(ast, eval, parser, stdlib, walk);

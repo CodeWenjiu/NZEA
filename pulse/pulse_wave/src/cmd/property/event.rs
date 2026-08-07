@@ -46,7 +46,7 @@ fn parse_def(s: &str) -> Result<(String, Expr), WaveError> {
 /// name: bare names are prefixed with `ns` (or kept bare for the main scope),
 /// and event references are replaced by their definition subtrees.
 pub(super) fn normalize(expr: &Expr, ns: &str, events: &BTreeMap<String, Expr>) -> Expr {
-    match expr {
+    super::expr::walk::map(expr, &mut |e| match e {
         Expr::Signal(name) => {
             if name.contains('.') {
                 // Qualified: either an event reference or a namespaced signal
@@ -67,91 +67,22 @@ pub(super) fn normalize(expr: &Expr, ns: &str, events: &BTreeMap<String, Expr>) 
                 Expr::Signal(format!("{ns}.{name}"))
             }
         }
-        Expr::And(a, b) => Expr::And(
-            Box::new(normalize(a, ns, events)),
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Or(a, b) => Expr::Or(
-            Box::new(normalize(a, ns, events)),
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Not(a) => Expr::Not(Box::new(normalize(a, ns, events))),
-        Expr::Repeat(a, n) => Expr::Repeat(Box::new(normalize(a, ns, events)), *n),
-        Expr::FirstAfter(a, b) => Expr::FirstAfter(
-            Box::new(normalize(a, ns, events)),
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::FixedDelay(a, n, b) => Expr::FixedDelay(
-            Box::new(normalize(a, ns, events)),
-            *n,
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Within(a, n, b) => Expr::Within(
-            Box::new(normalize(a, ns, events)),
-            *n,
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Overlapping(a, b) => Expr::Overlapping(
-            Box::new(normalize(a, ns, events)),
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Interval(a, b) => Expr::Interval(
-            Box::new(normalize(a, ns, events)),
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Cmp(a, op, b) => Expr::Cmp(
-            Box::new(normalize(a, ns, events)),
-            *op,
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Const(_) => expr.clone(),
-        Expr::Implication(a, b) => Expr::Implication(
-            Box::new(normalize(a, ns, events)),
-            Box::new(normalize(b, ns, events)),
-        ),
-        Expr::Sequence(steps) => Expr::Sequence(
-            steps
-                .iter()
-                .map(|s| super::expr::ast::SequenceStep {
-                    expr: Box::new(normalize(&s.expr, ns, events)),
-                    delay: s.delay,
-                })
-                .collect(),
-        ),
-    }
+        _ => e.clone(),
+    })
 }
 
 /// Collect (namespace, signal name) pairs from a normalized AST.
 /// `namespace` is `None` for the main scope, `Some(set)` for event sets.
 pub(super) fn collect_signal_refs(expr: &Expr, out: &mut Vec<(Option<String>, String)>) {
-    match expr {
-        Expr::Signal(name) => {
+    super::expr::walk::visit(expr, &mut |e| {
+        if let Expr::Signal(name) = e {
             if let Some((ns, local)) = name.split_once('.') {
                 out.push((Some(ns.to_string()), local.to_string()));
             } else {
                 out.push((None, name.clone()));
             }
         }
-        Expr::And(a, b)
-        | Expr::Or(a, b)
-        | Expr::FirstAfter(a, b)
-        | Expr::Overlapping(a, b)
-        | Expr::Interval(a, b)
-        | Expr::Implication(a, b)
-        | Expr::Cmp(a, _, b) => {
-            collect_signal_refs(a, out);
-            collect_signal_refs(b, out);
-        }
-        Expr::Not(a) | Expr::Repeat(a, _) => collect_signal_refs(a, out),
-        Expr::Const(_) => {}
-        Expr::FixedDelay(a, _, b) | Expr::Within(a, _, b) => {
-            collect_signal_refs(a, out);
-            collect_signal_refs(b, out);
-        }
-        Expr::Sequence(steps) => {
-            for s in steps {
-                collect_signal_refs(&s.expr, out);
-            }
-        }
-    }
+        Ok(())
+    })
+    .expect("collect_signal_refs callback is infallible")
 }

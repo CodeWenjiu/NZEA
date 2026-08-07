@@ -142,24 +142,6 @@ fn find_scope_inner(
     None
 }
 
-#[cfg(test)]
-mod tests {
-    use super::glob_match;
-
-    #[test]
-    fn glob() {
-        assert!(glob_match("*icache", "TOP.NzeaTile.icache"));
-        assert!(glob_match("*.core.*", "TOP.NzeaTile.core.ifu"));
-        assert!(glob_match("TOP.*", "TOP.NzeaTile"));
-        assert!(glob_match("*", "TOP"));
-        assert!(glob_match("a*b", "axxxb"));
-        assert!(!glob_match("*dcache", "TOP.NzeaTile.icache"));
-        assert!(!glob_match("*.core.*", "TOP.NzeaTile.icache"));
-        assert!(!glob_match("TOP.*", "TOP"));
-        assert!(!glob_match("a*b", "axxxbyyy"));
-    }
-}
-
 /// Resolve signal names in a scope to their `SignalRef`s.
 /// Errors if the scope is missing or any requested signal is not found.
 pub(super) fn resolve_signals(
@@ -193,4 +175,22 @@ pub(super) fn resolve_signals(
     }
 
     Ok(map)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::glob_match;
+
+    #[test]
+    fn glob() {
+        assert!(glob_match("*icache", "TOP.NzeaTile.icache"));
+        assert!(glob_match("*.core.*", "TOP.NzeaTile.core.ifu"));
+        assert!(glob_match("TOP.*", "TOP.NzeaTile"));
+        assert!(glob_match("*", "TOP"));
+        assert!(glob_match("a*b", "axxxb"));
+        assert!(!glob_match("*dcache", "TOP.NzeaTile.icache"));
+        assert!(!glob_match("*.core.*", "TOP.NzeaTile.icache"));
+        assert!(!glob_match("TOP.*", "TOP"));
+        assert!(!glob_match("a*b", "axxxbyyy"));
+    }
 }

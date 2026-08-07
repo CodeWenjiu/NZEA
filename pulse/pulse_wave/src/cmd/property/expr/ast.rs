@@ -12,6 +12,7 @@
 /// comparison = factor (("==" | "!=" | ">=" | "<=" | ">" | "<") factor)?
 /// factor   = "!"* atom
 /// atom     = NAME | NAME "[" INT "]" | INT | "0x" HEX | "(" event ")"
+///          | NAME "(" [event ("," event)*] ")"   -- function call
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Expr {
@@ -41,6 +42,8 @@ pub(crate) enum Expr {
     Cmp(Box<Expr>, CmpOp, Box<Expr>),
     /// Integer literal (decimal or `0x` hex)
     Const(u64),
+    /// Standard-library function call: `name(arg1, arg2, ...)`
+    Call(String, Vec<Expr>),
 
     /// `A |-> B` — A implies B same cycle
     Implication(Box<Expr>, Box<Expr>),
@@ -101,6 +104,16 @@ impl std::fmt::Display for Expr {
             Expr::Implication(a, b) => write!(f, "({a} |-> {b})"),
             Expr::Cmp(a, op, b) => write!(f, "({a} {op} {b})"),
             Expr::Const(v) => write!(f, "0x{v:x}"),
+            Expr::Call(name, args) => {
+                write!(f, "{name}(")?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
             Expr::Sequence(steps) => {
                 let (first, rest) = steps.split_first().expect("sequence is never empty");
                 write!(f, "({}", first.expr)?;

@@ -73,6 +73,11 @@ fn eval_impl(
             }
             EvalOut::Matches(matches)
         }
+        Expr::Call(name, _args) => {
+            // `stdlib::desugar` expands every call before evaluation, so no
+            // Call should ever reach here; a miss is a desugar bug.
+            panic!("unexpanded function call '{name}' reached the evaluator")
+        }
         Expr::And(a, b) => {
             let a_matches = eval_impl(a, cycles, read_signal, read_value);
             let b_matches = eval_impl(b, cycles, read_signal, read_value);
@@ -324,5 +329,75 @@ fn apply_cmp(op: CmpOp, a: u64, b: u64) -> bool {
         CmpOp::Le => a <= b,
         CmpOp::Gt => a > b,
         CmpOp::Ge => a >= b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cmd::property::expr::stdlib;
+
+    /// Full pipeline: parse → desugar → evaluate against a synthetic signal.
+    /// Cycle i has timestamp 100*i and signal value `sig[i]`.
+    fn eval_expr(expr: &str, sig: &[bool]) -> Vec<SerdeRange<u64>> {
+        let ast = super::super::parser::parse(expr).expect("parse");
+        let ast = stdlib::desugar(&ast);
+        stdlib::check_functions(&ast).expect("check");
+        let cycles: Vec<(usize, u64)> = (0..sig.len()).map(|i| (i, 100 * i as u64)).collect();
+        let read_signal = |name: &str, ci: usize| -> bool { name == "a" && sig[ci] };
+        let read_value = |name: &str, ci: usize| -> Option<u64> {
+            (name == "a").then_some(sig[ci] as u64)
+        };
+        eval_temporal(&ast, &cycles, &read_signal, &read_value)
+    }
+
+    fn ticks(ranges: &[SerdeRange<u64>]) -> Vec<u64> {
+        ranges.iter().map(|r| *r.0.start()).collect()
+    }
+
+    #[test]
+    fn prev_shift() {
+        // a = T F T T → prev(a,1) at ci=1..3: a[0], a[1], a[2]
+        let out = eval_expr("prev(a, 1)", &[true, false, true, true]);
+        assert_eq!(ticks(&out), vec![100, 300]);
+
+        // prev(a,2) at ci=2..3: a[0], a[1]
+        let out = eval_expr("prev(a, 2)", &[true, false, true, true]);
+        assert_eq!(ticks(&out), vec![200]);
+    }
+
+    #[test]
+    fn prev_before_window_is_false() {
+        // ci=0 has no predecessor: no match at 0.
+        let out = eval_expr("prev(a, 1)", &[true]);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn rise_edges() {
+        // a = F T T F T → rising edges at ci=1 and ci=4.
+        let out = eval_expr("rise(a)", &[false, true, true, false, true]);
+        assert_eq!(ticks(&out), vec![100, 400]);
+    }
+
+    #[test]
+    fn fall_edges() {
+        // a = T T F T F → falling edges at ci=2 and ci=4.
+        let out = eval_expr("fall(a)", &[true, true, false, true, false]);
+        assert_eq!(ticks(&out), vec![200, 400]);
+    }
+
+    #[test]
+    fn stable_cycles() {
+        // a = T T F F → same as predecessor at ci=1 and ci=3.
+        let out = eval_expr("stable(a)", &[true, true, false, false]);
+        assert_eq!(ticks(&out), vec![100, 300]);
+    }
+
+    #[test]
+    fn edges_compose_with_boolean_logic() {
+        // rise(a) || fall(a) fires on every change.
+        let out = eval_expr("rise(a) || fall(a)", &[true, false, true, true]);
+        assert_eq!(ticks(&out), vec![100, 200]);
     }
 }

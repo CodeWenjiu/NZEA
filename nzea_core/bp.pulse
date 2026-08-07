@@ -14,7 +14,9 @@ fetch_fire = io_bus_req_valid && io_bus_req_ready
 
 -- 连续取指：上一拍 fire 成功，预测管道对应当前 pc。
 -- PHT/BTB 的自由运行输出只有在此门控下才是针对当前取指地址的预测。
-fetch_continue = pred_next_pc_REG_1
+-- （旧定义读取 RTL 内部寄存器 pred_next_pc_REG_1 的第一位，对多 bit 信号
+--   无意义且实测恒 false；prev(fetch_fire, 1) 表达注释所述的语义。）
+fetch_continue = prev(fetch_fire, 1)
 
 -- 分支更新到达（BRU 解析结果）
 bp_update = io_bp_update_valid

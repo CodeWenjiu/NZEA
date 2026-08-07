@@ -1,5 +1,4 @@
 /// Event expression parser (winnow combinators).
-
 use winnow::ascii::{digit1, hex_digit1, multispace0};
 use winnow::combinator::{alt, not, terminated};
 use winnow::error::ContextError;
@@ -49,10 +48,14 @@ fn line_col(input: &str, off: usize) -> (usize, usize) {
 // ── low-level input helpers ────────────────────────────────
 
 /// A literal token with optional leading whitespace.
+/// (Explicit lifetime: elided `&str` in `impl Trait` is unstable on this
+/// nightly; clippy's elision suggestion does not apply.)
+#[allow(clippy::needless_lifetimes)]
 fn ws_tag<'a>(token: &'a str) -> impl Parser<&'a str, &'a str, ContextError> {
     preceded_by_ws(lit(token))
 }
 
+#[allow(clippy::needless_lifetimes)]
 fn preceded_by_ws<'a>(
     p: impl Parser<&'a str, &'a str, ContextError>,
 ) -> impl Parser<&'a str, &'a str, ContextError> {
@@ -249,7 +252,7 @@ fn factor(input: &mut &str) -> PResult<Expr> {
     Ok(inner)
 }
 
-/// atom = "(" event ")" | INT | NAME ("[" INT "]")?
+/// atom = "(" event ")" | INT | NAME ("[" INT "]")? | NAME "(" [event ("," event)*] ")"
 fn atom(input: &mut &str) -> PResult<Expr> {
     if ws_tag("(").parse_next(input).is_ok() {
         let e = expr(input)?;
@@ -265,10 +268,23 @@ fn atom(input: &mut &str) -> PResult<Expr> {
     if ws_tag("[").parse_next(input).is_ok() {
         let cnt = integer(input)?;
         ws_tag("]").parse_next(input)?;
-        Ok(Expr::Repeat(Box::new(Expr::Signal(n)), cnt))
-    } else {
-        Ok(Expr::Signal(n))
+        return Ok(Expr::Repeat(Box::new(Expr::Signal(n)), cnt));
     }
+    if !n.contains('.') && ws_tag("(").parse_next(input).is_ok() {
+        // Function call; dotted names are namespace references, not calls.
+        let mut args = Vec::new();
+        if !ws_tag(")").parse_next(input).is_ok() {
+            loop {
+                args.push(expr(input)?);
+                if !ws_tag(",").parse_next(input).is_ok() {
+                    ws_tag(")").parse_next(input)?;
+                    break;
+                }
+            }
+        }
+        return Ok(Expr::Call(n, args));
+    }
+    Ok(Expr::Signal(n))
 }
 
 // ── tests ─────────────────────────────────────────────────
@@ -522,6 +538,58 @@ mod tests {
     }
 
     #[test]
+    fn function_call() {
+        assert_eq!(
+            p("prev(io_req_valid)"),
+            Expr::Call(
+                "prev".into(),
+                vec![Expr::Signal("io_req_valid".into())]
+            )
+        );
+        assert_eq!(
+            p("prev(a, 2)"),
+            Expr::Call("prev".into(), vec![Expr::Signal("a".into()), Expr::Const(2)])
+        );
+        assert_eq!(p("foo()"), Expr::Call("foo".into(), vec![]));
+    }
+
+    #[test]
+    fn function_call_composition() {
+        // Calls compose with boolean and temporal operators, and arguments
+        // may be arbitrary expressions.
+        assert_eq!(
+            p("rise(a) && b"),
+            Expr::And(
+                Box::new(Expr::Call("rise".into(), vec![Expr::Signal("a".into())])),
+                Box::new(Expr::Signal("b".into())),
+            )
+        );
+        assert_eq!(
+            p("f(a -> b)"),
+            Expr::Call(
+                "f".into(),
+                vec![Expr::FirstAfter(
+                    Box::new(Expr::Signal("a".into())),
+                    Box::new(Expr::Signal("b".into())),
+                )],
+            )
+        );
+        assert_eq!(
+            p("g(a, b, c)"),
+            Expr::Call(
+                "g".into(),
+                vec![
+                    Expr::Signal("a".into()),
+                    Expr::Signal("b".into()),
+                    Expr::Signal("c".into()),
+                ],
+            )
+        );
+        // Dotted names are namespace references, not calls.
+        assert_eq!(p("Cache.miss"), Expr::Signal("Cache.miss".into()));
+    }
+
+    #[test]
     fn complex_delay_chain() {
         let expected = Expr::FixedDelay(
             Box::new(Expr::Signal("miss".into())),
@@ -646,6 +714,10 @@ mod tests {
                     .prop_map(|(a, op, b)| Expr::Cmp(Box::new(a), op, Box::new(b))),
                 inner.clone().prop_map(|a| Expr::Not(Box::new(a))),
                 sequence_arb(inner.clone()),
+                // Function calls: bare-name only (dotted names are
+                // namespace references, not callable).
+                ("[a-zA-Z_][a-zA-Z0-9_]*", vec(inner.clone(), 0..3))
+                    .prop_map(|(n, args)| Expr::Call(n, args)),
             ]
         })
     }

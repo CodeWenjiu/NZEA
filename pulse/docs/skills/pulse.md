@@ -123,6 +123,31 @@ Comparisons read multi-bit signals as unsigned integers; X/Z values make the
 comparison false for that cycle. Composite boolean expressions are usable as
 operands too (0/1).
 
+Standard-library functions (call syntax; every function is a template
+written in the temporal language itself — the evaluator has no built-in
+functions):
+
+| Function | Meaning |
+|----------|---------|
+| `prev(sig, n)` | `sig` was true n cycles ago (`sig ->n 1`; n ≥ 1 constant) |
+| `rise(sig)` | `!sig ->1 sig` — rising edge |
+| `fall(sig)` | `sig ->1 !sig` — falling edge |
+| `stable(sig)` | `(sig ->1 sig) \|\| (!sig ->1 !sig)` — no change |
+
+    pulse property --scope '*icache' \
+        --eval 'rise(io_top_req_valid && io_top_req_ready)'
+
+Stdlib functions may be used inside `.pulse` event files too (e.g.
+`bp.pulse` defines `fetch_continue = prev(fetch_fire, 1)`). Adding a new
+library function is a one-line template in
+`pulse_wave/src/cmd/property/expr/std.pulse` — but only add functions that
+express something the core syntax does not already say concisely (`&&`
+aliases are noise).
+
+Before the window start there is no history: the `->n` lookback is false,
+so `rise`/`fall`/`stable` do not fire on the very first cycle. `rise(x)`
+fires on the cycle *after* `x` turns true.
+
 All temporal operators are composable: `miss ->3 (resp && !err)`, `(a -> b) && c`.
 
 ## Time windows and search speed

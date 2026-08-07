@@ -63,6 +63,11 @@ makes the comparison false for that cycle.
 
 ## 4. History sampling instead of edge atomics
 
+Status: **implemented** (2026-08), in two steps: call syntax first, then
+stdlib. `prev` is the only evaluator primitive; `rise`/`fall`/`stable`
+desugar into `prev` compositions (positive forms, so they never fire on the
+first cycle where no history exists).
+
 - **Pain**: counting flips or stall cycles requires hand-writing
   `!prev && cur` in every event file.
 - **Direction (decided 2026-08)**: implement a single **history sampling

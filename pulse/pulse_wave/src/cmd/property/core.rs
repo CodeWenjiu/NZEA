@@ -51,6 +51,8 @@ impl crate::Pulse {
         for e in evals {
             let ast = super::expr::parser::parse(e)?;
             let ast = super::event::normalize(&ast, "", &event_defs);
+            super::expr::stdlib::check_functions(&ast).map_err(WaveError::Parse)?;
+            let ast = super::expr::stdlib::desugar(&ast);
             asts.push((e.clone(), ast));
         }
 
