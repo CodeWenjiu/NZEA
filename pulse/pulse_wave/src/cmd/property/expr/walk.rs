@@ -27,7 +27,9 @@ pub(crate) fn map(expr: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
         Expr::FixedDelay(a, n, b) => {
             Expr::FixedDelay(Box::new(map(a, f)), *n, Box::new(map(b, f)))
         }
-        Expr::Within(a, n, b) => Expr::Within(Box::new(map(a, f)), *n, Box::new(map(b, f))),
+        Expr::Window(a, n, m, b) => {
+            Expr::Window(Box::new(map(a, f)), *n, *m, Box::new(map(b, f)))
+        }
         Expr::Overlapping(a, b) => {
             Expr::Overlapping(Box::new(map(a, f)), Box::new(map(b, f)))
         }
@@ -70,7 +72,7 @@ pub(crate) fn visit(expr: &Expr, f: &mut dyn FnMut(&Expr) -> Result<(), String>)
             visit(b, f)
         }
         Expr::Not(a) | Expr::Repeat(a, _) => visit(a, f),
-        Expr::FixedDelay(a, _, b) | Expr::Within(a, _, b) => {
+        Expr::FixedDelay(a, _, b) | Expr::Window(a, _, _, b) => {
             visit(a, f)?;
             visit(b, f)
         }

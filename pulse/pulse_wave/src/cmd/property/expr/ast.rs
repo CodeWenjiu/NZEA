@@ -6,7 +6,8 @@
 /// implication = sequence ("|->" sequence)?
 /// sequence = delay (">>" delay)*
 /// delay    = term ("->" term)? | term ("~>" term)? | term ("~~" term)?
-///          | term ("->" INT term)? | term ("--" INT term)?
+///          | term ("->" INT term)? | term window
+/// window   = "--" INT | INT "--" INT?   -- B within [n before A, m after A]
 ///          | term
 /// term     = comparison (("&&" | "||") comparison)*
 /// comparison = factor (("==" | "!=" | ">=" | "<=" | ">" | "<") factor)?
@@ -31,8 +32,9 @@ pub(crate) enum Expr {
     FirstAfter(Box<Expr>, Box<Expr>),
     /// `A ->N B` — exactly Nth cycle after A
     FixedDelay(Box<Expr>, u32, Box<Expr>),
-    /// `A --N B` — B within N cycles after A
-    Within(Box<Expr>, u32, Box<Expr>),
+    /// `A n--m B` — B within [n cycles before A, m cycles after A];
+    /// A is the origin (matches A's cycle). `--n` = `0--n`, `n--` = `n--0`.
+    Window(Box<Expr>, u32, u32, Box<Expr>),
     /// `A ~> B` — each B after A (overlapping)
     Overlapping(Box<Expr>, Box<Expr>),
     /// `A ~~ B` — interval from A to B
@@ -98,7 +100,15 @@ impl std::fmt::Display for Expr {
             Expr::Repeat(a, n) => write!(f, "{a}[{n}]"),
             Expr::FirstAfter(a, b) => write!(f, "({a} -> {b})"),
             Expr::FixedDelay(a, n, b) => write!(f, "({a} ->{n} {b})"),
-            Expr::Within(a, n, b) => write!(f, "({a} --{n} {b})"),
+            Expr::Window(a, n, m, b) => {
+                // Shortest form: `--m`, `n--`, or `n--m` (round-trip safe).
+                match (n, m) {
+                    (0, 0) => write!(f, "({a} --0 {b})"),
+                    (0, m) => write!(f, "({a} --{m} {b})"),
+                    (n, 0) => write!(f, "({a} {n}-- {b})"),
+                    (n, m) => write!(f, "({a} {n}--{m} {b})"),
+                }
+            }
             Expr::Overlapping(a, b) => write!(f, "({a} ~> {b})"),
             Expr::Interval(a, b) => write!(f, "({a} ~~ {b})"),
             Expr::Implication(a, b) => write!(f, "({a} |-> {b})"),

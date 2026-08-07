@@ -63,27 +63,24 @@ makes the comparison false for that cycle.
 
 ## 4. History sampling instead of edge atomics
 
-Status: **implemented** (2026-08), in two steps: call syntax first, then
-stdlib. `prev` is the only evaluator primitive; `rise`/`fall`/`stable`
-desugar into `prev` compositions (positive forms, so they never fire on the
-first cycle where no history exists).
+Status: **implemented** (2026-08), and it went further than planned: no
+primitive survived at all. The stdlib is a set of **function templates** in
+`std.pulse`, expanded by text substitution; `rise`/`fall`/`stable` are
+written in the existing temporal language (`rise(x) = !x ->1 x`), the
+`prev` function was dropped (its use case is `x ->1 1` or, better, the
+`n--m` window operator added alongside: `a n--m b` = b within [n before,
+m after] a). The evaluator knows no built-in functions.
 
 - **Pain**: counting flips or stall cycles requires hand-writing
   `!prev && cur` in every event file.
-- **Direction (decided 2026-08)**: implement a single **history sampling
-  primitive** `prev(sig, n)` (n=1 default, SVA `$past` semantics) rather
-  than dedicated edge syntax. Defined standard-library semantics:
-  - `rise(sig)`   ≡ `sig && !prev(sig)`
-  - `fall(sig)`   ≡ `!sig && prev(sig)`
-  - `stable(sig)` ≡ `sig == prev(sig)`
-  These stay **docs-level equivalences, not syntax**: pulse follows the
-  language-design philosophy that anything expressible with existing
-  syntax should not get new syntax (the language already has temporal
-  operators as syntax; signal sampling is a library-function concern).
-  Sugar is only added later if hand-writing the composition becomes
-  frequent enough to hurt.
-- **Implementation**: evaluator keeps a per-signal history buffer (start
-  with n=1; multi-cycle history only when a task actually needs it).
+- **Direction (decided 2026-08, superseded)**: a single history sampling
+  primitive `prev(sig, n)` (SVA `$past` semantics) was considered; it was
+  rejected once it turned out the existing `->N` operator expresses the
+  same thing (`x ->n 1`), keeping the language free of new syntax.
+- **Implementation**: stdlib templates (`std.pulse`) + call syntax
+  (`name(args)`), expanded by text substitution before parsing. Window
+  operator `n--m` added as a first-class AST node (with `--n`/`n--` as
+  degenerate forms).
 - **Priority**: low — an expression-level workaround exists.
 
 ## 5. Scope location by unique match (replaces "file declares scope")

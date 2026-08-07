@@ -166,18 +166,26 @@ fn eval_impl(
             }
             EvalOut::Matches(matches)
         }
-        Expr::Within(a, n, b) => {
-            // A --N B: B within N cycles after A
+        Expr::Window(a, n, m, b) => {
+            // A n--m B: B within [n cycles before A, m cycles after A],
+            // matching on A's cycle. The future half reads ahead in the
+            // already-loaded waveform; the past half saturates at the
+            // window start.
+            let n_cycles = n_cycles(cycles);
+            if n_cycles == 0 {
+                return EvalOut::Matches(Vec::new());
+            }
             let a_bool = to_bool_array_direct(a, cycles, read_signal, read_value);
             let b_bool = to_bool_array_direct(b, cycles, read_signal, read_value);
-            let mut matches = Vec::new();
             let n = *n as usize;
-
-            for ci in 0..n_cycles(cycles) {
-                if b_bool[ci] {
+            let m = *m as usize;
+            let mut matches = Vec::new();
+            for (ci, &(_tt_idx, time)) in cycles.iter().enumerate() {
+                if a_bool[ci] {
                     let from = ci.saturating_sub(n);
-                    if a_bool[from..=ci].iter().any(|&v| v) {
-                        matches.push(cycles[ci].1);
+                    let to = (ci + m).min(n_cycles - 1);
+                    if b_bool[from..=to].iter().any(|&v| v) {
+                        matches.push(time);
                     }
                 }
             }
@@ -340,37 +348,31 @@ mod tests {
     /// Full pipeline: parse → desugar → evaluate against a synthetic signal.
     /// Cycle i has timestamp 100*i and signal value `sig[i]`.
     fn eval_expr(expr: &str, sig: &[bool]) -> Vec<SerdeRange<u64>> {
+        eval_expr_multi(expr, &[("a", sig)])
+    }
+
+    /// Like `eval_expr`, but with named signals: `(name, values)` pairs.
+    fn eval_expr_multi(expr: &str, sigs: &[(&str, &[bool])]) -> Vec<SerdeRange<u64>> {
         let ast = super::super::parser::parse(expr).expect("parse");
         let ast = stdlib::desugar(&ast);
         stdlib::check_functions(&ast).expect("check");
-        let cycles: Vec<(usize, u64)> = (0..sig.len()).map(|i| (i, 100 * i as u64)).collect();
-        let read_signal = |name: &str, ci: usize| -> bool { name == "a" && sig[ci] };
+        let len = sigs.first().map_or(0, |(_, v)| v.len());
+        let cycles: Vec<(usize, u64)> = (0..len).map(|i| (i, 100 * i as u64)).collect();
+        let read_signal = |name: &str, ci: usize| -> bool {
+            sigs.iter()
+                .find(|(n, _)| *n == name)
+                .is_some_and(|(_, v)| v[ci])
+        };
         let read_value = |name: &str, ci: usize| -> Option<u64> {
-            (name == "a").then_some(sig[ci] as u64)
+            sigs.iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| v[ci] as u64)
         };
         eval_temporal(&ast, &cycles, &read_signal, &read_value)
     }
 
     fn ticks(ranges: &[SerdeRange<u64>]) -> Vec<u64> {
         ranges.iter().map(|r| *r.0.start()).collect()
-    }
-
-    #[test]
-    fn prev_shift() {
-        // a = T F T T → prev(a,1) at ci=1..3: a[0], a[1], a[2]
-        let out = eval_expr("prev(a, 1)", &[true, false, true, true]);
-        assert_eq!(ticks(&out), vec![100, 300]);
-
-        // prev(a,2) at ci=2..3: a[0], a[1]
-        let out = eval_expr("prev(a, 2)", &[true, false, true, true]);
-        assert_eq!(ticks(&out), vec![200]);
-    }
-
-    #[test]
-    fn prev_before_window_is_false() {
-        // ci=0 has no predecessor: no match at 0.
-        let out = eval_expr("prev(a, 1)", &[true]);
-        assert!(out.is_empty());
     }
 
     #[test]
@@ -399,5 +401,54 @@ mod tests {
         // rise(a) || fall(a) fires on every change.
         let out = eval_expr("rise(a) || fall(a)", &[true, false, true, true]);
         assert_eq!(ticks(&out), vec![100, 200]);
+    }
+
+    #[test]
+    fn window_past_side() {
+        // a at ci=2; b at ci=0 (2 before) and ci=1 (1 before).
+        // a 2--0 b: window [0, 2] → both b hits match a's cycle 2.
+        let a = [false, false, true, false];
+        let b = [true, true, false, false];
+        let out = eval_expr_multi("a 2--0 b", &[("a", &a), ("b", &b)]);
+        assert_eq!(ticks(&out), vec![200]);
+    }
+
+    #[test]
+    fn window_future_side() {
+        // a at ci=1; b at ci=2 (1 after) and ci=4 (3 after).
+        // a 0--3 b: window [1, 4] → both b hits match a's cycle 1.
+        let a = [false, true, false, false, false];
+        let b = [false, false, true, false, true];
+        let out = eval_expr_multi("a 0--3 b", &[("a", &a), ("b", &b)]);
+        assert_eq!(ticks(&out), vec![100]);
+    }
+
+    #[test]
+    fn window_both_sides_bounds() {
+        // a at ci=2; b at ci=0 (2 before), ci=4 (2 after), ci=5 (3 after).
+        // a 2--2 b: window [0, 4] → b at 0 and 4 hit, b at 5 misses.
+        let a = [false, false, true, false, false, false];
+        let b = [true, false, false, false, true, true];
+        let out = eval_expr_multi("a 2--2 b", &[("a", &a), ("b", &b)]);
+        assert_eq!(ticks(&out), vec![200]);
+
+        // a 2--1 b: window [0, 3] → b at 0 hits, b at 4/5 miss.
+        let out = eval_expr_multi("a 2--1 b", &[("a", &a), ("b", &b)]);
+        assert_eq!(ticks(&out), vec![200]);
+    }
+
+    #[test]
+    fn window_future_clamped_at_trace_end() {
+        // a at the last cycle with m > 0: the window must not run past the
+        // trace end (no panic, no match beyond it).
+        let a = [false, false, true];
+        let b = [false, false, false];
+        let out = eval_expr_multi("a 5--5 b", &[("a", &a), ("b", &b)]);
+        assert!(out.is_empty());
+
+        // Same shape but b inside the clamped window: b at ci=2 == a's cycle.
+        let b = [false, false, true];
+        let out = eval_expr_multi("a 5--5 b", &[("a", &a), ("b", &b)]);
+        assert_eq!(ticks(&out), vec![200]);
     }
 }

@@ -161,7 +161,7 @@ fn sequence(input: &mut &str) -> PResult<Expr> {
     }
 }
 
-/// delay = term (("->" INT)? term | "~>" term | "~~" term | "--" INT term)?
+/// delay = term (("->" INT)? term | "~>" term | "~~" term | window term)?
 fn delay(input: &mut &str) -> PResult<Expr> {
     let left = term(input)?;
 
@@ -182,10 +182,21 @@ fn delay(input: &mut &str) -> PResult<Expr> {
         let right = term(input)?;
         Ok(Expr::Interval(Box::new(left), Box::new(right)))
     } else if ws_tag("--").parse_next(input).is_ok() {
+        // --N: B within N cycles after A (A is the origin).
         let n = integer(input)?;
         let right = term(input)?;
-        Ok(Expr::Within(Box::new(left), n, Box::new(right)))
+        Ok(Expr::Window(Box::new(left), 0, n, Box::new(right)))
     } else {
+        // N--[M]: B within [N cycles before A, M cycles after A].
+        let saved = *input;
+        if let Ok(n) = integer(input)
+            && ws_tag("--").parse_next(input).is_ok()
+        {
+            let m = integer(input).unwrap_or(0);
+            let right = term(input)?;
+            return Ok(Expr::Window(Box::new(left), n, m, Box::new(right)));
+        }
+        *input = saved;
         Ok(left)
     }
 }
@@ -376,14 +387,56 @@ mod tests {
 
     #[test]
     fn within() {
+        // `--N` is the degenerate window `0--N` (B within N cycles after A).
         assert_eq!(
             p("miss --5 resp"),
-            Expr::Within(
+            Expr::Window(
                 Box::new(Expr::Signal("miss".into())),
+                0,
                 5,
                 Box::new(Expr::Signal("resp".into())),
             )
         );
+    }
+
+    #[test]
+    fn window_both_sides() {
+        // A 2--3 B: B within [2 before A, 3 after A]; A is the origin.
+        assert_eq!(
+            p("a 2--3 b"),
+            Expr::Window(
+                Box::new(Expr::Signal("a".into())),
+                2,
+                3,
+                Box::new(Expr::Signal("b".into())),
+            )
+        );
+        // `N--` is the degenerate window `N--0` (B within N cycles before A).
+        assert_eq!(
+            p("a 2-- b"),
+            Expr::Window(
+                Box::new(Expr::Signal("a".into())),
+                2,
+                0,
+                Box::new(Expr::Signal("b".into())),
+            )
+        );
+        assert_eq!(
+            p("a 0--3 b"),
+            Expr::Window(
+                Box::new(Expr::Signal("a".into())),
+                0,
+                3,
+                Box::new(Expr::Signal("b".into())),
+            )
+        );
+        // Display picks the shortest round-trip form.
+        assert_eq!(
+            p("a 2--3 b").to_string(),
+            "(a 2--3 b)"
+        );
+        assert_eq!(p("miss --5 resp").to_string(), "(miss --5 resp)");
+        assert_eq!(p("a 2-- b").to_string(), "(a 2-- b)");
     }
 
     #[test]
@@ -705,11 +758,14 @@ mod tests {
                     n,
                     Box::new(b)
                 )),
-                (inner.clone(), delay(), inner.clone()).prop_map(|(a, n, b)| Expr::Within(
+                (inner.clone(), delay(), inner.clone()).prop_map(|(a, n, b)| Expr::Window(
                     Box::new(a),
+                    0,
                     n,
                     Box::new(b)
                 )),
+                (inner.clone(), delay(), delay(), inner.clone())
+                    .prop_map(|(a, n, m, b)| Expr::Window(Box::new(a), n, m, Box::new(b))),
                 (inner.clone(), cmp_op(), inner.clone())
                     .prop_map(|(a, op, b)| Expr::Cmp(Box::new(a), op, Box::new(b))),
                 inner.clone().prop_map(|a| Expr::Not(Box::new(a))),

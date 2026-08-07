@@ -1,11 +1,10 @@
 //! Standard library for event expressions, loaded from `std.pulse`.
 //!
 //! Templates are expanded by **text substitution** before parsing: calling
-//! `prev(x, 2)` renders the arguments, splices them into the template body,
-//! and parses the result. This lets parameters appear in any syntactic
-//! position — including temporal delays (`x ->2 1`). The whole stdlib is
-//! written in the temporal language itself; the evaluator knows no
-//! built-in functions (`prev(x, n)` is `x ->n 1`, not a primitive).
+//! `rise(a && b)` renders the arguments, splices them into the template
+//! body, and parses the result. This lets parameters appear in any
+//! syntactic position. The whole stdlib is written in the temporal
+//! language itself; the evaluator knows no built-in functions.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -111,21 +110,6 @@ pub(crate) fn check_functions(expr: &Expr) -> Result<(), String> {
 
 /// Validate a single call against the loaded templates.
 fn check_call(name: &str, args: &[Expr]) -> Result<(), String> {
-    // `prev` splices its second argument into a delay position (`->n`),
-    // which only accepts a decimal constant — a semantic constraint no
-    // template can express, so it lives here next to the template.
-    if name == "prev" {
-        if args.len() != 2 {
-            return Err(format!(
-                "prev: expected 2 arguments (signal, depth), got {}",
-                args.len()
-            ));
-        }
-        return match &args[1] {
-            Expr::Const(n) if *n >= 1 => Ok(()),
-            _ => Err("prev: depth must be a constant >= 1".into()),
-        };
-    }
     match stdlib().get(name) {
         Some(tmpl) if args.len() == tmpl.params.len() => Ok(()),
         Some(tmpl) => Err(format!(
@@ -191,8 +175,8 @@ mod tests {
     #[test]
     fn stdlib_loads_templates() {
         let lib = stdlib();
-        assert_eq!(lib.len(), 4, "std.pulse must define rise/fall/stable/prev");
-        for (name, arity) in [("rise", 1), ("fall", 1), ("stable", 1), ("prev", 2)] {
+        assert_eq!(lib.len(), 3, "std.pulse must define rise/fall/stable");
+        for (name, arity) in [("rise", 1), ("fall", 1), ("stable", 1)] {
             let tmpl = &lib[name];
             assert_eq!(tmpl.params.len(), arity, "{name}");
         }
@@ -200,7 +184,6 @@ mod tests {
 
     #[test]
     fn check_accepts_valid_calls() {
-        assert!(check_functions(&p("prev(a, 2)")).is_ok());
         assert!(check_functions(&p("rise(a) && fall(b)")).is_ok());
         assert!(check_functions(&p("stable(a || b)")).is_ok());
     }
@@ -212,23 +195,11 @@ mod tests {
             "unknown function 'foo'"
         );
         assert_eq!(
-            check_functions(&p("prev(a)")).unwrap_err(),
-            "prev: expected 2 arguments (signal, depth), got 1"
-        );
-        assert_eq!(
             check_functions(&p("rise()")).unwrap_err(),
             "rise: expected 1 argument, got 0"
         );
-        assert_eq!(
-            check_functions(&p("prev(a, b)")).unwrap_err(),
-            "prev: depth must be a constant >= 1"
-        );
-        assert_eq!(
-            check_functions(&p("prev(a, 0)")).unwrap_err(),
-            "prev: depth must be a constant >= 1"
-        );
         // Nested calls are validated too.
-        assert!(check_functions(&p("rise(prev(a, 2))")).is_ok());
+        assert!(check_functions(&p("rise(stable(a))")).is_ok());
         assert_eq!(
             check_functions(&p("rise(foo(a))")).unwrap_err(),
             "unknown function 'foo'"
@@ -257,22 +228,15 @@ mod tests {
     }
 
     #[test]
-    fn desugar_prev() {
-        let out = desugar(&p("prev(a, 2)"));
-        assert_eq!(out.to_string(), "(a ->2 0x1)");
-        assert!(check_functions(&out).is_ok());
-        // Hex depth renders as decimal so the delay position parses.
-        let out = desugar(&p("prev(a, 0x10)"));
-        assert_eq!(out.to_string(), "(a ->16 0x1)");
-    }
-
-    #[test]
     fn desugar_substitutes_composite_arguments() {
         let out = desugar(&p("rise(a && b)"));
         assert_eq!(out.to_string(), "(!(a && b) ->1 (a && b))");
         // Nested stdlib calls expand bottom-up.
-        let out = desugar(&p("rise(prev(a, 2))"));
-        assert_eq!(out.to_string(), "(!(a ->2 0x1) ->1 (a ->2 0x1))");
+        let out = desugar(&p("rise(stable(a))"));
+        assert_eq!(
+            out.to_string(),
+            "(!((a ->1 a) || (!a ->1 !a)) ->1 ((a ->1 a) || (!a ->1 !a)))"
+        );
     }
 
     #[test]
