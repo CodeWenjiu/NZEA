@@ -8,6 +8,7 @@ import nzea_config.tile.TileConfig
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
 import nzea_tile.TileElaborate
+import nzea_tile.platform.yosys
 import nzea_fpga.FpgaElaborate
 
 object SimElaborate {
@@ -49,6 +50,17 @@ object SimElaborate {
           ),
           outDir = simOut
         )
+        // Platform deliverables for the outer devices.
+        plat match {
+          case SynthPlatform.Yosys =>
+            // Outer devices are our own RTL (RAM/UART/CLINT/finisher live on the board);
+            // emit their standard stand-ins so RTL simulation can form the full system.
+            yosys.DeviceModels.emit(simOut, clockHz = 100_000_000)
+          case SynthPlatform.Fpga =>
+          // Outer devices are board/platform-provided (SRAM adapter today; future Vivado
+          // IP such as MIG wrapped as external devices). Their sim models come from the
+          // vendor's official simulation files — never hand-written here.
+        }
       case "fpga" =>
         FpgaElaborate.elaborate(
           board = FpgaBoard

@@ -33,13 +33,7 @@ object TileElaborate {
     private val dataWidth = config.width
 
     // Compute to match NzeaTile's internal fabricUserWidth exactly.
-    private val fabricUserWidth = {
-      val ibusUW = nzea_core.frontend.IbusUser.userWidth(config.width)
-      val rw = chisel3.util.log2Ceil(config.robDepth.max(2))
-      val pw = config.prfAddrWidth
-      val dbusUW = config.width.max(rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw + 1)
-      ibusUW.max(dbusUW)
-    }
+    private val fabricUserWidth = NzeaTile.fabricUserWidth
 
     private val fabricIdWidth = 8
     val io = IO(new TileTopIO(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))

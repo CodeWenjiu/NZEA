@@ -20,5 +20,5 @@ object BpuConfig {
   /** Typical BPU sizing shared by every non-tuned flow (CLI defaults, sim, tests). Single source of truth: flows that
     * need the standard BPU reference this instead of repeating literal values.
     */
-  val typical: BpuConfig = BpuConfig(phtSize = 64, btbSize = 16, rasDepth = None)
+  val typical: BpuConfig = BpuConfig(phtSize = 64, btbSize = 16, rasDepth = Some(8))
 }

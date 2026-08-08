@@ -26,6 +26,23 @@ object TileAddressMap {
   * (core ibus+dbus) and platform-selected slaves. `sim=true`: slaves are connected to DPI bridges (bus_read/bus_write).
   * `sim=false`: exposes platform-specific HW IO as top-level ports.
   */
+object NzeaTile {
+
+  /** Fabric user width covering ibus + dbus user payloads. Shared by tile elaboration and sim device generation so
+    * external device models match the fabric ports exactly.
+    */
+  def fabricUserWidth(implicit config: CoreConfig): Int = {
+    val ibusUW = nzea_core.frontend.IbusUser.userWidth(config.width)
+    val rw = chisel3.util.log2Ceil(config.robDepth.max(2))
+    val pw = config.prfAddrWidth
+    val dbusUW = config.width.max(rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw + 1)
+    ibusUW.max(dbusUW)
+  }
+
+  /** Fabric id width (slave outstanding tag). */
+  def fabricIdWidth: Int = 8
+}
+
 class NzeaTile(cfg: TileConfig)(implicit
     config: CoreConfig
 ) extends Module {

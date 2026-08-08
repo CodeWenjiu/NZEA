@@ -57,9 +57,9 @@ object Platform {
       fabric.io.out(0).resp.valid := tileIo.extRamBus.resp.valid
       tileIo.extRamBoot <> bootFsm.io.boot
 
-      val uart = Module(new FabricBusUart(AddressMap.uart.base, simClkHz = clockHz, baudRate = 115200))
+      val uart = Module(new FabricBusUart(AddressMap.uart.base, clockHz, 115200, fabricUserWidth, fabricIdWidth))
       val finisher = Module(new SifiveTestFinisher(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth))
-      val clint = Module(new Clint(AddressMap.clint.base))
+      val clint = Module(new Clint(AddressMap.clint.base, fabricUserWidth, fabricIdWidth))
 
       fabric.io.out(1) <> uart.io.bus
       fabric.io.out(2) <> finisher.io.bus

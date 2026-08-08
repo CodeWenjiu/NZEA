@@ -11,11 +11,13 @@ class UartIo extends Bundle {
   val ctsn = Input(Bool())
 }
 
-/** FabricBus-attached UART. Internally delegates TX/RX to [[nzea_device.UartTx]] / [[nzea_device.UartRx]]. */
-class FabricBusUart(base: BigInt, simClkHz: Int = 100_000_000, baudRate: Int = 100000) extends Module {
+/** FabricBus-attached UART. Internally delegates TX/RX to [[nzea_device.UartTx]] / [[nzea_device.UartRx]]. Bus user/id
+  * widths are parameters: the fabric may carry wide user tags (e.g. 67-bit ibus/dbus users).
+  */
+class FabricBusUart(base: BigInt, simClkHz: Int, baudRate: Int, userWidth: Int, idWidth: Int) extends Module {
 
   val io = IO(new Bundle {
-    val bus = Flipped(new LiteBusRW(addrWidth = 32, dataWidth = 32, userWidth = 32, idWidth = 8))
+    val bus = Flipped(new LiteBusRW(addrWidth = 32, dataWidth = 32, userWidth = userWidth, idWidth = idWidth))
     val txd = Output(Bool()); val rxd = Input(Bool()); val rtsn = Output(Bool())
     val ctsn = Input(Bool())
     val boot_rx_valid = Output(Bool())
@@ -49,7 +51,7 @@ class FabricBusUart(base: BigInt, simClkHz: Int = 100_000_000, baudRate: Int = 1
   // ── Bus interface ──────────────────────────────────────────
   private val flush = io.bus.resp.flush
   private val busy = RegInit(false.B)
-  private val respUser = RegInit(0.U(32.W)); private val respId = RegInit(0.U(8.W))
+  private val respUser = RegInit(0.U(userWidth.W)); private val respId = RegInit(0.U(idWidth.W))
   private val respData = RegInit(0.U(32.W))
   private val reqFire = io.bus.req.valid && io.bus.req.ready
   private val wstrb = io.bus.req.bits.wstrb

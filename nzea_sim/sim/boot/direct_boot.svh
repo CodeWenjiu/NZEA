@@ -13,8 +13,8 @@ end else begin
     $display("[%0t] Boot: direct RAM load %0d words from %s", $time, hex_size, hex_file);
 end
 for (boot_bi = 0; boot_bi < hex_size; boot_bi = boot_bi + 1) begin
-    tb.tile.ram.memBytes_0_ext.Memory[boot_bi] = boot_buf[boot_bi][7:0];
-    tb.tile.ram.memBytes_1_ext.Memory[boot_bi] = boot_buf[boot_bi][15:8];
-    tb.tile.ram.memBytes_2_ext.Memory[boot_bi] = boot_buf[boot_bi][23:16];
-    tb.tile.ram.memBytes_3_ext.Memory[boot_bi] = boot_buf[boot_bi][31:24];
+    tb.ram.memBytes_0_ext.Memory[boot_bi] = boot_buf[boot_bi][7:0];
+    tb.ram.memBytes_1_ext.Memory[boot_bi] = boot_buf[boot_bi][15:8];
+    tb.ram.memBytes_2_ext.Memory[boot_bi] = boot_buf[boot_bi][23:16];
+    tb.ram.memBytes_3_ext.Memory[boot_bi] = boot_buf[boot_bi][31:24];
 end

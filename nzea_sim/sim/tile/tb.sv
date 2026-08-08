@@ -1,13 +1,15 @@
-// 4-state simulation testbench — UART boot via BootFsm protocol.
+// 4-state simulation testbench — yosys platform: NzeaTile + real device RTL models
+// (RamFabricSlave / FabricBusUart / Clint / SifiveTestFinisher) on the fabric ports.
+// Hex is loaded by direct RAM initialization (no BootFsm: it does not exist on this platform).
 `timescale 1ns / 1ps
 module tb;
     reg clk, rst_n;
-    wire commit_msg_valid, commit_msg_is_load;
-    wire [31:0] commit_msg_next_pc, commit_msg_rd_value, commit_msg_mem_count;
+    wire commit_msg_valid, commit_msg_is_mmio, commit_msg_is_ret;
+    wire [31:0] commit_msg_next_pc, commit_msg_rd_value;
     wire [4:0]  commit_msg_rd_index;
     wire [2:0]  commit_msg_csr_type;
     wire [31:0] commit_msg_csr_data;
-    wire uart_txd, uart_rtsn;
+    wire uart_model_txd;
     reg  uart_rxd, uart_ctsn;
     wire finish_passed;
     wire [31:0] uart_recv_count;
@@ -16,24 +18,168 @@ module tb;
     localparam RESET_CYCLES = 10;
     localparam BAUD = 100_000_000 / 115200;  // ~868 cycles/bit (matches DUT UartTx)
 
+    // ---- Device fabric wires (one 15-signal LiteBus group per slave) ----
+    wire ram_req_valid, ram_req_ready, ram_req_flush;
+    wire [31:0] ram_req_addr, ram_req_wdata;
+    wire ram_req_wen; wire [3:0] ram_req_wstrb;
+    wire [67:0] ram_req_user; wire [7:0] ram_req_id;
+    wire ram_resp_valid, ram_resp_ready, ram_resp_flush;
+    wire [31:0] ram_resp_data; wire [67:0] ram_resp_user; wire [7:0] ram_resp_id;
+
+    wire uart_req_valid, uart_req_ready, uart_req_flush;
+    wire [31:0] uart_req_addr, uart_req_wdata;
+    wire uart_req_wen; wire [3:0] uart_req_wstrb;
+    wire [67:0] uart_req_user; wire [7:0] uart_req_id;
+    wire uart_resp_valid, uart_resp_ready, uart_resp_flush;
+    wire [31:0] uart_resp_data; wire [67:0] uart_resp_user; wire [7:0] uart_resp_id;
+
+    wire fin_req_valid, fin_req_ready, fin_req_flush;
+    wire [31:0] fin_req_addr, fin_req_wdata;
+    wire fin_req_wen; wire [3:0] fin_req_wstrb;
+    wire [67:0] fin_req_user; wire [7:0] fin_req_id;
+    wire fin_resp_valid, fin_resp_ready, fin_resp_flush;
+    wire [31:0] fin_resp_data; wire [67:0] fin_resp_user; wire [7:0] fin_resp_id;
+
+    wire clint_req_valid, clint_req_ready, clint_req_flush;
+    wire [31:0] clint_req_addr, clint_req_wdata;
+    wire clint_req_wen; wire [3:0] clint_req_wstrb;
+    wire [67:0] clint_req_user; wire [7:0] clint_req_id;
+    wire clint_resp_valid, clint_resp_ready, clint_resp_flush;
+    wire [31:0] clint_resp_data; wire [67:0] clint_resp_user; wire [7:0] clint_resp_id;
+
+    wire finisher_finished;
+    wire uart_model_rtsn;
+    wire clint_timer_interrupt;
+
     initial clk = 0; always #5 clk = ~clk;
+
     NzeaTile tile (.clock(clk), .reset(~rst_n),
         .io_commit_msg_valid(commit_msg_valid),
         .io_commit_msg_bits_next_pc(commit_msg_next_pc),
         .io_commit_msg_bits_rd_index(commit_msg_rd_index),
         .io_commit_msg_bits_rd_value(commit_msg_rd_value),
-        .io_commit_msg_bits_mem_count(commit_msg_mem_count),
-        .io_commit_msg_bits_is_load(commit_msg_is_load),
+        .io_commit_msg_bits_is_mmio(commit_msg_is_mmio),
         .io_commit_msg_bits_csr_type(commit_msg_csr_type),
         .io_commit_msg_bits_csr_data(commit_msg_csr_data),
-        .io_fpga_uart_txd(uart_txd), .io_fpga_uart_rxd(uart_rxd),
-        .io_fpga_finish(finish_passed));
+        .io_commit_msg_bits_is_ret(commit_msg_is_ret),
+        // ram
+        .io_yosys_devices_ram_req_valid(ram_req_valid),
+        .io_yosys_devices_ram_req_ready(ram_req_ready),
+        .io_yosys_devices_ram_req_bits_addr(ram_req_addr),
+        .io_yosys_devices_ram_req_bits_wdata(ram_req_wdata),
+        .io_yosys_devices_ram_req_bits_wen(ram_req_wen),
+        .io_yosys_devices_ram_req_bits_wstrb(ram_req_wstrb),
+        .io_yosys_devices_ram_req_bits_user(ram_req_user),
+        .io_yosys_devices_ram_req_bits_id(ram_req_id),
+        .io_yosys_devices_ram_req_flush(ram_req_flush),
+        .io_yosys_devices_ram_resp_valid(ram_resp_valid),
+        .io_yosys_devices_ram_resp_ready(ram_resp_ready),
+        .io_yosys_devices_ram_resp_bits_data(ram_resp_data),
+        .io_yosys_devices_ram_resp_bits_user(ram_resp_user),
+        .io_yosys_devices_ram_resp_bits_id(ram_resp_id),
+        .io_yosys_devices_ram_resp_flush(ram_resp_flush),
+        // uart16550
+        .io_yosys_devices_uart16550_req_valid(uart_req_valid),
+        .io_yosys_devices_uart16550_req_ready(uart_req_ready),
+        .io_yosys_devices_uart16550_req_bits_addr(uart_req_addr),
+        .io_yosys_devices_uart16550_req_bits_wdata(uart_req_wdata),
+        .io_yosys_devices_uart16550_req_bits_wen(uart_req_wen),
+        .io_yosys_devices_uart16550_req_bits_wstrb(uart_req_wstrb),
+        .io_yosys_devices_uart16550_req_bits_user(uart_req_user),
+        .io_yosys_devices_uart16550_req_bits_id(uart_req_id),
+        .io_yosys_devices_uart16550_req_flush(uart_req_flush),
+        .io_yosys_devices_uart16550_resp_valid(uart_resp_valid),
+        .io_yosys_devices_uart16550_resp_ready(uart_resp_ready),
+        .io_yosys_devices_uart16550_resp_bits_data(uart_resp_data),
+        .io_yosys_devices_uart16550_resp_bits_user(uart_resp_user),
+        .io_yosys_devices_uart16550_resp_bits_id(uart_resp_id),
+        .io_yosys_devices_uart16550_resp_flush(uart_resp_flush),
+        // sifive_test_finisher
+        .io_yosys_devices_sifive_test_finisher_req_valid(fin_req_valid),
+        .io_yosys_devices_sifive_test_finisher_req_ready(fin_req_ready),
+        .io_yosys_devices_sifive_test_finisher_req_bits_addr(fin_req_addr),
+        .io_yosys_devices_sifive_test_finisher_req_bits_wdata(fin_req_wdata),
+        .io_yosys_devices_sifive_test_finisher_req_bits_wen(fin_req_wen),
+        .io_yosys_devices_sifive_test_finisher_req_bits_wstrb(fin_req_wstrb),
+        .io_yosys_devices_sifive_test_finisher_req_bits_user(fin_req_user),
+        .io_yosys_devices_sifive_test_finisher_req_bits_id(fin_req_id),
+        .io_yosys_devices_sifive_test_finisher_req_flush(fin_req_flush),
+        .io_yosys_devices_sifive_test_finisher_resp_valid(fin_resp_valid),
+        .io_yosys_devices_sifive_test_finisher_resp_ready(fin_resp_ready),
+        .io_yosys_devices_sifive_test_finisher_resp_bits_data(fin_resp_data),
+        .io_yosys_devices_sifive_test_finisher_resp_bits_user(fin_resp_user),
+        .io_yosys_devices_sifive_test_finisher_resp_bits_id(fin_resp_id),
+        .io_yosys_devices_sifive_test_finisher_resp_flush(fin_resp_flush),
+        // clint
+        .io_yosys_devices_clint_req_valid(clint_req_valid),
+        .io_yosys_devices_clint_req_ready(clint_req_ready),
+        .io_yosys_devices_clint_req_bits_addr(clint_req_addr),
+        .io_yosys_devices_clint_req_bits_wdata(clint_req_wdata),
+        .io_yosys_devices_clint_req_bits_wen(clint_req_wen),
+        .io_yosys_devices_clint_req_bits_wstrb(clint_req_wstrb),
+        .io_yosys_devices_clint_req_bits_user(clint_req_user),
+        .io_yosys_devices_clint_req_bits_id(clint_req_id),
+        .io_yosys_devices_clint_req_flush(clint_req_flush),
+        .io_yosys_devices_clint_resp_valid(clint_resp_valid),
+        .io_yosys_devices_clint_resp_ready(clint_resp_ready),
+        .io_yosys_devices_clint_resp_bits_data(clint_resp_data),
+        .io_yosys_devices_clint_resp_bits_user(clint_resp_user),
+        .io_yosys_devices_clint_resp_bits_id(clint_resp_id),
+        .io_yosys_devices_clint_resp_flush(clint_resp_flush));
 
-    assign uart_ctsn=1'b0;
-    reg uart_tx=1'b1; assign uart_rxd=uart_tx;
+    // ---- Real device RTL models (generated by nzea_sim; official models, no hand-written behavior) ----
+    RamFabricSlave ram (.clock(clk), .reset(~rst_n),
+        .io_bus_req_valid(ram_req_valid), .io_bus_req_ready(ram_req_ready),
+        .io_bus_req_bits_addr(ram_req_addr), .io_bus_req_bits_wdata(ram_req_wdata),
+        .io_bus_req_bits_wen(ram_req_wen), .io_bus_req_bits_wstrb(ram_req_wstrb),
+        .io_bus_req_bits_user(ram_req_user), .io_bus_req_bits_id(ram_req_id),
+        .io_bus_req_flush(ram_req_flush),
+        .io_bus_resp_valid(ram_resp_valid), .io_bus_resp_ready(ram_resp_ready),
+        .io_bus_resp_bits_data(ram_resp_data), .io_bus_resp_bits_user(ram_resp_user),
+        .io_bus_resp_bits_id(ram_resp_id), .io_bus_resp_flush(ram_resp_flush),
+        .io_boot_valid(1'b0), .io_boot_bits_addr(15'b0), .io_boot_bits_wdata(32'b0));
+
+    FabricBusUart uart16550 (.clock(clk), .reset(~rst_n),
+        .io_bus_req_valid(uart_req_valid), .io_bus_req_ready(uart_req_ready),
+        .io_bus_req_bits_addr(uart_req_addr), .io_bus_req_bits_wdata(uart_req_wdata),
+        .io_bus_req_bits_wen(uart_req_wen), .io_bus_req_bits_wstrb(uart_req_wstrb),
+        .io_bus_req_bits_user(uart_req_user), .io_bus_req_bits_id(uart_req_id),
+        .io_bus_req_flush(uart_req_flush),
+        .io_bus_resp_valid(uart_resp_valid), .io_bus_resp_ready(uart_resp_ready),
+        .io_bus_resp_bits_data(uart_resp_data), .io_bus_resp_bits_user(uart_resp_user),
+        .io_bus_resp_bits_id(uart_resp_id), .io_bus_resp_flush(uart_resp_flush),
+        .io_txd(uart_model_txd), .io_rxd(uart_rxd),
+        .io_rtsn(uart_model_rtsn), .io_ctsn(uart_ctsn),
+        .io_boot_rx_valid(), .io_boot_rx_data());
+
+    Clint clint (.clock(clk), .reset(~rst_n),
+        .io_bus_req_valid(clint_req_valid), .io_bus_req_ready(clint_req_ready),
+        .io_bus_req_bits_addr(clint_req_addr), .io_bus_req_bits_wdata(clint_req_wdata),
+        .io_bus_req_bits_wen(clint_req_wen), .io_bus_req_bits_wstrb(clint_req_wstrb),
+        .io_bus_req_bits_user(clint_req_user), .io_bus_req_bits_id(clint_req_id),
+        .io_bus_req_flush(clint_req_flush),
+        .io_bus_resp_valid(clint_resp_valid), .io_bus_resp_ready(clint_resp_ready),
+        .io_bus_resp_bits_data(clint_resp_data), .io_bus_resp_bits_user(clint_resp_user),
+        .io_bus_resp_bits_id(clint_resp_id), .io_bus_resp_flush(clint_resp_flush),
+        .io_timer_interrupt(clint_timer_interrupt));
+
+    SifiveTestFinisher finisher (.clock(clk), .reset(~rst_n),
+        .io_bus_req_valid(fin_req_valid), .io_bus_req_ready(fin_req_ready),
+        .io_bus_req_bits_addr(fin_req_addr), .io_bus_req_bits_wdata(fin_req_wdata),
+        .io_bus_req_bits_wen(fin_req_wen), .io_bus_req_bits_wstrb(fin_req_wstrb),
+        .io_bus_req_bits_user(fin_req_user), .io_bus_req_bits_id(fin_req_id),
+        .io_bus_req_flush(fin_req_flush),
+        .io_bus_resp_valid(fin_resp_valid), .io_bus_resp_ready(fin_resp_ready),
+        .io_bus_resp_bits_data(fin_resp_data), .io_bus_resp_bits_user(fin_resp_user),
+        .io_bus_resp_bits_id(fin_resp_id), .io_bus_resp_flush(fin_resp_flush),
+        .io_finished(finisher_finished));
+
+    assign uart_ctsn = 1'b0;
+    reg uart_tx = 1'b1; assign uart_rxd = uart_tx;
+    assign finish_passed = finisher_finished;
 
     // ---- Sub-modules (Chisel-generated) ----
-    UartRxDisplay uart_mon(.clock(clk), .reset(~rst_n), .io_rxd(uart_txd), .io_recvCount(uart_recv_count));
+    UartRxDisplay uart_mon(.clock(clk), .reset(~rst_n), .io_rxd(uart_model_txd), .io_recvCount(uart_recv_count));
 
     CommitTracker tracker (
         .clock(clk), .reset(~rst_n),
@@ -107,8 +253,8 @@ module tb;
 
     // ---- UART TX monitor (replaces UartRxDisplay printf lost to CIRCT) ----
     always @(posedge clk) begin
-        uart_txd_d1 <= uart_txd;
-        if (!uart_active && uart_txd_d1 && !uart_txd) begin  // start bit
+        uart_txd_d1 <= uart_model_txd;
+        if (!uart_active && uart_txd_d1 && !uart_model_txd) begin  // start bit
             uart_active <= 1;
             uart_bit <= 0;
             uart_sample_cnt <= (BAUD / 2) - 1;
@@ -118,7 +264,7 @@ module tb;
             if (uart_sample_cnt == 0) begin
                 uart_sample_cnt <= BAUD - 1;
                 if (uart_bit > 0 && uart_bit < 9)
-                    uart_char[uart_bit - 1] <= uart_txd;
+                    uart_char[uart_bit - 1] <= uart_model_txd;
                 if (uart_bit == 9) begin
                     uart_active <= 0;
                     $display("[%0t] UART_TX: %02h (%c)", $time, uart_char,
@@ -159,10 +305,10 @@ module tb;
         // Init RAM with harmless infinite loop (jal x0, 0)
         begin integer ri;
             for(ri=0; ri<32768; ri=ri+1) begin
-                tb.tile.ram.memBytes_0_ext.Memory[ri] = 8'h6F;
-                tb.tile.ram.memBytes_1_ext.Memory[ri] = 8'h00;
-                tb.tile.ram.memBytes_2_ext.Memory[ri] = 8'h00;
-                tb.tile.ram.memBytes_3_ext.Memory[ri] = 8'h00;
+                tb.ram.memBytes_0_ext.Memory[ri] = 8'h6F;
+                tb.ram.memBytes_1_ext.Memory[ri] = 8'h00;
+                tb.ram.memBytes_2_ext.Memory[ri] = 8'h00;
+                tb.ram.memBytes_3_ext.Memory[ri] = 8'h00;
             end
         end
         if (!$value$plusargs("HEX=%s", hex_file)) hex_file = "hello.hex";
@@ -174,8 +320,6 @@ module tb;
         // Load hex before reset
         if (boot_mode == "dir") begin
             `include "nzea_sim/sim/boot/direct_boot.svh"
-            // Prevent BootFsm from overwriting the direct-loaded hex
-            force tb.tile.bootFsm.io_ram_wen = 1'b0;
         end
         commit_cnt = 0;
         stored_pc = 0;
