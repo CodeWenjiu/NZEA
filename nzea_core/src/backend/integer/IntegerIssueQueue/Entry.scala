@@ -1,7 +1,8 @@
 package nzea_core.backend.integer
 
 import chisel3._
-import nzea_core.config.{CoreConfig, PayloadSpec}
+import nzea_config.core.CoreConfig
+import nzea_config.core.PayloadSpec
 import nzea_core.frontend.{FuSrcWidth, FuType}
 import nzea_core.retire.rob.RobMemType
 

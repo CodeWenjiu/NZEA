@@ -2,7 +2,7 @@ package nzea_core.dpi
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFunctionCall}
 import nzea_rtl._
 import nzea_core.retire.CommitMsg

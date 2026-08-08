@@ -4,7 +4,8 @@ import chisel3._
 import nzea_rtl.PipeIO
 import nzea_core.backend.integer.{AguInput, AluInput, BruInput, DivInput, IssuePortLayout, MulInput, SysuInput}
 import nzea_core.backend.integer.nnu.NnInput
-import nzea_core.config.{CoreConfig, FuKind}
+import nzea_config.core.CoreConfig
+import nzea_config.core.FuKind
 
 /** Per-port payload types: each issue port has FU-specific input (AluInput, BruInput, etc.).
   * Operand extraction (e.g. ALU opA/opB from fu_src) happens in ISU before pipeline reg.

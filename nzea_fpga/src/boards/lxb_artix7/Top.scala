@@ -2,7 +2,7 @@ package nzea_fpga.boards.lxb_artix7
 
 import chisel3._
 import chisel3.util.Counter
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 import nzea_fpga.ResetSync
 
 class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule {

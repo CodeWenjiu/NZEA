@@ -3,10 +3,11 @@ package nzea_core.retire
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
-import nzea_core.config.{CoreConfig, PayloadSpec}
+import nzea_config.core.CoreConfig
+import nzea_config.core.PayloadSpec
 
-/** Internal Rob→Commit payload: all fields for bookkeeping.
-  * `is_ret` (commit chain, RAS pop) is a config-derived information unit.
+/** Internal Rob→Commit payload: all fields for bookkeeping. `is_ret` (commit chain, RAS pop) is a config-derived
+  * information unit.
   */
 class RobCommitPayload(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Bundle {
   val rob_id = UInt(robIdWidth.W)
@@ -22,9 +23,8 @@ class RobCommitPayload(robIdWidth: Int, prfAddrWidth: Int)(implicit config: Core
   val is_ret = if (PayloadSpec.enabled(PayloadSpec.RetCommit)) Some(Bool()) else None
 }
 
-/** Commit logical state (external): only architectural state changes.
-  * `is_ret` (RAS pop) is a config-derived information unit: with RAS disabled
-  * the field disappears from this top-level port (firtool DCE cannot do this).
+/** Commit logical state (external): only architectural state changes. `is_ret` (RAS pop) is a config-derived
+  * information unit: with RAS disabled the field disappears from this top-level port (firtool DCE cannot do this).
   */
 class CommitMsg(implicit config: CoreConfig) extends Bundle {
   val next_pc = UInt(32.W)

@@ -2,7 +2,7 @@ package nzea_fpga.boards.lxb_artix7
 
 import chisel3._
 import chisel3.util._
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 import nzea_device.ram.RamFabricSlave
 import nzea_tile.NzeaTile
 

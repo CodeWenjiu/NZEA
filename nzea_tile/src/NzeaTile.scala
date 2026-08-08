@@ -1,11 +1,12 @@
 package nzea_tile
 
 import chisel3._
-import nzea_config.{CacheConfig, SynthPlatform}
-import nzea_tile.TileConfig
-import nzea_core.config.CoreConfig
+import nzea_config.core.CacheConfig
+import nzea_config.SynthPlatform
+import nzea_config.tile.TileConfig
+import nzea_config.core.CoreConfig
 import nzea_core.dpi.CommitDpiBridge
-import nzea_rtl.{LiteAddrRange, LiteBusCrossbar, LiteBusRegisterSlice, LiteBusRW, LiteBusWidthConverter}
+import nzea_rtl.{LiteAddrRange, LiteBusCrossbar, LiteBusRW, LiteBusRegisterSlice, LiteBusWidthConverter}
 import nzea_tile.platform.fpga
 import nzea_tile.platform.yosys
 import nzea_tile.platform.HasCommitMsg

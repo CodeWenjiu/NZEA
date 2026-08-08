@@ -1,7 +1,8 @@
 package nzea_core.frontend.bp
 
 import chisel3._
-import nzea_core.config.{CoreConfig, PayloadSpec}
+import nzea_config.core.CoreConfig
+import nzea_config.core.PayloadSpec
 
 /** Branch prediction update from BRU: pc, taken, target (next_pc), plus a
   * call/ret classification for the RAS (push is driven from the execution

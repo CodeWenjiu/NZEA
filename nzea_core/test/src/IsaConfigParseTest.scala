@@ -1,12 +1,13 @@
 package nzea_core
 
-import nzea_core.config.IsaConfig
+import nzea_config.core.IsaConfig
 import org.scalatest.funsuite.AnyFunSuite
 
 class IsaConfigParseTest extends AnyFunSuite {
+
   private def ok(isa: String): IsaConfig =
     IsaConfig.parse(isa) match {
-      case Right(c) => c
+      case Right(c)  => c
       case Left(msg) => fail(s"expected valid ISA, got: $msg")
     }
 
@@ -61,4 +62,5 @@ class IsaConfigParseTest extends AnyFunSuite {
     val c = ok("riscv32g")
     assert(c.extensions === Set('i', 'm', 'a', 'f', 'd'))
   }
+
 }

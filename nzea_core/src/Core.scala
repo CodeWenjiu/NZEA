@@ -3,12 +3,13 @@ package nzea_core
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.CsrType
-import nzea_core.config.{CoreConfig, FuConfig}
+import nzea_config.core.CoreConfig
+import nzea_config.core.FuConfig
 import nzea_rtl.{PipelineConnect, StatsRegs}
 
 /** Core module: Rob in Core; integer cluster + LSU write to [[frontend.Prf]] / [[frontend.CsrFile]]; Commit.
-  * `config.sim` enables simulation-only logic (branch-prediction statistics registers);
-  * FPGA builds use `sim = false` and carry no extra state.
+  * `config.sim` enables simulation-only logic (branch-prediction statistics registers); FPGA builds use `sim = false`
+  * and carry no extra state.
   */
 class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module {
   private val addrWidth = config.width
@@ -147,4 +148,5 @@ class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreC
     stats.ports("stat_inst_commit").en := commit.io.rob_commit.valid
     stats.ports("stat_inst_commit").data := stats.ports("stat_inst_commit").value + 1.U
   }
+
 }

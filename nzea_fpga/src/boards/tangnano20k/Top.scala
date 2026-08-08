@@ -9,7 +9,7 @@ import nzea_fpga.ResetSync
   *   - Reset: `s1 || por` → Core implicit reset (pulled up; press = low → running)
   *   - LED: Core outputs active-high → invert for board active-low
   */
-class TangNano20kTop(clockHz: Int)(implicit config: nzea_core.config.CoreConfig) extends RawModule {
+class TangNano20kTop(clockHz: Int)(implicit config: nzea_config.core.CoreConfig) extends RawModule {
   private val clkFreq = 100_000_000
   private val baudRate = 115200
 

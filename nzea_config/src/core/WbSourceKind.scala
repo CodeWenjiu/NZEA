@@ -1,7 +1,6 @@
-package nzea_core.config
+package nzea_config.core
 
-/** PRF write-back source kind.
-  * Distinguishes execution-unit sources from MemUnit, which is not an issue-port FU.
+/** PRF write-back source kind. Distinguishes execution-unit sources from MemUnit, which is not an issue-port FU.
   */
 sealed trait WbSourceKind extends Product with Serializable
 

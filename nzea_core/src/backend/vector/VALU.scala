@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{MuxCase, Valid}
 import nzea_rtl.PipeIO
 import nzea_core.retire.rob.Rob
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 
 /** Subset of RVV OP-IVV / OP-IVI ops handled by [[VALU]] (single-lane / first element in this scaffold). */
 object ValuOp extends ChiselEnum {

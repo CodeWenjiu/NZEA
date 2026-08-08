@@ -2,7 +2,8 @@ package nzea_core.frontend
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_core.config.{CoreConfig, FuConfig}
+import nzea_config.core.CoreConfig
+import nzea_config.core.FuConfig
 
 /** PRF write port: addr, data. Shared by all FU completions. */
 class PrfWriteBundle(prfAddrWidth: Int) extends Bundle {

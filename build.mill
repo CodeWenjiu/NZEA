@@ -24,7 +24,7 @@ object nzea_cli extends ScalaModule {
 
 object nzea_config extends ScalaModule {
   def scalaVersion = scalaV
-  def moduleDeps = Seq(nzea_core)
+  // Pure-config leaf module: no dependencies. All hardware modules depend on it.
   override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
 }
 
@@ -49,7 +49,7 @@ object nzea_core extends ScalaModule {
   def scalaVersion = scalaV
   def chiselVersion = chiselV
 
-  def moduleDeps = Seq(nzea_rtl)
+  def moduleDeps = Seq(nzea_rtl, nzea_config)
 
   override def scalacOptions = sharedScalacOptions
 

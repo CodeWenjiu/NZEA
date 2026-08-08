@@ -1,14 +1,26 @@
 package nzea_core
 
 import circt.stage.ChiselStage
-import nzea_core.config.{BpuConfig, CoreConfig}
+import nzea_config.core.BpuConfig
+import nzea_config.core.CoreConfig
 import org.scalatest.freespec.AnyFreeSpec
 
 /** Core execution stats (stat_cycle, stat_inst_commit): StatsRegs iff sim=true. */
 class CoreStatsTest extends AnyFreeSpec {
 
   private def chirrtl(sim: Boolean): String = {
-    implicit val config: CoreConfig = CoreConfig(sim = sim, bpu = BpuConfig(64, 16, Some(8)))
+    implicit val config: CoreConfig = CoreConfig(
+      isa = "riscv32i",
+      defaultPc = 0x8000_0000L,
+      robDepth = 16,
+      issueQueueDepth = 4,
+      prfDepth = 64,
+      vlen = 128,
+      vrfDepth = 64,
+      viqDepth = 8,
+      bpu = BpuConfig.typical,
+      sim = sim
+    )
     ChiselStage.emitCHIRRTL(new Core)
   }
 

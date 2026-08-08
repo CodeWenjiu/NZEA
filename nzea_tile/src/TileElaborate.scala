@@ -4,8 +4,8 @@ import _root_.circt.stage.ChiselStage
 import chisel3._
 import chisel3.util.Valid
 import nzea_config.SynthPlatform
-import nzea_tile.TileConfig
-import nzea_core.config.CoreConfig
+import nzea_config.tile.TileConfig
+import nzea_config.core.CoreConfig
 import nzea_core.retire.CommitMsg
 import nzea_rtl.{BootReq, LiteBusRW}
 

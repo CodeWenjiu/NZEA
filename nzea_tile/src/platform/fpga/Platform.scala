@@ -2,7 +2,7 @@ package nzea_tile.platform.fpga
 
 import chisel3._
 import nzea_core.Core
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 import nzea_device.uart.FabricBusUart
 import nzea_device.clint.Clint
 import nzea_device.finisher.SifiveTestFinisher

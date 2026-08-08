@@ -1,7 +1,9 @@
 package nzea_core.backend.integer
 
 import nzea_core.frontend.FuType
-import nzea_core.config.{CoreConfig, FuConfig, FuKind}
+import nzea_config.core.CoreConfig
+import nzea_config.core.FuConfig
+import nzea_config.core.FuKind
 
 /** Single source of truth for integer issue-port topology and indexing.
   * Keeps FuKind order, index mapping, and wakeup-hint specs consistent across users.

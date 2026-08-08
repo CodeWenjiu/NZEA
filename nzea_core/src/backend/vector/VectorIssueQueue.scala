@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Mux1H, PopCount, PriorityEncoder}
 import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.PrfReadIO
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 
 /** Select stage: pick oldest ready entry, push to per-FU pipeline reg (single VALU port). */
 class VectorIssueQueueSelectStage(robIdWidth: Int, pvrAddrWidth: Int, depth: Int)(implicit config: CoreConfig)

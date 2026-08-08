@@ -3,7 +3,8 @@ package nzea_core.backend.integer
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.{IssuePortsBundle, PrfRawRead, PrfReadIO, PrfWriteBundle}
-import nzea_core.config.{CoreConfig, FuConfig}
+import nzea_config.core.CoreConfig
+import nzea_config.core.FuConfig
 import nzea_rtl.{PipeIO, PipelineConnect}
 
 /** Integer issue queue: 2-stage pipeline.

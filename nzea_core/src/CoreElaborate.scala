@@ -3,7 +3,7 @@ package nzea_core
 import chisel3._
 import chisel3.util.Valid
 import _root_.circt.stage.ChiselStage
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 
 object CoreElaborate {
 

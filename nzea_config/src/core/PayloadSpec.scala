@@ -1,4 +1,4 @@
-package nzea_core.config
+package nzea_config.core
 
 /** Data-path information units (see `goal/data-path-info-units.md`).
   *

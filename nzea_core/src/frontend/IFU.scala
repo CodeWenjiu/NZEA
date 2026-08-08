@@ -5,7 +5,7 @@ import chisel3.util.{Cat, Decoupled, Valid}
 import nzea_rtl.PipeIO
 import nzea_core.frontend.bp.{BTB, BpUpdate, PHT, RAS, RasUpdate}
 import nzea_rtl.LiteBusRW
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 
 /** Ibus user field layout: {pred_next_pc, pc, epoch}. epoch tags every request; on redirect it increments.
   * Responses with a stale epoch are drained — Rocket‑Chip / XiangShan style.

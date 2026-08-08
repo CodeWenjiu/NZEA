@@ -3,7 +3,9 @@ package nzea_core.backend.integer
 import chisel3._
 import chisel3.util.Valid
 import nzea_core.frontend.{FuType, IssuePortsBundle, PrfReadIO}
-import nzea_core.config.{CoreConfig, FuConfig, FuKind}
+import nzea_config.core.CoreConfig
+import nzea_config.core.FuConfig
+import nzea_config.core.FuKind
 import nzea_rtl.PipeIO
 
 /** Stage 2: per-port independent read/dispatch.

@@ -1,7 +1,7 @@
-package nzea_core.config
+package nzea_config.core
 
-/** Strongly-typed issue/execution FU kind used by static port/topology config.
-  * MemUnit is intentionally excluded because it is not an issue-port FU.
+/** Strongly-typed issue/execution FU kind used by static port/topology config. MemUnit is intentionally excluded
+  * because it is not an issue-port FU.
   */
 sealed trait FuKind extends Product with Serializable
 

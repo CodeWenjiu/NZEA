@@ -1,19 +1,21 @@
-package nzea_core.config
+package nzea_config.core
 
-/** Core-specific configuration used by nzea_core modules. */
+/** Core-specific configuration used by nzea_core modules. No defaults here (rule 6): every construction site passes
+  * explicit values, so the compiler forces each flow to state its full configuration.
+  */
 case class CoreConfig(
-    isa: String = "riscv32i",
-    defaultPc: Long = 0x8000_0000L,
-    robDepth: Int = 16,
-    issueQueueDepth: Int = 4,
-    prfDepth: Int = 64,
-    vlen: Int = 128,
-    vrfDepth: Int = 64,
-    viqDepth: Int = 8,
+    isa: String,
+    defaultPc: Long,
+    robDepth: Int,
+    issueQueueDepth: Int,
+    prfDepth: Int,
+    vlen: Int,
+    vrfDepth: Int,
+    viqDepth: Int,
     /** Branch-prediction unit configuration (PHT/BTB/RAS sizing). */
     bpu: BpuConfig,
     /** Simulation mode: enables sim-only logic such as branch-prediction statistics registers. */
-    sim: Boolean = false
+    sim: Boolean
 ) {
   val prfAddrWidth: Int = Iterator.from(0).find(i => (1 << i) >= prfDepth).getOrElse(6)
 

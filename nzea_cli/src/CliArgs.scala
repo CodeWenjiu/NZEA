@@ -1,9 +1,13 @@
 package nzea_cli
 
 import mainargs.arg
-import nzea_config.{ElaborationTarget, FpgaBoard, SynthPlatform}
-import nzea_tile.TileConfig
-import nzea_core.config.{BpuConfig, CoreConfig}
+import nzea_config.core.CacheConfig
+import nzea_config.ElaborationTarget
+import nzea_config.FpgaBoard
+import nzea_config.SynthPlatform
+import nzea_config.tile.TileConfig
+import nzea_config.core.BpuConfig
+import nzea_config.core.CoreConfig
 
 /** Flat CLI arguments for backward-compatible command-line flags. */
 case class CliArgs(
@@ -27,29 +31,43 @@ case class CliArgs(
     @arg(doc = "Physical vector register file depth / PVR capacity (rename targets)") vrfDepth: Int = 64,
     @arg(doc = "Vector issue queue depth (RVV)") viqDepth: Int = 8,
     @arg(doc = "Tile clock frequency in Hz (sets UART divisor etc.)") clockHz: Int = 1_000_000_000,
-    @arg(doc = "FPGA board target (lxb_artix7, tangnano20k)") fpgaBoard: String = "lxb_artix7"
+    @arg(doc = "FPGA board target (lxb_artix7, tangnano20k)") fpgaBoard: String = "lxb_artix7",
+    @arg(doc = "I-Cache set count (cache geometry) ") cacheNSets: Int = 16,
+    @arg(doc = "I-Cache associativity (ways)") cacheNWays: Int = 8,
+    @arg(doc = "I-Cache line width in bits") cacheLineBits: Int = 32,
+    @arg(doc = "Per-slave outstanding transactions (bus fabric)") perSlaveOutstanding: Int = 8
 ) {
 
   val synthPlatform: SynthPlatform = SynthPlatform.fromString(platform).getOrElse(SynthPlatform.Yosys)
   val fpgaBoard_ : FpgaBoard = FpgaBoard.fromString(fpgaBoard).getOrElse(FpgaBoard.LxbArtix7)
 
+  /** Core microarchitecture config assembled from CLI args — the single source of truth for every CLI-driven flow (tile
+    * / core / fpga).
+    */
+  def coreConfig: CoreConfig =
+    CoreConfig(
+      isa = isa,
+      defaultPc = defaultPc,
+      robDepth = robDepth,
+      issueQueueDepth = issueQueueDepth,
+      prfDepth = prfDepth,
+      vlen = vlen,
+      vrfDepth = vrfDepth,
+      viqDepth = viqDepth,
+      bpu = BpuConfig.typical,
+      sim = sim
+    )
+
+  /** Tile-level I-Cache config from CLI args; None would bypass the cache. */
+  def cache: Option[CacheConfig] =
+    Some(CacheConfig(nSets = cacheNSets, nWays = cacheNWays, lineBits = cacheLineBits))
+
   def tileConfig: TileConfig =
     TileConfig(
       synthPlatform = synthPlatform,
       clockHz = clockHz,
-      core = CoreConfig(
-        isa = isa,
-        defaultPc = defaultPc,
-        robDepth = robDepth,
-        issueQueueDepth = issueQueueDepth,
-        prfDepth = prfDepth,
-        vlen = vlen,
-        vrfDepth = vrfDepth,
-        viqDepth = viqDepth,
-        // BPU sizing lives in BpuConfig; defaults live here at the CLI layer.
-        bpu = BpuConfig(phtSize = 64, btbSize = 16, rasDepth = Some(8)),
-        sim = sim
-      )
+      cache = cache,
+      perSlaveOutstanding = perSlaveOutstanding
     )
 
   /** `dpi` or `hw` under `build/<target>/<platform>/<isa>/`. */
@@ -61,10 +79,10 @@ case class CliArgs(
   /** Default and override-aware RTL output directory. */
   val effectiveOutDir: String = target match {
     case ElaborationTarget.Fpga =>
-      outDir.getOrElse(s"build/fpga/${fpgaBoard_.segment}/${tileConfig.core.isa}/hw")
+      outDir.getOrElse(s"build/fpga/${fpgaBoard_.segment}/${coreConfig.isa}/hw")
     case _ =>
       outDir.getOrElse(
-        s"build/${target.segment}/${synthPlatform.segment}/${tileConfig.core.isa}/${rtlFlowSegment}"
+        s"build/${target.segment}/${synthPlatform.segment}/${coreConfig.isa}/${rtlFlowSegment}"
       )
   }
 

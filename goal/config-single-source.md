@@ -1,8 +1,14 @@
 # Single-Source Configuration (design note, future plan)
 
-Status: **design only** — survey completed 2026-08-08; implementation deferred
-until the boundary decisions below are agreed. Related: `config-aggregation.md`
-(which parameter groups deserve their own sub-config type).
+Status: **implemented** (2026-08-08) — survey + execution below; boundary
+decisions from the discussion are recorded in the last sections. Related:
+`config-aggregation.md` (which parameter groups deserve their own sub-config type).
+
+Follow-up (same day): **all config classes moved into `nzea_config`** — the
+dependency direction is now `nzea_config` (pure-config leaf, zero deps) ←
+`nzea_core` ← `nzea_tile`/`nzea_fpga`/`nzea_cli`/`nzea_sim`, matching the
+AGENTS.md dependency diagram. Editing any config definition touches exactly
+one module (`nzea_config`). See the last section for the file map.
 
 ## Problem
 
@@ -108,13 +114,42 @@ Proposed to centralize:
 
 ## Execution plan (when approved)
 
-1. Delete defaults on `CoreConfig`/`TileConfig`/`FpgaConfig`/`CacheConfig`;
-   fix every compile error (compiler-enforced).
-2. Resolve the dual channel: either `NzeaTile` consumes `cfg.core` (single
-   channel) or remove `TileConfig.core`/`FpgaConfig.core` and let all flows
-   pass `CoreConfig` via the implicit channel only.
-3. Introduce `BpuConfig.typical` (or similar) and use it in CliArgs +
-   SimElaborate + tests.
-4. Remove `Rob.apply` default; derive `prfAddrWidth` from `prfDepth` only.
-5. Verify: `just dump` (tile/core/fpga), `just iv`, tests — then grep for
-   leftover literal configs (`BpuConfig(64`, `prfAddrWidth = 6`, ...).
+1. ~~Delete defaults on `CoreConfig`/`TileConfig`/`FpgaConfig`/`CacheConfig`;
+   fix every compile error (compiler-enforced).~~ **done**
+2. ~~Resolve the dual channel: `TileConfig.core`/`FpgaConfig.core` removed;
+   every flow passes `CoreConfig` via the implicit channel only; CLI fpga flow
+   forces `sim=false` at the entry point.~~ **done**
+3. ~~Introduce `BpuConfig.typical` and use it in CliArgs + SimElaborate + tests.~~
+   **done**
+4. ~~Remove `Rob.apply` default; derive `prfAddrWidth` from `prfDepth` only.~~
+   **done**
+5. ~~Verify: `just dump` (tile/core/fpga), `mill nzea_sim.run`, tests; grep for
+   leftover literal configs (`BpuConfig(64`, `prfAddrWidth = 6`, ...).~~ **done**
+
+## Config classes moved into `nzea_config` (2026-08-08)
+
+Previous layout scattered config definitions across modules and made
+`nzea_config` depend on `nzea_core` (config module depending on a hardware
+module). Now `nzea_config` is a zero-dependency leaf and every hardware
+module depends on it. Moved files:
+
+| File | From |
+|---|---|
+| `CoreConfig` / `BpuConfig` / `IsaConfig` / `FuConfig` / `FuKind` / `WbSourceKind` / `PayloadSpec` | `nzea_core/src/config` |
+| `TileConfig` | `nzea_tile/src` |
+| `FpgaConfig` | `nzea_fpga/src` |
+
+`build.mill`: `nzea_config.moduleDeps` emptied; `nzea_core.moduleDeps` += `nzea_config`.
+All `nzea_core.config.*` imports became `nzea_config.*`. Verified: `just dump`
+(tile/core/fpga), `mill nzea_sim.run`, full `nzea_core` test suite, scalafmt.
+
+Layout inside `nzea_config/src` reflects the config hierarchy:
+
+```
+nzea_config/src/
+  core/   CoreConfig, BpuConfig, IsaConfig, FuConfig, FuKind, WbSourceKind,
+          PayloadSpec, CacheConfig      ← core-owned configs (package nzea_config.core)
+  tile/   TileConfig                     ← tile-owned (package nzea_config.tile)
+  fpga/   FpgaConfig                     ← board-owned (package nzea_config.fpga)
+  top     ElaborationTarget, FpgaBoard, SynthPlatform   ← build-flow enums
+```

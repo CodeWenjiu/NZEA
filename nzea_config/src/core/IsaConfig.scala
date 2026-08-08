@@ -1,23 +1,23 @@
-package nzea_core.config
+package nzea_config.core
 
 /** Parsed ISA configuration for Chisel.
   *
   * Base string (before first `_`): `riscv32im`, `rv32im`, `rv64gc`, etc. — single-letter extensions after XLEN.
   *
-  * After `_`, named extensions / profiles (lowercase), e.g. `riscv32im_zve32x_zvl128b` for embedded vector
-  * (not the full single-letter `V` RVV extension). Those tokens are stored in a [[Set]] — order after the first
-  * `_` does not matter (e.g. `..._zve32x_wjcus0` and `..._wjcus0_zve32x` are equivalent).
+  * After `_`, named extensions / profiles (lowercase), e.g. `riscv32im_zve32x_zvl128b` for embedded vector (not the
+  * full single-letter `V` RVV extension). Those tokens are stored in a [[Set]] — order after the first `_` does not
+  * matter (e.g. `..._zve32x_wjcus0` and `..._wjcus0_zve32x` are equivalent).
   *
-  * Parsing rejects unknown base letters and unknown `_` tokens so arbitrary strings (e.g. `riscv32sdksa`)
-  * do not silently produce a valid config.
+  * Parsing rejects unknown base letters and unknown `_` tokens so arbitrary strings (e.g. `riscv32sdksa`) do not
+  * silently produce a valid config.
   */
 case class IsaConfig(
-  xlen: Int,
-  extensions: Set[Char],
-  /** Tokens after first `_`, lowercased, e.g. `zve32x`, `zvl128b`. */
-  namedExtensions: Set[String],
-  /** First `zvl{N}b` token in underscore order (e.g. `zvl128b` → 128). */
-  zvlBits: Option[Int]
+    xlen: Int,
+    extensions: Set[Char],
+    /** Tokens after first `_`, lowercased, e.g. `zve32x`, `zvl128b`. */
+    namedExtensions: Set[String],
+    /** First `zvl{N}b` token in underscore order (e.g. `zvl128b` → 128). */
+    zvlBits: Option[Int]
 ) {
   def has(ext: Char): Boolean = extensions(ext.toLower)
 
@@ -42,14 +42,12 @@ case class IsaConfig(
 
 object IsaConfig {
   private val BaseRegex = """(?i)(?:riscv)?(?:rv)?(32|64)([a-z]*)""".r
-  private val ZvlRegex  = """(?i)^zvl(\d+)b$""".r
+  private val ZvlRegex = """(?i)^zvl(\d+)b$""".r
 
-  /** Single-letter unprivileged extensions allowed in the base rv string (before `_`). Expand when Nzea gains support. */
+  /** Single-letter unprivileged extensions allowed in the base rv string (before `_`). Expand when Nzea gains support.
+    */
   private val AllowedBaseExtensionLetters: Set[Char] = Set(
-    'i', 'e',
-    'm', 'a', 'f', 'd', 'q', 'c',
-    'b', 'h', 'j', 'l', 'n', 'p', 't', 'v',
-    'g'
+    'i', 'e', 'm', 'a', 'f', 'd', 'q', 'c', 'b', 'h', 'j', 'l', 'n', 'p', 't', 'v', 'g'
   )
 
   private val KnownNamedExtensionTokens: Set[String] = Set(
@@ -74,7 +72,7 @@ object IsaConfig {
     val parts = trimmed.split('_').map(_.trim.toLowerCase).filter(_.nonEmpty).toSeq
     parts.head match {
       case BaseRegex(xlenStr, extStr) =>
-        val xlen   = xlenStr.toInt
+        val xlen = xlenStr.toInt
         val rawExt = Option(extStr).filter(_.nonEmpty).map(_.toSet).getOrElse(Set('i'))
         val rawSet = if (rawExt.isEmpty) Set('i') else rawExt
 
@@ -92,7 +90,7 @@ object IsaConfig {
               Left(s"unknown named extension(s): ${unknownNamed.mkString(", ")}")
             else {
               val namedSet = tailSeq.toSet
-              val zvl      = tailSeq.collectFirst { case ZvlRegex(bits) => bits.toInt }
+              val zvl = tailSeq.collectFirst { case ZvlRegex(bits) => bits.toInt }
               Right(IsaConfig(xlen, extSet, namedSet, zvl))
             }
           }
@@ -105,7 +103,8 @@ object IsaConfig {
   /** Parse or throw [[IllegalArgumentException]] (e.g. CLI / config wiring). */
   def parseOrThrow(isa: String): IsaConfig =
     parse(isa) match {
-      case Right(c) => c
+      case Right(c)  => c
       case Left(msg) => throw new IllegalArgumentException(s"Invalid ISA string: $msg")
     }
+
 }

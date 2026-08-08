@@ -2,7 +2,7 @@ package nzea_core.backend.vector
 
 import chisel3._
 import nzea_rtl.PipeIO
-import nzea_core.config.CoreConfig
+import nzea_config.core.CoreConfig
 
 /** VIQ → [[VALU]] → [[VectorWbu]] → [[VectorPrf]]; for integration tests and future Core hookup. */
 class VectorBackend(robIdWidth: Int)(implicit config: CoreConfig) extends Module {
