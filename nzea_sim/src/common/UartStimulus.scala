@@ -108,29 +108,3 @@ class UartMonitor(baudDiv: Int) extends Module {
   }
 
 }
-
-/** UART RX monitor with printf display — drop-in replacement for uart_tx_monitor.sv. `io.recvCount` anchors the module
-  * to prevent CIRCT dead-code elimination.
-  */
-class UartRxDisplay(baudDiv: Int) extends Module {
-
-  val io = IO(new Bundle {
-    val rxd = Input(Bool())
-    val recvCount = Output(UInt(32.W)) // anchor: number of bytes received
-  })
-
-  val mon = Module(new UartMonitor(baudDiv))
-  mon.io.rxd := io.rxd
-
-  val count = RegInit(0.U(32.W))
-  dontTouch(count)
-  io.recvCount := count
-
-  when(mon.io.valid) {
-    count := count + 1.U
-    val ch = mon.io.bits
-    val printable = ch >= 32.U && ch < 127.U
-    printf("UART_RX: char=%x (%c)\n", ch, Mux(printable, ch, 46.U))
-  }
-
-}

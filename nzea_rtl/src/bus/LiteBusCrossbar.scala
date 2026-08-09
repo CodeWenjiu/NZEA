@@ -175,6 +175,13 @@ class LiteBusCrossbar(
   val respOwner = Wire(Vec(numSlaves, UInt(mIdxWidth.W)))
   val respOrigId = Wire(Vec(numSlaves, UInt(idWidth.W)))
 
+  // Table lookups keyed by outstanding slot: `ownerValid/ownerId/ownerMaster` are Vec(perSlaveOutstanding),
+  // which expects a log2Ceil(perSlaveOutstanding)-bit index (0 bits for a single slot). `entryIdxWidth` stays
+  // >= 1 because `respTagIdx` slices the resp id tag; use a constant 0-bit index for the table when there is
+  // exactly one outstanding slot.
+  private def tblIdx(s: Int): UInt =
+    if (perSlaveOutstanding == 1) 0.U(0.W) else respMatchIdx(s)
+
   for (s <- 0 until numSlaves) {
     val respTagIdx = io.out(s).resp.bits.id(entryIdxWidth - 1, 0)
     val respTagValid = io.out(s).resp.bits.id === respTagIdx.asUInt
@@ -188,8 +195,8 @@ class LiteBusCrossbar(
     respMatchOH(s) := matchVec.asUInt
     respMatched(s) := matchVec.asUInt.orR
     respMatchIdx(s) := PriorityEncoder(matchVec.asUInt)
-    respOwner(s) := Mux(respMatched(s), ownerMaster(s)(respMatchIdx(s)), 0.U)
-    respOrigId(s) := Mux(respMatched(s), ownerId(s)(respMatchIdx(s)), 0.U)
+    respOwner(s) := Mux(respMatched(s), ownerMaster(s)(tblIdx(s)), 0.U)
+    respOrigId(s) := Mux(respMatched(s), ownerId(s)(tblIdx(s)), 0.U)
   }
 
   // Response arbitration per master (in case multiple slaves answer same master in one cycle).
@@ -328,7 +335,7 @@ class LiteBusCrossbar(
     }
 
     when(hitRespFire(s)) {
-      ownerValid(s)(respMatchIdx(s)) := false.B
+      ownerValid(s)(tblIdx(s)) := false.B
     }
   }
 

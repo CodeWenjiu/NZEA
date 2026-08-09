@@ -24,7 +24,8 @@ object nzea_cli extends ScalaModule {
 
 object nzea_config extends ScalaModule {
   def scalaVersion = scalaV
-  // Pure-config leaf module: no dependencies. All hardware modules depend on it.
+  // Depends only on mainargs: ElaborationTarget/SynthPlatform etc. carry TokensReader
+  // instances used by the CLI layer, so they must live in this leaf module.
   override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
 }
 

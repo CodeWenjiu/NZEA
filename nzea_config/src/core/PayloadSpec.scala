@@ -1,6 +1,6 @@
 package nzea_config.core
 
-/** Data-path information units (see `goal/data-path-info-units.md`).
+/** Data-path information units.
   *
   * Data-path payloads (IQ entries, BRU inputs, ROB slots, commit messages, ...) used to carry a fixed field set
   * regardless of configuration. Whether a field actually has a consumer depends on config (e.g. RAS disabled →

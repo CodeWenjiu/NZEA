@@ -4,7 +4,7 @@
 `timescale 1ns / 1ps
 module tb;
     reg clk, rst_n;
-    wire commit_msg_valid, commit_msg_is_mmio, commit_msg_is_ret;
+    wire commit_msg_valid;
     wire [31:0] commit_msg_next_pc, commit_msg_rd_value;
     wire [4:0]  commit_msg_rd_index;
     wire [2:0]  commit_msg_csr_type;
@@ -12,7 +12,6 @@ module tb;
     wire uart_model_txd;
     reg  uart_rxd, uart_ctsn;
     wire finish_passed;
-    wire [31:0] uart_recv_count;
     wire [1:0]  tracker_result;
 
     localparam RESET_CYCLES = 10;
@@ -58,10 +57,8 @@ module tb;
         .io_commit_msg_bits_next_pc(commit_msg_next_pc),
         .io_commit_msg_bits_rd_index(commit_msg_rd_index),
         .io_commit_msg_bits_rd_value(commit_msg_rd_value),
-        .io_commit_msg_bits_is_mmio(commit_msg_is_mmio),
         .io_commit_msg_bits_csr_type(commit_msg_csr_type),
         .io_commit_msg_bits_csr_data(commit_msg_csr_data),
-        .io_commit_msg_bits_is_ret(commit_msg_is_ret),
         // ram
         .io_yosys_devices_ram_req_valid(ram_req_valid),
         .io_yosys_devices_ram_req_ready(ram_req_ready),
@@ -179,8 +176,6 @@ module tb;
     assign finish_passed = finisher_finished;
 
     // ---- Sub-modules (Chisel-generated) ----
-    UartRxDisplay uart_mon(.clock(clk), .reset(~rst_n), .io_rxd(uart_model_txd), .io_recvCount(uart_recv_count));
-
     CommitTracker tracker (
         .clock(clk), .reset(~rst_n),
         .io_commitMsgValid(commit_msg_valid),

@@ -11,7 +11,6 @@ import nzea_config.core.CoreConfig
 
 /** Flat CLI arguments for backward-compatible command-line flags. */
 case class CliArgs(
-    @arg(doc = "Whether to enable Debug port") debug: Boolean = false,
     @arg(doc =
       "Verilog output directory (overrides default build/<target>/<platform>/<isa>/<sim|sta> when set)"
     ) outDir: Option[String] = None,

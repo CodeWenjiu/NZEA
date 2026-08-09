@@ -106,6 +106,10 @@ class LiteBusCrossbarTest extends AnyFreeSpec with ChiselSim with LiteBusTestHel
       dut.io.in(0).resp.valid.expect(true.B); dut.io.in(0).resp.bits.id.expect(2.U)
       dut.clock.step(); clearResp(dut.io.out(1))
 
+      // Refill slave1's slot so both slaves hold an outstanding request for the arbitration below.
+      driveReq(dut.io.in(0), addr = BigInt("10000010", 16), user = BigInt("33", 16), id = 3)
+      dut.clock.step(); clearReq(dut.io.in(0))
+
       // Both slaves respond same cycle → crossbar arbitrates.
       driveResp(dut.io.out(0), data = BigInt("AAAA", 16), user = BigInt("11", 16), id = 0)
       driveResp(dut.io.out(1), data = BigInt("DDDD", 16), user = BigInt("33", 16), id = 0)
@@ -167,6 +171,12 @@ class LiteBusCrossbarTest extends AnyFreeSpec with ChiselSim with LiteBusTestHel
         dut.clock.step(); c += 1
       }
       assert(seen._1 && seen._2, "both masters should recover after backpressure release")
+      // The recovered requests are still poked: stop further fireing first (their responses
+      // are already matching and delivered by the next step, freeing the slots), then drop
+      // the poked responses so nothing lingers into the queue-fill phase below.
+      clearReq(dut.io.in(0)); clearReq(dut.io.in(1))
+      dut.clock.step()
+      clearResp(dut.io.out(0)); clearResp(dut.io.out(1))
 
       // Response queue fill: master0 stalled, 8 responses fill the queue, 9th backpressures slave.
       dut.io.in(0).resp.ready.poke(false.B)

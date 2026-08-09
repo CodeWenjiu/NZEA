@@ -89,12 +89,7 @@ object SimElaborate {
         )
         TangNano20kSimTB.emitWrapper(simOut)
       case "tile" =>
-        println(s"Generating tile sim modules: UartRxDisplay + CommitTracker")
-        ChiselStage.emitSystemVerilogFile(
-          new UartRxDisplay(baudDiv = 100_000_000 / 115200),
-          args = Array("--target-dir", simOut),
-          firtoolOpts = firtoolBase
-        )
+        println(s"Generating tile sim modules: CommitTracker")
         ChiselStage.emitSystemVerilogFile(
           new CommitTracker(maxCycles = 50000000),
           args = Array("--target-dir", simOut),
