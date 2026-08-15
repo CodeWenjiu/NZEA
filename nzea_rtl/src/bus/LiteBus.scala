@@ -63,7 +63,12 @@ class LiteBusRegisterSlice(
 
   PipelineConnect(io.in.req, io.out.req)
 
-  // Response side uses a tiny flushable FIFO to cut ready-path timing.
+  // Response side: tiny flushable FIFO + registered dequeue output.
+  // The FIFO stores entries; the dequeue is locked into `respDeqData` and held until
+  // consumed, so `io.in.resp.bits` is register-driven. This cuts the combinational
+  // FIFO-read fanout that previously reached the I-Cache refill path (STA critical:
+  // 129-fanout net from respQ read to SetAssoc.bypassDataReg). Cost: +1 cycle response
+  // latency, which LiteBus allows (no fixed-latency assumption).
   val respQ = Reg(Vec(2, new LiteResp(dataWidth, userWidth, idWidth)))
   val head = RegInit(0.U(1.W))
   val tail = RegInit(0.U(1.W))
@@ -73,27 +78,36 @@ class LiteBusRegisterSlice(
   val canEnq = count =/= 2.U
   val canDeq = count =/= 0.U
 
+  // Dequeue output stage: prefetch the next FIFO entry on the same cycle the current
+  // one is consumed, so back-to-back responses keep one-per-cycle throughput.
+  val respDeqValid = RegInit(false.B)
+  val respDeqData = RegInit(0.U.asTypeOf(new LiteResp(dataWidth, userWidth, idWidth)))
+
   io.out.resp.ready := canEnq && !flush
   io.out.resp.flush := flush
 
-  io.in.resp.valid := canDeq && !flush
-  io.in.resp.bits := Mux(canDeq, respQ(head), 0.U.asTypeOf(new LiteResp(dataWidth, userWidth, idWidth)))
+  io.in.resp.valid := respDeqValid && !flush
+  io.in.resp.bits := respDeqData
 
   val enqFire = io.out.resp.valid && io.out.resp.ready
   val deqFire = io.in.resp.valid && io.in.resp.ready
+  val deqTake = (canDeq && !respDeqValid) || (deqFire && canDeq && count > 1.U)
 
   when(flush) {
     head := 0.U
     tail := 0.U
     count := 0.U
+    respDeqValid := false.B
   }.otherwise {
     when(enqFire) { respQ(tail) := io.out.resp.bits; tail := ~tail }
-    when(deqFire) { head := ~head }
+    when(deqTake) { respDeqData := respQ(head); head := ~head }
+    when(deqFire) { respDeqValid := false.B }
+    when(deqTake) { respDeqValid := true.B }
     count := MuxCase(
       count,
       Seq(
-        (enqFire && !deqFire) -> (count + 1.U),
-        (!enqFire && deqFire) -> (count - 1.U)
+        (enqFire && !deqTake) -> (count + 1.U),
+        (!enqFire && deqTake) -> (count - 1.U)
       )
     )
   }

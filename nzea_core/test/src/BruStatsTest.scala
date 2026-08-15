@@ -1,7 +1,7 @@
 package nzea_core
 
 import circt.stage.ChiselStage
-import nzea_core.backend.integer.BRUStage0
+import nzea_core.backend.integer.BRUStage1
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
 import org.scalatest.freespec.AnyFreeSpec
@@ -22,15 +22,15 @@ class BruStatsTest extends AnyFreeSpec {
       bpu = BpuConfig.typical,
       sim = sim
     )
-    ChiselStage.emitCHIRRTL(new BRUStage0(4, 6))
+    ChiselStage.emitCHIRRTL(new BRUStage1(4, 6))
   }
 
-  "BRUStage0 instantiates BpStats (StatsRegs) when sim=true" in {
+  "BRUStage1 instantiates BpStats (StatsRegs) when sim=true" in {
     val c = chirrtl(sim = true)
     assert(c.contains("inst stats of BpStats"), s"StatsRegs instance missing:\n$c")
   }
 
-  "BRUStage0 has no stats instance when sim=false" in {
+  "BRUStage1 has no stats instance when sim=false" in {
     val c = chirrtl(sim = false)
     assert(!c.contains("BpStats") && !c.contains("stat_"), s"unexpected stats in synth:\n$c")
   }

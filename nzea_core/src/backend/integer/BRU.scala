@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_rtl.{PipeIO, PipelineConnect, StatsRegs}
+import nzea_rtl.{PipeIO, PipelineConnect, PrefixAdder, StatsRegs}
 import nzea_config.core.CoreConfig
 import nzea_config.core.PayloadSpec
 import nzea_core.frontend.PrfWriteBundle
@@ -38,6 +38,21 @@ class BruInput(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) 
   val is_ret = if (PayloadSpec.enabled(PayloadSpec.RetExec)) Some(Bool()) else None
 }
 
+/** BRU stage-0 payload: computed targets/conditions feeding the S1 select + mispredict check.
+  * `is_call`/`is_ret` exist iff the corresponding payload unit is enabled (PayloadSpec).
+  */
+class BruS0Out(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Bundle {
+  val rob_id = UInt(robIdWidth.W)
+  val p_rd = UInt(prfAddrWidth.W)
+  val pc = UInt(32.W)
+  val pred_next_pc = UInt(32.W)
+  val target = UInt(32.W)
+  val pc_plus_4 = UInt(32.W)
+  val is_taken = Bool()
+  val is_call = if (PayloadSpec.enabled(PayloadSpec.CallExec)) Some(Bool()) else None
+  val is_ret = if (PayloadSpec.enabled(PayloadSpec.RetExec)) Some(Bool()) else None
+}
+
 /** BRU stage-1 payload: resolved next_pc, flush (mispredict), is_taken; pc_plus_4 for JAL/JALR; for ROB and IFU.
   * `is_call` exists iff RAS is enabled (PayloadSpec.CallExec).
   */
@@ -52,18 +67,24 @@ class BruS1Out(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) 
   val is_call = if (PayloadSpec.enabled(PayloadSpec.CallExec)) Some(Bool()) else None
 }
 
-/** BRU Stage 0: computes target, is_taken, flush (mispredict). Outputs PipeIO(BruS1Out). */
+/** BRU Stage 0: computes targets (PrefixAdder) and the branch outcome is_taken only.
+  * The mispredict check lives in Stage 1 so the wide comparators are not serialized
+  * behind the adds. Outputs PipeIO(BruS0Out).
+  */
 class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
 
   val io = IO(new Bundle {
     val in = Flipped(new PipeIO(new BruInput(robIdWidth, prfAddrWidth)))
-    val out = new PipeIO(new BruS1Out(robIdWidth, prfAddrWidth))
+    val out = new PipeIO(new BruS0Out(robIdWidth, prfAddrWidth))
   })
 
   val b = io.in.bits
   val bruOpU = b.bruOp.asUInt
   val is_jalr = bruOpU(1)
-  val target = Mux(is_jalr, b.rs1 + b.offset, b.pc + b.offset)
+  // Wide adds on the issue loop use the log-depth prefix adder instead of
+  // ripple-carry; pc+4 feeds both the not-taken path and the pred_taken check.
+  val pc_plus_4 = PrefixAdder(b.pc, 4.U(32.W))
+  val target = PrefixAdder(Mux(is_jalr, b.rs1, b.pc), b.offset)
   val is_jmp = bruOpU(0) || bruOpU(1)
   val eq = b.rs1 === b.rs2
   val ne = b.rs1 =/= b.rs2
@@ -87,15 +108,51 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   )
 
   val is_taken = is_jmp || branchTaken
-  val next_pc = Mux(is_taken, target, b.pc + 4.U)
-  val mispredict = b.pred_next_pc =/= next_pc
+  // ret classification for RAS effectiveness counters (carried from IDU decode).
+  val isRetS0 = b.is_ret.getOrElse(false.B)
+  // RAS push classification at the input stage: JAL/JALR linking to x1.
+  // PIC-style calls encode as `jalr x1, x1, off` (jump-and-link through the
+  // link register), so JALR is a call whenever rd==x1, regardless of rs1.
+  val isJalr = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JALR
+  val isJal = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JAL
+  val isCall = (isJal || isJalr) && b.rd_index.getOrElse(0.U) === 1.U
+
+  io.out.valid := io.in.valid
+  io.out.bits.rob_id := b.rob_id
+  io.out.bits.p_rd := b.p_rd
+  io.out.bits.pc := b.pc
+  io.out.bits.pred_next_pc := b.pred_next_pc
+  io.out.bits.target := target
+  io.out.bits.pc_plus_4 := pc_plus_4
+  io.out.bits.is_taken := is_taken
+  io.out.bits.is_call.foreach(_ := isCall)
+  io.out.bits.is_ret.foreach(_ := isRetS0)
+  io.in.ready := io.out.ready
+  io.in.flush := io.out.flush
+}
+
+/** BRU Stage 1: selects the actual next_pc (off the S0 add chain), resolves the
+  * mispredict, and drives the branch-prediction statistics. Outputs PipeIO(BruS1Out).
+  */
+class BRUStage1(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
+
+  val io = IO(new Bundle {
+    val in = Flipped(new PipeIO(new BruS0Out(robIdWidth, prfAddrWidth)))
+    val flush = Input(Bool())
+    val out = new PipeIO(new BruS1Out(robIdWidth, prfAddrWidth))
+  })
+
+  val b = io.in.bits
+  // Select the actual next_pc here (S1), off the S0 add chain; compare both
+  // candidates in parallel with the mux and merge the single-bit results.
+  val next_pc = Mux(b.is_taken, b.target, b.pc_plus_4)
+  val mispredict = Mux(b.is_taken, b.pred_next_pc =/= b.target, b.pred_next_pc =/= b.pc_plus_4)
   // Direction of the fetch-side prediction (BTB hit && PHT taken) vs actual outcome.
   // pred_taken implies the IFU redirected to the BTB target; dir_mispred splits
   // mispredict into direction errors; the remainder are target errors (JALR etc.).
-  val pred_taken = b.pred_next_pc =/= b.pc + 4.U
-  val dir_mispred = pred_taken =/= is_taken
-  // ret classification for RAS effectiveness counters (carried from IDU decode).
-  val isRetS0 = b.is_ret.getOrElse(false.B)
+  val pred_taken = b.pred_next_pc =/= b.pc_plus_4
+  val dir_mispred = pred_taken =/= b.is_taken
+  val isRetS1 = b.is_ret.getOrElse(false.B)
 
   // Simulation-only branch-prediction statistics. Counter state lives in a
   // StatsRegs black box whose stat_* regs carry /*verilator public_flat_rd*/
@@ -124,13 +181,13 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
     stats.ports("stat_bp_mispred").data := stats.ports("stat_bp_mispred").value + 1.U
     stats.ports("stat_bp_pred_taken").en := io.in.valid && pred_taken
     stats.ports("stat_bp_pred_taken").data := stats.ports("stat_bp_pred_taken").value + 1.U
-    stats.ports("stat_bp_actual_taken").en := io.in.valid && is_taken
+    stats.ports("stat_bp_actual_taken").en := io.in.valid && b.is_taken
     stats.ports("stat_bp_actual_taken").data := stats.ports("stat_bp_actual_taken").value + 1.U
     stats.ports("stat_bp_dir_mispred").en := io.in.valid && dir_mispred
     stats.ports("stat_bp_dir_mispred").data := stats.ports("stat_bp_dir_mispred").value + 1.U
-    stats.ports("stat_bp_ret").en := io.in.valid && isRetS0
+    stats.ports("stat_bp_ret").en := io.in.valid && isRetS1
     stats.ports("stat_bp_ret").data := stats.ports("stat_bp_ret").value + 1.U
-    stats.ports("stat_bp_ret_mispred").en := io.in.valid && isRetS0 && mispredict
+    stats.ports("stat_bp_ret_mispred").en := io.in.valid && isRetS1 && mispredict
     stats.ports("stat_bp_ret_mispred").data := stats.ports("stat_bp_ret_mispred").value + 1.U
   }
 
@@ -139,21 +196,16 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   io.out.bits.p_rd := b.p_rd
   io.out.bits.pc := b.pc
   io.out.bits.next_pc := next_pc
-  io.out.bits.pc_plus_4 := b.pc + 4.U
+  io.out.bits.pc_plus_4 := b.pc_plus_4
   io.out.bits.flush := mispredict
-  io.out.bits.is_taken := is_taken
-  // RAS push classification at the input stage: JAL/JALR linking to x1.
-  // PIC-style calls encode as `jalr x1, x1, off` (jump-and-link through the
-  // link register), so JALR is a call whenever rd==x1, regardless of rs1.
-  val isJalr = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JALR
-  val isJal = BruOp.safe(b.bruOp.asUInt)._1 === BruOp.JAL
-  io.out.bits.is_call.foreach(_ := (isJal || isJalr) && b.rd_index.getOrElse(0.U) === 1.U)
+  io.out.bits.is_taken := b.is_taken
+  io.out.bits.is_call.foreach(_ := b.is_call.getOrElse(false.B))
   io.in.ready := io.out.ready
-  io.in.flush := io.out.flush
+  io.in.flush := io.flush
 }
 
-/** BRU Stage 1: receives BruS1Out, outputs to ROB, PRF, IFU. */
-class BRUStage1(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
+/** BRU Stage 2 (write-back): receives BruS1Out, outputs to ROB, PRF, IFU. */
+class BRUStage2(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
 
   val io = IO(new Bundle {
     val in = Flipped(new PipeIO(new BruS1Out(robIdWidth, prfAddrWidth)))
@@ -190,7 +242,7 @@ class BRUStage1(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   io.in.flush := io.flush
 }
 
-/** BRU: 2-stage pipeline. S0 computes; S1 outputs. PipelineConnect internally. */
+/** BRU: 3-stage pipeline. S0 computes targets; S1 resolves mispredict; S2 writes back. PipelineConnect internally. */
 class BRU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
 
   val io = IO(new Bundle {
@@ -202,15 +254,18 @@ class BRU(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) exten
 
   val s0 = Module(new BRUStage0(robIdWidth, prfAddrWidth))
   val s1 = Module(new BRUStage1(robIdWidth, prfAddrWidth))
+  val s2 = Module(new BRUStage2(robIdWidth, prfAddrWidth))
 
   io.in <> s0.io.in
   io.in.flush := io.out.flush
   s1.io.flush := io.out.flush
+  s2.io.flush := io.out.flush
   PipelineConnect(s0.io.out, s1.io.in)
-  io.rob_access <> s1.io.rob_access
-  io.out.valid := s1.io.out.valid
-  io.out.bits := s1.io.out.bits
-  s1.io.out.ready := io.out.ready
-  s1.io.out.flush := io.out.flush
-  io.bp_update := s1.io.bp_update
+  PipelineConnect(s1.io.out, s2.io.in)
+  io.rob_access <> s2.io.rob_access
+  io.out.valid := s2.io.out.valid
+  io.out.bits := s2.io.out.bits
+  s2.io.out.ready := io.out.ready
+  s2.io.out.flush := io.out.flush
+  io.bp_update := s2.io.bp_update
 }

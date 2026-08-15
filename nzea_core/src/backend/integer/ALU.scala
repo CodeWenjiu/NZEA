@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_rtl.PipeIO
+import nzea_rtl.{MuxTree, PipeIO, PrefixAdder}
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
 
@@ -44,18 +44,40 @@ class ALU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val aluOp = io.in.bits.aluOp
   val shamt = opB(4, 0)
 
-  val add = opA + opB
-  val sub = opA - opB
+  val add = PrefixAdder(opA, opB)
+  val sub = PrefixAdder(opA, ~opB, true.B)
   val and = opA & opB
   val or = opA | opB
   val xor = opA ^ opB
-  val sll = opA << shamt
-  val srl = opA >> shamt
-  val sra = (opA.asSInt >> shamt).asUInt
+  // Tree shifters instead of binary barrel shifters: a binary barrel fans the
+  // shamt bits out to 32 muxes per stage (fanout 32 per bit); a MuxTree applies
+  // constant shifts for free (pure rewiring) and each shamt bit selects at most
+  // 16/8/4/2/1 muxes as the tree narrows, balancing select fanout down 5 levels.
+  val sll = MuxTree(shamt, (0 until 32).map(i => opA << i))
+  val srl = MuxTree(shamt, (0 until 32).map(i => opA >> i))
+  val sra = MuxTree(shamt, (0 until 32).map(i => (opA.asSInt >> i).asUInt))
   val slt = Mux(opA.asSInt < opB.asSInt, 1.U(32.W), 0.U(32.W))
   val sltu = Mux(opA < opB, 1.U(32.W), 0.U(32.W))
 
-  val result = Mux1H(aluOp.asUInt, Seq(add, sub, and, or, xor, sll, srl, sra, slt, sltu))
+  // Group the ten results into four classes, mux inside each class, then a
+  // 4:1 tree on top: the flat 10:1 one-hot select fans out to ~320 loads,
+  // which dominated the result path after the prefix adders were sped up.
+  // Per-class selects fan out only within their class; the top tree sees just
+  // four class-select bits.
+  val aluOpU = aluOp.asUInt
+  val arith = Mux(aluOpU(1), sub, add)
+  val logic = Mux1H(aluOpU(4, 2), Seq(and, or, xor))
+  val shift = Mux1H(aluOpU(7, 5), Seq(sll, srl, sra))
+  val cmp = Mux(aluOpU(9), sltu, slt)
+  val result = Mux1H(
+    Seq(
+      aluOpU(0) || aluOpU(1),
+      aluOpU(2) || aluOpU(3) || aluOpU(4),
+      aluOpU(5) || aluOpU(6) || aluOpU(7),
+      aluOpU(8) || aluOpU(9)
+    ),
+    Seq(arith, logic, shift, cmp)
+  )
 
   val next_pc = io.in.bits.pc + 4.U
   io.rob_access <> Rob.entryStateUpdate(io.in.valid, io.in.bits.rob_id, is_done = true.B, next_pc = next_pc)(robIdWidth)

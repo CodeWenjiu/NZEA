@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
-import nzea_rtl.PipeIO
+import nzea_rtl.{PipeIO, PrefixAdder}
 import nzea_core.retire.rob.{Rob, LsWriteReq}
 
 /** LsuOp: one-hot (LB, LH, LW, LBU, LHU, SB, SH, SW). Kept for decode/AGU. */
@@ -42,7 +42,7 @@ class AGU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Module {
     val ls_write   = new PipeIO(new LsWriteReq(lsqIdWidth))
   })
 
-  val addr      = io.in.bits.base + io.in.bits.imm
+  val addr      = PrefixAdder(io.in.bits.base, io.in.bits.imm)
   val addr2     = addr(1, 0)
   val storeData = io.in.bits.storeData
   val sbStrb = Mux(addr2 === 0.U, "b0001".U(4.W), Mux(addr2 === 1.U, "b0010".U(4.W), Mux(addr2 === 2.U, "b0100".U(4.W), "b1000".U(4.W))))
@@ -51,7 +51,7 @@ class AGU(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int) extends Module {
   val wstrb = Mux1H(io.in.bits.lsuOp.asUInt, Seq(0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), 0.U(4.W), sbStrb, shStrb, swStrb))
   val wdata = storeData << (addr2 * 8.U)
 
-  val next_pc = io.in.bits.pc + 4.U
+  val next_pc = PrefixAdder(io.in.bits.pc, 4.U(32.W))
   io.rob_access <> Rob.entryStateUpdate(
     io.in.valid, io.in.bits.rob_id, false.B,
     next_pc = next_pc)(robIdWidth)
