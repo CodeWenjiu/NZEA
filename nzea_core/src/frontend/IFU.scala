@@ -7,8 +7,8 @@ import nzea_core.frontend.bp.{BTB, BpUpdate, PHT, RAS, RasUpdate}
 import nzea_rtl.LiteBusRW
 import nzea_config.core.CoreConfig
 
-/** Ibus user field layout: {pred_next_pc, pc, epoch}. epoch tags every request; on redirect it increments.
-  * Responses with a stale epoch are drained — Rocket‑Chip / XiangShan style.
+/** Ibus user field layout: {pred_next_pc, pc, epoch}. epoch tags every request; on redirect it increments. Responses
+  * with a stale epoch are drained — Rocket‑Chip / XiangShan style.
   */
 object IbusUser {
   val epochBits = 4
@@ -69,6 +69,7 @@ class IFU(implicit config: CoreConfig) extends Module {
     r.io.pop := io.ras_update.valid && io.ras_update.bits.is_ret
     r
   }
+
   private val rasTop = ras.map(_.io.top).getOrElse(0.U(32.W))
 
   // ── RAS redirect ──
@@ -77,13 +78,23 @@ class IFU(implicit config: CoreConfig) extends Module {
   // RAS top and redirect fetch to it next cycle (epoch++ drains the wrongly
   // fetched sequential instructions in flight). When the RAS top matches the
   // real return address, the ret no longer mispredicts at the BRU.
+  //
+  // The epoch bump / pc redirect must be gated on the ret actually firing
+  // downstream (`io.out.fire`): if the ret is stalled at the IFU output
+  // (`out.valid && !out.ready`), bumping the epoch would invalidate the ret's
+  // own response (`epochMatch` -> 0) and drop it from the stream — the ret is
+  // never dispatched, yet the redirected target instructions get committed
+  // ahead of it (observed in core-target difftest: ret at 0x800109b0 dropped,
+  // next commit skipped to the return-target lw). While stalled, hold the ret
+  // valid until it fires, then redirect.
   val instIsRet = io.out.valid && io.out.bits.inst(6, 0) === 0x67.U(7.W) &&
     io.out.bits.inst(19, 15) === 1.U && io.out.bits.inst(11, 7) =/= 1.U
   val rasRedirect = ras.map(r => instIsRet && r.io.top_valid).getOrElse(false.B)
+  val rasRedirectFire = io.out.fire && rasRedirect
 
   // ── Epoch counter ──
   private val epoch = RegInit(0.U(IbusUser.epochBits.W))
-  when(io.out.flush) { epoch := epoch + 1.U }
+  when(io.out.flush || rasRedirectFire) { epoch := epoch + 1.U }
 
   val pc_update = io.bus.req.fire
 
@@ -93,7 +104,7 @@ class IFU(implicit config: CoreConfig) extends Module {
   when(pc_update) { started := true.B }
 
   val pred_next_pc = Mux(
-    RegNext(io.out.flush, false.B) || RegNext(rasRedirect, false.B),
+    RegNext(io.out.flush, false.B) || RegNext(rasRedirectFire, false.B),
     pc + 4.U,
     Mux(started && pht.io.pred_taken && btb.io.pred_hit, btb.io.pred_target, pc + 4.U)
   )
@@ -126,7 +137,7 @@ class IFU(implicit config: CoreConfig) extends Module {
   io.bus.req.bits.id := 0.U
 
   when(io.out.flush) { pc := io.redirect_pc }
-    .elsewhen(rasRedirect) { pc := rasTop }
+    .elsewhen(rasRedirectFire) { pc := rasTop }
     .elsewhen(pc_update) { pc := pred_next_pc }
 
   io.bus.resp.flush := io.out.flush
@@ -134,14 +145,14 @@ class IFU(implicit config: CoreConfig) extends Module {
   private val respEpoch = IbusUser.epoch(addrWidth, io.bus.resp.bits.user)
   private val epochMatch = respEpoch === epoch
 
-  when(rasRedirect) { epoch := epoch + 1.U }
-
   io.out.bits.pc := IbusUser.pc(addrWidth, io.bus.resp.bits.user)
+
   io.out.bits.pred_next_pc := Mux(
     rasRedirect,
     rasTop,
     IbusUser.predNextPc(addrWidth, io.bus.resp.bits.user)
   )
+
   io.out.bits.inst := io.bus.resp.bits.data
   io.out.valid := io.bus.resp.valid && !io.out.flush && epochMatch
   io.bus.resp.ready := io.out.ready || io.out.flush || !epochMatch

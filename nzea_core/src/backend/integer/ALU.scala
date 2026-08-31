@@ -1,7 +1,7 @@
 package nzea_core.backend.integer
 
 import chisel3._
-import chisel3.util.{Mux1H, Valid}
+import chisel3.util.{Fill, Mux1H, Valid}
 import nzea_rtl.{MuxTree, PipeIO, PrefixAdder}
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.retire.rob.Rob
@@ -55,7 +55,15 @@ class ALU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   // 16/8/4/2/1 muxes as the tree narrows, balancing select fanout down 5 levels.
   val sll = MuxTree(shamt, (0 until 32).map(i => opA << i))
   val srl = MuxTree(shamt, (0 until 32).map(i => opA >> i))
-  val sra = MuxTree(shamt, (0 until 32).map(i => (opA.asSInt >> i).asUInt))
+  // Arithmetic right shift: CIRCT constant-folds `asUInt(shr(sint, const))`
+  // into a logical shift (sign bit lost) — verified against firtool 1.147 and
+  // the microbench sieve difftest (srai a1,a0,0x11: ref 0xffffde70 vs dut
+  // 0x00005e70). So MuxTree over SInt constant shifts is broken. Derive sra
+  // from srl + explicit sign-fill: when the sign bit is set, OR in the
+  // shifted-out high bits (mask is a MuxTree of constant literals, pure
+  // rewiring — no dynamic barrel shifter on the critical path).
+  val sraMask = MuxTree(shamt, (0 until 32).map(i => if (i == 0) 0.U(32.W) else 0xffffffffL.U(32.W) << (32 - i)))
+  val sra = srl | (sraMask & Fill(32, opA(31)))
   val slt = Mux(opA.asSInt < opB.asSInt, 1.U(32.W), 0.U(32.W))
   val sltu = Mux(opA < opB, 1.U(32.W), 0.U(32.W))
 
@@ -69,6 +77,7 @@ class ALU(robIdWidth: Int, prfAddrWidth: Int) extends Module {
   val logic = Mux1H(aluOpU(4, 2), Seq(and, or, xor))
   val shift = Mux1H(aluOpU(7, 5), Seq(sll, srl, sra))
   val cmp = Mux(aluOpU(9), sltu, slt)
+
   val result = Mux1H(
     Seq(
       aluOpU(0) || aluOpU(1),
