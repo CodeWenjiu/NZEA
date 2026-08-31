@@ -1,8 +1,7 @@
-package nzea_core
+package nzea_core.frontend.bp
 
 import chisel3._
 import chiseltest._
-import nzea_core.frontend.bp.PHT
 import org.scalatest.flatspec.AnyFlatSpec
 
 /** PHT (PC-indexed 2-bit saturating counters) behavior. */

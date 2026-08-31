@@ -1,4 +1,4 @@
-package nzea_core
+package nzea_core.dpi
 
 import circt.stage.ChiselStage
 import org.scalatest.freespec.AnyFreeSpec
@@ -10,11 +10,11 @@ import org.scalatest.freespec.AnyFreeSpec
 class DbusMemBridgeTest extends AnyFreeSpec {
 
   "DbusMemBridge elaborates" in {
-    ChiselStage.emitSystemVerilog(new nzea_core.dpi.DbusMemBridge(32, 32, 1))
+    ChiselStage.emitSystemVerilog(new DbusMemBridge(32, 32, 1))
   }
 
   "DbusDpiBridge elaborates" in {
-    ChiselStage.emitSystemVerilog(new nzea_core.dpi.DbusDpiBridge(32, 32, 1, 1))
+    ChiselStage.emitSystemVerilog(new DbusDpiBridge(32, 32, 1, 1))
   }
 
 }

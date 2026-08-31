@@ -1,10 +1,9 @@
-package nzea_core
+package nzea_core.frontend
 
 import chisel3._
 import chiseltest._
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
-import nzea_core.frontend.IFU
 import org.scalatest.flatspec.AnyFlatSpec
 
 /** IFU RAS redirect: a `ret` recognized at the IFU output must be delivered to the downstream even when it is stalled

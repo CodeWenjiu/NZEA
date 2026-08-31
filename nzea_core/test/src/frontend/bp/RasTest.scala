@@ -1,8 +1,7 @@
-package nzea_core
+package nzea_core.frontend.bp
 
 import chisel3._
 import chiseltest._
-import nzea_core.frontend.bp.RAS
 import org.scalatest.flatspec.AnyFlatSpec
 
 /** RAS stack behavior: LIFO push/pop, empty-stack pop ignored, full-stack push dropped. */

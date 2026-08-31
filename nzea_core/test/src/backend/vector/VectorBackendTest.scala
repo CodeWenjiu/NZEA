@@ -1,7 +1,6 @@
-package nzea_core
+package nzea_core.backend.vector
 
 import _root_.circt.stage.ChiselStage
-import nzea_core.backend.vector.VectorBackend
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
 import org.scalatest.funsuite.AnyFunSuite

@@ -1,8 +1,7 @@
-package nzea_core
+package nzea_core.backend.integer
 
 import chisel3._
 import chiseltest._
-import nzea_core.backend.integer.{ALU, AluOp}
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
 import org.scalatest.flatspec.AnyFlatSpec
