@@ -35,7 +35,7 @@ impl Pulse {
                 args.root.as_deref(),
             ),
             Command::Signal(args) => self.signal(&args.scope),
-            Command::Value(args) => self.value(&args.scope, &args.at, &args.signals),
+            Command::Value(args) => self.value(&args.scope, &args.at, &args.signals, &args.radix),
             Command::Property(args) => self.property(
                 args.scope.as_deref(),
                 &args.on,

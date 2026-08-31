@@ -33,6 +33,7 @@ Before using any command in a nontrivial way, read `pulse help <command>`. Do th
 - State at explicit timestamp(s) or ranges: `value`.
 - Timestamps/ranges where a boolean or temporal event expression is true: `property`.
 - Event files and cross-module composition: `property --event` + `--eval` (see below).
+- Counting event occurrences (match counts, no range lists): `property --count`.
 - Machine parsing or aggregation: `--json` on every command.
 
 Start most investigations with:
@@ -49,11 +50,6 @@ When names are unknown, use built-in discovery before shell filtering large outp
 markers for unexpanded children. Use `--root <PATH>` to start from a specific
 scope and `--depth <N>` to limit expansion.
 
-`--depth` (default 2) also bounds `--filter`/`--root` traversal: deep scopes
-like `TOP.NzeaTile.core.ifu.btb` (depth 4) are silently invisible at the
-default depth. For full-hierarchy searches pass a large depth explicitly:
-`--depth 10 --flat`.
-
 ## Naming discipline
 
 Choose one naming mode per command:
@@ -61,6 +57,16 @@ Choose one naming mode per command:
 - With `--scope <SCOPE>`, use signal names relative to that scope in `--signals`, `--eval`, `--on`, and `--event` files.
 - Do not mix `--scope TOP.NzeaTile.icache` with references like `TOP.NzeaTile.icache.clock` in the same query.
 - If name lookup fails, run `scope`, then `signal --scope <SCOPE>`, then rewrite the query in one naming mode.
+
+SCOPE accepts a `*` glob pattern that must match **exactly one** scope in the
+whole hierarchy — hierarchy-agnostic, so the same query works for tile-level
+and core-level dumps:
+
+    pulse signal --scope '*icache'          # TOP.NzeaTile.icache or TOP.icache
+    pulse value  --scope '*.core.ifu.ras'   # unique match required
+
+Zero matches and multiple matches are both errors (multiple lists the
+candidates). Prefer `*` patterns over hardcoding `TOP.NzeaTile...` paths.
 
 ## Event definitions and cross-module composition
 
@@ -77,6 +83,7 @@ An event set binds a source to a scope and gives it a namespace name:
 - `--event SOURCE SCOPE NAME` consumes **three separate arguments** (repeatable).
   SOURCE is either a `.pulse` file or an inline `name = expr` string; quote the
   inline source when it contains spaces: `--event "bus_transfer = req_valid && req_ready -> resp_valid" TOP.NzeaTile.icache Icache`.
+  SCOPE accepts the same `*` unique-match glob as `--scope`.
 - Inside the eval expression, `Namespace.name` references a defined event;
   bare names resolve to the `--scope` (default: top-level module).
 - Inline sources also work, but must be written **without spaces** (the tuple
@@ -94,14 +101,61 @@ temporal operators binding tighter:
 | `a && b` / `a \|\| b` / `!a` | Boolean composition (any nesting, parentheses) |
 | `a -> b` | first `b` after each `a` (non-overlapping FIFO pairing) |
 | `a ->N b` | `b` exactly N cycles after `a` |
-| `a --N b` | `b` within N cycles after `a` |
+| `a --N b` | `b` within N cycles **after** `a` (a is the origin; matches a) |
+| `a N-- b` | `b` within N cycles **before** `a` (matches a) |
+| `a N--M b` | `b` within `[N before, M after]` `a` — two-sided window (matches a) |
 | `a ~> b` | every `b` after `a` (overlapping) |
 | `a ~~ b` | interval from `a` to `b` (emits a range) |
 | `a |-> b` | `a` implies `b` in the same cycle |
 | `a >>N b` | pipeline sequence: `a`, then `b` after N cycles |
 | `sig[N]` | `sig` true for N consecutive cycles |
 
+Value comparisons bind tighter than `&&`/`||`; operands are signals or
+integer literals (decimal or `0x` hex):
+
+| Syntax | Meaning |
+|--------|---------|
+| `a == b` / `a != b` | integer equality / inequality |
+| `a < b` / `a <= b` / `a > b` / `a >= b` | integer comparison |
+
+    pulse property --scope '*icache' \
+        --eval 'io_top_req_valid && io_top_req_bits_addr >= 0x80000000 && io_top_req_bits_addr < 0x88000000'
+
+Comparisons read multi-bit signals as unsigned integers; X/Z values make the
+comparison false for that cycle. Composite boolean expressions are usable as
+operands too (0/1).
+
+Standard-library functions (call syntax; every function is a template
+written in the temporal language itself — the evaluator has no built-in
+functions):
+
+| Function | Meaning |
+|----------|---------|
+| `rise(sig)` | `!sig ->1 sig` — rising edge |
+| `fall(sig)` | `sig ->1 !sig` — falling edge |
+| `stable(sig)` | `(sig ->1 sig) \|\| (!sig ->1 !sig)` — no change |
+
+    pulse property --scope '*icache' \
+        --eval 'rise(io_top_req_valid && io_top_req_ready)'
+
+Stdlib functions may be used inside `.pulse` event files too (e.g.
+`bp.pulse` defines `fetch_continue = fetch_fire ->1 1`). Adding a new
+library function is a one-line template in
+`pulse_wave/src/cmd/property/expr/std.pulse` — but only add functions that
+express something the core syntax does not already say concisely (`&&`
+aliases are noise).
+
+Before the window start there is no history: the `->n` lookback is false,
+so `rise`/`fall`/`stable` do not fire on the very first cycle. `rise(x)`
+fires on the cycle *after* `x` turns true.
+
 All temporal operators are composable: `miss ->3 (resp && !err)`, `(a -> b) && c`.
+
+The window operator has one origin semantics: `a --N b`, `a N-- b` and
+`a N--M b` are the same operator with `a` as the origin (the match is
+reported on `a`'s cycle, and the window may reach into the future — the
+waveform is fully loaded, so lookahead is free). `--N` and `N--` are
+shorthand for `0--N` and `N--0`.
 
 ## Time windows and search speed
 
@@ -110,17 +164,21 @@ All temporal operators are composable: `miss ->3 (resp && !err)`, `(a -> b) && c
 - Prefer a strong `--cycles` window over `--max`: evaluation scans the whole
   window, so a narrow window is the primary speed lever. `--max` only truncates
   the output afterwards; it does not speed up the search.
-- Before a full-trace query, validate names and syntax on a narrow window
-  first (e.g. `--cycles 0-1000`): a typo otherwise costs a full scan of a
-  large dump.
-- Batch several queries into one shell invocation — each pulse process parses
-  the dump header anew, so one trace serves many cheap queries.
 - `value --at` takes ticks with optional units: `100`, `200-400`, `100-`
-  (open-ended, clamped to the last tick), `-100` (from start), or a
-  comma-separated mix. `200-400` emits one row per tick in the range.
-- To inspect state at event times: run `property --eval <cond> --max 5` to
-  get timestamps, then `value --at <t1,t2,...>` for the values at those
-  points.
+  (open-ended, clamped to the last tick), `-100` (from start), `~N` (last N
+  ticks), or a comma-separated mix. `200-400` emits one row per tick in the range.
+- `value --at -N` means **from the start** (`0..=N`), NOT "last N ticks" — the
+  same convention as `--cycles -N` (first N cycles). Use `~N` for the tail:
+  `--at ~100` samples the last 100 ticks.
+- `--cycles ~N` selects the **last N cycles** (e.g. `--cycles ~50` scans the
+  final 50 clock edges).
+- `--wave` is a global option: it may appear before the subcommand
+  (`pulse --wave F info`) or after it (`pulse info --wave F`).
+- `value --radix <bin|hex|dec|oct>` renders multi-bit signals in the chosen
+  radix (default `bin`, the original behavior). E.g. `--radix hex` prints
+  `io_top=80010eec` instead of a 32-bit 0/1 string. One-bit signals are
+  unaffected (always 0/1). Works for both JSON and text output; X/Z values or
+  vectors wider than 64 bits fall back to binary.
 
 ## RTL event model
 
@@ -128,6 +186,20 @@ For synchronous RTL, the default mental model is one evaluation per clock
 cycle:
 
     pulse property --scope <SCOPE> --on "posedge clock" --eval "<cond>" --cycles FROM-TO
+
+`--eval` is repeatable: each expression becomes one column of a union table
+(rows are time segments partitioned by all match endpoints, cells are 0/1),
+so several events can be aligned cycle-by-cycle in a single scan:
+
+    pulse property --scope '*icache' \
+        --eval 'io_top_req_valid && io_top_req_ready' \
+        --eval 'io_top_resp_valid' \
+        --cycles 0-3000
+
+`--count` prints match counts instead of ranges (single `--eval`: one number;
+multiple: an expr/count table). It is mutually exclusive with `--max` and
+counts **all** matches in the window, so it is the cheap way to quantify an
+event (e.g. cross-checking `stat_*` counters).
 
 `--on` defaults to `posedge clock`; only `posedge` is supported for now.
 Temporal operators such as `->` and `~~` do their own pairing; they are not
@@ -140,13 +212,19 @@ Every command supports `--json`:
 - `info`: `time_scale`, `time_start`, `time_end`, `top_scopes`
 - `scope`: tree nodes `{name, depth, expanded?}` or flat `{path}` list
 - `value`: `{scope, signals, samples: [{time, <sig>: value, ...}]}`
-- `property`: `{from, to, total_cycles, max?, matches: [<t> | {from,to}]}`
+- `property` (single `--eval`): `{from, to, total_cycles, max?, matches: [<t> | {from,to}]}`
+- `property --count` (single `--eval`): `{from, to, total_cycles, count}`
+- `property` (multiple `--eval`): `{from, to, total_cycles, max?, columns: [{name, matches}]}`
+- `property --count` (multiple `--eval`): `{from, to, total_cycles, columns: [{name, count}]}`
 
-`property` matches are scalar ticks for point events and `{from,to}` objects
-for interval events (`~~`). Count matches with `matches.len()`, or pipe text
-output to `wc -l`. The nix shell has no `jq` — do not pipe pulse output into
-tools that may not exist (a closed pipe panics the CLI with a broken-pipe
-error).
+`property` matches are **cycle indices** (the Nth posedge-clock edge) for point
+events and `{from,to}` objects for interval events (`~~`). This matches the
+`from`/`to`/`total_cycles` fields and the `--cycles` window, so all of
+`property`'s output is in one unit. To sample signal values at a matched cycle,
+convert to a tick and use `value --at`: the Nth posedge of `clock` has tick
+`2*N` in a 2x-timescale dump (tick = cycle*2 when `posedge` and `negedge` both
+dump; verify with `pulse info` `time_end` vs `property --count` `total_cycles`,
+ratio = ticks per cycle).
 
 ## Recovery patterns
 
@@ -157,9 +235,6 @@ error).
   signal names with `signal`.
 - If an `--event` source is not found, it is treated as an inline definition
   and fails with `expected 'name = expr'` — pass the correct relative path.
-- When sampling multiple signals with `value`, sanity-check one row against a
-  known invariant (e.g. `pc` advancing by 4) before trusting the output; a
-  1-bit signal displaying a 32-bit value signals misalignment.
 
 ## Nzea project specifics
 
@@ -171,11 +246,3 @@ error).
   bind with `--event`.
 - Agent must run pulse via `nix develop --command bash -c '...'` (same as all
   Nix-dependent tools).
-- For rates (mispredict, hit rate), prefer RTL `stat_*` counters (StatsRegs,
-  read via remu `stat print`) over scanning the whole trace: one run yields
-  exact branch-granularity numbers. Waveform `property` counts include stall
-  cycles for free-running signals (PHT/BTB outputs sampled every cycle), so
-  gate them with fetch-enable signals (e.g. IFU `pred_next_pc_REG_1`) or
-  count on the consumer side (e.g. BRU `io_bp_update_valid`) to approximate
-  event counts; expect a residual mismatch with stat (valid-cycle vs
-  passed-register counting through PipelineConnect).

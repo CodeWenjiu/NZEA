@@ -165,8 +165,20 @@ shorthand for `0--N` and `N--0`.
   window, so a narrow window is the primary speed lever. `--max` only truncates
   the output afterwards; it does not speed up the search.
 - `value --at` takes ticks with optional units: `100`, `200-400`, `100-`
-  (open-ended, clamped to the last tick), `-100` (from start), or a
-  comma-separated mix. `200-400` emits one row per tick in the range.
+  (open-ended, clamped to the last tick), `-100` (from start), `~N` (last N
+  ticks), or a comma-separated mix. `200-400` emits one row per tick in the range.
+- `value --at -N` means **from the start** (`0..=N`), NOT "last N ticks" — the
+  same convention as `--cycles -N` (first N cycles). Use `~N` for the tail:
+  `--at ~100` samples the last 100 ticks.
+- `--cycles ~N` selects the **last N cycles** (e.g. `--cycles ~50` scans the
+  final 50 clock edges).
+- `--wave` is a global option: it may appear before the subcommand
+  (`pulse --wave F info`) or after it (`pulse info --wave F`).
+- `value --radix <bin|hex|dec|oct>` renders multi-bit signals in the chosen
+  radix (default `bin`, the original behavior). E.g. `--radix hex` prints
+  `io_top=80010eec` instead of a 32-bit 0/1 string. One-bit signals are
+  unaffected (always 0/1). Works for both JSON and text output; X/Z values or
+  vectors wider than 64 bits fall back to binary.
 
 ## RTL event model
 
@@ -205,8 +217,14 @@ Every command supports `--json`:
 - `property` (multiple `--eval`): `{from, to, total_cycles, max?, columns: [{name, matches}]}`
 - `property --count` (multiple `--eval`): `{from, to, total_cycles, columns: [{name, count}]}`
 
-`property` matches are scalar ticks for point events and `{from,to}` objects
-for interval events (`~~`).
+`property` matches are **cycle indices** (the Nth posedge-clock edge) for point
+events and `{from,to}` objects for interval events (`~~`). This matches the
+`from`/`to`/`total_cycles` fields and the `--cycles` window, so all of
+`property`'s output is in one unit. To sample signal values at a matched cycle,
+convert to a tick and use `value --at`: the Nth posedge of `clock` has tick
+`2*N` in a 2x-timescale dump (tick = cycle*2 when `posedge` and `negedge` both
+dump; verify with `pulse info` `time_end` vs `property --count` `total_cycles`,
+ratio = ticks per cycle).
 
 ## Recovery patterns
 

@@ -132,10 +132,18 @@ impl crate::Pulse {
 
         // ── Slice cycles per --cycles ───────────────────────────
         let (from, to) = match cycles {
-            Some(r) => (
-                *r.0.start() as usize,
-                (*r.0.end() as usize).min(all_cycles.len()),
-            ),
+            Some(r) => {
+                // `--cycles ~N` → last N cycles.
+                if let Some(n) = r.tail_n() {
+                    let n = (n as usize).min(all_cycles.len());
+                    (all_cycles.len() - n, all_cycles.len())
+                } else {
+                    (
+                        *r.0.start() as usize,
+                        (*r.0.end() as usize).min(all_cycles.len()),
+                    )
+                }
+            }
             None => (0, all_cycles.len()),
         };
         if from >= all_cycles.len() {
@@ -163,6 +171,28 @@ impl crate::Pulse {
         }
         let cycles = &all_cycles[from..to];
 
+        // tick → global cycle index (from + local index). The evaluator works
+        // in ticks (temporal pairing needs absolute time); we map its output
+        // back to cycle indices so that `from`/`to`/`total_cycles`/`matches`
+        // are all in the same unit (cycle numbers, matching the `--cycles`
+        // window).
+        let tick_to_cycle: std::collections::BTreeMap<u64, usize> = cycles
+            .iter()
+            .enumerate()
+            .map(|(i, &(_tt_idx, t))| (t, from + i))
+            .collect();
+        let map_tick_range = |r: &crate::SerdeRange<u64>| -> crate::SerdeRange<u64> {
+            let s = tick_to_cycle
+                .get(r.0.start())
+                .copied()
+                .unwrap_or(*r.0.start() as usize) as u64;
+            let e = tick_to_cycle
+                .get(r.0.end())
+                .copied()
+                .unwrap_or(*r.0.end() as usize) as u64;
+            crate::SerdeRange(s..=e)
+        };
+
         // ── Evaluate all expressions ────────────────────────────
         let read_signal = |name: &str, cycle_idx: usize| -> bool {
             if let Some(sig) = signal_sigs.get(name) {
@@ -186,6 +216,9 @@ impl crate::Pulse {
             .map(|(name, ast)| {
                 let mut matches =
                     super::expr::eval::eval_temporal(ast, cycles, &read_signal, &read_value);
+                for r in matches.iter_mut() {
+                    *r = map_tick_range(r);
+                }
                 if let Some(n) = max {
                     matches.truncate(n);
                 }

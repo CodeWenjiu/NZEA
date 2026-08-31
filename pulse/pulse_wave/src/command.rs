@@ -17,7 +17,7 @@ use crate::SerdeRange;
 )]
 pub struct PulseCommand {
     /// Path to VCD/FST waveform file (default: $NZEA_TRACE_FST)
-    #[arg(long, value_name = "FILE", env = "NZEA_TRACE_FST")]
+    #[arg(long, value_name = "FILE", env = "NZEA_TRACE_FST", global = true)]
     pub wave: PathBuf,
 
     /// Output machine-readable JSON instead of human-readable text
@@ -93,6 +93,10 @@ pub struct ValueArgs {
     /// Comma-separated signal names to sample
     #[arg(long, value_name = "NAMES", value_delimiter = ',')]
     pub signals: Vec<String>,
+
+    /// Radix for multi-bit signals (default: bin). One-bit signals always print 0/1.
+    #[arg(long, value_name = "RADIX", default_value = "bin", value_parser = ["bin", "hex", "dec", "oct"])]
+    pub radix: String,
 }
 
 #[derive(Debug, clap::Args)]
