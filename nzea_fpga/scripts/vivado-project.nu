@@ -6,8 +6,8 @@
 # manual `just vivado-project` flow and the automatic `just dump` flow.
 #
 # Usage:
-#   nu nzea_fpga/scripts/vivado-project.nu --board lxb_artix7 [--enable-ila]
-#   nu nzea_fpga/scripts/vivado-project.nu --dev xc7a200t-sbg484-1 [--enable-ila]
+#   nu nzea_fpga/scripts/vivado-project.nu --board lxb_artix7
+#   nu nzea_fpga/scripts/vivado-project.nu --dev xc7a200t-sbg484-1
 
 const chips_script = (path self . | path join "chips.nu")
 source $chips_script
@@ -16,7 +16,6 @@ def main [
     --dev: string        # device key from chips.nu (mutually exclusive with --board)
     --board: string      # board segment from chips.nu (mutually exclusive with --dev)
     --isa: string = "riscv32im"
-    --enable-ila         # also create the ILA IP (u_ila_0)
 ] {
     let use_board = ($board | is-not-empty)
     let chip = (
@@ -43,13 +42,23 @@ def main [
     # Board-specific IP creation snippets (Xilinx clk_wiz/ILA); sourced by edalize.
     let ip_dir = $"nzea_fpga/src/boards/($chip.board)"
     let ip_clk_wiz = $"($ip_dir)/ip_clk_wiz.tcl"
-    let ip_ila = $"($ip_dir)/ip_ila.tcl"
+
+    # The ILA is enabled by instantiating the IlaProbes wrapper in the board top
+    # (debugging only). Because that wrapper is a plain Module, firtool emits it as
+    # a standalone IlaProbes.sv file exactly when it is instantiated and drops it
+    # otherwise; FpgaElaborate then writes an ila_config.json carrying the probe
+    # widths. The *presence of that file* is the single source of truth: creating
+    # the ILA IP follows the RTL instantiation with no separate switch to keep in
+    # sync. vivado-project.py reads ila_config.json and generates the ILA IP
+    # snippet with the exact probe widths.
+    let rtl_has_ila = ($"($rtl_dir)/ila_config.json" | path exists)
+    if $rtl_has_ila {
+        print "RTL instantiates IlaProbes — enabling ILA IP"
+    }
 
     # Collect existing IP snippets as expanded absolute paths.
     let ip_tcls = (
         if ($ip_clk_wiz | path exists) { [ ($ip_clk_wiz | path expand) ] } else { [] }
-    ) | append (
-        if ($enable_ila) and ($ip_ila | path exists) { [ ($ip_ila | path expand) ] } else { [] }
     )
 
     let vivado_dir = $"($rtl_dir)/vivado" | path expand

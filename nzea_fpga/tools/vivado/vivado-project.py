@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import glob
+import json
 import os
 import shutil
 import subprocess
@@ -58,6 +59,32 @@ def build_edam(rtl_dir, part, xdc_path, ip_tcl_paths, top):
     files.append({"name": to_windows_path(os.path.abspath(xdc_path)), "file_type": "xdc"})
     for ip_tcl in ip_tcl_paths:
         files.append({"name": to_windows_path(os.path.abspath(ip_tcl)), "file_type": "tclSource"})
+
+    # If the RTL instantiates the ILA wrapper, FpgaElaborate wrote ila_config.json
+    # with the probe widths (single source of truth, see IlaProbes.scala). Generate
+    # the ILA IP snippet from it so the Vivado IP matches the RTL interface.
+    ila_cfg = os.path.join(rtl_dir, "ila_config.json")
+    if os.path.exists(ila_cfg):
+        with open(ila_cfg) as f:
+            cfg = json.load(f)
+        width_lines = "".join(
+            f"  CONFIG.C_PROBE{i}_WIDTH {w} \\\n"
+            for i, w in enumerate(cfg.get("widths", []))
+        )
+        depth = cfg.get("depth", 4096)
+        nprobes = len(cfg.get("widths", []))
+        ila_tcl = f"""# Auto-generated ILA IP snippet (from ila_config.json)
+create_ip -name ila -vendor xilinx.com -library ip -module_name u_ila_0
+set_property -dict [list \\
+  CONFIG.C_DATA_DEPTH {depth} \\
+  CONFIG.C_NUM_OF_PROBES {nprobes} \\
+{width_lines}] [get_ips u_ila_0]
+generate_target all [get_ips u_ila_0]
+"""
+        ila_tcl_path = os.path.join(rtl_dir, "ip_ila_generated.tcl")
+        with open(ila_tcl_path, "w") as f:
+            f.write(ila_tcl)
+        files.append({"name": to_windows_path(os.path.abspath(ila_tcl_path)), "file_type": "tclSource"})
 
     return {
         "name": "nzea_fpga",
