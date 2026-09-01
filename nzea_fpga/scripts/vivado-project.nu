@@ -1,51 +1,63 @@
 #!/usr/bin/env nu
 
-# Generate a Vivado project under build/fpga/<board>/<isa>/hw/vivado/
-# Usage: nu nzea_fpga/scripts/vivado-project.nu --dev xc7a200t-sbg484-1
+# Generate a Vivado project for a Xilinx board using edalize.
+# All board-specific parameters (part, top module, XDC, IP snippets) are read
+# from chips.nu, so this script is the single entry point shared by both the
+# manual `just vivado-project` flow and the automatic `just dump` flow.
+#
+# Usage:
+#   nu nzea_fpga/scripts/vivado-project.nu --board lxb_artix7 [--enable-ila]
+#   nu nzea_fpga/scripts/vivado-project.nu --dev xc7a200t-sbg484-1 [--enable-ila]
 
 const chips_script = (path self . | path join "chips.nu")
 source $chips_script
 
 def main [
-    --dev: string       # device key from chips.nu
-    --isa: string = "riscv32i"
-    --clock-hz: int = 100_000_000
+    --dev: string        # device key from chips.nu (mutually exclusive with --board)
+    --board: string      # board segment from chips.nu (mutually exclusive with --dev)
+    --isa: string = "riscv32im"
+    --enable-ila         # also create the ILA IP (u_ila_0)
 ] {
-    let chip = (chip_info $dev)
+    let use_board = ($board | is-not-empty)
+    let chip = (
+        if $use_board { chip_by_board $board }
+        else if ($dev | is-not-empty) { chip_info $dev }
+        else { error make -u { msg: "Must specify --board or --dev" } }
+    )
     if $chip.synth != "synth_xilinx" {
-        print $"Error: ($dev) is not a Xilinx device"
+        print $"Error: board ($chip.board) is not a Xilinx device"
         exit 1
     }
 
-    let rtl_dir = $"build/fpga/($chip.board)/($isa)/hw"
+    let rtl_dir = $"build/fpga/($chip.board)/($isa)/hw" | path expand
     if not ($rtl_dir | path exists) {
         print $"FPGA RTL not found at ($rtl_dir)"
         print "Run: just dump --target fpga --fpgaBoard <board> --isa <isa> --sim false"
         exit 1
     }
 
-    let vivado_dir = $"($rtl_dir)/vivado"
-    mkdir $vivado_dir
-
     let xdc  = $chip.cst | path expand
     let part = $chip.part
+    let top  = $chip.top_module
 
-    # list all .sv files in RTL dir (for explicit add_files)
-    let sv_files = (glob $"($rtl_dir)/*.sv")
-    let add_sv_lines = $sv_files | each {|f| $"add_files -norecurse ($f)" }
+    # Board-specific IP creation snippets (Xilinx clk_wiz/ILA); sourced by edalize.
+    let ip_dir = $"nzea_fpga/src/boards/($chip.board)"
+    let ip_clk_wiz = $"($ip_dir)/ip_clk_wiz.tcl"
+    let ip_ila = $"($ip_dir)/ip_ila.tcl"
 
-    let tcl = $"($vivado_dir)/create_project.tcl"
-    [
-        $"create_project -force nzea_fpga ./nzea_fpga -part ($part)"
-    ] | append $add_sv_lines | append [
-        $"add_files -fileset constrs_1 -norecurse ($xdc)"
-        $"set_property top ($chip.top_module) [current_fileset]"
-        $"set_property include_dirs [file normalize ($rtl_dir)] [current_fileset]"
-        "update_compile_order -fileset sources_1"
-        "update_compile_order -fileset sim_1"
-    ] | str join (char newline) | save -f $tcl
+    # Collect existing IP snippets as expanded absolute paths.
+    let ip_tcls = (
+        if ($ip_clk_wiz | path exists) { [ ($ip_clk_wiz | path expand) ] } else { [] }
+    ) | append (
+        if ($enable_ila) and ($ip_ila | path exists) { [ ($ip_ila | path expand) ] } else { [] }
+    )
 
-    print $"Vivado project: ($vivado_dir)"
-    print $"Source in Vivado Tcl Console:"
-    print $"  source ($tcl)"
+    let vivado_dir = $"($rtl_dir)/vivado" | path expand
+
+    print $"Generating Vivado project via edalize at: ($vivado_dir)"
+    let args = (["--rtl-dir" $rtl_dir "--part" $part "--xdc" $xdc "--top" $top "--out" $vivado_dir]
+        | append (($ip_tcls | each {|t| ["--ip-tcl" $t] } | flatten)))
+
+    cd nzea_fpga/tools/vivado
+    uv run vivado-project.py ...$args
 }

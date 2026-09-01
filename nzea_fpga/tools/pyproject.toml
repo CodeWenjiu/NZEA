@@ -6,3 +6,8 @@ dependencies = ["pyserial"]
 
 [tool.uv]
 package = false
+
+[tool.uv.workspace]
+members = [
+    "vivado",
+]

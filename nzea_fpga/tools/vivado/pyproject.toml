@@ -1,0 +1,11 @@
+[project]
+name = "vivado-project"
+version = "0.1.0"
+description = "Vivado project generation via edalize for nzea FPGA boards"
+requires-python = ">=3.9"
+dependencies = [
+    "edalize>=0.6.8",
+]
+
+[tool.uv]
+package = false

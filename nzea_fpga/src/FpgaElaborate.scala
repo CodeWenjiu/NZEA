@@ -3,11 +3,12 @@ package nzea_fpga
 import _root_.circt.stage.ChiselStage
 import nzea_config.FpgaBoard
 import nzea_config.core.CoreConfig
-import nzea_fpga.boards.lxb_artix7.{LxbArtix7Config, LxbArtix7Top, VivadoProject}
+import nzea_fpga.boards.lxb_artix7.{LxbArtix7Config, LxbArtix7Top}
 import nzea_fpga.boards.tangnano20k.TangNano20kTop
 
 import java.io.File
-import java.nio.file.{Files, Paths, StandardCopyOption}
+import java.nio.file.{Files, StandardCopyOption}
+import scala.sys.process._
 
 object FpgaElaborate {
 
@@ -33,6 +34,23 @@ object FpgaElaborate {
     }
   }
 
+  /** Generate the Vivado project via the shared `vivado-project.nu` entry point.
+    *
+    * All board-specific parameters (part, top module, XDC, IP snippets) are resolved
+    * from `chips.nu` inside the script; this call only passes the board segment and ISA.
+    * This keeps `just dump` and `just vivado-project` on the same code path.
+    */
+  private def generateVivadoProject(board: FpgaBoard, isa: String): Unit = {
+    val script = new File("nzea_fpga/scripts/vivado-project.nu").getAbsolutePath
+    val cmd = Seq("nu", script, "--board", board.segment, "--isa", isa)
+    val proc = Process(cmd, new File("."))
+    proc.!< match {
+      case 0 => ()
+      case code =>
+        Console.err.println(s"[FpgaElaborate] vivado-project generation failed (exit $code)")
+    }
+  }
+
   def elaborate(
       board: FpgaBoard,
       outDir: String,
@@ -53,13 +71,9 @@ object FpgaElaborate {
           args = Array("--target-dir", outDir),
           firtoolOpts = firtoolOpts
         )
-        // No separate test top — Ddr3TestCore is instantiated directly in LxbArtix7Top
-        VivadoProject.generate(
-          outDir,
-          "xc7a200tsbg484-1",
-          "nzea_fpga/src/boards/lxb_artix7/A7_lite.xdc",
-          enableILA = false
-        )
+        // Generate the Vivado project (edalize-based) right after the RTL so the
+        // user gets the paste-able full-flow command from a single dump invocation.
+        generateVivadoProject(board, config.isa)
       case FpgaBoard.TangNano20k =>
         ChiselStage.emitSystemVerilogFile(
           new TangNano20kTop(clockHz),

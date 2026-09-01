@@ -62,8 +62,8 @@ flash: pack
 
 # Generate Vivado project from FPGA RTL
 [group('fpga')]
-vivado-project dev=fpga_dev:
-    @nzea_fpga/scripts/vivado-project.nu --dev {{ dev }}
+vivado-project board='lxb_artix7' ila='':
+    @nzea_fpga/scripts/vivado-project.nu --board {{ board }} {{ if ila == '' { '' } else { '--enable-ila' } }}
 
 # Send hex file to tile via UART bootloader
 [group('fpga')]
