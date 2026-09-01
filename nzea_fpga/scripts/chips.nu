@@ -71,6 +71,9 @@ export def chip_info [dev: string] { compute_chip $dev }
 # Look up a chip by board segment (e.g. "lxb_artix7").
 # Boards are expected to be unique across chips; first match wins.
 export def chip_by_board [board: string] {
-    let dev = ($raw_chips | columns | where {|d| ($raw_chips | get $d | get -o board) == $board } | first)
-    compute_chip $dev
+    let matches = ($raw_chips | columns | where {|d| ($raw_chips | get $d | get -o board) == $board })
+    if ($matches | is-empty) {
+        error make -u { msg: $"Unknown board '($board)'. Add it to nzea_fpga/scripts/chips.nu" }
+    }
+    compute_chip ($matches | first)
 }
