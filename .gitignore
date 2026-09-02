@@ -10,3 +10,10 @@ build
 /.sisyphus
 /.deepseek
 result
+
+# Vivado runtime residue (journal/log/pid files dropped in cwd)
+/vivado.jou
+/vivado.log
+/vivado_*.backup.jou
+/vivado_*.backup.log
+/vivado_pid*.str

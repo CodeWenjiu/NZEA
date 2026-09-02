@@ -128,8 +128,13 @@ def main():
     synth_tcl = to_windows_path(os.path.join(work_root, "nzea_fpga_synth.tcl"))
     run_tcl = to_windows_path(os.path.join(work_root, "nzea_fpga_run.tcl"))
     flow_tcl = os.path.join(work_root, "build_all.tcl")
+    # edalize's generated scripts assume they run with the work root as cwd (e.g.
+    # nzea_fpga_run.tcl copies the bitstream to [pwd]/nzea_fpga.bit). cd there
+    # explicitly so the flow works regardless of where the user launched Vivado.
+    work_root_tcl = to_windows_path(work_root)
     with open(flow_tcl, "w") as f:
         f.write(f"# One-shot full flow: source {os.path.basename(project_tcl)} then synth + impl\n")
+        f.write(f"cd {{{work_root_tcl}}}\n")
         # Close any open project first (like the old create_project.tcl did) so
         # repeated sourcing from the Tcl Console does not fail with a project
         # already open.
@@ -141,11 +146,38 @@ def main():
     # The paste-able command for the Vivado Tcl Console (Windows path under WSL).
     console_cmd = f"source {to_windows_path(flow_tcl)}"
 
+    # Programming is a separate concern: after the build_all.tcl flow has produced
+    # nzea_fpga.bit in the work root, source program.tcl in the same Vivado Tcl
+    # Console to program the FPGA over JTAG. It delegates to edalize's
+    # nzea_fpga_pgm.tcl (search/open hardware target + program_hw_devices).
+    pgm_tcl = to_windows_path(os.path.join(work_root, "nzea_fpga_pgm.tcl"))
+    bitstream = to_windows_path(os.path.join(work_root, "nzea_fpga.bit"))
+    program_tcl = os.path.join(work_root, "program.tcl")
+    # Explicitly set $argv before sourcing: nzea_fpga_pgm.tcl reads part/bitstream
+    # from $argv. Setting it ourselves (rather than relying on `source`'s trailing
+    # args) keeps the snippet robust across Vivado versions.
+    with open(program_tcl, "w") as f:
+        f.write("# Program the FPGA over JTAG (run after build_all.tcl produced the bitstream)\n")
+        f.write(f"cd {{{to_windows_path(work_root)}}}\n")
+        f.write(f"if {{![file exists {{{bitstream}}}]}} {{\n")
+        f.write(f"  puts \"ERROR: bitstream not found: {bitstream}\"\n")
+        f.write("  puts \"Run build_all.tcl first to produce it\"\n")
+        f.write("  return\n")
+        f.write("}\n")
+        f.write("close_project -quiet\n")
+        f.write(f"set argv [list {args.part} {{{bitstream}}}]\n")
+        f.write(f"source {{{pgm_tcl}}}\n")
+
+    # The paste-able command for programming.
+    program_cmd = f"source {to_windows_path(program_tcl)}"
+
     print(f"Vivado project generated at: {work_root}")
     print("Open in Vivado GUI with: vivado <work_root>/nzea_fpga.xpr")
     print("or run the build chain with: make -C <work_root>")
-    print(f"\nPaste into the Vivado Tcl Console to run the full flow:")
+    print("\nPaste into the Vivado Tcl Console to run the full flow:")
     print(f"    {console_cmd}")
+    print("\nPaste into the Vivado Tcl Console (after the flow, with the board connected) to program:")
+    print(f"    {program_cmd}")
 
 
 if __name__ == "__main__":
