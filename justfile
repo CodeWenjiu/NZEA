@@ -68,17 +68,17 @@ vivado-project board='lxb_artix7':
 # Run Vivado build (synth + impl + bitstream) headlessly
 [group('fpga')]
 vivado-build board='lxb_artix7' isa='riscv32im':
-    @nzea_fpga/scripts/vivado-flow.sh --board {{ board }} --isa {{ isa }} --build-only
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only
 
 # Program the FPGA over JTAG headlessly
 [group('fpga')]
 vivado-program board='lxb_artix7' isa='riscv32im':
-    @nzea_fpga/scripts/vivado-flow.sh --board {{ board }} --isa {{ isa }} --program-only
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
 
 # Full Vivado flow: build bitstream then program the board
 [group('fpga')]
 vivado-flow board='lxb_artix7' isa='riscv32im':
-    @nzea_fpga/scripts/vivado-flow.sh --board {{ board }} --isa {{ isa }}
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }}
 
 # Send hex file to tile via UART bootloader
 [group('fpga')]
