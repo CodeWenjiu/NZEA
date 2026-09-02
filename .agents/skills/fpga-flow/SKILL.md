@@ -23,7 +23,7 @@ just vivado-build
 just vivado-program
 
 # 4. Load and run a program over UART
-just uart-load nzea_sim/sim/tile/hello_loop.hex /dev/ttyUSB1 115200
+just uart-load nzea_sim/sim/tile/hello_loop.hex /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 115200
 ```
 
 Or combine 2+3 with one command: `just vivado-flow` (build then program).
@@ -100,17 +100,45 @@ All three accept `board='lxb_artix7'` and `isa='riscv32im'` (defaults).
 UART bootloader baked into the bitstream, then the program runs on the core.
 
 ```sh
-just uart-load nzea_sim/sim/tile/hello_loop.hex /dev/ttyUSB1 115200
+just uart-load nzea_sim/sim/tile/hello_loop.hex /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 115200
 ```
 
 `hello_loop.hex` prints `Hello World` in a loop — repeated output is the success
 signal. (`nzea_sim/sim/tile/hello.hex` runs once and exits.)
 
+### Finding the correct serial port
+
+**Prefer the stable `by-id` alias over `/dev/ttyUSB*`.** The board's UART is a
+CH340 (QinHeng, USB vendor `1a86`, driver `ch341`), and udev exposes a stable
+symlink that does not change with enumeration:
+
+```sh
+ls -l /dev/serial/by-id/
+# → usb-1a86_USB_Serial-if00-port0 -> ../../ttyUSB1
+```
+
+Use that path directly:
+
+```sh
+just uart-load ... /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 115200
+```
+
+To identify the port (e.g. when several USB serials are plugged in), inspect the
+USB vendor ID — the CH340 reports `1a86`:
+
+```sh
+udevadm info --query=property --name=/dev/ttyUSB0 | grep -E 'ID_VENDOR_ID|ID_MODEL_ID|ID_USB_DRIVER'
+# → ID_VENDOR_ID=1a86  (CH340)
+#    ID_USB_DRIVER=ch341
+# → ID_VENDOR_ID=0403  (would be an FTDI, a different device)
+```
+
 ### Pitfall: serial device name changes
-The USB-UART is a CH340 that Linux enumerates as `/dev/ttyUSB*`, and the number
-**is not stable** — it can be `ttyUSB0` one session and `ttyUSB1` the next (or
-after replug). If `uart-load` fails with "could not open port", check `ls /dev/ttyUSB*`
-and use the port that actually exists.
+The USB-UART enumerates as `/dev/ttyUSB*`, and the number **is not stable** — it
+can be `ttyUSB0` one session and `ttyUSB1` the next (or after replug). The
+`/dev/serial/by-id/` symlink is immune to this, which is why it is preferred. If
+you must use a raw `ttyUSB*` path, check `ls /dev/ttyUSB*` first and use the one
+that actually exists.
 
 ## Troubleshooting
 
