@@ -2,8 +2,9 @@
 
 # Generate a Vivado project for a Xilinx board using edalize.
 # All board-specific parameters (part, top module, XDC, IP snippets) are read
-# from chips.nu, so this script is the single entry point shared by both the
-# manual `just vivado-project` flow and the automatic `just dump` flow.
+# from chips.nu. This script is the shared entry point: FpgaElaborate invokes it
+# automatically as part of `just dump`; it can also be run manually to regenerate
+# the Vivado project without re-dumping the RTL.
 #
 # Usage:
 #   nu nzea_fpga/scripts/vivado-project.nu --board lxb_artix7

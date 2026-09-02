@@ -34,11 +34,10 @@ object FpgaElaborate {
     }
   }
 
-  /** Generate the Vivado project via the shared `vivado-project.nu` entry point.
+  /** Generate the Vivado project via the `vivado-project.nu` entry point.
     *
     * All board-specific parameters (part, top module, XDC, IP snippets) are resolved
     * from `chips.nu` inside the script; this call only passes the board segment and ISA.
-    * This keeps `just dump` and `just vivado-project` on the same code path.
     *
     * When the freshly generated top-level RTL instantiates the ILA wrapper, a small
     * `ila_config.json` metadata file is written into the RTL directory so the ILA IP

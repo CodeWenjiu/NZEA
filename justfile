@@ -60,11 +60,6 @@ prog: pack
 flash: pack
     @nzea_fpga/scripts/prog.nu --dev {{ fpga_dev }} --flash
 
-# Generate Vivado project from FPGA RTL
-[group('fpga')]
-vivado-project board='lxb_artix7':
-    @nzea_fpga/scripts/vivado-project.nu --board {{ board }}
-
 # Run Vivado build (synth + impl + bitstream) headlessly
 [group('fpga')]
 vivado-build board='lxb_artix7' isa='riscv32im':
