@@ -4,6 +4,18 @@ import chisel3._
 import chisel3.util.{is, log2Ceil, switch, Cat, Enum, Valid}
 import nzea_rtl.{BootReq, Mrom}
 
+/** UART boot monitor for the tile: loads a program into RAM over the boot protocol.
+  *
+  * Wire format (all little-endian): `magic(0xB007B007) + addr + size + size * word`.
+  * On power-on the mrom is copied to RAM (index 0 = reset vector) and the rest is
+  * padded with `j .`; afterwards the FSM scans the RX stream for the magic in `sIdle`.
+  * A load with `size = 0` is the *reset-only* command: no RAM is written, the CPU is
+  * held in reset through the header and released via `sDone`, so it restarts the
+  * program already resident in RAM.
+  *
+  * `magicLow` is cleared in `sDone` so a program whose final 4 bytes equal the magic
+  * does not re-trigger the boot sequence right after a load.
+  */
 class BootFsm(
     ramDepth: Int,
     hexPath: String
@@ -47,6 +59,8 @@ class BootFsm(
   val magicLow = RegInit(0.U(32.W))
   when(io.rx_valid) { magicLow := Cat(io.rx_data, magicLow(31, 8)) }
 
+  val nextSize = Cat(io.rx_data, shift(31, 8))
+
   switch(state) {
     is(sInit) {
       io.boot.valid := true.B
@@ -75,8 +89,9 @@ class BootFsm(
     }
     is(sSize) {
       when(byteCnt === 3.U && io.rx_valid) {
-        totalWords := Cat(io.rx_data, shift(31, 8))
-        wordCnt := 0.U; byteCnt := 0.U; state := sData
+        totalWords := nextSize
+        wordCnt := 0.U; byteCnt := 0.U
+        when(nextSize === 0.U) { state := sDone }.otherwise { state := sData }
       }
     }
     is(sData) {
@@ -88,7 +103,7 @@ class BootFsm(
         when(wordCnt + 1.U === totalWords) { state := sDone }
       }
     }
-    is(sDone) { state := sIdle }
+    is(sDone) { magicLow := 0.U; state := sIdle }
   }
 
 }
