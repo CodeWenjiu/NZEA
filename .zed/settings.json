@@ -3,7 +3,8 @@
     "rust-analyzer": {
       "initialization_options": {
         "linkedProjects": [
-          "pulse/Cargo.toml"
+          "pulse/Cargo.toml",
+          "probe/Cargo.toml"
         ]
       }
     }

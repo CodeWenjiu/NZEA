@@ -1,0 +1,13 @@
+[package]
+name = "probe_cli"
+version = "0.1.0"
+edition = "2021"
+description = "FPGA board debug tool for NzeaTile: UART load / reset / monitor"
+
+[[bin]]
+name = "probe"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+libc = { workspace = true }

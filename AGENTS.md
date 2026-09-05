@@ -15,6 +15,7 @@
 | `nzea_sim/src` | 仿真层模块，为 tile/fpga 生成独立仿真 RTL + TB，输出到 `build/sim/` |
 | `pulse/` | 波形分析 CLI（info/scope/signal/value/property + 事件文件跨模块组合），替代 wavepeek；用法见 `.agents/skills/pulse/` |
 | `wave_tracker/` | 独立的 Rust CLI，用于 FST/VCD 波形分析和 RTL 级调试 |
+| `probe/` | FPGA 板级调试工具箱（UART load/reset/monitor，未来扩展 JTAG/ILA 控制），Rust workspace；用法见 `.agents/skills/fpga-flow/` |
 
 ### 依赖方向
 ```mermaid

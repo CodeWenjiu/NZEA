@@ -75,10 +75,21 @@ vivado-program board='lxb_artix7' isa='riscv32im':
 vivado-flow board='lxb_artix7' isa='riscv32im':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }}
 
-# Send hex file to tile via UART bootloader
+# Send hex file to tile via UART bootloader (BootFsm protocol through the probe tool)
 [group('fpga')]
 uart-load hex port baud='115200':
-    @cd nzea_fpga/tools && uv run uart-load.py ../../{{ hex }} {{ port }} --baud {{ baud }}
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- load {{ hex }} {{ port }} --baud {{ baud }}
+
+# Reset the tile CPU over UART (keeps RAM, restarts from the reset vector)
+[group('fpga')]
+uart-reset port baud='115200':
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- reset {{ port }} --baud {{ baud }}
+
+# Attach a streaming serial monitor (timestamps); --reset restarts the CPU right after attaching
+[group('fpga')]
+[arg("reset", long="reset", value="--reset")]
+uart-monitor port baud='115200' reset='':
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- monitor {{ port }} --baud {{ baud }} {{ reset }}
 
 # ---- Testing ----
 

@@ -82,6 +82,12 @@ Run `build_all.tcl` headlessly (synth + impl + bitstream). Produces/refreshes
 `nzea_fpga.bit`. **Every run fully rebuilds** because the project is recreated
 with `create_project -force` — expect ~5 min, longer on first run (FHS env build).
 
+**Pitfall: `vivado-build` does NOT regenerate RTL.** It synthesizes whatever
+`.sv` files already exist under `build/fpga/<board>/<isa>/hw/`. After any
+Scala/Chisel change you must re-run `just dump --target fpga --fpgaBoard <board>
+--isa <isa> --sim false` first, or you will build a bitstream from stale RTL
+(e.g. the `uart-reset` size=0 command silently hanging the CPU in reset).
+
 ### `just vivado-program`
 Run `program.tcl` headlessly. Searches the hardware server for a JTAG target
 containing part `xc7a200tsbg484-1`, programs it. Requires the board connected
@@ -105,6 +111,34 @@ just uart-load nzea_sim/sim/tile/hello_loop.hex /dev/serial/by-id/usb-1a86_USB_S
 
 `hello_loop.hex` prints `Hello World` in a loop — repeated output is the success
 signal. (`nzea_sim/sim/tile/hello.hex` runs once and exits.)
+
+## Reset and monitor over UART
+
+The BootFsm protocol doubles as a debug control plane:
+
+- `just uart-reset <port>` — sends `magic + addr + size=0` (12 bytes). No RAM is
+  written; the CPU is held in reset through the header and released, so it
+  **restarts the program already resident in RAM** from the reset vector. This is
+  the agent's "press the reset button".
+- `just uart-monitor <port> [--reset]` — attaches a streaming monitor with
+  per-chunk timestamps (Ctrl-C to stop). With `--reset` the reset command is
+  sent *right after attaching*: UART TX/RX are full-duplex, so the reset command
+  never appears in the RX stream and **no boot output is missed** — this is the
+  canonical "open terminal, press reset, observe" debug flow.
+
+All UART commands live in the `probe` Rust workspace (`just` builds it on
+demand via `cargo run`). Magic semantics worth remembering:
+
+- `size = 0` is the reset-only command; a normal load has `size ≥ 1` (wire format
+  unchanged, backwards compatible).
+- A program whose **final 4 bytes equal `0xB007B007`** does not re-trigger boot
+  (the scanner is cleared when a load completes).
+- The magic scanner is **always armed** while the CPU runs: any host-sent byte
+  stream containing `0xB007B007` (e.g. hand-typed binary) starts a boot. Keep the
+  host scripted (`just uart-load` / `uart-reset` / `uart-monitor --reset`).
+- `probe` is a separate Rust workspace; `linkedProjects` in `.zed/settings.json`
+  disables rust-analyzer auto-discovery, so **every new Rust workspace in this repo
+  must be listed there** or rust-analyzer will silently not load it.
 
 ### Finding the correct serial port
 
