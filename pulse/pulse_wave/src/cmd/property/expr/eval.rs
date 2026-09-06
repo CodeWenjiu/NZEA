@@ -73,9 +73,27 @@ fn eval_impl(
             }
             EvalOut::Matches(matches)
         }
-        Expr::Call(name, _args) => {
-            // `stdlib::desugar` expands every call before evaluation, so no
-            // Call should ever reach here; a miss is a desugar bug.
+        Expr::Call(name, args) => {
+            if name == "change" {
+                // Value-edge built-in: the operand's integer value differs from
+                // the previous cycle. Compares the full width (multi-bit signals
+                // toggle correctly, unlike bit-level `rise`/`fall` which read the
+                // MSB). Unknown values (X/Z) neither match nor disturb the hold.
+                let mut matches = Vec::new();
+                let mut prev: Option<u64> = None;
+                for ci in 0..n_cycles(cycles) {
+                    let cur = operand_u64(&args[0], ci, cycles, read_signal, read_value);
+                    if let (Some(p), Some(c)) = (prev, cur)
+                        && p != c
+                    {
+                        matches.push(cycles[ci].1);
+                    }
+                    prev = cur;
+                }
+                return EvalOut::Matches(matches);
+            }
+            // `stdlib::desugar` expands every template call before evaluation,
+            // so no other Call should ever reach here; a miss is a desugar bug.
             panic!("unexpanded function call '{name}' reached the evaluator")
         }
         Expr::And(a, b) => {

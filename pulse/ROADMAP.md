@@ -65,8 +65,10 @@ today.
 - [x] `A >>N B` : pipeline sequence
 - [x] `sig[N]` : true for N consecutive cycles
 - [x] Operators are composable with `&&`/`||`/`!` and each other
-- [x] Stdlib function calls (`name(args)`) expanded from `std.pulse`
-  templates: `rise`, `fall`, `stable` — no evaluator built-ins
+- [x] Stdlib function calls (`name(args)`): `rise`/`fall`/`stable` expanded
+  from `std.pulse` templates, plus one built-in `change` (value-level edge:
+  compares the operand across adjacent cycles, so multi-bit signals behave
+  correctly — templates cannot express value history)
 
 ### Phase 4 — Query CLI (pulse_cli)
 
@@ -96,7 +98,7 @@ today.
 | No scope in `.pulse` file | Same events file reusable across tile/core/fpga hierarchies; scope bound via `--event SCOPE` (supports `*` unique-match) |
 | Temporal operators are composable | They reduce to per-cycle booleans; `(a -> b) && c` is valid — supersedes the early "terminal" design |
 | Full expression engine | Parser (winnow) + AST + generic walkers (`walk::map`/`visit`); all passes are node-level callbacks |
-| Stdlib as `.pulse` templates | Text substitution before parsing; parameters may sit in any syntactic position; evaluator knows no built-in functions (`&&` aliases are noise) |
+| Stdlib as `.pulse` templates | Text substitution before parsing; parameters may sit in any syntactic position; evaluator knows no template built-ins (`&&` aliases are noise). Value-level `change` is the one evaluator built-in because templates cannot sample integer values across cycles |
 | History sampling via `->n` | `x ->1 1` reads one cycle back; no `prev` function — the window operator `n--m` covers ranges |
 | Window operator `n--m` | One origin semantics: A is the origin, B within [n before, m after]; `--n`/`n--` are degenerate forms; lookahead is free on a loaded waveform |
 | Single Rust crate per layer | `pulse_wave` (library) + `pulse_cli` + `pulse_macro` |

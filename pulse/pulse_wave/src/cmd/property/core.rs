@@ -9,7 +9,7 @@ impl crate::Pulse {
     pub(crate) fn property(
         &mut self,
         scope_path: Option<&str>,
-        on: &str,
+        on: Option<&str>,
         evals: &[String],
         event_tokens: &[String],
         cycles: Option<crate::SerdeRange<u64>>,
@@ -25,6 +25,12 @@ impl crate::Pulse {
             ));
         }
 
+        // `--on` defaults to "posedge clock"; when the user did not pass it
+        // explicitly and the scope has no clock signal, fall back to treating
+        // every time-table entry as one cycle. This is the natural semantic for
+        // ILA VCD exports (timestamps = sample indices, no clock in the dump).
+        let explicit_on = on.is_some();
+        let on = on.unwrap_or("posedge clock");
         let clock_name = super::clock::parse_clock(on)?;
         let events =
             crate::command::EventDef::from_tokens(event_tokens).map_err(WaveError::Parse)?;
@@ -91,23 +97,40 @@ impl crate::Pulse {
                 }
             }
 
-            // Clock signal (main scope)
+            // Clock signal (main scope); absent clocks fall back to the sample
+            // table only when `--on` was not given explicitly.
             let clock_map = super::super::hierarchy::resolve_signals(
                 h,
                 &scope_path,
                 &[clock_name.to_string()],
-            )?;
-            name_to_sref.extend(clock_map);
+            );
+            match clock_map {
+                Ok(m) => {
+                    name_to_sref.extend(m);
+                }
+                Err(_) if !explicit_on => {
+                    // No clock in the dump and the user did not pin one:
+                    // cycle = time-table entry (ILA sample index).
+                }
+                Err(e) => return Err(e),
+            }
         }
+
+        let no_clock = !name_to_sref.contains_key(clock_name);
 
         // ── Load signal data ────────────────────────────────────
         let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
         self.wav.load_signals(&srefs);
 
-        let clock_sig = self
-            .wav
-            .get_signal(name_to_sref[clock_name])
-            .expect("clock signal not loaded");
+        let clock_sig = if no_clock {
+            None
+        } else {
+            Some(
+                self.wav
+                    .get_signal(name_to_sref[clock_name])
+                    .expect("clock signal not loaded"),
+            )
+        };
 
         let signal_sigs: BTreeMap<String, &wellen::Signal> = name_to_sref
             .iter()
@@ -118,16 +141,27 @@ impl crate::Pulse {
             .collect();
 
         // ── Build cycle list from clock posedges ────────────────
+        // Without a clock, every time-table entry is one cycle (e.g. ILA
+        // exports where timestamps are sample indices).
         let tt = self.wav.time_table();
         let mut all_cycles: Vec<(usize, u64)> = Vec::new();
-        let mut prev_clk = false;
-        for (ti, &t) in tt.iter().enumerate() {
-            let clk_val = super::signals::read_bit(clock_sig, ti as u32);
-            let is_posedge = !prev_clk && clk_val;
-            if is_posedge {
-                all_cycles.push((ti, t));
+        match clock_sig {
+            None => {
+                for (ti, &t) in tt.iter().enumerate() {
+                    all_cycles.push((ti, t));
+                }
             }
-            prev_clk = clk_val;
+            Some(clock_sig) => {
+                let mut prev_clk = false;
+                for (ti, &t) in tt.iter().enumerate() {
+                    let clk_val = super::signals::read_bit(clock_sig, ti as u32);
+                    let is_posedge = !prev_clk && clk_val;
+                    if is_posedge {
+                        all_cycles.push((ti, t));
+                    }
+                    prev_clk = clk_val;
+                }
+            }
         }
 
         // ── Slice cycles per --cycles ───────────────────────────

@@ -1,8 +1,9 @@
 # Pulse: Signal Widths and Change Statistics (feature plan)
 
-Status: **planned** — recorded after the ILA `vcd-rename` debugging session
-(2026-09-06), where pulse lacked the primitives to classify exported ILA VCD
-vars, forcing a fallback to a throwaway Python parser.
+Status: **implemented** (2026-09-06) — both primitives landed:
+`signal --json` carries `width`/`vector`, and `property` gained the
+value-level `change(sig)` built-in plus an automatic sample-table cycle
+fallback for clockless dumps (ILA exports).
 
 ## Background
 

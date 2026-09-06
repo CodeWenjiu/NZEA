@@ -108,8 +108,29 @@ pub(crate) fn check_functions(expr: &Expr) -> Result<(), String> {
     })
 }
 
-/// Validate a single call against the loaded templates.
+/// Built-in functions evaluated by the evaluator instead of template-expanded.
+/// `change(x)` reports every cycle whose **value** differs from the previous
+/// cycle; unlike `rise`/`fall` (bit-level, MSB of vectors) it compares the full
+/// value, so multi-bit signals toggle correctly and folded constants report 0.
+fn builtin(name: &str) -> Option<usize> {
+    match name {
+        "change" => Some(1),
+        _ => None,
+    }
+}
+
+/// Validate a single call against the built-ins and loaded templates.
 fn check_call(name: &str, args: &[Expr]) -> Result<(), String> {
+    if let Some(arity) = builtin(name) {
+        if args.len() == arity {
+            return Ok(());
+        }
+        return Err(format!(
+            "{name}: expected {arity} argument{}, got {}",
+            if arity == 1 { "" } else { "s" },
+            args.len()
+        ));
+    }
     match stdlib().get(name) {
         Some(tmpl) if args.len() == tmpl.params.len() => Ok(()),
         Some(tmpl) => Err(format!(
@@ -126,11 +147,13 @@ fn check_call(name: &str, args: &[Expr]) -> Result<(), String> {
     }
 }
 
-/// Replace stdlib calls with their expanded template bodies. Assumes
-/// `check_functions` has already validated the tree; after this pass no
-/// `Call` nodes remain, so the evaluator never sees a function.
+/// Replace stdlib calls with their expanded template bodies. Built-ins are
+/// left as-is for the evaluator. Assumes `check_functions` has already
+/// validated the tree; after this pass no template-backed `Call` nodes remain,
+/// so the evaluator only ever sees built-ins.
 pub(crate) fn desugar(expr: &Expr) -> Expr {
     super::walk::map(expr, &mut |e| match e {
+        Expr::Call(name, args) if builtin(name).is_some() => Expr::Call(name.clone(), args.clone()),
         Expr::Call(name, args) => {
             let tmpl = stdlib()
                 .get(name)
@@ -183,6 +206,19 @@ mod tests {
     }
 
     #[test]
+    fn check_accepts_builtin_change() {
+        assert!(check_functions(&p("change(a)")).is_ok());
+        assert_eq!(
+            check_functions(&p("change()")).unwrap_err(),
+            "change: expected 1 argument, got 0"
+        );
+        assert_eq!(
+            check_functions(&p("change(a, b)")).unwrap_err(),
+            "change: expected 1 argument, got 2"
+        );
+    }
+
+    #[test]
     fn check_accepts_valid_calls() {
         assert!(check_functions(&p("rise(a) && fall(b)")).is_ok());
         assert!(check_functions(&p("stable(a || b)")).is_ok());
@@ -225,6 +261,18 @@ mod tests {
         let out = desugar(&p("stable(a)"));
         assert_eq!(out.to_string(), "((a ->1 a) || (!a ->1 !a))");
         assert!(check_functions(&out).is_ok());
+    }
+
+    #[test]
+    fn desugar_change_is_builtin() {
+        // change is evaluated (value-level), not template-expanded.
+        let out = desugar(&p("change(a)"));
+        assert_eq!(out, p("change(a)"));
+        assert!(check_functions(&out).is_ok());
+
+        // Template functions still expand inside built-in arguments.
+        let out = desugar(&p("change(rise(a))"));
+        assert_eq!(out.to_string(), "change((!a ->1 a))");
     }
 
     #[test]

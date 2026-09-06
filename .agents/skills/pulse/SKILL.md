@@ -29,7 +29,9 @@ Before using any command in a nontrivial way, read `pulse help <command>`. Do th
 
 - Dump bounds, time unit, top-level scopes: `info`.
 - Hierarchy discovery: `scope`.
-- Signal discovery inside a known scope: `signal`.
+- Signal discovery inside a known scope: `signal` (JSON carries each
+  signal's bit `width` and `vector` flag, so rename-map keys and
+  constant-folding checks can be derived from metadata alone).
 - State at explicit timestamp(s) or ranges: `value`.
 - Timestamps/ranges where a boolean or temporal event expression is true: `property`.
 - Event files and cross-module composition: `property --event` + `--eval` (see below).
@@ -125,29 +127,35 @@ Comparisons read multi-bit signals as unsigned integers; X/Z values make the
 comparison false for that cycle. Composite boolean expressions are usable as
 operands too (0/1).
 
-Standard-library functions (call syntax; every function is a template
-written in the temporal language itself — the evaluator has no built-in
-functions):
+Standard-library functions: `rise`/`fall`/`stable` are templates written in
+in the temporal language itself — the evaluator knows no built-in functions
+for them. `change` is a **built-in**: it compares the operand's **full value**
+against the previous cycle (multi-bit signals toggle correctly, unlike the
+bit-level MSB semantics of `rise`/`fall`).
 
 | Function | Meaning |
 |----------|---------|
 | `rise(sig)` | `!sig ->1 sig` — rising edge |
 | `fall(sig)` | `sig ->1 !sig` — falling edge |
 | `stable(sig)` | `(sig ->1 sig) \|\| (!sig ->1 !sig)` — no change |
+| `change(sig)` | value differs from the previous cycle (any edge) |
 
     pulse property --scope '*icache' \
         --eval 'rise(io_top_req_valid && io_top_req_ready)'
 
 Stdlib functions may be used inside `.pulse` event files too (e.g.
-`bp.pulse` defines `fetch_continue = fetch_fire ->1 1`). Adding a new
-library function is a one-line template in
-`pulse_wave/src/cmd/property/expr/std.pulse` — but only add functions that
-express something the core syntax does not already say concisely (`&&`
-aliases are noise).
+`bp.pulse` defines `fetch_continue = fetch_fire ->1 1`). Adding a template
+function is a one-line entry in
+`pulse_wave/src/cmd/property/expr/std.pulse`; value-level built-ins (like
+`change`) live in `stdlib.rs` as a named whitelist + evaluator branch — only
+add those when the template language cannot express the semantics (value
+history needs `read_value` across cycles, which templates cannot reach).
 
 Before the window start there is no history: the `->n` lookback is false,
-so `rise`/`fall`/`stable` do not fire on the very first cycle. `rise(x)`
-fires on the cycle *after* `x` turns true.
+so `rise`/`fall`/`stable` do not fire on the very first cycle, and `change`
+has no previous value there. `rise(x)` fires on the cycle *after* `x` turns
+true. A folded constant (never toggles) reports **0 change matches** — the
+cheap way to spot impl-constant nets in ILA exports.
 
 All temporal operators are composable: `miss ->3 (resp && !err)`, `(a -> b) && c`.
 
@@ -202,6 +210,12 @@ counts **all** matches in the window, so it is the cheap way to quantify an
 event (e.g. cross-checking `stat_*` counters).
 
 `--on` defaults to `posedge clock`; only `posedge` is supported for now.
+When `--on` is **not** passed explicitly and the scope has **no clock
+signal** (e.g. ILA VCD exports, whose timestamps are sample indices), every
+time-table entry is treated as one cycle — `--cycles` and all matches are
+sample indices, and `change`/`rise`/`fall` compare adjacent samples. Passing
+`--on` explicitly still errors on a missing signal.
+
 Temporal operators such as `->` and `~~` do their own pairing; they are not
 `change`-style edge scans.
 
@@ -211,6 +225,7 @@ Every command supports `--json`:
 
 - `info`: `time_scale`, `time_start`, `time_end`, `top_scopes`
 - `scope`: tree nodes `{name, depth, expanded?}` or flat `{path}` list
+- `signal`: `{scope, signals: [{name, width, vector}]}`
 - `value`: `{scope, signals, samples: [{time, <sig>: value, ...}]}`
 - `property` (single `--eval`): `{from, to, total_cycles, max?, matches: [<t> | {from,to}]}`
 - `property --count` (single `--eval`): `{from, to, total_cycles, count}`

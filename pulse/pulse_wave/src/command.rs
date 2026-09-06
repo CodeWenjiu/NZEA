@@ -105,9 +105,11 @@ pub struct PropertyArgs {
     #[arg(long, value_name = "SCOPE")]
     pub scope: Option<String>,
 
-    /// Clock edge expression (default: "posedge clock")
-    #[arg(long, value_name = "EDGE", default_value = "posedge clock")]
-    pub on: String,
+    /// Clock edge expression (default: "posedge clock" — auto-falls back to
+    /// treating every time-table entry as a cycle when the scope has no clock,
+    /// e.g. ILA VCD exports)
+    #[arg(long, value_name = "EDGE")]
+    pub on: Option<String>,
 
     /// Event expressions to evaluate (repeatable: one column per expression)
     #[arg(long, value_name = "EXPR")]
