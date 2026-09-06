@@ -85,36 +85,42 @@ class NzeaTile(cfg: TileConfig)(implicit
   val core = withReset(cpuReset) { Module(new nzea_core.Core(mmioRanges)) }
 
   // IBUS: register slice between IFU and crossbar.
-  val ibusSlice = Module(
-    new LiteBusRegisterSlice(addrWidth, dataWidth, core.io.ibus.userWidth, core.io.ibus.idWidth)
-  )
+  val ibusSlice = withReset(cpuReset) {
+    Module(
+      new LiteBusRegisterSlice(addrWidth, dataWidth, core.io.ibus.userWidth, core.io.ibus.idWidth)
+    )
+  }
 
   cache match {
     case Some(cfg) =>
-      val icache = Module(
-        new SetAssoc(
-          nSets = cfg.nSets,
-          nWays = cfg.nWays,
-          lineBits = cfg.lineBits,
-          addrWidth = addrWidth,
-          dataWidth = dataWidth,
-          userWidth = core.io.ibus.userWidth
+      val icache = withReset(cpuReset) {
+        Module(
+          new SetAssoc(
+            nSets = cfg.nSets,
+            nWays = cfg.nWays,
+            lineBits = cfg.lineBits,
+            addrWidth = addrWidth,
+            dataWidth = dataWidth,
+            userWidth = core.io.ibus.userWidth
+          )
         )
-      )
+      }
       icache.io.top <> core.io.ibus
 
       if (cfg.lineBits == dataWidth) {
         ibusSlice.io.in <> icache.io.bottom
       } else {
-        val iwidth = Module(
-          new LiteBusWidthConverter(
-            wideDataWidth = cfg.lineBits,
-            narrowDataWidth = dataWidth,
-            addrWidth = addrWidth,
-            userWidth = core.io.ibus.userWidth,
-            idWidth = 1
+        val iwidth = withReset(cpuReset) {
+          Module(
+            new LiteBusWidthConverter(
+              wideDataWidth = cfg.lineBits,
+              narrowDataWidth = dataWidth,
+              addrWidth = addrWidth,
+              userWidth = core.io.ibus.userWidth,
+              idWidth = 1
+            )
           )
-        )
+        }
         iwidth.io.wide <> icache.io.bottom
         ibusSlice.io.in <> iwidth.io.narrow
       }
@@ -124,23 +130,27 @@ class NzeaTile(cfg: TileConfig)(implicit
   }
 
   // DBUS: register slice between LSU and crossbar.
-  val dbusSlice = Module(
-    new LiteBusRegisterSlice(addrWidth, dataWidth, core.io.dbus.userWidth, core.io.dbus.idWidth)
-  )
+  val dbusSlice = withReset(cpuReset) {
+    Module(
+      new LiteBusRegisterSlice(addrWidth, dataWidth, core.io.dbus.userWidth, core.io.dbus.idWidth)
+    )
+  }
 
   dbusSlice.io.in <> core.io.dbus
 
-  val fabric = Module(
-    new LiteBusCrossbar(
-      numMasters = 2,
-      addrWidth = addrWidth,
-      dataWidth = dataWidth,
-      userWidth = fabricUserWidth,
-      idWidth = fabricIdWidth,
-      ranges = ranges,
-      perSlaveOutstanding = perSlaveOutstanding
+  val fabric = withReset(cpuReset) {
+    Module(
+      new LiteBusCrossbar(
+        numMasters = 2,
+        addrWidth = addrWidth,
+        dataWidth = dataWidth,
+        userWidth = fabricUserWidth,
+        idWidth = fabricIdWidth,
+        ranges = ranges,
+        perSlaveOutstanding = perSlaveOutstanding
+      )
     )
-  )
+  }
 
   fabric.io.in(0) <> ibusSlice.io.out
   fabric.io.in(1) <> dbusSlice.io.out
