@@ -14,7 +14,6 @@
 | `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |
 | `nzea_sim/src` | 仿真层模块，为 tile/fpga 生成独立仿真 RTL + TB，输出到 `build/sim/` |
 | `pulse/` | 波形分析 CLI（info/scope/signal/value/property + 事件文件跨模块组合），替代 wavepeek；用法见 `.agents/skills/pulse/` |
-| `wave_tracker/` | 独立的 Rust CLI，用于 FST/VCD 波形分析和 RTL 级调试 |
 | `probe/` | FPGA 板级调试工具箱（UART load/reset/monitor，未来扩展 JTAG/ILA 控制），Rust workspace；用法见 `.agents/skills/fpga-flow/` |
 
 ### 依赖方向
@@ -72,10 +71,6 @@ flowchart TD
 - `mill nzea_core.test` / `mill nzea_rtl.test`：直接通过 Mill 运行。
 
 测试源码位于 `nzea_core/test/src`、`nzea_rtl/test/src` 和 `nzea_cache/test/src`，命名应具有描述性（如 `VectorBackendTest.scala`）。修改综合或 STA 流程后附上具体命令和报告路径。
-
-### Wave Tracker
-- `cd wave_tracker && cargo run --release -- --help`
-- `cd wave_tracker && cargo test` / `cargo clippy` / `cargo fmt --check`
 
 ### 仿真（iverilog）
 - `just iv tile yosys <isa> [hex] [boot] [wave]`：tile 四态仿真（**仅 yosys 平台**——fpga 平台设备在板外/平台 IP，TB 未覆盖）。
