@@ -148,25 +148,48 @@ def main():
 
     # Programming is a separate concern: after the build_all.tcl flow has produced
     # nzea_fpga.bit in the work root, source program.tcl in the same Vivado Tcl
-    # Console to program the FPGA over JTAG. It delegates to edalize's
-    # nzea_fpga_pgm.tcl (search/open hardware target + program_hw_devices).
-    pgm_tcl = to_windows_path(os.path.join(work_root, "nzea_fpga_pgm.tcl"))
+    # Console to program the FPGA over JTAG. Self-contained (no edalize pgm
+    # snippet): find the board by part, attach PROGRAM.FILE and — for ILA builds —
+    # the impl-generated .ltx probes file, then program_hw_devices.
     bitstream = to_windows_path(os.path.join(work_root, "nzea_fpga.bit"))
     program_tcl = os.path.join(work_root, "program.tcl")
-    # Explicitly set $argv before sourcing: nzea_fpga_pgm.tcl reads part/bitstream
-    # from $argv. Setting it ourselves (rather than relying on `source`'s trailing
-    # args) keeps the snippet robust across Vivado versions.
+    program_tcl_content = r"""# Program the FPGA over JTAG (run after build_all.tcl produced the bitstream)
+cd {WORK}
+if {![file exists {BITSTREAM}]} {
+  puts "ERROR: bitstream not found: {BITSTREAM}"
+  puts "Run build_all.tcl first to produce it"
+  return
+}
+open_hw_manager
+connect_hw_server
+set done 0
+foreach hw_target [get_hw_targets] {
+  current_hw_target $hw_target
+  if {[catch {open_hw_target} err]} { continue }
+  foreach hw_dev [get_hw_devices] {
+    if {[string first [get_property PART $hw_dev] {PART}] == 0} {
+      current_hw_device $hw_dev
+      set_property PROGRAM.FILE {BITSTREAM} [current_hw_device]
+      # ILA probes (.ltx) are generated alongside the bitstream by impl; attach
+      # them so the ILA core shows up in the hw manager.
+      set ltx [glob -nocomplain [pwd]/nzea_fpga.runs/impl_1/*.ltx]
+      if {[llength $ltx] > 0} {
+        set_property PROBES.FILE [lindex $ltx 0] [current_hw_device]
+      }
+      program_hw_devices [current_hw_device]
+      set done 1
+      break
+    }
+  }
+  close_hw_target
+  if {$done} { break }
+}
+if {!$done} { error "no hw device of part {PART} found — check cables and hardware server" }
+close_hw_manager
+puts "INFO: FPGA {PART} programming finished."
+""".replace("{WORK}", to_windows_path(work_root)).replace("{PART}", args.part).replace("{BITSTREAM}", bitstream)
     with open(program_tcl, "w") as f:
-        f.write("# Program the FPGA over JTAG (run after build_all.tcl produced the bitstream)\n")
-        f.write(f"cd {{{to_windows_path(work_root)}}}\n")
-        f.write(f"if {{![file exists {{{bitstream}}}]}} {{\n")
-        f.write(f"  puts \"ERROR: bitstream not found: {bitstream}\"\n")
-        f.write("  puts \"Run build_all.tcl first to produce it\"\n")
-        f.write("  return\n")
-        f.write("}\n")
-        f.write("close_project -quiet\n")
-        f.write(f"set argv [list {args.part} {{{bitstream}}}]\n")
-        f.write(f"source {{{pgm_tcl}}}\n")
+        f.write(program_tcl_content)
 
     # The paste-able command for programming.
     program_cmd = f"source {to_windows_path(program_tcl)}"

@@ -8,7 +8,7 @@ import chisel3._
   * never instantiated directly by RTL; instead it lives inside [[IlaProbes]], the
   * synthesizable wrapper that firtool emits as its own file.
   *
-  * The probe ports are named `probe0..probe10` (matching the Xilinx ILA IP port
+  * The probe ports are named `probe0..probe7` (matching the Xilinx ILA IP port
   * names) with widths from [[IlaProbes.widths]]. The wrapper and the blackbox
   * share the same widths, so the RTL interface and the Vivado IP stay in lockstep.
   */
@@ -24,28 +24,24 @@ class IlaProbesBlackbox extends ExtModule {
   val probe5 = IO(Input(IlaProbes.probeType(5)))
   val probe6 = IO(Input(IlaProbes.probeType(6)))
   val probe7 = IO(Input(IlaProbes.probeType(7)))
-  val probe8 = IO(Input(IlaProbes.probeType(8)))
-  val probe9 = IO(Input(IlaProbes.probeType(9)))
-  val probe10 = IO(Input(IlaProbes.probeType(10)))
 }
 
-/** Synthesizable ILA wrapper — instantiate this in the board top when debugging.
+/** Synthesizable ILA wrapper, instantiated by [[LxbArtix7Core]] when `cfg.debugIla`.
+  *
+  * Board-level instrumentation: the tile stays ILA-agnostic and only exposes a
+  * generic debug observation port ([[nzea_tile.platform.fpga.DebugIo]]); the
+  * board layer decides to add the ILA and wires its probes from the tile
+  * boundary signals.
   *
   * This is a plain `Module` (not an `ExtModule`), so firtool emits it as an
   * independent `IlaProbes.sv` file in the generated RTL. The Vivado project
-  * generation detects ILA usage by the *presence of that file*: instantiating
-  * this wrapper is the single source of truth that both (a) connects the probes
-  * in RTL and (b) makes the ILA IP get created in the Vivado project.
+  * generation creates the matching ILA IP from [[FpgaElaborate]]'s
+  * `ila_config.json` (depth + widths), so RTL interface and IP stay in lockstep.
   *
-  * Probe count is fixed (11: probe0..probe10) but each probe's bit width comes
-  * from [[IlaProbes.widths]]. 1-bit probes are `Bool`, wider probes are `UInt`.
-  * Edit `IlaProbes.widths` to match the signals you want to observe — it is the
-  * single source of truth that the RTL wrapper, the blackbox, and the generated
-  * ILA IP all derive from.
-  *
-  * Instantiate it only when debugging; when the design does not reference it,
-  * firtool drops the module and no `IlaProbes.sv` is emitted, so no ILA IP is
-  * generated.
+  * Probe count is fixed (8: probe0..probe7), each bit width coming from
+  * [[IlaProbes.widths]] — the single source of truth that the RTL wrapper, the
+  * blackbox, and the generated ILA IP all derive from. The probe wiring lives in
+  * [[LxbArtix7Core]] and must match this order.
   */
 class IlaProbes extends Module {
   val probe0 = IO(Input(IlaProbes.probeType(0)))
@@ -56,9 +52,6 @@ class IlaProbes extends Module {
   val probe5 = IO(Input(IlaProbes.probeType(5)))
   val probe6 = IO(Input(IlaProbes.probeType(6)))
   val probe7 = IO(Input(IlaProbes.probeType(7)))
-  val probe8 = IO(Input(IlaProbes.probeType(8)))
-  val probe9 = IO(Input(IlaProbes.probeType(9)))
-  val probe10 = IO(Input(IlaProbes.probeType(10)))
 
   val impl = Module(new IlaProbesBlackbox)
   impl.clk := clock
@@ -70,22 +63,25 @@ class IlaProbes extends Module {
   impl.probe5 := probe5
   impl.probe6 := probe6
   impl.probe7 := probe7
-  impl.probe8 := probe8
-  impl.probe9 := probe9
-  impl.probe10 := probe10
 }
 
 object IlaProbes {
-  /** ILA capture depth (samples per trigger). */
-  val depth = 4096
-
-  /** Probe widths, one entry per probe (probe0 .. probe10).
+  /** ILA capture depth (samples per trigger).
     *
-    * This is the single source of truth for the probe bit widths: the RTL
-    * wrapper ports, the blackbox, and the generated ILA IP all derive from it.
-    * Change it to match the signals you want to observe.
+    * 131072 @ 100 MHz = 1.31 ms, enough to span the whole uart-reset command
+    * (~1.04 ms) so one window covers pre-reset state, the reset pulse, the
+    * release and the first post-reset cycles of the program.
     */
-  val widths: Seq[Int] = Seq(1, 1, 1, 1, 1, 3, 29, 32, 4, 1, 5)
+  val depth = 131072
+
+  /** Probe widths, one entry per probe (probe0 .. probe7).
+    *
+    * Order must match the probe wiring in [[LxbArtix7Core]]:
+    * probe0 cpu_reset (via TileIo debug port), probe1 uart_txd, probe2 uart_rxd,
+    * probe3 finisher_finished, probe4 ram_req_valid, probe5 ram_resp_valid,
+    * probe6 ram_boot_valid, probe7 ram_req_addr.
+    */
+  val widths: Seq[Int] = Seq(1, 1, 1, 1, 1, 1, 1, 32)
 
   /** Chisel type for probe i: 1-bit → Bool, wider → UInt(widths(i).W). */
   def probeType(i: Int): Data =

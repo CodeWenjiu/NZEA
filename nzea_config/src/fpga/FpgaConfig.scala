@@ -10,7 +10,8 @@ import nzea_config.tile.TileConfig
 class FpgaConfig(
     val clockHz: Int,
     val cache: Option[CacheConfig],
-    val perSlaveOutstanding: Int
+    val perSlaveOutstanding: Int,
+    val debugIla: Boolean
 ) {
 
   def tile: TileConfig = TileConfig(

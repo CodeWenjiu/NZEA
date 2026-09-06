@@ -10,6 +10,7 @@
 mod hex;
 mod protocol;
 mod serial;
+mod vcd;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -59,6 +60,12 @@ enum Cmd {
         #[arg(long)]
         hex: bool,
     },
+    /// Rename VCD signal identifiers via a probe map (`probeN name` per line).
+    VcdRename {
+        map: PathBuf,
+        input: PathBuf,
+        output: PathBuf,
+    },
 }
 
 fn main() {
@@ -77,6 +84,7 @@ fn main() {
             reset,
             hex,
         } => run_monitor(&port, baud, reset, hex),
+        Cmd::VcdRename { map, input, output } => run_vcd_rename(&map, &input, &output),
     };
     if let Err(e) = result {
         eprintln!("error: {e}");
@@ -189,6 +197,24 @@ fn readback(ser: &mut Serial, window: Duration) -> io::Result<()> {
             println!("  word[{i:2}] = 0x{word:08X}");
         }
     }
+    Ok(())
+}
+
+/// Rename VCD identifiers via a probe map, e.g. `probe vcd-rename ila_probes.map capture.vcd out.vcd`.
+fn run_vcd_rename(map: &Path, input: &Path, output: &Path) -> io::Result<()> {
+    let entries = vcd::load_map(map)
+        .map_err(|e| io::Error::new(e.kind(), format!("reading {}: {e}", map.display())))?;
+    let data = std::fs::read(input)
+        .map_err(|e| io::Error::new(e.kind(), format!("reading {}: {e}", input.display())))?;
+    let renamed = vcd::rename_vcd(&data, &entries);
+    std::fs::write(output, &renamed)
+        .map_err(|e| io::Error::new(e.kind(), format!("writing {}: {e}", output.display())))?;
+    println!(
+        "Renamed {} probes: {} -> {}",
+        entries.len(),
+        input.display(),
+        output.display()
+    );
     Ok(())
 }
 

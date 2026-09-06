@@ -36,6 +36,7 @@ object Main {
           board = cliArgs.fpgaBoard_,
           outDir = cliArgs.effectiveOutDir,
           clockHz = cliArgs.tileConfig.clockHz,
+          debugIla = cliArgs.debugIla,
           firtoolOpts = cliArgs.tileConfig.synthPlatform.firtoolOpts(sim = false) // FPGA always synthesis
         )
     }

@@ -91,6 +91,11 @@ uart-reset port baud='115200':
 uart-monitor port baud='115200' reset='':
     @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- monitor {{ port }} --baud {{ baud }} {{ reset }}
 
+# Capture an ILA window to VCD (reset-edge by default), rename probes for pulse
+[group('fpga')]
+ila-capture mode='reset' port='/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0':
+    @nu nzea_fpga/scripts/ila-capture.nu --mode {{ mode }} --port {{ port }}
+
 # ---- Testing ----
 
 # Run all tests in a module (default: nzea_rtl)

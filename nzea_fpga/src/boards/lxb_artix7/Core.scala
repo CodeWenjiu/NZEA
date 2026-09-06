@@ -39,4 +39,19 @@ class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends M
   blinkCnt := blinkCnt + 1.U
   io.led_alive := blinkCnt(25)
   io.led_finish := tileIo.fpga_finish
+
+  // ILA debug wrapper — board-level instrumentation. Probe order must match
+  // IlaProbes.widths (single source of truth for the Vivado IP). cpu_reset
+  // comes through the tile's generic DebugIo observation port.
+  if (cfg.debugIla) {
+    val ila = Module(new IlaProbes)
+    ila.probe0 := tileIo.debug.cpuReset
+    ila.probe1 := tileIo.fpga_uart.txd
+    ila.probe2 := tileIo.fpga_uart.rxd
+    ila.probe3 := tileIo.fpga_finish
+    ila.probe4 := tileIo.extRamBus.req.valid
+    ila.probe5 := tileIo.extRamBus.resp.valid
+    ila.probe6 := tileIo.extRamBoot.valid
+    ila.probe7 := tileIo.extRamBus.req.bits.addr
+  }
 }

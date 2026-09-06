@@ -34,7 +34,8 @@ case class CliArgs(
     @arg(doc = "I-Cache set count (cache geometry) ") cacheNSets: Int = 16,
     @arg(doc = "I-Cache associativity (ways)") cacheNWays: Int = 8,
     @arg(doc = "I-Cache line width in bits") cacheLineBits: Int = 32,
-    @arg(doc = "Per-slave outstanding transactions (bus fabric)") perSlaveOutstanding: Int = 8
+    @arg(doc = "Per-slave outstanding transactions (bus fabric)") perSlaveOutstanding: Int = 8,
+    @arg(doc = "Instantiate the ILA debug wrapper in the fpga board (arm/capture via just ila-capture)") debugIla: Boolean = false
 ) {
 
   val synthPlatform: SynthPlatform = SynthPlatform.fromString(platform).getOrElse(SynthPlatform.Yosys)

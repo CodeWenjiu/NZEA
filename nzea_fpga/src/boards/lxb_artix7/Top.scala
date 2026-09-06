@@ -5,7 +5,7 @@ import chisel3.util.Counter
 import nzea_config.core.CoreConfig
 import nzea_fpga.ResetSync
 
-class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule {
+class LxbArtix7Top(clockHz: Int, debugIla: Boolean)(implicit config: CoreConfig) extends RawModule {
   val CLK_50M = IO(Input(Clock()))
   val RESET = IO(Input(Bool()))
   val UART_TX = IO(Output(Bool()))
@@ -22,7 +22,7 @@ class LxbArtix7Top(clockHz: Int)(implicit config: CoreConfig) extends RawModule 
 
   val coreRst = !rst_n || !mmcm.locked
 
-  val lxbConfig = LxbArtix7Config()
+  val lxbConfig = LxbArtix7Config(debugIla)
 
   val core = withClockAndReset(clk_100m, coreRst) {
     Module(new LxbArtix7Core(lxbConfig))

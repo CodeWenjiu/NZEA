@@ -4,9 +4,10 @@ import nzea_config.tile.TileConfig
 import nzea_config.fpga.FpgaConfig
 
 /** LxbArtix7 FPGA board: overrides FPGA common defaults with board-specific clock and bus depth. */
-case class LxbArtix7Config()
+case class LxbArtix7Config(override val debugIla: Boolean)
     extends FpgaConfig(
       clockHz = 100_000_000,
       cache = None,
-      perSlaveOutstanding = 8
+      perSlaveOutstanding = 8,
+      debugIla = debugIla
     )
