@@ -75,6 +75,11 @@ vivado-program board='lxb_artix7' isa='riscv32im':
 vivado-flow board='lxb_artix7' isa='riscv32im':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }}
 
+# Assemble an RV32IM .S test program into a tile boot hex (one 32-bit word per line)
+[group('fpga')]
+asm2hex src out:
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p asm2hex -- {{ src }} {{ out }}
+
 # Send hex file to tile via UART bootloader (BootFsm protocol through the probe tool)
 [group('fpga')]
 uart-load hex port baud='115200':

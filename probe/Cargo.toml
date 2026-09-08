@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cli"]
+members = ["cli", "asm2hex"]
 
 [workspace.dependencies]
 clap = { version = "4.6.4", features = ["derive", "env"] }

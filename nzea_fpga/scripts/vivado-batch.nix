@@ -110,7 +110,7 @@
     ];
 
   multiPkgs =
-    pkgs: with pkgs; [
+    pkgs: [
       # 32-bit compatibility libraries if needed
     ];
 

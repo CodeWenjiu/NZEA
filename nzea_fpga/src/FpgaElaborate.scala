@@ -136,14 +136,14 @@ object FpgaElaborate {
          |
          |set hw_dev_found 0
          |foreach hw_dev [get_hw_devices] {
-         |  if {[string first [get_property PART $$hw_dev] "xc7a200tsbg484-1"] == 0} {
+         |  if {[string first [get_property PART $$hw_dev] "xc7a200tfbg484-2"] == 0} {
          |    current_hw_device $$hw_dev
          |    set hw_dev_found 1
          |    break
          |  }
          |}
          |if {!$$hw_dev_found} {
-         |  error "no hw device of part xc7a200tsbg484-1 found — program the board first"
+         |  error "no hw device of part xc7a200tfbg484-2 found — program the board first"
          |}
          |set ltx [glob -nocomplain [pwd]/nzea_fpga.runs/impl_1/*.ltx]
          |if {[llength $$ltx] > 0} {

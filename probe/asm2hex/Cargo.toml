@@ -1,0 +1,12 @@
+[package]
+name = "asm2hex"
+version = "0.1.0"
+edition = "2021"
+description = "Assemble an RV32IM .S file into a NzeaTile boot hex via the LLVM toolchain"
+
+[[bin]]
+name = "asm2hex"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }

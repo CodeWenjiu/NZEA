@@ -72,7 +72,7 @@ bitstream to `[pwd]/nzea_fpga.bit`). This makes them work regardless of where
 Vivado was launched.
 
 `program.tcl` guards on the bitstream existing, then searches the hw targets for
-part `xc7a200tsbg484-1`, sets PROGRAM.FILE (+ PROBES.FILE if an impl `.ltx`
+part `xc7a200tfbg484-2`, sets PROGRAM.FILE (+ PROBES.FILE if an impl `.ltx`
 exists — required for the hw manager to see ILA cores), and programs.
 
 ## Invocation reference
@@ -90,9 +90,9 @@ Scala/Chisel change you must re-run `just dump --target fpga --fpgaBoard <board>
 
 ### `just vivado-program`
 Run `program.tcl` headlessly. Searches the hardware server for a JTAG target
-containing part `xc7a200tsbg484-1`, programs it. Requires the board connected
+containing part `xc7a200tfbg484-2`, programs it. Requires the board connected
 via the Digilent USB-JTAG cable. Success looks like:
-`INFO: SUCCESS! FPGA xc7a200tsbg484-1 successfully programmed` and
+`INFO: SUCCESS! FPGA xc7a200tfbg484-2 successfully programmed` and
 `End of startup status: HIGH`.
 
 ### `just vivado-flow`

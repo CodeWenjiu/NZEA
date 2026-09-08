@@ -12,7 +12,7 @@ const raw_chips = {
         board:  "lxb_artix7",
         top_module: "LxbArtix7Top",
         cst:    "nzea_fpga/src/boards/lxb_artix7/A7_lite.xdc",
-        vivado_part: "xc7a200tsbg484-1",
+        vivado_part: "xc7a200tfbg484-2",
     },
 }
 
