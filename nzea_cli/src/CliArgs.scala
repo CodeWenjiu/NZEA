@@ -4,6 +4,7 @@ import mainargs.arg
 import nzea_config.core.CacheConfig
 import nzea_config.ElaborationTarget
 import nzea_config.FpgaBoard
+import nzea_config.PlatformConfig
 import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.BpuConfig
@@ -64,7 +65,10 @@ case class CliArgs(
 
   def tileConfig: TileConfig =
     TileConfig(
-      synthPlatform = synthPlatform,
+      platform = synthPlatform match {
+        case SynthPlatform.Yosys => PlatformConfig.Yosys
+        case SynthPlatform.Fpga  => PlatformConfig.Fpga(extMemBuses = fpgaBoard_.extMemBuses)
+      },
       clockHz = clockHz,
       cache = cache,
       perSlaveOutstanding = perSlaveOutstanding

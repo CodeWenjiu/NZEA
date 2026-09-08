@@ -182,10 +182,14 @@ Semantics and constraints:
   this ILA config, so the default triggers on the *assert* level with
   `TRIGGER_POSITION 32768` (25% pre-trigger): the window covers pre-reset state,
   the reset pulse, the release, and the first post-reset cycles.
-- **Reset semantics**: uart-reset now resets the whole tile (core, fabric, slices,
-  UART, CLINT, finisher — all under `cpuReset`), except the BootFsm itself and the
-  external RAM. So a capture triggered by uart-reset shows a clean program start
-  with all tile state zeroed and the loaded program preserved.
+- **Reset semantics**: uart-reset resets the whole tile (core, fabric, slices,
+  CLINT, finisher — all under `cpuReset`), except the UART itself, the BootFsm,
+  and the external RAM. The UART lives in the `bootReset` domain (board
+  power-on/calibration only): BootFsm holds `cpu_reset` high during a load
+  (sAddr/sSize/sData), and a UART under `cpuReset` would have its RX path reset
+  mid-load, losing the very bytes being decoded. So a capture triggered by
+  uart-reset shows a clean program start with all tile state zeroed (UART
+  aside) and the loaded program preserved.
 - Probes are fixed (8): `cpu_reset, uart_txd, uart_rxd, finisher_finished,
   ram_req_valid, ram_resp_valid, ram_boot_valid, ram_req_addr` — order/widths
   defined by `IlaProbes.widths` (single source of truth for RTL + IP). The addr

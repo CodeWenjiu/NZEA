@@ -1,5 +1,6 @@
 package nzea_fpga.boards.lxb_artix7
 
+import nzea_config.FpgaBoard
 import nzea_config.tile.TileConfig
 import nzea_config.fpga.FpgaConfig
 
@@ -9,5 +10,7 @@ case class LxbArtix7Config(override val debugIla: Boolean)
       clockHz = 100_000_000,
       cache = None,
       perSlaveOutstanding = 8,
-      debugIla = debugIla
+      debugIla = debugIla,
+      // bus 0 = boot SRAM, bus 1 = board DDR3 (MIG adapter)
+      extMemBuses = FpgaBoard.LxbArtix7.extMemBuses
     )

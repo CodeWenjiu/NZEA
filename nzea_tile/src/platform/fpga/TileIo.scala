@@ -22,7 +22,8 @@ class TileIo(
     addrWidth: Int,
     dataWidth: Int,
     userWidth: Int,
-    idWidth: Int
+    idWidth: Int,
+    numExtMem: Int
 )(implicit config: CoreConfig)
     extends Bundle
     with HasCommitMsg {
@@ -31,8 +32,12 @@ class TileIo(
   val fpga_finish = Output(Bool())
   val debug = Output(new DebugIo)
 
-  // Generic external RAM interface — board instantiates SRAM or DDR3 adapter
-  val extRamBus = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  // External memory buses — count is board-driven (TileConfig.extMemBuses,
+  // sourced from FpgaBoard.extMemBuses). Bus 0 is the boot RAM and owns the
+  // boot/calibration companions below; additional buses are plain memory-mapped
+  // regions (e.g. lxb_artix7 bus 1 = board DDR3 via the MIG adapter). The board
+  // layer attaches SRAM/DDR adapters; the tile stays device-agnostic.
+  val extRamBus = Vec(numExtMem, new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
   val extRamBoot = Output(Valid(new BootReq(15)))
   val extRamCalibDone = Input(Bool())
 }

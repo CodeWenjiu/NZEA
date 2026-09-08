@@ -2,6 +2,7 @@ package nzea_tile
 
 import chisel3._
 import nzea_config.core.CacheConfig
+import nzea_config.PlatformConfig
 import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.CoreConfig
@@ -15,9 +16,9 @@ import nzea_cache.SetAssoc
 /** Tile address map dispatch. Platform-specific ranges defined in their respective packages. */
 object TileAddressMap {
 
-  def forPlatform(platform: SynthPlatform): Seq[LiteAddrRange] = platform match {
-    case SynthPlatform.Yosys => yosys.AddressMap.ranges
-    case SynthPlatform.Fpga  => fpga.AddressMap.ranges
+  def forPlatform(platform: PlatformConfig): Seq[LiteAddrRange] = platform match {
+    case PlatformConfig.Yosys     => yosys.AddressMap.ranges
+    case PlatformConfig.Fpga(n)   => fpga.AddressMap.ranges(n)
   }
 
 }
@@ -53,7 +54,7 @@ class NzeaTile(cfg: TileConfig)(implicit
   private val perSlaveOutstanding = cfg.perSlaveOutstanding
   private val addrWidth = config.width
   private val dataWidth = config.width
-  private val ranges = TileAddressMap.forPlatform(platform)
+  private val ranges = TileAddressMap.forPlatform(cfg.platform)
   // fabricUserWidth covers ibus + dbus user payloads.
   // Computed from config (no forward-reference to `core`).
   private val ibusUserW = nzea_core.frontend.IbusUser.userWidth(config.width)
@@ -68,9 +69,9 @@ class NzeaTile(cfg: TileConfig)(implicit
   private val fabricUserWidth = ibusUserW.max(dbusUserW)
   private val fabricIdWidth = 8
 
-  val io = IO(platform match {
-    case SynthPlatform.Yosys => new yosys.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
-    case SynthPlatform.Fpga  => new fpga.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
+  val io = IO(cfg.platform match {
+    case PlatformConfig.Yosys   => new yosys.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth)
+    case PlatformConfig.Fpga(n) => new fpga.TileIo(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth, n)
   })
 
   io := DontCare

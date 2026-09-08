@@ -23,15 +23,15 @@ class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends M
   val tileIo = tile.io.asInstanceOf[nzea_tile.platform.fpga.TileIo]
 
   // Derive bus widths from the tile IO type, not hardcoded constants.
-  private val userW = tileIo.extRamBus.userWidth
-  private val idW = tileIo.extRamBus.idWidth
+  private val userW = tileIo.extRamBus(0).userWidth
+  private val idW = tileIo.extRamBus(0).idWidth
 
   io.uart_tx := tileIo.fpga_uart.txd
   tileIo.fpga_uart.rxd := io.uart_rx
   tileIo.fpga_uart.ctsn := false.B
 
   val ram = Module(new RamFabricSlave(addrW, dataW, userW, idW, baseAddr = 0x80000000L))
-  ram.io.bus <> tileIo.extRamBus
+  ram.io.bus <> tileIo.extRamBus(0)
   ram.io.boot <> tileIo.extRamBoot
   tileIo.extRamCalibDone := true.B // SRAM, always ready
 
@@ -49,9 +49,9 @@ class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends M
     ila.probe1 := tileIo.fpga_uart.txd
     ila.probe2 := tileIo.fpga_uart.rxd
     ila.probe3 := tileIo.fpga_finish
-    ila.probe4 := tileIo.extRamBus.req.valid
-    ila.probe5 := tileIo.extRamBus.resp.valid
+    ila.probe4 := tileIo.extRamBus(0).req.valid
+    ila.probe5 := tileIo.extRamBus(0).resp.valid
     ila.probe6 := tileIo.extRamBoot.valid
-    ila.probe7 := tileIo.extRamBus.req.bits.addr
+    ila.probe7 := tileIo.extRamBus(0).req.bits.addr
   }
 }

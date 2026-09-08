@@ -3,6 +3,7 @@ package nzea_sim
 import circt.stage.ChiselStage
 import nzea_config.core.CacheConfig
 import nzea_config.FpgaBoard
+import nzea_config.PlatformConfig
 import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.BpuConfig
@@ -43,7 +44,12 @@ object SimElaborate {
           )
         TileElaborate.elaborate(
           cfg = TileConfig(
-            synthPlatform = plat,
+            platform = plat match {
+              case SynthPlatform.Yosys => PlatformConfig.Yosys
+              // Vestigial fpga tile-sim path (the iv flow is yosys-only); the
+              // only tile-capable fpga board defines the bus count.
+              case SynthPlatform.Fpga => PlatformConfig.Fpga(FpgaBoard.LxbArtix7.extMemBuses)
+            },
             clockHz = 100_000_000,
             cache = None,
             perSlaveOutstanding = 1
@@ -70,6 +76,7 @@ object SimElaborate {
             ),
           outDir = simOut,
           clockHz = 100_000_000,
+          debugIla = false,
           firtoolOpts = SynthPlatform.Yosys.firtoolOpts(sim = false)
         )
       case other =>
