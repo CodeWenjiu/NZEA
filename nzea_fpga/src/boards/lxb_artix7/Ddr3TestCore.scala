@@ -2,13 +2,14 @@ package nzea_fpga.boards.lxb_artix7
 
 import chisel3._
 import chisel3.util._
-import nzea_device.ddr3.{Ddr3Adapter, Ddr3PhysIo, Ddr3Subsystem}
+import nzea_device.ddr3.{Ddr3Adapter, Ddr3CtrlIo, Ddr3Subsystem}
 
 /** DDR3 validation — write+read+compare at 5 addresses, one cycle delay between write and read. */
 class Ddr3TestCore(addrW: Int, dataW: Int, userW: Int, idW: Int) extends Module {
 
   val io = IO(new Bundle {
-    val ddr3 = new Ddr3PhysIo
+    val ddr3 = new Ddr3CtrlIo
+    val clk_200m = Input(Clock())
     val rst_n = Input(Bool())
     val pass = Output(Bool())
     val fail = Output(Bool())
@@ -23,27 +24,23 @@ class Ddr3TestCore(addrW: Int, dataW: Int, userW: Int, idW: Int) extends Module 
     val dbg_app_addr = Output(UInt(29.W))
     val dbg_rd_data = Output(UInt(32.W))
   })
+  val dq = IO(chisel3.experimental.Analog(16.W))
+  val dqs_p = IO(chisel3.experimental.Analog(2.W))
+  val dqs_n = IO(chisel3.experimental.Analog(2.W))
 
-  val adapter = Module(new Ddr3Adapter(addrW, dataW, userW, idW))
+  val adapter = Module(new Ddr3Adapter(addrW, dataW, userW, idW, baseAddr = BigInt("88000000", 16)))
   val ddr3Sub = Module(new Ddr3Subsystem)
-  ddr3Sub.io.ddr3.clk_200m := io.ddr3.clk_200m
+  ddr3Sub.io.clk_200m := io.clk_200m
   ddr3Sub.io.rst_n := io.rst_n
   adapter.io.mig <> ddr3Sub.io.mig
+  adapter.io.tileReset := false.B // standalone test core: no uart-reset path
 
-  io.ddr3.dq <> ddr3Sub.io.ddr3.dq
-  io.ddr3.dqs_p <> ddr3Sub.io.ddr3.dqs_p
-  io.ddr3.dqs_n <> ddr3Sub.io.ddr3.dqs_n
-  io.ddr3.addr := ddr3Sub.io.ddr3.addr
-  io.ddr3.ba := ddr3Sub.io.ddr3.ba
-  io.ddr3.ras_n := ddr3Sub.io.ddr3.ras_n
-  io.ddr3.cas_n := ddr3Sub.io.ddr3.cas_n
-  io.ddr3.we_n := ddr3Sub.io.ddr3.we_n
-  io.ddr3.ck_p := ddr3Sub.io.ddr3.ck_p
-  io.ddr3.ck_n := ddr3Sub.io.ddr3.ck_n
-  io.ddr3.cke := ddr3Sub.io.ddr3.cke
-  io.ddr3.odt := ddr3Sub.io.ddr3.odt
-  io.ddr3.reset_n := ddr3Sub.io.ddr3.reset_n
-  io.ddr3.dm := ddr3Sub.io.ddr3.dm
+  import chisel3.experimental.attach
+  attach(dq, ddr3Sub.dq)
+  attach(dqs_p, ddr3Sub.dqs_p)
+  attach(dqs_n, ddr3Sub.dqs_n)
+  io.ddr3 := ddr3Sub.io.ddr3
+adapter.io.bus.resp.ready := false.B
 
   val addrs = VecInit(Seq(0x00, 0x04, 0x10, 0x100, 0x1000).map(_.U(addrW.W)))
 
@@ -82,9 +79,6 @@ class Ddr3TestCore(addrW: Int, dataW: Int, userW: Int, idW: Int) extends Module 
   adapter.io.bus.req.bits.id := 0.U
   adapter.io.bus.resp.flush := false.B
   adapter.io.bus.resp.ready := false.B
-  adapter.io.boot.valid := false.B
-  adapter.io.boot.bits.addr := 0.U
-  adapter.io.boot.bits.wdata := 0.U
 
   switch(state) {
     is(sIdle) {

@@ -26,4 +26,7 @@ class MigUiIo extends Bundle {
   val app_rd_data_valid = Output(Bool())
   // Status
   val calib_done = Output(Bool())
+  // User-interface clock/reset (from MIG; the adapter's ui-domain driver)
+  val ui_clk = Output(Clock())
+  val ui_rst = Output(Bool())
 }

@@ -52,11 +52,12 @@ def to_windows_path(path: str) -> str:
         return path
 
 
-def build_edam(rtl_dir, part, xdc_path, ip_tcl_paths, top):
+def build_edam(rtl_dir, part, xdc_paths, ip_tcl_paths, top, mig_prj=None):
     files = []
     for sv in sorted(glob.glob(os.path.join(rtl_dir, "*.sv"))):
         files.append({"name": to_windows_path(os.path.abspath(sv)), "file_type": "systemVerilogSource"})
-    files.append({"name": to_windows_path(os.path.abspath(xdc_path)), "file_type": "xdc"})
+    for xdc in xdc_paths:
+        files.append({"name": to_windows_path(os.path.abspath(xdc)), "file_type": "xdc"})
     for ip_tcl in ip_tcl_paths:
         files.append({"name": to_windows_path(os.path.abspath(ip_tcl)), "file_type": "tclSource"})
 
@@ -86,6 +87,24 @@ generate_target all [get_ips u_ila_0]
             f.write(ila_tcl)
         files.append({"name": to_windows_path(os.path.abspath(ila_tcl_path)), "file_type": "tclSource"})
 
+    # If a MIG configuration file is supplied, generate the DDR3 controller IP
+    # snippet from it (single source of truth: ddr3_ref/mig_b.prj, matching the
+    # MigDdr3 blackbox instantiated in RTL).
+    if mig_prj is not None:
+        mig_prj_abs = os.path.abspath(mig_prj)
+        mig_tcl = (
+            "# Auto-generated MIG IP snippet (XML_INPUT_FILE from mig_b.prj)\n"
+            "create_ip -name mig_7series -vendor xilinx.com -library ip -module_name mig_ddr3\n"
+            "set_property -dict [list \\\n"
+            f"  CONFIG.XML_INPUT_FILE {{{mig_prj_abs}}} \\\n"
+            "] [get_ips mig_ddr3]\n"
+            "generate_target all [get_ips mig_ddr3]\n"
+        )
+        mig_tcl_path = os.path.join(rtl_dir, "ip_ddr3_generated.tcl")
+        with open(mig_tcl_path, "w") as f:
+            f.write(mig_tcl)
+        files.append({"name": to_windows_path(os.path.abspath(mig_tcl_path)), "file_type": "tclSource"})
+
     return {
         "name": "nzea_fpga",
         "files": files,
@@ -102,10 +121,13 @@ generate_target all [get_ips u_ila_0]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rtl-dir", required=True, help="Directory containing generated .sv RTL")
-    parser.add_argument("--part", required=True, help="Vivado part number, e.g. xc7a200tsbg484-1")
-    parser.add_argument("--xdc", required=True, help="Path to the XDC constraint file")
+    parser.add_argument("--part", required=True, help="Vivado part number, e.g. xc7a200tfbg484-1")
+    parser.add_argument("--xdc", action="append", required=True,
+                        help="Path to an XDC constraint file; repeatable")
     parser.add_argument("--ip-tcl", action="append", default=[],
                         help="TCL snippet creating Xilinx IP (clk_wiz/ILA); repeatable")
+    parser.add_argument("--mig-prj", default=None,
+                        help="MIG 7-series config file (mig_b.prj) to create the DDR3 controller IP")
     parser.add_argument("--out", default=None, help="Output work_root (default: <rtl-dir>/vivado)")
     parser.add_argument("--top", default="LxbArtix7Top", help="Top-level module name")
     args = parser.parse_args()
@@ -115,7 +137,7 @@ def main():
         shutil.rmtree(work_root)
     os.makedirs(work_root)
 
-    edam = build_edam(args.rtl_dir, args.part, args.xdc, args.ip_tcl, args.top)
+    edam = build_edam(args.rtl_dir, args.part, args.xdc, args.ip_tcl, args.top, args.mig_prj)
     backend = VivadoFlow(edam=edam, work_root=work_root)
     backend.configure()
 

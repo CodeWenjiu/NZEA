@@ -75,33 +75,59 @@ object FpgaElaborate {
 
   /** Static runtime content for the ILA capture flow (paired with `just ila-capture`). */
   private object IlaCapture {
-    // Dual-key map: `probeN` matches nets that lost their name, the full net paths
-    // match the ILA VCD var names (Vivado exports `core/ila/<net>` for traceable
-    // nets — board-level ILA, so no `tile/` segment). The 32-bit addr probe may be
-    // folded by synthesis into `_2 [16:0]` (the meaningful low slice, mapped to
-    // `ram_req_addr`) plus 1-bit high fragments (`_1`, bare) and `<const0>`
-    // padding; the fragments are mapped to `*_hi*` siblings and const segments
-    // left untouched as harmless junk. A probe4 (req.valid) net folded to a
-    // constant exports as one of the `<const0>` vars; its `probe4` key stays as a
-    // fallback for builds where the name survives.
+    // Dual-key rename map (literal string replacement, longest key first — see
+    // probe/cli/src/vcd.rs): bare `probeN` keys catch nets that lost their name
+    // in synthesis (the ILA VCD then exports the port name, possibly as
+    // `core/ila/probeN`, which the bare key still renames as a substring);
+    // `core/ila/<net>` path keys catch nets whose firtool-generated name
+    // survived into the Vivado export (board-level ILA, so no `tile/` segment;
+    // `E`/`SR` are firtool junk names that only the path key can pin down).
+    // Probes 9/11/16/17 were nameless in the reference capture and rely on the
+    // bare keys alone. Net names are synthesis artifacts of one verified
+    // capture and may drift between builds — re-derive them from `pulse signal`
+    // on a fresh capture if a rename stops matching. Semantic names mirror the
+    // probe wiring in LxbArtix7Core / IlaProbes.widths.
     val probeMap: String =
       """probe0 cpu_reset
         |probe1 uart_txd
         |probe2 uart_rxd
         |probe3 finisher_finished
-        |probe4 ram_req_valid
-        |probe5 ram_resp_valid
-        |probe6 ram_boot_valid
-        |probe7 ram_req_addr
+        |probe4 ddr_adapter_flush
+        |probe5 ddr_req_pending
+        |probe6 ddr_resp_valid
+        |probe7 ddr_req_fire
+        |probe8 ddr_ui_state
+        |probe9 ddr_ui_req_go_seen
+        |probe10 ddr_ui_done_req
+        |probe11 ddr_ui_app_en
+        |probe12 ddr_ui_rst
+        |probe13 ddr_calib_done
+        |probe14 ddr_ui_wen
+        |probe15 ddr_app_addr
+        |probe16 ddr_req_wen
+        |probe17 ddr_wdf_wren
+        |probe18 ddr_app_wdf_rdy
+        |probe19 ddr_app_rdy
+        |probe20 ddr_rd_valid
+        |probe21 ddr_rd_data
         |core/ila/_tile_io_debug_cpuReset cpu_reset
         |core/ila/io_uart_tx uart_txd
-        |core/ila/io_uart_rx uart_rxd
-        |core/ila/io_led_finish finisher_finished
-        |core/ila/probe5 ram_resp_valid
-        |core/ila/_tile_io_extRamBoot_valid ram_boot_valid
-        |core/ila/_tile_io_extRamBus_req_bits_addr_2 ram_req_addr
-        |core/ila/_tile_io_extRamBus_req_bits_addr_1 ram_req_addr_hi1
-        |core/ila/_tile_io_extRamBus_req_bits_addr ram_req_addr_hi2
+        |core/ila/uart_rxd uart_rxd
+        |core/ila/finisher_finished finisher_finished
+        |core/ila/mem_flush ddr_adapter_flush
+        |core/ila/_bridge_io_debug_reqPending ddr_req_pending
+        |core/ila/_bridge_io_debug_respValid ddr_resp_valid
+        |core/ila/E ddr_req_fire
+        |core/ila/_bridge_io_debug_uiState ddr_ui_state
+        |core/ila/_bridge_io_debug_uiDoneReq ddr_ui_done_req
+        |core/ila/SR ddr_ui_rst
+        |core/ila/init_calib_complete ddr_calib_done
+        |core/ila/_bridge_io_debug_uiWen ddr_ui_wen
+        |core/ila/_bridge_io_mig_app_addr ddr_app_addr
+        |core/ila/app_wdf_rdy ddr_app_wdf_rdy
+        |core/ila/app_rdy ddr_app_rdy
+        |core/ila/app_rd_data_valid ddr_rd_valid
+        |core/ila/app_rd_data ddr_rd_data
         |""".stripMargin
 
     val tcl: String =
@@ -117,8 +143,10 @@ object FpgaElaborate {
          |# AND/OR aggregation; per-probe compare values live on the hw_probe object
          |# (TRIGGER_COMPARE_VALUE, e.g. eq1'b1). Edge "er1'bF" is accepted by the
          |# property but does not fire in this ILA config, so we trigger on the assert
-         |# level and use a deep window (depth 131072 = 1.31 ms) plus TRIGGER_POSITION
-         |# 32768 (25%) to cover the reset pulse and the program start.
+         |# level and use the full capture window (depth ${IlaProbes.depth}, ~${IlaProbes.depth / 100} us
+         |# at 100 MHz) plus TRIGGER_POSITION ${IlaProbes.depth / 4} (25%) to cover the reset
+         |# pulse and the program start. Both values track IlaProbes.depth — the
+         |# TRIGGER_POSITION must stay below the depth or Vivado rejects the property.
          |set mode reset
          |set uart_port /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
          |set probe_bin probe
@@ -155,7 +183,7 @@ object FpgaElaborate {
          |}
          |set hw_ila [lindex [get_hw_ilas] 0]
          |set_property CONTROL.TRIGGER_CONDITION AND $$hw_ila
-         |set_property CONTROL.TRIGGER_POSITION 32768 $$hw_ila
+         |set_property CONTROL.TRIGGER_POSITION ${IlaProbes.depth / 4} $$hw_ila
          |set p0 [get_hw_probes -filter {PROBE_PORT == 0} $$hw_ila]
          |set_property CAPTURE_COMPARE_VALUE eq1'bX $$p0
          |set_property TRIGGER_COMPARE_VALUE eq1'b1 $$p0
