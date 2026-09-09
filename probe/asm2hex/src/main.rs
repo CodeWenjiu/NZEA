@@ -55,6 +55,11 @@ const TESTS: &[(&str, &str, &str)] = &[
         include_str!("../tests/focus.S"),
         "focused loop over a small region (intermittent-failure probe)",
     ),
+    (
+        "wr_rd_only",
+        include_str!("../tests/wr_rd_only.S"),
+        "full-word write + immediate readback only (no partial writes/RMW)",
+    ),
 ];
 
 const COMMON_S: &str = include_str!("../tests/common.S");
