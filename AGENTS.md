@@ -107,11 +107,11 @@ flowchart TD
 
 **1. 禁止跨仓库推断一致性。** nzea 和 remu 是独立仓库，各自有各自的修改历史和约定。在一个仓库发现签名不匹配时，不得自行修改另一个仓库来"修复一致性"。必须先报告，等待指令。
 
-### Git 操作禁令
+### Git 操作规范
 
-**Agent 禁止执行任何 git 写操作。** 包括但不限于：`commit`、`stash`、`reset`、`checkout`、`cherry-pick`、`revert`、`branch`、`merge`、`rebase`、`push`、`pull`。所有写操作由用户亲自执行。
+**Git 写操作需先经用户确认，确认之后可以执行。** 适用于 `commit`、`stash`、`reset`、`checkout`、`cherry-pick`、`revert`、`branch`、`merge`、`rebase`、`push`、`pull` 等。确认必须针对本次具体操作（如“这轮可以提交了”授权当次提交），不得推断为对后续同类操作的长期授权。
 
-读取操作（`log`、`status`、`diff`、`show`、`blame`）属于信息收集，允许执行，但须始终附加 `--no-pager` 避免阻塞。
+读取操作（`log`、`status`、`diff`、`show`、`blame`）属于信息收集，可直接执行，但须始终附加 `--no-pager` 避免阻塞。
 
 ### Agent 使用规范
 - 调用 `just`/`mill`/`yosys`/`nextpnr-*`/`nu` 等依赖 Nix 的命令时，必须通过 `nix develop --command bash -c '...'` 启动。用户在自己终端不受此限制。
