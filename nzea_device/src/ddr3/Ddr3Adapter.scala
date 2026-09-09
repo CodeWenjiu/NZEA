@@ -97,8 +97,8 @@ class Ddr3Adapter(
     // tileIo.debug.cpuReset; the module's own implicit reset is the board
     // power-on reset, which does NOT cover uart-reset.
     val tileReset = Input(Bool())
-    // Debug observation port (board/ILA instrumentation; leaves unconnected in
-    // plain usage like Ddr3TestCore). All signals are tile-domain except uiState/
+    // Debug observation port (board/ILA instrumentation; the xsim wrapper
+    // leaves it unconnected). All signals are tile-domain except uiState/
     // uiReqGoSeen (ui_clk domain) — a stale sample there just means the ILA
     // clock may not be aligned with ui_clk.
     val debug = Output(new Ddr3AdapterDebug)

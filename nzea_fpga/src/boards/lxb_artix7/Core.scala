@@ -57,7 +57,12 @@ class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends M
   // External memory bus 1 = board DDR3 (AddressMap.ddr) via the MIG adapter.
   bridge.io.bus <> tileIo.extRamBus(1)
   bridge.io.mig <> ddr.io.mig
-  bridge.io.tileReset := false.B
+  // ui domain must follow the tile reset (cpuReset / boot load / uart-reset):
+  // the adapter's own module reset is the board power-on reset (coreRst) and
+  // does NOT cover uart-reset, so without this a mid-flight ui transaction
+  // survives a load and its stale completion corrupts the next program's
+  // first accesses (reproduced in the xsim cosim: writes land one slot late).
+  bridge.io.tileReset := tileIo.debug.cpuReset
 
   val blinkCnt = RegInit(0.U(26.W))
   blinkCnt := blinkCnt + 1.U

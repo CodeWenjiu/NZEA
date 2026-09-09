@@ -19,7 +19,7 @@ row-shift address mapping, wdf mask inversion, ui-domain reset coverage).
 
 The port is **not** part of the adapter's functional contract:
 
-- Plain consumers (e.g. `Ddr3TestCore`) leave it unconnected.
+- Plain consumers (e.g. the xsim simulation wrapper) leave it unconnected.
 - The only real reader is the board ILA instrumentation in
   `LxbArtix7Core` (probe4–probe11, probe14, probe16, probe17).
 - Every field is a direct tap of an internal register/wire, so it costs

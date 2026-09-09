@@ -5,7 +5,8 @@ import chisel3.experimental.{attach, Analog}
 
 /** Debug observation port of [[Ddr3Subsystem]]: raw MIG reset/status signals
   * that are combined into [[MigUiIo.ui_rst]]. Left unconnected in plain usage
-  * (Ddr3TestCore etc.); board ILA instrumentation reads it via LxbArtix7Core.
+  * (the xsim wrapper leaves it unused); board ILA instrumentation reads it via
+  * LxbArtix7Core.
   */
 class Ddr3SubsystemDebug extends Bundle {
   val ui_clk_sync_rst = Output(Bool())

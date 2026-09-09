@@ -75,6 +75,14 @@ vivado-program board='lxb_artix7' isa='riscv32im':
 vivado-flow board='lxb_artix7' isa='riscv32im':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }}
 
+# Simulate the DDR3 adapter against the real generated MIG IP under xsim (minutes, needs Vivado).
+# For Xilinx-IP protocol questions only - the fast Chisel unit tests stay in `just test`.
+# --dump writes a VCD of the adapter internals for pulse.
+[group('fpga')]
+[arg("dump", long="dump", value="--dump")]
+vivado-sim board='lxb_artix7' isa='riscv32im' dump='':
+    @nu nzea_fpga/scripts/vivado-sim.nu --board {{ board }} --isa {{ isa }} {{ dump }}
+
 # Assemble an RV32IM .S test program into a tile boot hex (one 32-bit word per line)
 [group('fpga')]
 asm2hex src out:
