@@ -74,9 +74,16 @@ module nzea_ddr3_sim_top #
 
   // ---------------------------------------------------------------- clocks
   // 100 MHz, started at an offset that has no relationship to ui_clk.
+  // PHASE plusarg shifts the tile clock vs the MIG's own ui_clk, sweeping the
+  // one dimension that makes inter-clock races rare on the board: the pad
+  // alignment between the two 100 MHz domains.
   reg clk_100m = 1'b0;
-  initial #1237;
-  always #5000 clk_100m = ~clk_100m;
+  integer ph_offset = 1237;
+  initial begin
+    if (!$value$plusargs("PHASE=%d", ph_offset)) ph_offset = 1237;
+    #(ph_offset);
+    forever #5000 clk_100m = ~clk_100m;
+  end
 
   // --------------------------------------------------------------- resets
   // The vendor TB already applies RST_ACT_LOW to produce sys_rst, so with
@@ -174,6 +181,14 @@ module nzea_ddr3_sim_top #
   reg        done     = 1'b0;
   reg [5:0]  delayCnt = 6'd0;
   reg [31:0] got      = 32'h0;
+  // Inter-transaction gap in clk_100m cycles, driven by the GAP plusarg. The
+  // board's partial-write sequences (memtest phase 3) issue back-to-back
+  // stores with no gap, while the earlier fixed delay of 16 masked the
+  // back-to-back RMW behaviour of the real MIG.
+  reg [5:0]  gap_cycles = 6'd15;
+  initial begin
+    if (!$value$plusargs("GAP=%d", gap_cycles)) gap_cycles = 6'd15;
+  end
 
   // Declared here (the adapter instance below drives .io_bus_resp_flush from
   // it); the generation always-block sits after the adapter instance because it
@@ -304,7 +319,7 @@ module nzea_ddr3_sim_top #
         // delay is what separates "the adapter handed it over" from "it landed".
         S_DELAY: begin
           delayCnt <= delayCnt + 6'd1;
-          if (delayCnt == 6'd15) state <= S_RD;
+          if (delayCnt == gap_cycles) state <= S_RD;
         end
         S_RD: begin
           if (req_ready) state <= S_RDACK;

@@ -77,16 +77,28 @@ vivado-flow board='lxb_artix7' isa='riscv32im':
 
 # Simulate the DDR3 adapter against the real generated MIG IP under xsim (minutes, needs Vivado).
 # For Xilinx-IP protocol questions only - the fast Chisel unit tests stay in `just test`.
-# --dump writes a VCD of the adapter internals for pulse.
+# --tb <NAME> selects the cosim testbench wrapper (see --tb-list); --dump writes a
+# VCD of the adapter internals for pulse; --tb-args passes extra xsim arguments
+# verbatim, e.g. --tb-args "-testplusarg GAP=0".
 [group('fpga')]
 [arg("dump", long="dump", value="--dump")]
-vivado-sim board='lxb_artix7' isa='riscv32im' dump='':
-    @nu nzea_fpga/scripts/vivado-sim.nu --board {{ board }} --isa {{ isa }} {{ dump }}
+[arg("tb", long="tb")]
+[arg("tb_args", long="tb-args")]
+[arg("tb_list", long="tb-list", value="--tb-list")]
+vivado-sim board='lxb_artix7' isa='riscv32im' dump='' tb_args='' tb='nzea_ddr3_sim_top' tb_list='':
+    @nu nzea_fpga/scripts/vivado-sim.nu --board {{ board }} --isa {{ isa }} {{ dump }} {{ tb_list }} --tb "{{ tb }}" --tb-args "{{ tb_args }}"
 
-# Assemble an RV32IM .S test program into a tile boot hex (one 32-bit word per line)
+# Assemble an RV32IM .S test program into a tile boot hex (file mode).
+# Built-in DDR test programs make references to the shared common.S helpers and
+# therefore cannot be assembled standalone - use asm2hex-test for those.
 [group('fpga')]
 asm2hex src out:
     @cargo run --release --quiet --manifest-path probe/Cargo.toml -p asm2hex -- {{ src }} {{ out }}
+
+# Assemble a built-in DDR test program into a tile boot hex (see asm2hex --list)
+[group('fpga')]
+asm2hex-test name out:
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p asm2hex -- --test {{ name }} {{ out }}
 
 # Send hex file to tile via UART bootloader (BootFsm protocol through the probe tool)
 [group('fpga')]

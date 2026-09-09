@@ -17,7 +17,16 @@
 # memory-model instantiation all remain vendor code (no hand-written IP model).
 #
 # Usage:
-#   nu nzea_fpga/scripts/vivado-sim.nu [--board lxb_artix7] [--isa riscv32im] [--dump]
+#   nu nzea_fpga/scripts/vivado-sim.nu [--board lxb_artix7] [--isa riscv32im]
+#                                     [--dump] [--tb <NAME>] [--tb-list]
+#                                     [--tb-args "..."]
+#
+# --tb <NAME> selects the cosim testbench wrapper: it must be the module name
+# of a file <NAME>.v in nzea_fpga/src/boards/<board>/sim/. The vendor
+# sim_tb_top.v instantiates that module in place of example_top, so every
+# wrapper must keep example_top's parameter/port list (clocks, resets, delays
+# and the memory-model instantiation stay vendor code). --tb-list enumerates
+# the available wrappers. Default: nzea_ddr3_sim_top.
 #
 # --dump writes ddr3_cosim.vcd for pulse; it is off by default because the
 # adapter's internals are only interesting when something failed.
@@ -35,7 +44,34 @@ def main [
     --board: string = "lxb_artix7"
     --isa: string = "riscv32im"
     --dump
+    --tb: string = "nzea_ddr3_sim_top"
+    --tb-list
+    # Extra xsim command-line args, passed verbatim - most useful for TB
+    # plusargs, e.g. --tb-args "-testplusarg GAP=0 -testplusarg PHASE=3000".
+    --tb-args: string = ""
 ] {
+    # Wrapper inventory first: --tb-list works without a dumped build tree.
+    let board_sim = $"nzea_fpga/src/boards/($board)/sim" | path expand
+    let wrappers = (
+        glob ($board_sim | path join "*.v")
+        | each {|f| $f | path parse | get stem }
+        | sort
+    )
+    if $tb_list {
+        print "Cosim testbench wrappers (--tb <name>):"
+        for w in $wrappers { print $"  ($w)" }
+        exit 0
+    }
+    if ($wrappers | length) == 0 {
+        print $"ERROR: no wrapper .v files in ($board_sim)"
+        exit 1
+    }
+    let wrapper = $board_sim | path join $"($tb).v"
+    if not ($wrapper | path exists) {
+        print $"ERROR: wrapper '($tb)' not found - available: ($wrappers | str join ', ')"
+        exit 1
+    }
+
     let hw = $"build/fpga/($board)/($isa)/hw" | path expand
     if not ($hw | path exists) {
         print $"ERROR: no FPGA RTL at ($hw)"
@@ -47,8 +83,6 @@ def main [
     let mig = $vivado_dir | path join "nzea_fpga.gen/sources_1/ip/mig_ddr3/mig_ddr3"
     let sim_dir = $mig | path join "example_design/sim"
     let user_rtl = $mig | path join "user_design/rtl"
-    let board_sim = $"nzea_fpga/src/boards/($board)/sim" | path expand
-    let wrapper = $board_sim | path join "nzea_ddr3_sim_top.v"
 
     if not ($wrapper | path exists) {
         print $"ERROR: simulation wrapper not found at ($wrapper)"
@@ -82,14 +116,15 @@ exit
 
     # The vendor TB, with only the instantiated module name changed. Keeping the
     # rest of the file untouched is what makes the memory-model wiring and the
-    # propagation delays trustworthy.
-    let tb = (
+    # propagation delays trustworthy. (tb_text, not tb: the --tb parameter is a
+    # variable named $tb and a let in the same scope would shadow it.)
+    let tb_text = (
         open --raw ($sim_dir | path join "sim_tb_top.v")
-        | str replace "example_top #" "nzea_ddr3_sim_top #"
+        | str replace "example_top #" $"($tb) #"
     )
-    $tb | save --force ($work | path join "sim_tb_top.v")
-    if not ($tb | str contains "nzea_ddr3_sim_top #") {
-        print "ERROR: failed to patch example_top out of sim_tb_top.v"
+    $tb_text | save --force ($work | path join "sim_tb_top.v")
+    if not ($tb_text | str contains $"($tb) #") {
+        print $"ERROR: failed to patch example_top out of sim_tb_top.v (selected tb: ($tb))"
         exit 1
     }
 
@@ -132,6 +167,7 @@ exit
     let plusargs = (if $dump { "-testplusarg dump" } else { "" })
 
     print $"Simulating DDR3 against the real MIG under xsim in ($work)"
+    print $"  wrapper: ($tb)"
     print $"  MIG RTL files: ($mig_files | length)"
     print $"  memory model defines: ($model_defines)"
     if $dump { print "  waveform: ddr3_cosim.vcd (adapter internals only)" }
@@ -144,7 +180,7 @@ xvlog -prj files.prj
 xelab work.sim_tb_top work.glbl -prj files.prj -L unisims_ver -L secureip -s ddr3_cosim --timescale 1ps/100fs -debug typical
 echo 'run all
 quit' > run.tcl
-xsim ddr3_cosim -tclbatch run.tcl ($plusargs)
+xsim ddr3_cosim -tclbatch run.tcl ($plusargs) ($tb_args)
 exit
 "
 

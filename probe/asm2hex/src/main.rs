@@ -69,8 +69,9 @@ struct Args {
     /// Assembly source (.S) — plain file mode
     #[arg(value_name = "SRC")]
     src: Option<String>,
-    /// Output hex file
-    #[arg(short, long, value_name = "OUT")]
+    /// Output hex file (positional, matching the usage strings and the
+    /// justfile recipe: <SRC.S> <OUT.hex> or --test <NAME> <OUT.hex>)
+    #[arg(value_name = "OUT")]
     out: Option<PathBuf>,
     /// Use a built-in test instead of a file path (see --list)
     #[arg(long, value_name = "NAME")]
@@ -190,8 +191,12 @@ fn main() -> Result<(), String> {
     }
 
     if let Some(name) = args.test.as_deref() {
+        // In --test mode the bare output path is the only positional argument,
+        // so clap binds it to `src` (positional index 1); map it back to the
+        // output slot. Usages: `asm2hex --test <NAME> <OUT.hex>`.
         let out = args
             .out
+            .or_else(|| args.src.as_deref().map(PathBuf::from))
             .ok_or_else(|| "missing output path: asm2hex --test <NAME> <out.hex>".to_string())?;
         let Some((_, src, _)) = TESTS.iter().find(|(n, _, _)| *n == name) else {
             let names: Vec<&str> = TESTS.iter().map(|(n, _, _)| *n).collect();
