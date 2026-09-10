@@ -60,6 +60,31 @@ const TESTS: &[(&str, &str, &str)] = &[
         include_str!("../tests/wr_rd_only.S"),
         "full-word write + immediate readback only (no partial writes/RMW)",
     ),
+    (
+        "pwrite_scan",
+        include_str!("../tests/pwrite_scan.S"),
+        "partial-write scan: 16 rows sb/sh + un-strobed byte preservation",
+    ),
+    (
+        "r5_hammer",
+        include_str!("../tests/r5_hammer.S"),
+        "row-5-only partial-write hammer (tests if row 5 alone reproduces PVFAIL)",
+    ),
+    (
+        "r5_delay",
+        include_str!("../tests/r5_delay.S"),
+        "row-5 hammer with 10000-cycle read-back delay (drain check)",
+    ),
+    (
+        "print_only",
+        include_str!("../tests/print_only.S"),
+        "print-only smoke test, no DDR access",
+    ),
+    (
+        "read_only",
+        include_str!("../tests/read_only.S"),
+        "pure read-only test: write known data once, repeatedly read back (read-path corruption probe)",
+    ),
 ];
 
 const COMMON_S: &str = include_str!("../tests/common.S");
