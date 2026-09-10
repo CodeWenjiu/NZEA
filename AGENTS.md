@@ -81,6 +81,10 @@ flowchart TD
 
 调试死锁仿真 → 加载 skill `iverilog-debug`。
 
+### remu difftest（跨仓库）
+- remu 是独立仓库（`../remu`）。跑 difftest 时用 **remu 自己的 dev shell**（`cd ../remu && nix develop`）：remu 的运行依赖 zlib/lz4 只在其 `flake.nix` 里声明并导出 `LD_LIBRARY_PATH`，**nzea 的 flake 不含这两个**——用 nzea 的 shell 链接/运行 remu 会失败。
+- 详细命令见 `../remu` 的 `justfile`/`README.md`。
+
 ## 编码风格与命名规范
 遵循文件现有风格，不要重新格式化无关代码。Scala：类/对象/模块 `PascalCase`，val/方法 `camelCase`。Rust：`snake_case` 函数，`CamelCase` 类型。注释和文档仅英文。优先小模块，注释解释意图或风险。
 

@@ -145,6 +145,13 @@ exit
     # defines the same module name as mig_ddr3_mig_sim.v (the simulation variant
     # with the fast calibration bypass). The vendor project file compiles only
     # the _sim variant, so do the same.
+    #
+    # Why not read the vendor's xsim_files.prj as the authoritative list? It
+    # also lists the example-design traffic generator and example_top files,
+    # which we deliberately replace with our own wrapper (the vendor TB with
+    # only the instantiated module name changed). Glob over user_design/rtl is
+    # the subset we actually need; nushell glob descends symlinks, and the
+    # build is verified by cosim compiling all 67 files.
     let mig_files = (
         glob $"($user_rtl)/**/*.v"
         | where {|f| not ($f | str ends-with "mig_ddr3_mig.v") }
@@ -174,13 +181,15 @@ exit
 
     # firtool emits no timescale, so xelab needs one for the modules that lack it.
     # The vendor TB is 1ps/100fs; matching it keeps every delay in one unit.
+    # `timeout 600` guards the xsim run: a hung sim (no $finish, watchdog missed)
+    # would otherwise block the recipe forever.
     run-in-vivado $"set -e
 cd ($work)
 xvlog -prj files.prj
 xelab work.sim_tb_top work.glbl -prj files.prj -L unisims_ver -L secureip -s ddr3_cosim --timescale 1ps/100fs -debug typical
 echo 'run all
 quit' > run.tcl
-xsim ddr3_cosim -tclbatch run.tcl ($plusargs) ($tb_args)
+timeout 600 xsim ddr3_cosim -tclbatch run.tcl ($plusargs) ($tb_args)
 exit
 "
 
