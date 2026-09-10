@@ -23,6 +23,11 @@ class MigUiIo extends Bundle {
   val app_wdf_mask = Input(UInt(16.W))
   // Read data
   val app_rd_data = Output(UInt(128.W))
+  // Marks the LAST beat of a read-data burst. For 4:1 PHY the 128-bit data
+  // word is delivered over two UI beats (app_rd_data_valid stays high for both,
+  // app_rd_data_end on the second); sampling on valid alone can capture the
+  // first (partial) beat. Consumers must sample on valid && end.
+  val app_rd_data_end = Output(Bool())
   val app_rd_data_valid = Output(Bool())
   // Status
   val calib_done = Output(Bool())

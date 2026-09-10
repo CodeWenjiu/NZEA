@@ -173,7 +173,7 @@ object FpgaElaborate {
          |if {!$$hw_dev_found} {
          |  error "no hw device of part xc7a200tfbg484-2 found — program the board first"
          |}
-         |set ltx [glob -nocomplain [pwd]/nzea_fpga.runs/impl_1/*.ltx]
+         |set ltx [glob -nocomplain [file join [file dirname [info script]] nzea_fpga.runs impl_1 *.ltx]]
          |if {[llength $$ltx] > 0} {
          |  set_property PROBES.FILE [lindex $$ltx 0] [current_hw_device]
          |}

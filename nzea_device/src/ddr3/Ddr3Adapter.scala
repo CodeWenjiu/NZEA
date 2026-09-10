@@ -199,7 +199,19 @@ class Ddr3Adapter(
       val respDataU = RegInit(0.U(32.W))
 
       // MIG app outputs (defaults overridden by state).
+      // appEn is a register for the sRdCmd READ (the MIG samples app_en via its
+      // own 2-stage pipeline; a register gives the pipeline the extra settling
+      // beat and holds app_en while app_rdy is low without re-issuing).
+      // The sWrCmd write pulse instead uses the COMBINATIONAL appEnPulse so
+      // app_en and wdf_wren assert on the SAME cycle the MIG samples them: a
+      // register would delay app_en one cycle past wdf_wren (which is
+      // combinational), so the MIG would see write-data one cycle BEFORE the
+      // WRITE command; under back-to-back RMW traffic that mis-pairing lets
+      // the write command consume the PREVIOUS request's data word and the
+      // current data word is silently dropped (board-level intermittent
+      // "write accepted but never lands").
       val appEn = RegInit(false.B)
+      val appEnPulse = WireDefault(false.B)
       val appCmd = RegInit(0.U(3.W))
       val appAddr = RegInit(0.U(29.W))
       // wdfWren is combinational: it must pulse exactly on the cycle the MIG
@@ -342,7 +354,13 @@ class Ddr3Adapter(
           // Command already issued (rdCmdIssued). app_en is dropped here; do
           // NOT keep driving the READ — a re-asserted app_en would make the
           // MIG enqueue a duplicate command. Just wait for the read data.
-          when(io.mig.app_rd_data_valid) {
+          //
+          // Sample on app_rd_data_valid && app_rd_data_end (the LAST beat of
+          // the read burst): with 4:1 PHY the MIG delivers the 128-bit word
+          // over two UI beats, and sampling on valid alone can capture the
+          // first (partial) beat. The reference ddr3_rd_ctrl.v does exactly
+          // this (`app_rd_data_valid & app_rd_data_end`).
+          when(io.mig.app_rd_data_valid && io.mig.app_rd_data_end) {
             rdTimeout := 0.U
             rdLine := io.mig.app_rd_data
             when(uWen) {
@@ -400,7 +418,10 @@ class Ddr3Adapter(
                   wrAppRdySeen := true.B
                 }
                 when(wrAppRdySeen && io.mig.app_rdy && io.mig.app_wdf_rdy) {
-                  appEn := true.B
+                  // Same-cycle pulse: app_en and wdf_wren must be sampled by
+                  // the MIG on the same beat so the WRITE command pairs with
+                  // THIS request's data (see appEnPulse).
+                  appEnPulse := true.B
                   wdfWren := true.B
                   wrCmdPulse := true.B
                 }
@@ -467,7 +488,9 @@ class Ddr3Adapter(
   }
 
   // Drive MIG app outputs from the ui-domain registers.
-  io.mig.app_en := ui.appEn
+  // appEn (sRdCmd READ) is a register; appEnPulse (sWrCmd WRITE pulse) is
+  // combinational and asserted same-cycle with wdfWren.
+  io.mig.app_en := ui.appEn || ui.appEnPulse
   io.mig.app_cmd := ui.appCmd
   io.mig.app_addr := ui.appAddr
   io.mig.app_wdf_wren := ui.wdfWren

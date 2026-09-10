@@ -73,6 +73,7 @@ class Ddr3Subsystem extends Module {
   io.mig.app_rdy := mig.app_rdy
   io.mig.app_wdf_rdy := mig.app_wdf_rdy
   io.mig.app_rd_data := mig.app_rd_data
+  io.mig.app_rd_data_end := mig.app_rd_data_end
   io.mig.app_rd_data_valid := mig.app_rd_data_valid
   io.mig.calib_done := mig.init_calib_complete
   io.mig.ui_clk := mig.ui_clk

@@ -104,6 +104,7 @@ module nzea_ddr3_sim_top #
   wire         mig_wdf_rdy;
   wire [127:0] mig_rd_data;
   wire         mig_rd_valid;
+  wire         mig_rd_end;
   wire         calib_done;
   wire         mig_ui_clk;
   wire         mig_ui_rst;
@@ -113,6 +114,14 @@ module nzea_ddr3_sim_top #
   wire        pin_ras_n, pin_cas_n, pin_we_n, pin_reset_n;
   wire        pin_ck_p, pin_ck_n, pin_cke, pin_odt;
   wire [1:0]  pin_dm;
+
+  // The MIG's app_rd_data_end marks the LAST beat of a read-data burst. The
+  // cosim MIG model delivers the 128-bit word in ONE beat (end is never
+  // asserted), whereas the real board PHY may split it over two UI beats (end
+  // on the second). The adapter samples on valid&&end. For the cosim model a
+  // single beat means the only beat IS the last, so tie end = valid here;
+  // on the board the real MIG drives end correctly.
+  assign mig_rd_end = mig_rd_valid;
 
   // The generated Ddr3Subsystem is pure wiring around the MIG blackbox, so
   // firtool removed its clock/reset ports; do not connect any.
@@ -128,6 +137,7 @@ module nzea_ddr3_sim_top #
     .io_mig_app_wdf_end       (mig_wdf_end),
     .io_mig_app_wdf_rdy       (mig_wdf_rdy),
     .io_mig_app_rd_data       (mig_rd_data),
+    .io_mig_app_rd_data_end   (mig_rd_end),
     .io_mig_app_rd_data_valid (mig_rd_valid),
     .io_mig_calib_done        (calib_done),
     .io_mig_ui_clk            (mig_ui_clk),
@@ -254,6 +264,7 @@ module nzea_ddr3_sim_top #
     .io_mig_app_wdf_end       (mig_wdf_end),
     .io_mig_app_wdf_rdy       (mig_wdf_rdy),
     .io_mig_app_rd_data       (mig_rd_data),
+    .io_mig_app_rd_data_end   (mig_rd_end),
     .io_mig_app_rd_data_valid (mig_rd_valid),
     .io_mig_calib_done        (calib_done),
     .io_mig_ui_clk            (mig_ui_clk),
