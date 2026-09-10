@@ -84,6 +84,10 @@ class MigAppStub(numRows: Int = 8, busyEveryN: Int = 0, rdLatency: Int = 3) exte
   io.mig.ui_rst := reset.asBool || !io.mig.calib_done
   io.mig.app_rd_data := 0.U
   io.mig.app_rd_data_valid := false.B
+  // Read responses are single-beat in the stub (128-bit in one UI cycle), so
+  // end == valid, matching the cosim MIG model. The adapter samples on
+  // valid && end.
+  io.mig.app_rd_data_end := io.mig.app_rd_data_valid
   // Row of the CURRENT app_addr (captured when a read/write is in flight).
   val rowSel = Wire(UInt(log2Ceil(numRows).W))
   rowSel := io.mig.app_addr(log2Ceil(numRows) + 3, 4)
@@ -145,6 +149,7 @@ class MigAppStubWithCalib extends Module {
   io.mig.ui_rst := reset.asBool || !io.calib_done
   io.mig.app_rd_data := 0.U
   io.mig.app_rd_data_valid := false.B
+  io.mig.app_rd_data_end := io.mig.app_rd_data_valid // single-beat read response
 
   when(io.mig.app_en && io.mig.app_rdy && io.mig.app_cmd === "b001".U) {
     rdPending := true.B
@@ -210,6 +215,7 @@ class MigAppStubSwallow(swallowReads: Int) extends Module {
   io.mig.ui_rst := reset.asBool || !io.mig.calib_done
   io.mig.app_rd_data := 0.U
   io.mig.app_rd_data_valid := false.B
+  io.mig.app_rd_data_end := io.mig.app_rd_data_valid // single-beat read response
 
   when(io.mig.app_en && io.mig.app_rdy && io.mig.app_cmd === "b001".U) {
     readsIssued := readsIssued + 1.U
@@ -279,6 +285,7 @@ class MigAppStubHold extends Module {
   io.mig.ui_rst := reset.asBool || !io.mig.calib_done
   io.mig.app_rd_data := line
   io.mig.app_rd_data_valid := rdPending && io.release_read
+  io.mig.app_rd_data_end := io.mig.app_rd_data_valid // single-beat read response
 
   when(io.mig.app_en && io.mig.app_rdy && io.mig.app_cmd === "b001".U) {
     rdPending := true.B
