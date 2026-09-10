@@ -142,7 +142,6 @@ module nzea_ddr3_sim_top #
     .io_mig_calib_done        (calib_done),
     .io_mig_ui_clk            (mig_ui_clk),
     .io_mig_ui_rst            (mig_ui_rst),
-    .io_debug_calib_done      (),
     .io_ddr3_addr             (pin_addr),
     .io_ddr3_ba               (pin_ba),
     .io_ddr3_ras_n            (pin_ras_n),
