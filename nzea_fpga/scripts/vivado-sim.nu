@@ -158,6 +158,26 @@ exit
         | sort
     )
 
+    # C9 guard: the cosim relies on Ddr3Subsystem being PURE WIRING around the
+    # MIG blackbox (firtool removes its clock/reset ports — see the wrapper
+    # comment "do not connect any"). If it ever grows internal state (always
+    # blocks / registers), that assumption breaks and the cosim silently
+    # produces wrong results. Fail loudly instead: check the generated SV has
+    # no sequential logic before compiling it.
+    let ddr3_sub = $hw | path join "Ddr3Subsystem.sv"
+    let sub_has_seq = (
+        open --raw $ddr3_sub
+        | lines
+        | any {|l| $l =~ "always" }
+    )
+    if $sub_has_seq {
+        print $"ERROR: ($ddr3_sub) contains sequential logic (always block) — the cosim "
+        print "assumes Ddr3Subsystem is pure wiring around the MIG blackbox. If it now"
+        print "has internal state, the wrapper's 'do not connect any' assumption is broken;"
+        print "the cosim would silently simulate wrong behavior. Fix the wrapper first."
+        exit 1
+    }
+
     let prj_lines = ([
         # Xilinx global reset/initialisation; env var is expanded by xvlog.
         'verilog work $XILINX_VIVADO/data/verilog/src/glbl.v'
@@ -167,7 +187,7 @@ exit
         $"sv work ($hw | path join 'Ddr3Subsystem.sv')"
         $"sv work ($hw | path join 'Ddr3Adapter.sv')"
         $"verilog work ($work | path join 'sim_tb_top.v')"
-    ] ++ ($mig_files | each {|f| $"verilog work ($f)" }))
+    ] ++ ($mig_files | each {|f| $"verilog work ($f)"}))
 
     $prj_lines | str join "\n" | save --force ($work | path join "files.prj")
 

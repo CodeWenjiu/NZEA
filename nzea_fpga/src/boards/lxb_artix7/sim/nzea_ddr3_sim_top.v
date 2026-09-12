@@ -124,7 +124,10 @@ module nzea_ddr3_sim_top #
   assign mig_rd_end = mig_rd_valid;
 
   // The generated Ddr3Subsystem is pure wiring around the MIG blackbox, so
-  // firtool removed its clock/reset ports; do not connect any.
+  // firtool removed its clock/reset ports; do not connect any. This is an
+  // ASSERTED assumption: vivado-sim.nu greps Ddr3Subsystem.sv for always
+  // blocks and aborts if it ever gains sequential logic (which would break
+  // this no-clock instantiation silently).
   Ddr3Subsystem u_ddr3_sub (
     .io_rst_n                 (sys_rst_n),
     .io_clk_200m              (sys_clk_i),
@@ -369,14 +372,24 @@ module nzea_ddr3_sim_top #
   assign tg_compare_error = !all_pass;
 
   // ------------------------------------------------------------- verdict
+  // C5: the old `wait (done)` was level-sampled and raced the watchdog below —
+  // if `done` never asserted, the watchdog's $finish could win and the verdict
+  // block never printed PASS/FAIL (a failed test could look like a hang).
+  // Sample `done` on clk_100m edges instead; the diagnostic watchdog below
+  // owns the timeout path (it $finishes after 40 us if `done` never arrives),
+  // so the two blocks cannot race on who reports.
   initial begin
-    wait (done);
-    #1000;
-    if (all_pass)
-      $display("NZEA_DDR3_SIM: PASS 5/5 write-read-compare against the real MIG");
-    else
-      $display("NZEA_DDR3_SIM: FAIL passbits=%05b", passbits);
-    $finish;
+    forever begin
+      @(posedge clk_100m);
+      if (done) begin
+        #1000;
+        if (all_pass)
+          $display("NZEA_DDR3_SIM: PASS 5/5 write-read-compare against the real MIG");
+        else
+          $display("NZEA_DDR3_SIM: FAIL passbits=%05b", passbits);
+        $finish;
+      end
+    end
   end
 
   // Diagnostic watchdog. Fires 10 us before the vendor TB's own post-calibration

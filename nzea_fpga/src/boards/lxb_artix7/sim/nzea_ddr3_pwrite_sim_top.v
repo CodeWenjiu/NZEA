@@ -244,15 +244,23 @@ module nzea_ddr3_pwrite_sim_top #
   wire all_pass = pass;
   assign tg_compare_error = !all_pass;
 
+  // C5: the old `wait (done)` was level-sampled and raced the watchdog below —
+  // if `done` never asserted, the watchdog's $finish could win and this block
+  // never printed PASS/FAIL. Sample `done` on clk_100m edges; the watchdog
+  // owns the timeout path, so the two blocks cannot race on who reports.
   initial begin
-    wait (done);
-    #1000;
-    if (all_pass)
-      $display("NZEA_PWRITE_SIM: PASS - sh 0xF00D@12 preserved high half DEAD (mergedFrom ok)");
-    else
-      $display("NZEA_PWRITE_SIM: FAIL got=%08x exp=%08x - mergedFrom partial-write bug!",
-               got, 32'hDEAD_F00D);
-    $finish;
+    forever begin
+      @(posedge clk_100m);
+      if (done) begin
+        #1000;
+        if (all_pass)
+          $display("NZEA_PWRITE_SIM: PASS - sh 0xF00D@12 preserved high half DEAD (mergedFrom ok)");
+        else
+          $display("NZEA_PWRITE_SIM: FAIL got=%08x exp=%08x - mergedFrom partial-write bug!",
+                   got, 32'hDEAD_F00D);
+        $finish;
+      end
+    end
   end
 
   initial begin
