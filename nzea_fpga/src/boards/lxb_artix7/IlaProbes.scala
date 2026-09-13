@@ -8,7 +8,7 @@ import chisel3._
   * never instantiated directly by RTL; instead it lives inside [[IlaProbes]], the
   * synthesizable wrapper that firtool emits as its own file.
   *
-  * The probe ports are named `probe0..probe21` (matching the Xilinx ILA IP
+  * The probe ports are named `probe0..probe10` (matching the Xilinx ILA IP
   * port names) with widths from [[IlaProbes.widths]]. The wrapper and the
   * blackbox share the same widths, so the RTL interface and the Vivado IP stay
   * in lockstep.
@@ -28,17 +28,6 @@ class IlaProbesBlackbox extends ExtModule {
   val probe8 = IO(Input(IlaProbes.probeType(8)))
   val probe9 = IO(Input(IlaProbes.probeType(9)))
   val probe10 = IO(Input(IlaProbes.probeType(10)))
-  val probe11 = IO(Input(IlaProbes.probeType(11)))
-  val probe12 = IO(Input(IlaProbes.probeType(12)))
-  val probe13 = IO(Input(IlaProbes.probeType(13)))
-  val probe14 = IO(Input(IlaProbes.probeType(14)))
-  val probe15 = IO(Input(IlaProbes.probeType(15)))
-  val probe16 = IO(Input(IlaProbes.probeType(16)))
-  val probe17 = IO(Input(IlaProbes.probeType(17)))
-  val probe18 = IO(Input(IlaProbes.probeType(18)))
-  val probe19 = IO(Input(IlaProbes.probeType(19)))
-  val probe20 = IO(Input(IlaProbes.probeType(20)))
-  val probe21 = IO(Input(IlaProbes.probeType(21)))
 }
 
 /** Synthesizable ILA wrapper, instantiated by [[LxbArtix7Core]] when `cfg.debugIla`.
@@ -53,7 +42,7 @@ class IlaProbesBlackbox extends ExtModule {
   * generation creates the matching ILA IP from [[FpgaElaborate]]'s
   * `ila_config.json` (depth + widths), so RTL interface and IP stay in lockstep.
   *
-  * Probe count is fixed (22: probe0..probe21), each bit width coming from
+  * Probe count is fixed (11: probe0..probe10), each bit width coming from
   * [[IlaProbes.widths]] — the single source of truth that the RTL wrapper, the
   * blackbox, and the generated ILA IP all derive from. The probe wiring lives
   * in [[LxbArtix7Core]] and must match this order.
@@ -70,17 +59,6 @@ class IlaProbes extends Module {
   val probe8 = IO(Input(IlaProbes.probeType(8)))
   val probe9 = IO(Input(IlaProbes.probeType(9)))
   val probe10 = IO(Input(IlaProbes.probeType(10)))
-  val probe11 = IO(Input(IlaProbes.probeType(11)))
-  val probe12 = IO(Input(IlaProbes.probeType(12)))
-  val probe13 = IO(Input(IlaProbes.probeType(13)))
-  val probe14 = IO(Input(IlaProbes.probeType(14)))
-  val probe15 = IO(Input(IlaProbes.probeType(15)))
-  val probe16 = IO(Input(IlaProbes.probeType(16)))
-  val probe17 = IO(Input(IlaProbes.probeType(17)))
-  val probe18 = IO(Input(IlaProbes.probeType(18)))
-  val probe19 = IO(Input(IlaProbes.probeType(19)))
-  val probe20 = IO(Input(IlaProbes.probeType(20)))
-  val probe21 = IO(Input(IlaProbes.probeType(21)))
 
   val impl = Module(new IlaProbesBlackbox)
   impl.clk := clock
@@ -95,44 +73,32 @@ class IlaProbes extends Module {
   impl.probe8 := probe8
   impl.probe9 := probe9
   impl.probe10 := probe10
-  impl.probe11 := probe11
-  impl.probe12 := probe12
-  impl.probe13 := probe13
-  impl.probe14 := probe14
-  impl.probe15 := probe15
-  impl.probe16 := probe16
-  impl.probe17 := probe17
-  impl.probe18 := probe18
-  impl.probe19 := probe19
-  impl.probe20 := probe20
-  impl.probe21 := probe21
 }
 
 object IlaProbes {
   /** ILA capture depth (samples per trigger).
     *
-    * 16384 @ 100 MHz = 164 us — short, but this leaves BRAM budget for wide
-    * MIG data-path probes (app_rd_data[31:0], app_wdf_data[31:0], ...).
+    * 16384 @ 100 MHz = 164 us. Halving the probe count (from 22 to 11) after
+    * the Ddr3Adapter debug-port shrink leaves BRAM headroom to raise this if a
+    * deeper window is ever needed.
     */
   val depth = 16384
 
-  /** Probe widths, one entry per probe (probe0 .. probe21).
+  /** Probe widths, one entry per probe (probe0 .. probe10).
     *
     * Order must match the probe wiring in [[LxbArtix7Core]]:
     * probe0 cpu_reset, probe1 uart_txd, probe2 uart_rxd, probe3 finisher_finished,
-    * probe4 bridge.flush, probe5 bridge.reqPending, probe6 bridge.respValid,
-    * probe7 bridge.reqFire, probe8 bridge.uiState (3b), probe9 bridge.uiReqGoSeen,
-    * probe10 bridge.uiDoneReq, probe11 bridge.uiAppEn,
-    * probe12 mig ui_rst, probe13 mig calib_done, probe14 bridge.uiWen,
-    * probe15 mig app_addr low 8 bits (8b), probe16 bridge.reqWen,
-    * probe17 bridge.wdfWren, probe18 mig app_wdf_rdy, probe19 mig app_rdy,
-    * probe20 mig app_rd_data_valid, probe21 mig app_rd_data[95:64] (32b).
+    * probe4 mig ui_rst, probe5 mig calib_done,
+    * probe6 mig app_addr low 8 bits (8b),
+    * probe7 mig app_wdf_rdy, probe8 mig app_rdy,
+    * probe9 mig app_rd_data_valid, probe10 mig app_rd_data[95:64] (32b).
     *
-    * All 1-bit except probe8 (3b), probe15 (8b) and probe21 (32b). Widths are
-    * kept minimal so the depth-16384 capture (@ 100 MHz ≈ 164 us) fits the
-    * BRAM budget alongside the wide MIG data-path probes.
+    * All 1-bit except probe6 (8b) and probe10 (32b). The adapter-internal
+    * debug probes (bridge.io.debug.*) were dropped — the cosim + unit tests
+    * cover the adapter protocol, and the ILA now only watches the MIG physical
+    * layer and board IO.
     */
-  val widths: Seq[Int] = Seq(1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 8, 1, 1, 1, 1, 1, 32)
+  val widths: Seq[Int] = Seq(1, 1, 1, 1, 1, 1, 8, 1, 1, 1, 32)
 
   /** Chisel type for probe i: 1-bit → Bool, wider → UInt(widths(i).W). */
   def probeType(i: Int): Data =

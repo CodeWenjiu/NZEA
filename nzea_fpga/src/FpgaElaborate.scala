@@ -80,49 +80,29 @@ object FpgaElaborate {
     // in synthesis (the ILA VCD then exports the port name, possibly as
     // `core/ila/probeN`, which the bare key still renames as a substring);
     // `core/ila/<net>` path keys catch nets whose firtool-generated name
-    // survived into the Vivado export (board-level ILA, so no `tile/` segment;
-    // `E`/`SR` are firtool junk names that only the path key can pin down).
-    // Probes 9/11/16/17 were nameless in the reference capture and rely on the
-    // bare keys alone. Net names are synthesis artifacts of one verified
-    // capture and may drift between builds — re-derive them from `pulse signal`
-    // on a fresh capture if a rename stops matching. Semantic names mirror the
-    // probe wiring in LxbArtix7Core / IlaProbes.widths.
+    // survived into the Vivado export (board-level ILA, so no `tile/` segment).
+    // Net names are synthesis artifacts of one verified capture and may drift
+    // between builds — re-derive them from `pulse signal` on a fresh capture if
+    // a rename stops matching. Semantic names mirror the probe wiring in
+    // LxbArtix7Core / IlaProbes.widths (11 probes: board IO + MIG physical layer).
     val probeMap: String =
       """probe0 cpu_reset
         |probe1 uart_txd
         |probe2 uart_rxd
         |probe3 finisher_finished
-        |probe4 ddr_adapter_flush
-        |probe5 ddr_req_pending
-        |probe6 ddr_resp_valid
-        |probe7 ddr_req_fire
-        |probe8 ddr_ui_state
-        |probe9 ddr_ui_req_go_seen
-        |probe10 ddr_ui_done_req
-        |probe11 ddr_ui_app_en
-        |probe12 ddr_ui_rst
-        |probe13 ddr_calib_done
-        |probe14 ddr_ui_wen
-        |probe15 ddr_app_addr
-        |probe16 ddr_req_wen
-        |probe17 ddr_wdf_wren
-        |probe18 ddr_app_wdf_rdy
-        |probe19 ddr_app_rdy
-        |probe20 ddr_rd_valid
-        |probe21 ddr_rd_data
+        |probe4 ddr_ui_rst
+        |probe5 ddr_calib_done
+        |probe6 ddr_app_addr
+        |probe7 ddr_app_wdf_rdy
+        |probe8 ddr_app_rdy
+        |probe9 ddr_rd_valid
+        |probe10 ddr_rd_data
         |core/ila/_tile_io_debug_cpuReset cpu_reset
         |core/ila/io_uart_tx uart_txd
         |core/ila/uart_rxd uart_rxd
         |core/ila/finisher_finished finisher_finished
-        |core/ila/mem_flush ddr_adapter_flush
-        |core/ila/_bridge_io_debug_reqPending ddr_req_pending
-        |core/ila/_bridge_io_debug_respValid ddr_resp_valid
-        |core/ila/E ddr_req_fire
-        |core/ila/_bridge_io_debug_uiState ddr_ui_state
-        |core/ila/_bridge_io_debug_uiDoneReq ddr_ui_done_req
         |core/ila/SR ddr_ui_rst
         |core/ila/init_calib_complete ddr_calib_done
-        |core/ila/_bridge_io_debug_uiWen ddr_ui_wen
         |core/ila/_bridge_io_mig_app_addr ddr_app_addr
         |core/ila/app_wdf_rdy ddr_app_wdf_rdy
         |core/ila/app_rdy ddr_app_rdy
