@@ -110,6 +110,12 @@ uart-load hex port baud='115200':
 uart-reset port baud='115200':
     @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- reset {{ port }} --baud {{ baud }}
 
+# Read one word from a tile address over UART (generated probe program);
+# port empty = auto-discover the CH340 via /dev/serial/by-id
+[group('fpga')]
+uart-read addr port='' baud='115200':
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- memread {{ addr }} {{ port }} --baud {{ baud }}
+
 # Attach a streaming serial monitor (timestamps); --reset restarts the CPU right after attaching
 [group('fpga')]
 [arg("reset", long="reset", value="--reset")]

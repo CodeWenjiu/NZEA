@@ -1,11 +1,20 @@
 //! Probe — FPGA board debug toolbox for NzeaTile.
 //!
 //! Subcommands:
-//! - `load <hex> <port>`: send a program via the BootFsm boot protocol, then read back briefly.
-//! - `reset <port>`: send the reset-only command (magic + addr + size=0): the CPU restarts
-//!   from the reset vector with RAM preserved.
-//! - `monitor <port> [--reset]`: stream RX bytes with timestamps until Ctrl-C; with `--reset`
-//!   the reset command is sent right after attaching, so no boot output is missed.
+//! - `load <hex> [port] [--read-ms N]`: send a program via the BootFsm boot
+//!   protocol, then read back for `--read-ms` ms (default 1000).
+//! - `reset [port]`: send the reset-only command (magic + addr + size=0): the
+//!   CPU restarts from the reset vector with RAM preserved.
+//! - `monitor [port] [--reset]`: stream RX bytes with timestamps until Ctrl-C;
+//!   with `--reset` the reset command is sent right after attaching, so no boot
+//!   output is missed.
+//! - `memread <addr> [port] [--read-ms N]`: generate a tiny RV32IM program that
+//!   reads the word at `<addr>` (e.g. 0x88000000 for DDR base) and prints it via
+//!   puthex, assemble it with the asm2hex library, then load and read back.
+//!   Distinguishes "stale residue" from "write failed" without touching RTL.
+//!
+//! When the port argument is empty or omitted, the CH340 UART is discovered
+//! automatically via the stable `/dev/serial/by-id` alias (see `serial.rs`).
 
 mod hex;
 mod protocol;
@@ -24,7 +33,7 @@ use crate::serial::Serial;
 #[command(
     name = "probe",
     version,
-    about = "FPGA board debug toolbox for NzeaTile (load / reset / monitor)"
+    about = "FPGA board debug toolbox for NzeaTile (load / reset / monitor / memread)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -33,17 +42,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Send a hex program via the BootFsm boot protocol, then read back briefly.
+    /// Send a hex program via the BootFsm boot protocol, then read back for --read-ms.
     Load {
         hex: PathBuf,
+        /// Serial port; empty/omitted = auto-discover the CH340 via /dev/serial/by-id.
+        #[arg(default_value = "")]
         port: String,
         #[arg(long, default_value_t = 115200)]
         baud: u32,
         #[arg(long, default_value_t = 0)]
         addr: u32,
+        /// Read-back window in ms after the transfer completes.
+        #[arg(long, default_value_t = 1000)]
+        read_ms: u64,
     },
     /// Reset-only command: CPU restarts from the reset vector, RAM is kept.
     Reset {
+        /// Serial port; empty/omitted = auto-discover the CH340 via /dev/serial/by-id.
+        #[arg(default_value = "")]
         port: String,
         #[arg(long, default_value_t = 115200)]
         baud: u32,
@@ -52,6 +68,8 @@ enum Cmd {
     },
     /// Stream RX bytes with timestamps until Ctrl-C. With --reset, reset right after attaching.
     Monitor {
+        /// Serial port; empty/omitted = auto-discover the CH340 via /dev/serial/by-id.
+        #[arg(default_value = "")]
         port: String,
         #[arg(long, default_value_t = 115200)]
         baud: u32,
@@ -59,6 +77,20 @@ enum Cmd {
         reset: bool,
         #[arg(long)]
         hex: bool,
+    },
+    /// Read the word at <addr> (e.g. DDR base 0x88000000) via a generated tile program.
+    #[command(name = "memread")]
+    MemRead {
+        /// Address to read (hex with 0x prefix, or decimal).
+        addr: String,
+        /// Serial port; empty/omitted = auto-discover the CH340 via /dev/serial/by-id.
+        #[arg(default_value = "")]
+        port: String,
+        #[arg(long, default_value_t = 115200)]
+        baud: u32,
+        /// Read-back window in ms after the transfer completes.
+        #[arg(long, default_value_t = 1000)]
+        read_ms: u64,
     },
     /// Rename VCD signal identifiers via a probe map (`probeN name` per line).
     VcdRename {
@@ -76,7 +108,8 @@ fn main() {
             port,
             baud,
             addr,
-        } => run_load(&hex, &port, baud, addr),
+            read_ms,
+        } => run_load(&hex, &port, baud, addr, read_ms),
         Cmd::Reset { port, baud, addr } => run_reset(&port, baud, addr),
         Cmd::Monitor {
             port,
@@ -84,6 +117,15 @@ fn main() {
             reset,
             hex,
         } => run_monitor(&port, baud, reset, hex),
+        Cmd::MemRead {
+            addr,
+            port,
+            baud,
+            read_ms,
+        } => match parse_addr(&addr) {
+            Ok(a) => run_memread(a, &port, baud, read_ms),
+            Err(e) => Err(e),
+        },
         Cmd::VcdRename { map, input, output } => run_vcd_rename(&map, &input, &output),
     };
     if let Err(e) = result {
@@ -92,7 +134,17 @@ fn main() {
     }
 }
 
-fn run_load(hex: &Path, port: &str, baud: u32, addr: u32) -> io::Result<()> {
+/// Resolve the port argument: empty string → auto-discover the board UART.
+fn resolve_port(port: &str) -> io::Result<String> {
+    if port.is_empty() {
+        serial::find_serial_port()
+    } else {
+        Ok(port.to_string())
+    }
+}
+
+fn run_load(hex: &Path, port: &str, baud: u32, addr: u32, read_ms: u64) -> io::Result<()> {
+    let port = resolve_port(port)?;
     let words = hex::load_words(hex)
         .map_err(|e| io::Error::new(e.kind(), format!("reading {}: {e}", hex.display())))?;
     if words.is_empty() {
@@ -102,26 +154,15 @@ fn run_load(hex: &Path, port: &str, baud: u32, addr: u32) -> io::Result<()> {
         ));
     }
 
-    let frame = protocol::load_frame(addr, &words);
     println!("Sending {} words to addr 0x{addr:08X}…", words.len());
-
-    let mut ser = Serial::open(port, baud)?;
-    ser.write_all(&frame)?;
-    ser.flush()?;
-
-    // Wait for transmission + FPGA processing, then read back a short window.
-    let bits = (12 + words.len() as u64 * 4) * 10;
-    std::thread::sleep(Duration::from_secs_f64(bits as f64 / baud as f64 + 0.5));
-
-    println!("Response:");
-    readback(&mut ser, Duration::from_secs(1))?;
-    Ok(())
+    send_and_readback(&port, baud, addr, &words, read_ms)
 }
 
 fn run_reset(port: &str, baud: u32, addr: u32) -> io::Result<()> {
+    let port = resolve_port(port)?;
     let frame = protocol::reset_frame(addr);
     println!("Sending reset command (magic + addr=0x{addr:08X} + size=0)…");
-    let mut ser = Serial::open(port, baud)?;
+    let mut ser = Serial::open(&port, baud)?;
     ser.write_all(&frame)?;
     ser.flush()?;
 
@@ -134,7 +175,8 @@ fn run_reset(port: &str, baud: u32, addr: u32) -> io::Result<()> {
 }
 
 fn run_monitor(port: &str, baud: u32, reset: bool, hex: bool) -> io::Result<()> {
-    let mut ser = Serial::open(port, baud)?;
+    let port = resolve_port(port)?;
+    let mut ser = Serial::open(&port, baud)?;
     if reset {
         let frame = protocol::reset_frame(0);
         println!("[reset] sending reset command…");
@@ -166,6 +208,78 @@ fn run_monitor(port: &str, baud: u32, reset: bool, hex: bool) -> io::Result<()> 
         }
         stdout.flush()?;
     }
+}
+
+/// Send a program frame, wait for it to drain, then read the response window.
+fn send_and_readback(
+    port: &str,
+    baud: u32,
+    addr: u32,
+    words: &[u32],
+    read_ms: u64,
+) -> io::Result<()> {
+    let frame = protocol::load_frame(addr, words);
+    let mut ser = Serial::open(port, baud)?;
+    ser.write_all(&frame)?;
+    ser.flush()?;
+
+    // Wait for transmission + FPGA processing, then read back the window.
+    let bits = (12 + words.len() as u64 * 4) * 10;
+    std::thread::sleep(Duration::from_secs_f64(bits as f64 / baud as f64 + 0.5));
+
+    println!("Response:");
+    readback(&mut ser, Duration::from_millis(read_ms))?;
+    Ok(())
+}
+
+/// Generate a tiny RV32IM program that reads `addr` and prints it via puthex.
+///
+/// Uses only the shared UART helpers from asm2hex's COMMON_S (appended after
+/// our `_start`), so the program is self-contained and exercises the real bus.
+/// s1 keeps the address across the puthex calls (puthex clobbers t-regs + s0).
+fn memread_words(addr: u32) -> Result<Vec<u32>, String> {
+    let src = format!(
+        ".section .text\n\
+         .globl _start\n\
+         _start:\n\
+         \tli\ts1, 0x{addr:08x}\n\
+         \tmv\ta0, s1\n\
+         \tjal\tputhex\n\
+         \tli\ta1, ' '\n\
+         \tjal\tputc\n\
+         \tlw\ta0, 0(s1)\n\
+         \tjal\tputhex\n\
+         \tli\ta1, '\\n'\n\
+         \tjal\tputc\n\
+         \tlui\tt0, 0x00100\n\
+         \tsw\tx0, 0(t0)\n\
+         1:\tj\t1b\n",
+        addr = addr
+    );
+    asm2hex::assemble_words(&format!("{src}\n{}", asm2hex::COMMON_S), 0x8000_0000)
+}
+
+/// Accepts `0x...` hex (the expected DDR-address form) or plain decimal.
+fn parse_addr(s: &str) -> io::Result<u32> {
+    let s = s.trim().trim_start_matches("0x").trim_start_matches("0X");
+    u32::from_str_radix(s, 16)
+        .or_else(|_| s.parse::<u32>())
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid address '{s}': {e}"),
+            )
+        })
+}
+
+fn run_memread(addr: u32, port: &str, baud: u32, read_ms: u64) -> io::Result<()> {
+    let port = resolve_port(port)?;
+    let words = memread_words(addr).map_err(io::Error::other)?;
+    println!(
+        "Reading addr 0x{addr:08X} via a generated tile probe program ({} words)…",
+        words.len()
+    );
+    send_and_readback(&port, baud, 0, &words, read_ms)
 }
 
 /// Read whatever arrives within `window`, then print it: text if printable, else big-endian words.
@@ -234,4 +348,18 @@ fn timestamp() -> String {
         "[{:02}:{:02}:{:02}.{:03}]",
         tm.tm_hour, tm.tm_min, tm.tm_sec, millis
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memread_program_assembles_and_fits() {
+        // The generated probe program must assemble and stay small enough to
+        // load (a handful of instructions + helpers).
+        let words = memread_words(0x8800_0000).expect("memread program assembles");
+        assert!(!words.is_empty());
+        assert!(words.len() < 64, "memread program unexpectedly large");
+    }
 }

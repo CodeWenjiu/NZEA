@@ -124,10 +124,17 @@ The BootFsm protocol doubles as a debug control plane:
   per-chunk timestamps (Ctrl-C to stop). With `--reset` the reset command is
   sent *right after attaching*: UART TX/RX are full-duplex, so the reset command
   never appears in the RX stream and **no boot output is missed** — this is the
+  this is the
   canonical "open terminal, press reset, observe" debug flow.
+- `just uart-read <addr> [port]` — reads one word from a tile address (e.g.
+  `0x88000000` for the DDR window) via a tiny generated probe program built on
+  the fly (`probe memread` + asm2hex lib). Distinguishes "stale residue" from
+  "write failed" without reflashing.
 
 All UART commands live in the `probe` Rust workspace (`just` builds it on
-demand via `cargo run`). Magic semantics worth remembering:
+demand via `cargo run`). The port argument may be omitted on every command —
+`probe` auto-discovers the CH340 via `/dev/serial/by-id`. Magic semantics worth
+remembering:
 
 - `size = 0` is the reset-only command; a normal load has `size ≥ 1` (wire format
   unchanged, backwards compatible).
@@ -222,10 +229,13 @@ ls -l /dev/serial/by-id/
 # → usb-1a86_USB_Serial-if00-port0 -> ../../ttyUSB1
 ```
 
-Use that path directly:
+Use that path directly, or **omit the port entirely** — `probe` auto-discovers
+the CH340 via `/dev/serial/by-id` (prefers the `if00-port0` alias, errors with
+the candidate list if several CH340s are plugged in):
 
 ```sh
 just uart-load ... /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 115200
+just uart-load hello.hex   # empty port = auto-discover
 ```
 
 To identify the port (e.g. when several USB serials are plugged in), inspect the

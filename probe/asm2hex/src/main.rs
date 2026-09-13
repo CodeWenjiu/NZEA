@@ -1,93 +1,13 @@
 //! asm2hex — assemble an RV32IM `.S` file into a NzeaTile boot hex.
 //!
-//! Drives the same LLVM toolchain (clang → rust-lld → rust-objcopy) that the
-//! old `asm2hex.sh` used and converts the raw binary to the tile's
-//! `$readmemh`-style hex (one 32-bit word per line, little-endian, linked at
-//! 0x8000_0000 by default).
-//!
-//! Two source modes:
-//! - a plain `.S` file path (arbitrary hand-written assembly);
-//! - a named built-in test via `--test <NAME>` (the DDR regression programs,
-//!   embedded from `tests/` at compile time). Built-in tests are assembled with
-//!   `common.S` (shared UART/hex helpers) prepended, so each test .S carries
-//!   only its own logic. List them with `--list`.
-//!
-//! The tile has no C extension, so `-march=rv32im` is mandatory: clang's
-//! riscv32 default target enables RVC, and compressed instructions would fault
-//! the CPU.
+//! CLI front-end over the `asm2hex` library (see `lib.rs` for the shared
+//! toolchain pipeline, also used by `probe memread`).
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use clap::Parser;
 
-/// Built-in DDR regression tests: name → (source, one-line description).
-/// Sources are embedded at compile time from `tests/`; they do NOT include the
-/// shared UART helpers (see `common.S`, prepended by the build step).
-const TESTS: &[(&str, &str, &str)] = &[
-    (
-        "memtest",
-        include_str!("../tests/memtest.S"),
-        "full DDR3 memtest: write+readback 4KiB, partial writes, overwrite",
-    ),
-    (
-        "small",
-        include_str!("../tests/small.S"),
-        "small 64-word write+readback (stability A/B)",
-    ),
-    (
-        "wv2",
-        include_str!("../tests/wv2.S"),
-        "write-verify: write then IMMEDIATELY read back each word",
-    ),
-    (
-        "pwrite",
-        include_str!("../tests/pwrite.S"),
-        "partial writes (sb/sh) on a single row, dump all 4 words",
-    ),
-    (
-        "pwrite2",
-        include_str!("../tests/pwrite2.S"),
-        "partial writes on HIGH-half bytes (byte 8, half [12:13])",
-    ),
-    (
-        "focus",
-        include_str!("../tests/focus.S"),
-        "focused loop over a small region (intermittent-failure probe)",
-    ),
-    (
-        "wr_rd_only",
-        include_str!("../tests/wr_rd_only.S"),
-        "full-word write + immediate readback only (no partial writes/RMW)",
-    ),
-    (
-        "pwrite_scan",
-        include_str!("../tests/pwrite_scan.S"),
-        "partial-write scan: 16 rows sb/sh + un-strobed byte preservation",
-    ),
-    (
-        "r5_hammer",
-        include_str!("../tests/r5_hammer.S"),
-        "row-5-only partial-write hammer (tests if row 5 alone reproduces PVFAIL)",
-    ),
-    (
-        "r5_delay",
-        include_str!("../tests/r5_delay.S"),
-        "row-5 hammer with 10000-cycle read-back delay (drain check)",
-    ),
-    (
-        "print_only",
-        include_str!("../tests/print_only.S"),
-        "print-only smoke test, no DDR access",
-    ),
-    (
-        "read_only",
-        include_str!("../tests/read_only.S"),
-        "pure read-only test: write known data once, repeatedly read back (read-path corruption probe)",
-    ),
-];
-
-const COMMON_S: &str = include_str!("../tests/common.S");
+use asm2hex::{assemble, COMMON_S, TESTS};
 
 #[derive(Parser)]
 #[command(
@@ -112,100 +32,6 @@ struct Args {
     /// Link address (default: 0x8000_0000 — the tile's RAM base)
     #[arg(long, default_value_t = 0x8000_0000)]
     link_addr: u32,
-}
-
-fn run(cmd: &mut Command) -> Result<(), String> {
-    let status = cmd.status().map_err(|e| {
-        format!(
-            "failed to spawn {}: {e}",
-            cmd.get_program().to_string_lossy()
-        )
-    })?;
-    if !status.success() {
-        return Err(format!(
-            "{} exited with {status}",
-            cmd.get_program().to_string_lossy()
-        ));
-    }
-    Ok(())
-}
-
-fn assemble(src_text: &str, link_addr: u32, out: &Path) -> Result<(), String> {
-    let tmp = std::env::temp_dir().join(format!("asm2hex-{}", std::process::id()));
-    std::fs::create_dir_all(&tmp)
-        .map_err(|e| format!("cannot create temp dir {}: {e}", tmp.display()))?;
-
-    // Clean up the temp dir on exit (success or failure).
-    struct Cleanup(PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-    let _cleanup = Cleanup(tmp.clone());
-
-    let src = tmp.join("app.s");
-    std::fs::write(&src, src_text).map_err(|e| format!("cannot write temp source: {e}"))?;
-    let obj = tmp.join("app.o");
-    let elf = tmp.join("app.elf");
-    let bin = tmp.join("app.bin");
-
-    // 1. clang: compile RV32IM (no C extension, no relaxation).
-    run(Command::new("clang")
-        .args([
-            "-target",
-            "riscv32-unknown-none-elf",
-            "-march=rv32im",
-            "-mabi=ilp32",
-            "-mno-relax",
-            "-c",
-        ])
-        .arg(&src)
-        .arg("-o")
-        .arg(&obj))?;
-
-    // 2. rust-lld: link at the tile RAM base.
-    let linker_script = tmp.join("app.ld");
-    std::fs::write(
-        &linker_script,
-        format!(
-            "OUTPUT_ARCH(riscv)\nENTRY(_start)\nSECTIONS {{\n  . = 0x{link_addr:08x};\n  .text : {{ *(.text*) }}\n  .rodata : {{ *(.rodata*) }}\n}}\n"
-        ),
-    )
-    .map_err(|e| format!("cannot write linker script: {e}"))?;
-    run(Command::new("rust-lld")
-        .args(["-flavor", "gnu", "-T"])
-        .arg(&linker_script)
-        .arg("-o")
-        .arg(&elf)
-        .arg(&obj))?;
-
-    // 3. rust-objcopy: extract the raw binary.
-    run(Command::new("rust-objcopy")
-        .args(["-O", "binary"])
-        .arg(&elf)
-        .arg(&bin))?;
-
-    // 4. Convert the binary to one 32-bit word per line (little-endian).
-    let data = std::fs::read(&bin).map_err(|e| format!("cannot read {}: {e}", bin.display()))?;
-    let mut words = String::new();
-    for chunk in data.chunks(4) {
-        let mut w = [0u8; 4];
-        for (i, b) in chunk.iter().enumerate() {
-            w[i] = *b;
-        }
-        words.push_str(&format!("{:08x}\n", u32::from_le_bytes(w)));
-    }
-    std::fs::write(out, words).map_err(|e| format!("cannot write {}: {e}", out.display()))?;
-
-    let n_words = data.len().div_ceil(4);
-    println!(
-        "wrote {} ({} words, {} bytes)",
-        out.display(),
-        n_words,
-        data.len()
-    );
-    Ok(())
 }
 
 fn main() -> Result<(), String> {
@@ -239,7 +65,9 @@ fn main() -> Result<(), String> {
         // first word of .text (the CPU boots from the link address), so the
         // helpers are APPENDED after the test body.
         let full = format!("{src}\n{COMMON_S}");
-        return assemble(&full, args.link_addr, &out);
+        let (n_words, _) = assemble(&full, args.link_addr, &out)?;
+        println!("wrote {} ({} words)", out.display(), n_words);
+        return Ok(());
     }
 
     // Plain file mode.
@@ -251,8 +79,10 @@ fn main() -> Result<(), String> {
             )
         }
     };
-    let path = Path::new(&src);
-    let text = std::fs::read_to_string(path)
+    let path = PathBuf::from(&src);
+    let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    assemble(&text, args.link_addr, &out)
+    let (n_words, _) = assemble(&text, args.link_addr, &out)?;
+    println!("wrote {} ({} words)", out.display(), n_words);
+    Ok(())
 }

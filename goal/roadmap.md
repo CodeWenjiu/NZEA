@@ -41,11 +41,11 @@ Status: **持续更新** — 唯一的活跃任务清单。由 `goal/README.md` 
 
 ### T3. probe 观测手段缺口（继承 G5）
 
-**位置**：`probe/cli/src/main.rs`
+**状态**: **已实现（2026-09-14）** — 落地于 `probe/cli`（+`asm2hex` 库化）：
 
-- `Cmd::Load` 读回窗口固定且短 → 慢程序输出错过，误判卡死。`Monitor --reset` 已有正确姿势但 load 路径够不着。
-- 串口漂移（ttyUSB0↔ttyUSB1）；`just uart-load` 要求显式端口。
-- 复盘第 7 项：加"读任意 DDR 地址"的 probe 子命令，区分"残留"vs"写失败"。
+- `load` 增加 `--read-ms` 控制读回窗口（默认 1000ms），慢程序输出不再漏读。
+- 所有子命令（load/reset/monitor/memread）端口参数可省略 → 自动经 `/dev/serial/by-id` 发现 CH340（`usb-1a86_*`，优先 `if00-port0` 别名）；端口名漂移不再需要手工发现。
+- 新增 `memread <addr>` 子命令：生成一个读指定地址并以 puthex 打印的 RV32IM 小程序（asm2hex 库即时汇编），走既有 load 通路——零 RTL 改动，直接区分"残留旧数据 vs 写失败"。just 入口：`just uart-read <addr> [port]`。
 
 ### T4. 板级修改的验证分级规则（继承 G6）
 

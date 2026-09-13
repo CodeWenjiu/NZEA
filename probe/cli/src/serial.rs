@@ -3,10 +3,54 @@
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, RawFd};
+use std::path::Path;
 
 pub struct Serial {
     file: File,
     fd: RawFd,
+}
+
+/// Find the board UART through the stable udev `by-id` alias.
+///
+/// The CH340 USB-UART (vendor `1a86`) enumerates as an unstable `/dev/ttyUSB*`,
+/// but udev exposes a stable symlink that does not change with enumeration:
+/// `usb-1a86_USB_Serial-if00-port0`. Prefer the `if00-port0` alias when present;
+/// otherwise accept the only match, and error with candidates when ambiguous.
+pub fn find_serial_port() -> io::Result<String> {
+    let dir = Path::new("/dev/serial/by-id");
+    let entries = std::fs::read_dir(dir).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!(
+                "cannot list {}: {e} — pass a port explicitly",
+                dir.display()
+            ),
+        )
+    })?;
+    let mut matches: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("usb-1a86_") {
+            matches.push(entry.path().to_string_lossy().into_owned());
+        }
+    }
+    if let Some(p) = matches.iter().find(|p| p.ends_with("if00-port0")) {
+        return Ok(p.clone());
+    }
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "no CH340 (usb-1a86_*) serial port found under /dev/serial/by-id — pass a port explicitly",
+        )),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "multiple CH340 serial ports found: {} — pass one explicitly",
+                matches.join(", ")
+            ),
+        )),
+    }
 }
 
 impl Serial {

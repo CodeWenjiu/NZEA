@@ -11,3 +11,4 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 libc = { workspace = true }
+asm2hex = { path = "../asm2hex" }

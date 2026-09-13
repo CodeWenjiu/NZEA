@@ -8,5 +8,9 @@ description = "Assemble an RV32IM .S file into a NzeaTile boot hex via the LLVM 
 name = "asm2hex"
 path = "src/main.rs"
 
+[lib]
+name = "asm2hex"
+path = "src/lib.rs"
+
 [dependencies]
 clap = { workspace = true }
