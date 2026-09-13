@@ -169,3 +169,44 @@ just dump (15s) → just vivado-build (~7-15min) → just vivado-program (~1min)
 3. **板级验证用"可区分写/读"的测试**（写后立即读 vs 延迟读、fresh 地址 vs 残留地址），而不是盲跑 memtest。
 4. **复位域矩阵先画出来**，DDR 适配器第一时间把 ui 域纳入 cpuReset 控制。
 5. **ILA 探针一次配全**（app_addr、wdf_data 全 128bit、wdf_end），避免反复 build。
+
+---
+
+## 附录：间歇性失败排查的实验事实（2026-09-10/11，已收尾）
+
+接入稳定后，板级 memtest 仍出现低频间歇性失败（write-verify 检测到写丢、重写也失败、固定地址重复、357 万次 hammer 一次失败等）。排查约两天后**中止**：结论是未能消除错误，A/B 组修改保留、C/D 组删除。以下是从 `ddr3-intermittent-hunt.md` 归档的已确认事实与已排除假设，供未来任何新证据对照——不要据此下结论，记录是为了防止重复踩坑。
+
+### 已确认事实（实验证据）
+
+| # | 事实 | 证据 |
+|---|---|---|
+| F1 | **不是 memclk 频率** | 333MHz（5 FAIL+挂死）、400MHz（15/16 最优）、533MHz（16/16 全 FAIL）。整数倍 400 最优，非整数倍更差。400 已是该时钟结构最优档 |
+| F2 | **协议握手正确** | cosim 波形：app_en 持续 2 拍、app_rdy 提前拉高、app_addr 采样窗口稳定 |
+| F3 | **基础读写基本稳定** | wr_rd_only（4KiB 全字写读）15/16，pwrite/pwrite2（单行部分写）16/16 |
+| F4 | **跨多行/循环访问复现** | memtest（4KiB+64 行）、focus（无限循环）失败/挂死 |
+| F5 | **重试只兜"读被吞"，不解决"读错数据"** | 重试触发条件=读 valid 永不返回（FSM 卡死）；memtest FAIL 是读**返回了**错误数据（0xFF），重试不触发 |
+| F6 | **got=0xFF = 上电初值** | RMW 读回读到从未被正确写的行/错误行 → 合并后写回 → 永久 0xFF |
+| F7 | **时钟结构配置正确** | 50MHz→MMCM→200MHz(sys_clk)+100MHz(tile)→MIG 内 MMCM→400MHz memclk。InputClkFreq=200、PHYRatio 4:1、TimePeriod=2500 全对 |
+| F8 | **"P2 FAIL"实为 phase 4 部分写验证失败（标签错位）** | memtest.S 的 `rd_fail`→"P1 FAIL"（phase2 读回）、`pv_fail`→"P2 FAIL"（phase4 部分写验证）、`ov_fail`→"P3 FAIL"（phase5 覆盖）。报告标签误导 |
+| F9 | **失败与行数/地址范围相关** | pwrite_scan 16 行 20/20 全过；64 行 19/20（1 次 PVFAIL） |
+| F10 | **row 5 稳定热点，但实为极低概率偶发** | 两次失败都 r=5；r5_hammer 单行 357 万次才失败 1 次（got=0xFFFF 在 half[4:5]）。失败位置不固定，got 要么全 1 要么 0 = 读到"未写入"状态 |
+| F11 | **RMW 写回偶发不落盘** | 部分写后某半字读到上电默认 = 该 RMW 写回没真正写入 DDR。概率极低（357 万次 1 次）但会累积 |
+| F12 | **写握手时序在 cosim 也干净** | app_wdf_rdy 提前稳定为 1、wdf_wren/wdf_end 同时高 1 拍、app_en 在 wren 后一拍拉高 |
+| F13 | **load 后首次访问偶发挂死（比 hammer 失败更频繁）** | 同一 hex 多次 load：有时打印后卡死，有时直接无输出。挂死发生在程序最早期（首次 DDR 访问前/时） |
+
+### 已排除的假设
+
+1. ❌ memclk 频率/时序裕度（F1）
+2. ❌ 协议握手 app_en 时长/地址稳定（F2）
+3. ❌ 基础读写/RMW 合并逻辑（F3）
+4. ❌ 简单物理时序（频率实验否定）
+5. ❌ 跨行流量必须（F10：单行 hammer 也复现）
+6. ❌ 写数据时序（F12：cosim 证明 rdy 提前稳定、wren 1 拍可穿过管线）
+7. ❌ 部分写合并逻辑（F3）
+
+### 当时未决的候选方向（未验证，勿当结论）
+
+- H1: `clk_200m` 时钟约束缺失（`mig_b.prj` 里 `<SystemClock>No Buffer</SystemClock>`，MIG 假设 sys_clk 干净）——零硬件成本可查
+- H10: 真实系统 DDR 偶发错误（refresh 冲突/电源弹/采样一次性错误），需容错（ECC 不可用，16bit 颗粒；或写后读回验证+重写——已实现但重写也偶发失败）
+- H11: MIG 校准完成后立即访问不稳定（calib_done 刚拉高时首次访问偶发挂死，F13）
+- H12: load 流程（BootFsm 加载后 cpuReset 释放时机）与 DDR 校准的交互——适配器 `reqReady` 已门控 calibSync2，为何仍挂死未定位

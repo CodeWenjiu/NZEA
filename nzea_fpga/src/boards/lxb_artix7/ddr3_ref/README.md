@@ -36,4 +36,4 @@ Not vendored, and why:
 Integration: DDR3 is a fabric slave on the tile's external-memory bus via
 `Ddr3Adapter` (32-bit LiteBus ⇄ 128-bit MIG app). See
 `goal/ddr3-debug-postmortem.md` for the bring-up history and
-`goal/debug-tooling-gaps.md` for the remaining tooling gaps.
+`goal/roadmap.md` for the remaining tooling gaps.
