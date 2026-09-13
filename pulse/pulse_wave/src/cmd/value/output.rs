@@ -12,6 +12,7 @@ pub(super) struct Sample {
     pub(super) values: Vec<Val>,
 }
 
+#[derive(Clone, PartialEq)]
 pub(super) enum Val {
     Bit(bool),
     Hex(String),

@@ -129,9 +129,14 @@ operands too (0/1).
 
 Standard-library functions: `rise`/`fall`/`stable` are templates written in
 in the temporal language itself — the evaluator knows no built-in functions
-for them. `change` is a **built-in**: it compares the operand's **full value**
-against the previous cycle (multi-bit signals toggle correctly, unlike the
-bit-level MSB semantics of `rise`/`fall`).
+for them. `change` and `is_x` are **built-ins**: `change` compares the
+operand's **full value** against the previous cycle (multi-bit signals toggle
+correctly, unlike the bit-level MSB semantics of `rise`/`fall`); `is_x`
+reports cycles where the operand's value is unknown (X/Z), which comparisons
+(`==`, `!=`) treat as false and are otherwise invisible in the event domain.
+`is_x` makes X visible: `is_x(data) ->1 resp_valid`, `is_x(a) || change(b)`.
+Composite subexpressions are booleans and never X, so `is_x(a && b)` is
+constantly false.
 
 | Function | Meaning |
 |----------|---------|
@@ -139,6 +144,7 @@ bit-level MSB semantics of `rise`/`fall`).
 | `fall(sig)` | `sig ->1 !sig` — falling edge |
 | `stable(sig)` | `(sig ->1 sig) \|\| (!sig ->1 !sig)` — no change |
 | `change(sig)` | value differs from the previous cycle (any edge) |
+| `is_x(sig)` | value is unknown (X/Z) that cycle |
 
     pulse property --scope '*icache' \
         --eval 'rise(io_top_req_valid && io_top_req_ready)'
@@ -147,9 +153,10 @@ Stdlib functions may be used inside `.pulse` event files too (e.g.
 `bp.pulse` defines `fetch_continue = fetch_fire ->1 1`). Adding a template
 function is a one-line entry in
 `pulse_wave/src/cmd/property/expr/std.pulse`; value-level built-ins (like
-`change`) live in `stdlib.rs` as a named whitelist + evaluator branch — only
-add those when the template language cannot express the semantics (value
-history needs `read_value` across cycles, which templates cannot reach).
+`change` and `is_x`) live in `stdlib.rs` as a named whitelist + evaluator
+branch — only add those when the template language cannot express the
+semantics (value history needs `read_value` across cycles, which templates
+cannot reach).
 
 Before the window start there is no history: the `->n` lookback is false,
 so `rise`/`fall`/`stable` do not fire on the very first cycle, and `change`
@@ -175,6 +182,12 @@ shorthand for `0--N` and `N--0`.
 - `value --at` takes ticks with optional units: `100`, `200-400`, `100-`
   (open-ended, clamped to the last tick), `-100` (from start), `~N` (last N
   ticks), or a comma-separated mix. `200-400` emits one row per tick in the range.
+- `value --changes` (mutually exclusive with `--at`) scans the whole trace and
+  emits **one row per tick where any requested signal's value differs from the
+  previous tick** (the first tick always appears: initial state). Multi-signal
+  rows stay aligned, so change sets can be diffed across signals — e.g. two nets
+  with identical toggle history, or a folded constant (only the initial row).
+  Combines with `--signals` and `--radix`.
 - `value --at -N` means **from the start** (`0..=N`), NOT "last N ticks" — the
   same convention as `--cycles -N` (first N cycles). Use `~N` for the tail:
   `--at ~100` samples the last 100 ticks.

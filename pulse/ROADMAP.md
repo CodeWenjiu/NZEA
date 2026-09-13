@@ -66,13 +66,18 @@ today.
 - [x] `sig[N]` : true for N consecutive cycles
 - [x] Operators are composable with `&&`/`||`/`!` and each other
 - [x] Stdlib function calls (`name(args)`): `rise`/`fall`/`stable` expanded
-  from `std.pulse` templates, plus one built-in `change` (value-level edge:
+  from `std.pulse` templates, plus two built-ins: `change` (value-level edge:
   compares the operand across adjacent cycles, so multi-bit signals behave
-  correctly — templates cannot express value history)
+  correctly — templates cannot express value history) and `is_x` (reports X/Z
+  cycles, which comparisons treat as false — makes X visible in the event
+  domain; 2026-09-14)
 
 ### Phase 4 — Query CLI (pulse_cli)
 
 - [x] `pulse info` / `scope` / `signal` / `value` / `property` / `skill`
+- [x] `value --changes`: one row per tick where any requested signal value
+  differs from the previous tick (full-trace scan; aligned multi-signal rows
+  for change-set diffing; 2026-09-14)
 - [x] `property --event` definitions + `--eval` cross-module composition
 - [x] `--max` (post-eval truncation), `--count` (match counts)
 - [x] `--cycles` window guidance documented in the pulse skill

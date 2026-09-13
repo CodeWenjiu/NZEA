@@ -33,8 +33,8 @@ fn stdlib() -> &'static BTreeMap<String, Template> {
             if line.is_empty() || line.starts_with("--") {
                 continue;
             }
-            let (name, params, body) = parse_template(line)
-                .unwrap_or_else(|e| panic!("std.pulse:{}: {e}", i + 1));
+            let (name, params, body) =
+                parse_template(line).unwrap_or_else(|e| panic!("std.pulse:{}: {e}", i + 1));
             validate_template(&params, &body)
                 .unwrap_or_else(|e| panic!("std.pulse:{}: {e}", i + 1));
             lib.insert(name, Template { params, body });
@@ -112,9 +112,13 @@ pub(crate) fn check_functions(expr: &Expr) -> Result<(), String> {
 /// `change(x)` reports every cycle whose **value** differs from the previous
 /// cycle; unlike `rise`/`fall` (bit-level, MSB of vectors) it compares the full
 /// value, so multi-bit signals toggle correctly and folded constants report 0.
+/// `is_x(x)` reports cycles where the operand's value is unknown (X/Z) — the
+/// value-level twin of the boolean `!x` for the X domain, which comparisons
+/// (`==`, `!=`) treat as "false", i.e. invisible. `is_x` makes X visible so
+/// expressions can combine it: `is_x(data) ->1 resp_valid`.
 fn builtin(name: &str) -> Option<usize> {
     match name {
-        "change" => Some(1),
+        "change" | "is_x" => Some(1),
         _ => None,
     }
 }
@@ -158,8 +162,7 @@ pub(crate) fn desugar(expr: &Expr) -> Expr {
             let tmpl = stdlib()
                 .get(name)
                 .unwrap_or_else(|| panic!("validated by check_functions: '{name}'"));
-            expand(tmpl, args)
-                .unwrap_or_else(|e| panic!("std.pulse template '{name}': {e}"))
+            expand(tmpl, args).unwrap_or_else(|e| panic!("std.pulse template '{name}': {e}"))
         }
         _ => e.clone(),
     })

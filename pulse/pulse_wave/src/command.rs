@@ -18,7 +18,7 @@ use crate::SerdeRange;
 pub struct PulseCommand {
     /// Path to VCD/FST waveform file (default: $NZEA_TRACE_FST)
     #[arg(long, value_name = "FILE", env = "NZEA_TRACE_FST", global = true)]
-    pub wave: PathBuf,
+    pub wave: Option<PathBuf>,
 
     /// Output machine-readable JSON instead of human-readable text
     #[arg(long, global = true)]
@@ -89,6 +89,11 @@ pub struct ValueArgs {
         allow_hyphen_values = true
     )]
     pub at: Vec<SerdeRange<u64>>,
+
+    /// Emit one row per value-change tick (full trace scan) instead of sampling
+    /// --at. Mutually exclusive with --at; combines with --radix and --signals.
+    #[arg(long, conflicts_with = "at")]
+    pub changes: bool,
 
     /// Comma-separated signal names to sample
     #[arg(long, value_name = "NAMES", value_delimiter = ',')]

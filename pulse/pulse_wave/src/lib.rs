@@ -10,7 +10,8 @@ pub struct Pulse {
 
 impl Pulse {
     pub fn new(cli: &PulseCommand) -> Result<Self, WaveError> {
-        let wav = simple::read(&cli.wave)?;
+        let wave = cli.wave.clone().ok_or(WaveError::NoWaveform)?;
+        let wav = simple::read(&wave)?;
         Ok(Self {
             wav,
             json: cli.json,
@@ -35,7 +36,13 @@ impl Pulse {
                 args.root.as_deref(),
             ),
             Command::Signal(args) => self.signal(&args.scope),
-            Command::Value(args) => self.value(&args.scope, &args.at, &args.signals, &args.radix),
+            Command::Value(args) => self.value(
+                &args.scope,
+                &args.at,
+                args.changes,
+                &args.signals,
+                &args.radix,
+            ),
             Command::Property(args) => self.property(
                 args.scope.as_deref(),
                 args.on.as_deref(),

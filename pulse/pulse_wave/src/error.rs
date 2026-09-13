@@ -10,4 +10,7 @@ pub enum WaveError {
 
     #[error("{0}")]
     Parse(String),
+
+    #[error("no waveform file: pass --wave <FILE> or set NZEA_TRACE_FST")]
+    NoWaveform,
 }

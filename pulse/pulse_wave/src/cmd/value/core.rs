@@ -31,24 +31,30 @@ impl crate::Pulse {
         &mut self,
         scope_path: &str,
         at_times: &[SerdeRange<u64>],
+        changes: bool,
         signal_names: &[String],
         radix: &str,
     ) -> Result<(), WaveError> {
         let radix = Radix::from_str(radix)?;
         let last_tick = self.wav.time_table().last().copied().unwrap_or(0);
-        let times: Vec<u64> = at_times
-            .iter()
-            .flat_map(|ts| {
-                // Resolve the `~N` "last N ticks" sentinel against the last tick.
-                if let Some(n) = ts.tail_n() {
-                    let start = last_tick.saturating_sub(n - 1);
-                    return (start..=last_tick).collect::<Vec<u64>>();
-                }
-                // Clamp open-ended ranges to the last dump tick
-                let end = (*ts.0.end()).min(last_tick);
-                SerdeRange(*ts.0.start()..=end).resolve()
-            })
-            .collect();
+        let times: Vec<u64> = if changes {
+            // --changes scans the whole trace; --at is rejected by clap.
+            Vec::new()
+        } else {
+            at_times
+                .iter()
+                .flat_map(|ts| {
+                    // Resolve the `~N` "last N ticks" sentinel against the last tick.
+                    if let Some(n) = ts.tail_n() {
+                        let start = last_tick.saturating_sub(n - 1);
+                        return (start..=last_tick).collect::<Vec<u64>>();
+                    }
+                    // Clamp open-ended ranges to the last dump tick
+                    let end = (*ts.0.end()).min(last_tick);
+                    SerdeRange(*ts.0.start()..=end).resolve()
+                })
+                .collect()
+        };
 
         let name_to_sref = {
             let h = self.wav.hierarchy();
@@ -71,21 +77,44 @@ impl crate::Pulse {
             .collect();
 
         let tt = self.wav.time_table();
-        let samples: Vec<super::output::Sample> = times
-            .iter()
-            .map(|&t| {
-                let tt_idx: u32 = tt
-                    .binary_search(&t)
-                    .unwrap_or_else(|i| i.saturating_sub(1))
-                    .try_into()
-                    .unwrap_or(0);
+        let samples: Vec<super::output::Sample> = if changes {
+            // One row per tick where ANY requested signal value differs from the
+            // previous tick (the first tick always appears: initial state).
+            // Multi-signal rows stay aligned so change sets can be diffed
+            // across signals (e.g. two nets with identical toggle history).
+            let mut prev: Vec<Option<super::output::Val>> = vec![None; signals.len()];
+            let mut rows = Vec::new();
+            for (i, &t) in tt.iter().enumerate() {
                 let values: Vec<super::output::Val> = signals
                     .iter()
-                    .map(|(_, sig)| sig_val(sig, tt_idx, radix))
+                    .map(|(_, sig)| sig_val(sig, i as u32, radix))
                     .collect();
-                super::output::Sample { time: t, values }
-            })
-            .collect();
+                if prev.iter().zip(&values).any(|(p, v)| p.as_ref() != Some(v)) {
+                    rows.push(super::output::Sample {
+                        time: t,
+                        values: values.clone(),
+                    });
+                }
+                prev = values.into_iter().map(Some).collect();
+            }
+            rows
+        } else {
+            times
+                .iter()
+                .map(|&t| {
+                    let tt_idx: u32 = tt
+                        .binary_search(&t)
+                        .unwrap_or_else(|i| i.saturating_sub(1))
+                        .try_into()
+                        .unwrap_or(0);
+                    let values: Vec<super::output::Val> = signals
+                        .iter()
+                        .map(|(_, sig)| sig_val(sig, tt_idx, radix))
+                        .collect();
+                    super::output::Sample { time: t, values }
+                })
+                .collect()
+        };
 
         self.emit(&super::output::ValueOut {
             scope: scope_path.to_string(),

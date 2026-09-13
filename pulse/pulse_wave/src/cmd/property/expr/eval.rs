@@ -92,6 +92,20 @@ fn eval_impl(
                 }
                 return EvalOut::Matches(matches);
             }
+            if name == "is_x" {
+                // X-visible built-in: matches cycles where the operand's value
+                // is unknown. For a bare signal this is read_value == None
+                // (X/Z); composite subexpressions always evaluate to 0/1 and
+                // are never X, so `is_x(a && b)` is constantly false — the
+                // same convention comparisons use.
+                let mut matches = Vec::new();
+                for ci in 0..n_cycles(cycles) {
+                    if operand_u64(&args[0], ci, cycles, read_signal, read_value).is_none() {
+                        matches.push(cycles[ci].1);
+                    }
+                }
+                return EvalOut::Matches(matches);
+            }
             // `stdlib::desugar` expands every template call before evaluation,
             // so no other Call should ever reach here; a miss is a desugar bug.
             panic!("unexpanded function call '{name}' reached the evaluator")
@@ -419,6 +433,63 @@ mod tests {
         // rise(a) || fall(a) fires on every change.
         let out = eval_expr("rise(a) || fall(a)", &[true, false, true, true]);
         assert_eq!(ticks(&out), vec![100, 200]);
+    }
+
+    #[test]
+    fn is_x_reports_unknown_cycles() {
+        // a = [0, X, 1, X] → unknown at ci=1 and ci=3. Value-level read: for
+        // named signals the read_value closure returns None exactly where the
+        // sample is unknown.
+        let ast = super::super::parser::parse("is_x(a)").expect("parse");
+        let ast = stdlib::desugar(&ast);
+        stdlib::check_functions(&ast).expect("check");
+        let cycles: Vec<(usize, u64)> = (0..4).map(|i| (i, 100 * i as u64)).collect();
+        let read_signal = |name: &str, ci: usize| -> bool { name == "a" && matches!(ci, 2) };
+        let read_value = |name: &str, ci: usize| -> Option<u64> {
+            if name != "a" {
+                return None;
+            }
+            match ci {
+                1 | 3 => None, // X
+                2 => Some(1),
+                _ => Some(0),
+            }
+        };
+        let out = eval_temporal(&ast, &cycles, &read_signal, &read_value);
+        assert_eq!(ticks(&out), vec![100, 300]);
+    }
+
+    #[test]
+    fn is_x_of_composite_is_never_true() {
+        // Composite subexpressions are booleans, never X.
+        let out = eval_expr_multi(
+            "is_x(a && b)",
+            &[("a", &[true, false]), ("b", &[false, true])],
+        );
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn is_x_composes_with_temporal_operators() {
+        // X on a, then b in the same or next cycle: `is_x(a) ->1 b` fires on
+        // the b cycle that follows an X cycle.
+        // a = [0, X, 0], b = [0, 0, 1] → b at ci=2 follows X at ci=1.
+        let ast = super::super::parser::parse("is_x(a) ->1 b").expect("parse");
+        let ast = stdlib::desugar(&ast);
+        stdlib::check_functions(&ast).expect("check");
+        let cycles: Vec<(usize, u64)> = (0..3).map(|i| (i, 100 * i as u64)).collect();
+        let read_signal = |name: &str, ci: usize| -> bool {
+            name == "a" && matches!(ci, 1) || name == "b" && ci == 2
+        };
+        let read_value = |name: &str, ci: usize| -> Option<u64> {
+            match (name, ci) {
+                ("a", 1) => None, // X
+                ("b", 2) => Some(1),
+                _ => Some(0),
+            }
+        };
+        let out = eval_temporal(&ast, &cycles, &read_signal, &read_value);
+        assert_eq!(ticks(&out), vec![200]);
     }
 
     #[test]
