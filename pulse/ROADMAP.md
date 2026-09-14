@@ -81,6 +81,10 @@ today.
 - [x] `plot`: render a waveform window as hand-generated SVG (zero deps) —
   step polylines, X/Z bands, hex labels on vector changes, `--mark` event
   lines/bands, cycle+tick axis (2026-09-14)
+- [x] `diff`: compare two waveforms aligned by cycle index — signal-level
+  (`--signals`: first cycle with a value difference + diverged list) and
+  event-level (`--eval`: first cycle where an expression disagrees); bypasses
+  the single-`--wave` path via `--wave-a`/`--wave-b` (2026-09-14)
 - [x] `property --event` definitions + `--eval` cross-module composition
 - [x] `--max` (post-eval truncation), `--count` (match counts)
 - [x] `--cycles` window guidance documented in the pulse skill

@@ -35,6 +35,7 @@ Before using any command in a nontrivial way, read `pulse help <command>`. Do th
 - State at explicit timestamp(s) or ranges: `value`.
 - Timestamps/ranges where a boolean or temporal event expression is true: `property`.
 - Render a waveform window as SVG (for humans/docs): `plot`.
+- Compare two waveforms (pass/fail, before/after a fix): `diff`.
 - Event files and cross-module composition: `property --event` + `--eval` (see below).
 - Counting event occurrences (match counts, no range lists): `property --count`.
 - Machine parsing or aggregation: `--json` on every command.
@@ -223,6 +224,32 @@ every time-table entry when the scope has no clock, e.g. ILA exports):
   each change point.
 - `--out FILE` writes the SVG to a file (default: stdout). Zero dependencies —
   the SVG is hand-generated, so it renders anywhere and has no image stack.
+
+## Diffing (two waveforms)
+
+`diff` compares two waveforms **aligned by cycle index** (posedges of `clock`,
+or every time-table entry when the scope has no clock) — so time origins may
+ differ (e.g. ILA captures with different trigger points):
+
+    pulse diff --wave-a pass.fst --wave-b fail.fst \
+        --scope <SCOPE> --signals a,b --eval 'commit_fire' --cycles 0-10000
+
+- `--wave-a` / `--wave-b` name the two waves (this command does not use the
+  global `--wave`). The scope defaults to each wave's top-level module.
+- `--signals a,b` compares signal values at every cycle and reports the
+  **first cycle where any value differs**, with the diverged signals and both
+  values (`--json` carries the same detail).
+- `--eval 'expr'` (repeatable) evaluates the expression on both waves and
+  reports the first cycle where the two disagree — e.g. the first
+  `commit_fire` placed differently. This is the pass/fail workflow: find the
+  first divergent event without knowing any trigger condition in advance.
+- Signal-level diff is literal per-cycle; event-level tolerates whole-wave
+  shifts (the events are what matter). Use `--cycles` to bound the scan.
+
+Typical uses in this repo: before/after an RTL change (does the behavior
+move?), cosim vs ILA capture of the same program (which simulation assumption
+is wrong?), and pass vs fail runs of the same program (where did the first
+mismatch happen?).
 
 ## RTL event model
 

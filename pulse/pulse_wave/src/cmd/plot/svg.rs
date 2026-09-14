@@ -28,6 +28,17 @@ pub(crate) enum Val {
     Unknown,
 }
 
+impl std::fmt::Display for Val {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Val::Low => write!(f, "0"),
+            Val::High => write!(f, "1"),
+            Val::Vector(v) => write!(f, "{v:x}"),
+            Val::Unknown => write!(f, "x"),
+        }
+    }
+}
+
 /// Everything the SVG renderer needs; produced by `plot/mod.rs`.
 pub(crate) struct PlotData {
     /// Title text (the scope path).

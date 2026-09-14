@@ -50,6 +50,7 @@ impl Pulse {
                 &args.mark,
                 args.out.as_deref(),
             ),
+            Command::Diff(args) => cmd::run_diff(self.json, &args),
             Command::Property(args) => self.property(
                 args.scope.as_deref(),
                 args.on.as_deref(),
@@ -65,4 +66,11 @@ impl Pulse {
             }
         }
     }
+}
+
+/// Entry point for `pulse diff`: unlike every other command it needs TWO
+/// waveforms and therefore bypasses `Pulse::new` (which binds `--wave`).
+/// Dispatched from `pulse_cli/main.rs` before the single-wave path.
+pub fn diff(json: bool, args: &crate::command::DiffArgs) -> Result<(), WaveError> {
+    cmd::run_diff(json, args)
 }

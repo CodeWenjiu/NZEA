@@ -45,6 +45,9 @@ pub enum Command {
     /// Render a waveform window as SVG (with optional event mark lines)
     Plot(PlotArgs),
 
+    /// Compare two waveforms cycle by cycle (signal values and/or events)
+    Diff(DiffArgs),
+
     /// Find timestamps where an event expression is true
     Property(PropertyArgs),
 
@@ -129,6 +132,35 @@ pub struct PlotArgs {
     /// Write the SVG to this file instead of stdout
     #[arg(long, value_name = "FILE")]
     pub out: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct DiffArgs {
+    /// First waveform (e.g. the reference / pass run)
+    #[arg(long, value_name = "FILE")]
+    pub wave_a: std::path::PathBuf,
+
+    /// Second waveform (e.g. the modified / fail run)
+    #[arg(long, value_name = "FILE")]
+    pub wave_b: std::path::PathBuf,
+
+    /// Target scope path in both waveforms (default: top-level scope;
+    /// '*' glob allowed)
+    #[arg(long, value_name = "SCOPE")]
+    pub scope: Option<String>,
+
+    /// Comma-separated signal names to compare cycle by cycle
+    #[arg(long, value_name = "NAMES", value_delimiter = ',')]
+    pub signals: Vec<String>,
+
+    /// Event expressions compared on both waves (repeatable; same language as
+    /// --eval)
+    #[arg(long, value_name = "EXPR")]
+    pub eval: Vec<String>,
+
+    /// Cycle window applied to both waves, e.g. "0-100", "500-", "~50"
+    #[arg(long, value_name = "FROM-TO", allow_hyphen_values = true)]
+    pub cycles: Option<SerdeRange<u64>>,
 }
 
 #[derive(Debug, clap::Args)]
