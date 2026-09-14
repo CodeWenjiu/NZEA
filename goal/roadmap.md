@@ -1,6 +1,6 @@
 # 活跃任务清单（roadmap）
 
-Status: **持续更新** — 唯一的活跃任务清单。由 `goal/README.md` 的规则管理；本文件继承自已删除的 `debug-tooling-gaps.md`（G3-G7）、`board-specific-build-hooks.md`（P1-P6）、`wave-mcp-lessons.md`（W1-W5）。格式：`[状态] 任务名 — 位置/验收`。
+Status: **全部搁置（2026-09-14）** — 用户决定暂停执行剩余任务；保留记录以防遗忘，重新开始时重新评估优先级。由 `goal/README.md` 的规则管理；本文件继承自已删除的 `debug-tooling-gaps.md`（G3-G7）、`board-specific-build-hooks.md`（P1-P6）、`wave-mcp-lessons.md`（W1-W5）。格式：`[状态] 任务名 — 位置/验收`。
 
 ## 已完成（本文件生命周期内，勿重复提出）
 
@@ -13,12 +13,30 @@ Status: **持续更新** — 唯一的活跃任务清单。由 `goal/README.md` 
 | 复盘 P2.13 | 板级测试程序统一管理（asm2hex + 内置程序） | `e2fc571` |
 | pulse 位宽/change/无时钟回退 | ILA 导出链路缺口 | `08a2ca9`、`b61976c` |
 | ILA 探针 22→11 收缩 | 删 adapter 内部 debug 探针 | `202e31f` |
+| T3 probe：readback 窗口/串口自动发现/memread | G5 缺口 | `dc66360` |
+| T5 goal 生命周期规则 | index + 状态规则 | `29da0b3`（`goal/README.md`） |
+| W2 `is_x` + W3 `value --changes` | pulse 补 X 事件域 + 变化序列 | `34e2e36` |
+| W5 `pulse plot` SVG 波形图 | 零依赖手写 SVG | `b361eb7` |
+| W1 `pulse diff` 双波形对比 | 信号级 + 事件级 | `c7b9310` |
+
+### 复盘遗留（搁置 2026-09-14）
+
+来自 `goal/ddr3-debug-postmortem.md` 的改进点，未进本清单时已独立存在；现统一记录并搁置：
+
+| 原编号 | 内容 | 搁置原因 |
+|---|---|---|
+| 复盘 P1-9 | CDC 握手可复用组件（电平握手+上升沿检测+回程确认，提炼进 `nzea_rtl`） | 当前无新跨域模块；DDR 适配器已稳定 |
+| 复盘 P1-10 | 复位域矩阵（bootReset/cpuReset/ui 域显式声明） | 平台复位行为已稳定且被测试覆盖 |
+| 复盘 P2-12 | MIG 关键结论存档进 `ddr3_ref/README.md`（wdf 拍数、app_addr 编码、mask=0 等） | 结论已散落在代码注释与提交中；等再次触及 DDR 时再整理 |
+| pulse 性能深度优化 | 已做 `f056341`（read_bit 去分配）；property/value 路径仍有优化空间 | 当前波形规模下速度可接受 |
 
 ---
 
-## 进行中 / 待办
+## 进行中 / 待办（**全部搁置 2026-09-14**）
 
 ### T1. ILA 链路健壮性（继承 G3，部分已修）
+
+**搁置原因**：需上板迭代验证 + 查 PG172，当前无 debug 需求。
 
 **位置**：`nzea_fpga/scripts/ila-capture.nu` + `FpgaElaborate.scala`（probeMap）+ `probe vcd-rename`
 
@@ -30,6 +48,8 @@ Status: **持续更新** — 唯一的活跃任务清单。由 `goal/README.md` 
   4. 探针接线仍硬编码在 `LxbArtix7Core`（`ila.probeN := …`），加探针要改 RTL + 全量重建。能否做成可注入配置？
 
 ### T2. remu 与 DDR 的 difftest 缺口（继承 G4）
+
+**搁置原因**：上板 memtest 已覆盖正确性；平面参考模型会掩盖真实 MIG 时序行为；且跨仓库改动需显式决策。建议直接关闭而非重启。
 
 **位置**：remu（独立仓库）+ `nzea_tile/src/platform/fpga/AddressMap.scala`
 
@@ -49,6 +69,8 @@ Status: **持续更新** — 唯一的活跃任务清单。由 `goal/README.md` 
 
 ### T4. 板级修改的验证分级规则（继承 G6）
 
+**搁置原因**：当前板级改动频率低，靠人注意即可；等第二块板或 DRC 类问题再现时再立规则。
+
 **位置**：`AGENTS.md`（验证规则段落）+ dump 期检查
 
 只改注释/改名 → `dump` 即可；改端口名/约束 → `dump` + XDC↔RTL 交叉检查；改协议/时序 → 上板验证。交叉检查与 T7（P5）是同一套基础设施。
@@ -59,7 +81,7 @@ Status: **持续更新** — 唯一的活跃任务清单。由 `goal/README.md` 
 
 ### T6. pulse 借鉴 wave-mcp（继承 wave-mcp-lessons.md 全部）
 
-**状态**: 待办。来源 [Tencent/wave-mcp](https://github.com/Tencent/wave-mcp)（34 个工具，MIT）。它无 pulse 的事件解析模型，故不引入，只取长补短。已实现的价值对齐记录在 `pulse/ROADMAP.md`；以下是候选（按价值/成本排序）：
+**状态**: **W1-W3/W5 已完成（见上表）；W4 搁置（2026-09-14）**。W4（驱动链追踪/静态网表，对标 signal_drivers/trace_value）是中期大项：
 
 #### W1. `pulse diff` — 双波形事件级对比（对标 diff_waveforms）— 成本中
 
@@ -74,6 +96,8 @@ Status: **持续更新** — 唯一的活跃任务清单。由 `goal/README.md` 
 要两步拼（`property change()` 拿周期 + `value --at` 采样），且拿不到每点具体值。`value --changes <sig> --cycles N-M` 一次扫描输出 `(周期, 值)` 压缩序列，配 `--radix`。
 
 #### W4. 驱动链追踪 / 静态网表（对标 signal_drivers/trace_value）— 成本高，中期
+
+**搁置原因**：目前无具体调试需求驱动；动手前需先完成调研（firtool 能否直接输出 `.fir`、连接图规模、存储格式、与现有 scope/signal 命名对齐方式）。
 
 wave-mcp 的差异化核心（pyslang 解析 SV 建网表 + FST 值交叉）。**我们的独特路径：不学它解析 SV**（firtool 输出全是扁平化垃圾名）——RTL 是 Chisel→FIRRTL→SV，连接关系可从 **FIRRTL 文本（connect/instance 语义明确）** 导出为静态数据库，波形值叠加。做成后免费获得：驱动链追踪、`trace_x`（追 X 源头）、无波形静态分析（仿真前当文档查 RTL）。
 
