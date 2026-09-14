@@ -78,6 +78,9 @@ today.
 - [x] `value --changes`: one row per tick where any requested signal value
   differs from the previous tick (full-trace scan; aligned multi-signal rows
   for change-set diffing; 2026-09-14)
+- [x] `plot`: render a waveform window as hand-generated SVG (zero deps) —
+  step polylines, X/Z bands, hex labels on vector changes, `--mark` event
+  lines/bands, cycle+tick axis (2026-09-14)
 - [x] `property --event` definitions + `--eval` cross-module composition
 - [x] `--max` (post-eval truncation), `--count` (match counts)
 - [x] `--cycles` window guidance documented in the pulse skill

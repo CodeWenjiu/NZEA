@@ -34,6 +34,7 @@ Before using any command in a nontrivial way, read `pulse help <command>`. Do th
   constant-folding checks can be derived from metadata alone).
 - State at explicit timestamp(s) or ranges: `value`.
 - Timestamps/ranges where a boolean or temporal event expression is true: `property`.
+- Render a waveform window as SVG (for humans/docs): `plot`.
 - Event files and cross-module composition: `property --event` + `--eval` (see below).
 - Counting event occurrences (match counts, no range lists): `property --count`.
 - Machine parsing or aggregation: `--json` on every command.
@@ -200,6 +201,28 @@ shorthand for `0--N` and `N--0`.
   `io_top=80010eec` instead of a 32-bit 0/1 string. One-bit signals are
   unaffected (always 0/1). Works for both JSON and text output; X/Z values or
   vectors wider than 64 bits fall back to binary.
+
+## Plotting (SVG output)
+
+`plot` renders a waveform window as an SVG document — for humans, commit
+messages, or docs. Same cycle semantics as `property` (posedges of `clock`, or
+every time-table entry when the scope has no clock, e.g. ILA exports):
+
+    pulse plot --scope <SCOPE> --signals a,b --cycles FROM-TO \
+        --mark 'rise(a && b)' --out window.svg
+
+- `--signals` is comma-separated; each signal gets one row (top to bottom).
+- `--cycles` narrows the window (default: full trace); x axis = cycle index,
+  with the tick underneath each axis label.
+- `--mark EXPR` is repeatable: each expression's matches are drawn as dashed
+  vertical lines (point events) or translucent bands (interval `~~` events),
+  each in its own color with a top-left legend. Same expression language as
+  `--eval`.
+- Waveforms are step polylines; `X/Z` samples render as a translucent band
+  (the line breaks across it); multi-bit vector values are labeled in hex at
+  each change point.
+- `--out FILE` writes the SVG to a file (default: stdout). Zero dependencies —
+  the SVG is hand-generated, so it renders anywhere and has no image stack.
 
 ## RTL event model
 

@@ -42,6 +42,9 @@ pub enum Command {
     /// Sample signal values at specific timestamps
     Value(ValueArgs),
 
+    /// Render a waveform window as SVG (with optional event mark lines)
+    Plot(PlotArgs),
+
     /// Find timestamps where an event expression is true
     Property(PropertyArgs),
 
@@ -102,6 +105,30 @@ pub struct ValueArgs {
     /// Radix for multi-bit signals (default: bin). One-bit signals always print 0/1.
     #[arg(long, value_name = "RADIX", default_value = "bin", value_parser = ["bin", "hex", "dec", "oct"])]
     pub radix: String,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct PlotArgs {
+    /// Target scope path (e.g. "TOP.NzeaTile.icache"; '*' glob allowed)
+    #[arg(long, value_name = "SCOPE")]
+    pub scope: String,
+
+    /// Comma-separated signal names to draw
+    #[arg(long, value_name = "NAMES", value_delimiter = ',')]
+    pub signals: Vec<String>,
+
+    /// Cycle window, e.g. "0-100", "500-", "~50" (default: full trace)
+    #[arg(long, value_name = "FROM-TO", allow_hyphen_values = true)]
+    pub cycles: Option<SerdeRange<u64>>,
+
+    /// Event expression drawn as a mark line/band (repeatable; same language
+    /// as --eval)
+    #[arg(long, value_name = "EXPR")]
+    pub mark: Vec<String>,
+
+    /// Write the SVG to this file instead of stdout
+    #[arg(long, value_name = "FILE")]
+    pub out: Option<PathBuf>,
 }
 
 #[derive(Debug, clap::Args)]

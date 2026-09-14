@@ -43,6 +43,13 @@ impl Pulse {
                 &args.signals,
                 &args.radix,
             ),
+            Command::Plot(args) => self.plot(
+                &args.scope,
+                &args.signals,
+                args.cycles,
+                &args.mark,
+                args.out.as_deref(),
+            ),
             Command::Property(args) => self.property(
                 args.scope.as_deref(),
                 args.on.as_deref(),
