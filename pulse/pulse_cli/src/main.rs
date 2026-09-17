@@ -12,6 +12,7 @@ fn main() -> anyhow::Result<()> {
     if let pulse_wave::Command::Diff(args) = &cli.command {
         return pulse_wave::diff(cli.json, args).map_err(anyhow::Error::from);
     }
-    pulse_wave::Pulse::new(&cli)?.run(cli.command)?;
+    let mut pulse = pulse_wave::Pulse::new(&cli)?;
+    pulse.run(cli.command)?;
     Ok(())
 }

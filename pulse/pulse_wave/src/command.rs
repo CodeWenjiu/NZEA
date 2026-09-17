@@ -51,6 +51,10 @@ pub enum Command {
     /// Find timestamps where an event expression is true
     Property(PropertyArgs),
 
+    /// Run a script of commands in one process (one waveform load, shared
+    /// signal cache: N×startup becomes 1×startup + N×instant)
+    Batch(BatchArgs),
+
     /// Print the packaged agent skill markdown
     Skill,
 }
@@ -204,6 +208,18 @@ pub struct PropertyArgs {
     /// Radix for --sample values (default: hex)
     #[arg(long, value_name = "RADIX", default_value = "hex", value_parser = ["bin", "hex", "dec", "oct"])]
     pub radix: String,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct BatchArgs {
+    /// Script source: a file path, or '-' for stdin (default: '-')
+    #[arg(value_name = "SCRIPT", default_value = "-")]
+    pub script: String,
+
+    /// Continue executing after a command fails (default: stop on the first
+    /// error, like a shell script; exit code then reports the failure)
+    #[arg(long)]
+    pub keep_going: bool,
 }
 
 #[derive(Debug, Clone)]

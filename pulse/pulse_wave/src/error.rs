@@ -11,6 +11,9 @@ pub enum WaveError {
     #[error("{0}")]
     Parse(String),
 
+    #[error("batch: one or more commands failed (see stderr)")]
+    BatchFailed,
+
     #[error("no waveform file: pass --wave <FILE> or set NZEA_TRACE_FST")]
     NoWaveform,
 }

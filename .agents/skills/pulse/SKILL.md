@@ -68,6 +68,8 @@ interesting cycles → `--sample` (or `value --at match()`) to read the scene.
 - Compare two waveforms (pass/fail, before/after a fix): `diff`.
 - Event files and cross-module composition: `property --event` + `--eval` (see below).
 - Counting event occurrences (match counts, no range lists): `property --count`.
+- Many queries in one process (one waveform load, shared signal cache):
+  `batch` (see below).
 - Machine parsing or aggregation: `--json` on every command.
 
 Start most investigations with:
@@ -255,6 +257,32 @@ shorthand for `0--N` and `N--0`.
   `io_top=80010eec` instead of a 32-bit 0/1 string. One-bit signals are
   unaffected (always 0/1). Works for both JSON and text output; X/Z values or
   vectors wider than 64 bits fall back to binary.
+
+## Batch scripts (many queries, one process)
+
+Each CLI invocation loads the waveform and scans the FST for the requested
+signals (2s for a 15 MB dump); a script with many queries pays that per call.
+`batch` runs all commands in **one process**: the waveform is loaded once and
+loaded signals stay in the cache, so repeated queries are ~instant.
+
+    pulse batch --wave trace.fst script.ppl      # script file
+    pulse batch --wave trace.fst - <<'EOF'        # stdin
+    property --scope TOP.NzeaTile.core --eval io_dbus_req_valid --count
+    value --scope TOP.NzeaTile.core --at 603c --signals io_dbus_req_bits_addr --radix hex
+    property --scope TOP.NzeaTile.core --eval io_dbus_req_valid --sample io_dbus_req_bits_addr --cycles 0-1000
+    EOF
+
+- One command per line; **syntax identical to the CLI** (quotes group words).
+  Blank lines and `#` comments are skipped.
+- First query on a signal still scans the whole FST; every later query on that
+  signal is free. Group queries by signal to maximise the win.
+- Errors stop the script (shell-script semantics) and the exit code is
+  non-zero; `--keep-going` runs everything and still reports failure.
+- Command echo (`> cmd`) goes to **stderr**; stdout carries only command
+  output, so `--json` sessions are pure NDJSON (`| jq` works).
+- `--wave` is session-level (not per line); inline `--json` is allowed and
+  overrides the output format for that line only. `diff` works inside a
+  script too (it takes `--wave-a`/`--wave-b` on its own line).
 
 ## Plotting (SVG output)
 
