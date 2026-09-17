@@ -1,7 +1,6 @@
 package nzea_tile.platform.fpga
 
 import chisel3._
-import nzea_core.Core
 import nzea_config.core.CoreConfig
 import nzea_device.uart.FabricBusUart
 import nzea_device.clint.Clint
@@ -12,10 +11,9 @@ import nzea_tile.platform.yosys.SimDeviceDpiBridge
 
 object Platform {
 
-  /** Directional connection between two same-orientation (master-facing,
-    * non-Flipped) LiteBusRW endpoints: the crossbar's out port drives req into
-    * the tile boundary bus, and the boundary bus returns ready/flush/resp.
-    * `<>` cannot be used — both ends declare the same directions.
+  /** Directional connection between two same-orientation (master-facing, non-Flipped) LiteBusRW endpoints: the
+    * crossbar's out port drives req into the tile boundary bus, and the boundary bus returns ready/flush/resp. `<>`
+    * cannot be used — both ends declare the same directions.
     */
   private def connectExtMem(boundary: LiteBusRW, fabricOut: LiteBusRW): Unit = {
     boundary.req.bits := fabricOut.req.bits
@@ -29,7 +27,6 @@ object Platform {
   }
 
   def connectDevices(
-      core: Core,
       fabric: LiteBusCrossbar,
       tileIo: TileIo,
       cpuReset: Bool,

@@ -17,8 +17,8 @@ import nzea_cache.SetAssoc
 object TileAddressMap {
 
   def forPlatform(platform: PlatformConfig): Seq[LiteAddrRange] = platform match {
-    case PlatformConfig.Yosys     => yosys.AddressMap.ranges
-    case PlatformConfig.Fpga(n)   => fpga.AddressMap.ranges(n)
+    case PlatformConfig.Yosys   => yosys.AddressMap.ranges
+    case PlatformConfig.Fpga(n) => fpga.AddressMap.ranges(n)
   }
 
 }
@@ -83,7 +83,7 @@ class NzeaTile(cfg: TileConfig)(implicit
     case r if r.base != BigInt("80000000", 16) => (r.base, r.size)
   }
 
-  val core = withReset(cpuReset) { Module(new nzea_core.Core(mmioRanges)) }
+  val core = withReset(cpuReset) { Module(new nzea_core.min.MinCore(mmioRanges)) }
 
   // IBUS: register slice between IFU and crossbar.
   val ibusSlice = withReset(cpuReset) {
@@ -166,7 +166,6 @@ class NzeaTile(cfg: TileConfig)(implicit
   platform match {
     case SynthPlatform.Yosys =>
       yosys.Platform.connectDevices(
-        core,
         fabric,
         io.asInstanceOf[yosys.TileIo],
         cpuReset,
@@ -180,7 +179,6 @@ class NzeaTile(cfg: TileConfig)(implicit
       )
     case SynthPlatform.Fpga =>
       fpga.Platform.connectDevices(
-        core,
         fabric,
         io.asInstanceOf[fpga.TileIo],
         cpuReset,
