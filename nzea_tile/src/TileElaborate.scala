@@ -14,13 +14,12 @@ object TileElaborate {
 
   /** Tile IO bundle exposed at top level for simulation testbenches and FPGA board wrappers.
     *
-    * `numExtMem` is `Some(n)` on the fpga platform (n external-memory bus ports)
-    * and `None` on yosys — whose top level connects the fixed `devices` port
-    * instead, so the extRam* members are absent there rather than DontCare
-    * stubs.
+    * `numExtMem` is `Some(n)` on the fpga platform (n external-memory bus ports) and `None` on yosys — whose top level
+    * connects the fixed `devices` port instead, so the extRam* members are absent there rather than DontCare stubs.
     */
-  class TileTopIO(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, numExtMem: Option[Int])(implicit config: CoreConfig)
-      extends Bundle {
+  class TileTopIO(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, numExtMem: Option[Int])(implicit
+      config: CoreConfig
+  ) extends Bundle {
     val commit_msg = Output(Valid(new CommitMsg))
     val uart_txd = Output(Bool())
     val uart_rxd = Input(Bool())
@@ -44,10 +43,12 @@ object TileElaborate {
     private val fabricUserWidth = NzeaTile.fabricUserWidth
 
     private val fabricIdWidth = 8
+
     private val numExtMem = cfg.platform match {
       case PlatformConfig.Fpga(n) => Some(n)
       case PlatformConfig.Yosys   => None
     }
+
     val io = IO(new TileTopIO(addrWidth, dataWidth, fabricUserWidth, fabricIdWidth, numExtMem))
 
     if (config.sim) {
