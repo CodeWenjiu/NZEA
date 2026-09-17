@@ -1,9 +1,49 @@
-//! Shared signal-value reads (bit and unsigned-integer views).
+//! Shared signal-value reads (bit, integer, and full classification).
 //!
-//! All commands sample signals by time-table index; the bit/u64 accessors
-//! used to be duplicated between `property` and `plot`. Both are cheap and
-//! pure — keep them here so every consumer agrees on the semantics (MSB for
-//! bit reads, `None` for X/Z/real/string values).
+//! All commands sample signals by time-table index. The bit/u64 accessors and
+//! the [`SignalValue`] classifier are the single source of truth for "what
+//! `SignalValueRef` variants mean"; each command renders the classification
+//! in its own shape (SVG levels, radix strings, log values) without
+//! re-matching on wellen types.
+
+/// Full classification of one signal sample at one time-table index.
+///
+/// - `Bit` — a 1-bit signal with a known value
+/// - `Vector` — a multi-bit signal with a known value (width kept so renderers
+///   can zero-pad)
+/// - `X` — X/Z anywhere in the sample, carrying the raw binary string
+///   (renderers decide whether to show it or a placeholder)
+/// - `Missing` — no data at this tick
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum SignalValue {
+    Bit(bool),
+    Vector { value: u64, width: usize },
+    X(String),
+    Missing,
+}
+
+/// Classify a signal sample. This is the **only** place that matches on
+/// `wellen::SignalValueRef` variants for value reads.
+pub(crate) fn classify(sig: &wellen::Signal, tt_idx: u32) -> SignalValue {
+    let Some(off) = sig.get_offset(tt_idx) else {
+        return SignalValue::Missing;
+    };
+    let v = sig.get_value_at(&off, 0);
+    match v {
+        wellen::SignalValueRef::BitVec(bv) if bv.width() == 1 => match bv.get_bit(0).as_ascii() {
+            '1' => SignalValue::Bit(true),
+            '0' => SignalValue::Bit(false),
+            _ => SignalValue::X(bv.get_bit(0).as_ascii().to_string()),
+        },
+        other => {
+            let width = other.width().unwrap_or(32) as usize;
+            match u64::try_from(other) {
+                Ok(n) => SignalValue::Vector { value: n, width },
+                Err(_) => SignalValue::X(format!("{other}")),
+            }
+        }
+    }
+}
 
 /// Read a single-bit value from a signal at a given time index.
 ///

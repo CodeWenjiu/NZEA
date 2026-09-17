@@ -101,10 +101,24 @@ pub(crate) fn run_diff(json: bool, args: &crate::command::DiffArgs) -> Result<()
         .eval
         .iter()
         .map(|expr| {
-            let ma = plot::eval_matches(&wav_a, &win_a, &prep_a.name_to_sref, expr)?;
-            let mb = plot::eval_matches(&wav_b, &win_b, &prep_b.name_to_sref, expr)?;
-            let ba = matches_to_bool(&plot::matches_to_cycles(&ma, &win_a), n);
-            let bb = matches_to_bool(&plot::matches_to_cycles(&mb, &win_b), n);
+            let ma = crate::cmd::engine::eval_matches(
+                &wav_a,
+                &win_a,
+                &prep_a.name_to_sref,
+                expr,
+                &std::collections::BTreeMap::new(),
+                "",
+            )?;
+            let mb = crate::cmd::engine::eval_matches(
+                &wav_b,
+                &win_b,
+                &prep_b.name_to_sref,
+                expr,
+                &std::collections::BTreeMap::new(),
+                "",
+            )?;
+            let ba = matches_to_bool(&crate::cycle::local_cycle_ranges(&win_a, &ma), n);
+            let bb = matches_to_bool(&crate::cycle::local_cycle_ranges(&win_b, &mb), n);
             let first = (0..n).find(|&ci| ba[ci] != bb[ci]);
             Ok(EvalOutcome {
                 expr: expr.clone(),

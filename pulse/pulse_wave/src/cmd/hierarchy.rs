@@ -129,14 +129,14 @@ fn find_scope_inner(
     }
     for r in items {
         let name = r.name(h);
-        if name == parts[idx] {
-            if let ItemRef::Scope(sr) = r {
-                if idx == parts.len() - 1 {
-                    return Some(sr);
-                }
-                let children = h[sr].items(h);
-                return find_scope_inner(h, children, parts, idx + 1);
+        if name == parts[idx]
+            && let ItemRef::Scope(sr) = r
+        {
+            if idx == parts.len() - 1 {
+                return Some(sr);
             }
+            let children = h[sr].items(h);
+            return find_scope_inner(h, children, parts, idx + 1);
         }
     }
     None
@@ -156,7 +156,7 @@ pub(crate) fn resolve_signals(
         let item = r.deref(h);
         if let Item::Var(var) = item {
             let name = var.name(h).to_string();
-            if names.iter().any(|s| *s == name) {
+            if names.contains(&name) {
                 map.insert(name, var.signal_ref());
             }
         }
@@ -174,6 +174,21 @@ pub(crate) fn resolve_signals(
         )));
     }
 
+    Ok(map)
+}
+
+/// Resolve `names` in `scope_path` and load their signal data into the
+/// waveform in one step — the shared entry every command's sampling path
+/// goes through (`value`, `plot`/`diff` via `prepare_wave`, `property`'s
+/// main scope).
+pub(crate) fn resolve_and_load(
+    wav: &mut wellen::simple::Waveform,
+    scope_path: &str,
+    names: &[String],
+) -> Result<BTreeMap<String, wellen::SignalRef>, WaveError> {
+    let map = resolve_signals(wav.hierarchy(), scope_path, names)?;
+    let srefs: Vec<wellen::SignalRef> = map.values().copied().collect();
+    wav.load_signals(&srefs);
     Ok(map)
 }
 

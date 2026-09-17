@@ -9,7 +9,7 @@ use crate::WaveError;
 /// `name = expr` string.
 pub(super) fn load(source: &str) -> Result<Vec<(String, Expr)>, WaveError> {
     if Path::new(source).exists() {
-        let content = std::fs::read_to_string(source).map_err(|e| WaveError::Io(e))?;
+        let content = std::fs::read_to_string(source).map_err(WaveError::Io)?;
         let mut defs = Vec::new();
         for (i, line) in content.lines().enumerate() {
             let line = line.trim();
@@ -45,7 +45,7 @@ fn parse_def(s: &str) -> Result<(String, Expr), WaveError> {
 /// After normalization, every `Signal` in the AST carries a fully-qualified
 /// name: bare names are prefixed with `ns` (or kept bare for the main scope),
 /// and event references are replaced by their definition subtrees.
-pub(super) fn normalize(expr: &Expr, ns: &str, events: &BTreeMap<String, Expr>) -> Expr {
+pub(crate) fn normalize(expr: &Expr, ns: &str, events: &BTreeMap<String, Expr>) -> Expr {
     super::expr::walk::map(expr, &mut |e| match e {
         Expr::Signal(name) => {
             if name.contains('.') {

@@ -1,5 +1,3 @@
-use wellen::SignalRef;
-
 use crate::SerdeRange;
 use crate::WaveError;
 use crate::time_spec::{AtSpec, ns_to_ticks};
@@ -44,12 +42,8 @@ impl crate::Pulse {
             }
         }
 
-        let name_to_sref = {
-            let h = self.wav.hierarchy();
-            super::super::hierarchy::resolve_signals(h, scope_path, &all_names)?
-        };
-        let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
-        self.wav.load_signals(&srefs);
+        let name_to_sref =
+            crate::cmd::hierarchy::resolve_and_load(&mut self.wav, scope_path, &all_names)?;
 
         // Cycle list, once: cycle-domain --at specs and match() evaluation
         // both consume it (posedges of `clock`, or every tt entry when the
@@ -88,11 +82,13 @@ impl crate::Pulse {
                         // Reuse the shared event engine (same evaluator as
                         // property/plot/diff); every match's start tick is a
                         // sample point.
-                        let matches = crate::cmd::plot::eval_matches(
+                        let matches = crate::cmd::engine::eval_matches(
                             &self.wav,
                             &all_cycles,
                             &name_to_sref,
                             expr,
+                            &std::collections::BTreeMap::new(),
+                            "",
                         )?;
                         for m in &matches {
                             out.push(*m.0.start());
@@ -196,22 +192,13 @@ fn resolve_ticks(r: &SerdeRange<u64>, last_tick: u64) -> Vec<u64> {
 }
 
 fn sig_val(sig: &wellen::Signal, tt_idx: u32, radix: crate::radix::Radix) -> super::output::Val {
-    let val = sig.get_offset(tt_idx).map(|off| sig.get_value_at(&off, 0));
-    match val {
-        Some(v) => {
-            if v.width() == Some(1) {
-                let s = format!("{v}");
-                super::output::Val::Bit(s.starts_with('1'))
-            } else {
-                // Multi-bit: render in the requested radix; fall back to the
-                // raw binary string for X/Z or values wider than u64.
-                let width = v.width().unwrap_or(32) as usize;
-                match u64::try_from(v) {
-                    Ok(n) => super::output::Val::Hex(radix.render(width, n)),
-                    Err(_) => super::output::Val::Hex(format!("{v}")),
-                }
-            }
-        }
-        None => super::output::Val::Unknown,
+    use crate::read::SignalValue;
+    match crate::read::classify(sig, tt_idx) {
+        SignalValue::Bit(b) => super::output::Val::Bit(b),
+        SignalValue::Vector { value, width } => super::output::Val::Hex(radix.render(width, value)),
+        // X/Z samples keep the raw binary string (legacy readout); missing
+        // data is "?".
+        SignalValue::X(raw) => super::output::Val::Hex(raw),
+        SignalValue::Missing => super::output::Val::Unknown,
     }
 }

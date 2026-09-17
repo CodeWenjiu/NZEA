@@ -13,8 +13,6 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
-use wellen::SignalRef;
-
 use crate::SerdeRange;
 use crate::WaveError;
 
@@ -40,13 +38,8 @@ pub(crate) fn prepare_wave(
     scope_path: &str,
     signal_names: &[String],
 ) -> Result<PreparedWave, WaveError> {
-    let h = wav.hierarchy();
-
-    // Scope + signal resolution (same as `value`).
-    let name_to_sref = crate::cmd::hierarchy::resolve_signals(h, scope_path, signal_names)?;
-
-    let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
-    wav.load_signals(&srefs);
+    // Scope + signal resolution and load (same entry as `value`).
+    let name_to_sref = crate::cmd::hierarchy::resolve_and_load(wav, scope_path, signal_names)?;
 
     // Cycle list: posedges of `clock`, or every tt entry (no clock).
     let cycles = crate::cycle::build_cycles(wav, scope_path, Some("clock"), false)?;
@@ -61,94 +54,16 @@ pub(crate) fn prepare_wave(
 /// `property`/`plot`/`value`). Errors on an empty window.
 pub(crate) use crate::cycle::slice_cycles;
 
-/// 1-bit value (false on zero/X).
-pub(crate) use crate::read::read_bit;
-
-/// Multi-bit value; None on X/Z or non-vector.
-pub(crate) use crate::read::read_u64;
-
-/// Classify a signal sample into a plot/diff value.
+/// Classify a signal sample into a plot/diff value (thin wrapper over the
+/// shared [`crate::read::classify`]).
 pub(crate) fn sample(sig: &wellen::Signal, tt_idx: u32) -> Val {
-    let Some(off) = sig.get_offset(tt_idx) else {
-        return Val::Unknown;
-    };
-    let v = sig.get_value_at(&off, 0);
-    match v {
-        wellen::SignalValueRef::BitVec(bv) if bv.width() == 1 => match bv.get_bit(0).as_ascii() {
-            '1' => Val::High,
-            '0' => Val::Low,
-            _ => Val::Unknown,
-        },
-        other => match u64::try_from(other) {
-            Ok(n) => Val::Vector(n),
-            Err(_) => Val::Unknown,
-        },
+    use crate::read::SignalValue;
+    match crate::read::classify(sig, tt_idx) {
+        SignalValue::Bit(true) => Val::High,
+        SignalValue::Bit(false) => Val::Low,
+        SignalValue::Vector { value, .. } => Val::Vector(value),
+        SignalValue::X(_) | SignalValue::Missing => Val::Unknown,
     }
-}
-
-/// Evaluate one expression over a window (tick matches, not yet mapped back
-/// to cycle indices). Shared by plot's `--mark` and diff's `--eval`.
-pub(crate) fn eval_matches(
-    wav: &wellen::simple::Waveform,
-    win: &[(usize, u64)],
-    name_to_sref: &BTreeMap<String, SignalRef>,
-    expr: &str,
-) -> Result<Vec<SerdeRange<u64>>, WaveError> {
-    let ast = crate::cmd::property::expr::parser::parse(expr)?;
-    crate::cmd::property::expr::stdlib::check_functions(&ast).map_err(WaveError::Parse)?;
-    let ast = crate::cmd::property::expr::stdlib::desugar(&ast);
-
-    let signal_sigs: BTreeMap<String, &wellen::Signal> = name_to_sref
-        .iter()
-        .map(|(n, sr)| {
-            let sig = wav.get_signal(*sr).expect("signal not loaded");
-            (n.clone(), sig)
-        })
-        .collect();
-
-    let read_signal = |name: &str, ci: usize| -> bool {
-        if let Some(sig) = signal_sigs.get(name) {
-            let (ti, _) = win[ci];
-            read_bit(sig, ti as u32)
-        } else {
-            false
-        }
-    };
-    let read_value = |name: &str, ci: usize| -> Option<u64> {
-        if let Some(sig) = signal_sigs.get(name) {
-            let (ti, _) = win[ci];
-            read_u64(sig, ti as u32)
-        } else {
-            None
-        }
-    };
-
-    Ok(crate::cmd::property::expr::eval::eval_temporal(
-        &ast,
-        win,
-        &read_signal,
-        &read_value,
-    ))
-}
-
-/// Map tick matches back to window-local cycle indices.
-pub(crate) fn matches_to_cycles(
-    matches: &[SerdeRange<u64>],
-    win: &[(usize, u64)],
-) -> Vec<SerdeRange<u64>> {
-    let tick_to_cycle: BTreeMap<u64, usize> = win
-        .iter()
-        .enumerate()
-        .map(|(i, &(_ti, t))| (t, i))
-        .collect();
-    matches
-        .iter()
-        .map(|r| {
-            let s = tick_to_cycle.get(r.0.start()).copied().unwrap_or(0) as u64;
-            let e = tick_to_cycle.get(r.0.end()).copied().unwrap_or(0) as u64;
-            SerdeRange(s..=e)
-        })
-        .collect()
 }
 
 impl crate::Pulse {
@@ -177,11 +92,21 @@ impl crate::Pulse {
             .map(|sig| win.iter().map(|&(ti, _)| sample(sig, ti as u32)).collect())
             .collect();
 
-        // Mark expressions → cycle-index ranges (same pipeline as property eval).
+        // Mark expressions → cycle-index ranges (shared engine pipeline).
         let mut mark_data: Vec<(String, Vec<SerdeRange<u64>>)> = Vec::new();
         for expr in marks {
-            let matches = eval_matches(&self.wav, &win, &prepared.name_to_sref, expr)?;
-            mark_data.push((expr.clone(), matches_to_cycles(&matches, &win)));
+            let matches = crate::cmd::engine::eval_matches(
+                &self.wav,
+                &win,
+                &prepared.name_to_sref,
+                expr,
+                &BTreeMap::new(),
+                "",
+            )?;
+            mark_data.push((
+                expr.clone(),
+                crate::cycle::local_cycle_ranges(&win, &matches),
+            ));
         }
 
         let data = PlotData {

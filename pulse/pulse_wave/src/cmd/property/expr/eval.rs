@@ -158,11 +158,11 @@ fn eval_impl(
                 if a_bool[ci] {
                     pending_a.push(ci);
                 }
-                if b_bool[ci] {
-                    if let Some(_a_ci) = pending_a.first().copied() {
-                        matches.push(cycles[ci].1);
-                        pending_a.remove(0);
-                    }
+                if b_bool[ci]
+                    && let Some(_a_ci) = pending_a.first().copied()
+                {
+                    matches.push(cycles[ci].1);
+                    pending_a.remove(0);
                 }
             }
             EvalOut::Matches(matches)
@@ -234,11 +234,11 @@ fn eval_impl(
                 if a_bool[ci] {
                     pending_a.push(ci);
                 }
-                if b_bool[ci] {
-                    if let Some(a_ci) = pending_a.first().copied() {
-                        intervals.push((cycles[a_ci].1, cycles[ci].1));
-                        pending_a.remove(0);
-                    }
+                if b_bool[ci]
+                    && let Some(a_ci) = pending_a.first().copied()
+                {
+                    intervals.push((cycles[a_ci].1, cycles[ci].1));
+                    pending_a.remove(0);
                 }
             }
             EvalOut::Intervals(intervals)
@@ -289,7 +289,7 @@ fn eval_impl(
             }
 
             // A sequence matches at ci if each step_i matches at ci - (remaining delay after step_i)
-            for ci in 0..n {
+            for (ci, &(_tt_idx, time)) in cycles.iter().enumerate() {
                 let mut ok = true;
                 let mut offset = 0usize;
                 for (i, step) in steps.iter().enumerate() {
@@ -301,7 +301,7 @@ fn eval_impl(
                     }
                 }
                 if ok {
-                    matches.push(cycles[ci].1);
+                    matches.push(time);
                 }
             }
             EvalOut::Matches(matches)

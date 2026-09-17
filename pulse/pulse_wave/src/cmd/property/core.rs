@@ -65,30 +65,23 @@ impl crate::Pulse {
             event_scopes.insert(def.name.clone(), def.scope.clone());
         }
 
-        // ── Parse and normalize every eval expression ───────────
+        // ── Compile eval expressions (shared engine pipeline) ───
         let mut asts: Vec<(String, super::expr::ast::Expr)> = Vec::new();
         for e in evals {
-            let ast = super::expr::parser::parse(e)?;
-            let ast = super::event::normalize(&ast, "", &event_defs);
-            super::expr::stdlib::check_functions(&ast).map_err(WaveError::Parse)?;
-            let ast = super::expr::stdlib::desugar(&ast);
+            let ast = crate::cmd::engine::compile(e, &event_defs, "")?;
             asts.push((e.clone(), ast));
         }
 
         // `--sample` entries: a bare signal name samples that signal; anything
         // else is a value expression (comparison/logic) evaluated to 0/1 per
-        // match, through the same normalize/desugar pipeline as --eval (so
-        // event-set names work in samples too).
+        // match, through the same engine pipeline as --eval.
         enum SampleSpec {
             Signal(String),
             Expr(super::expr::ast::Expr),
         }
         let mut sample_specs: Vec<(String, SampleSpec)> = Vec::new();
         for s in samples {
-            let ast = super::expr::parser::parse(s)?;
-            let ast = super::event::normalize(&ast, "", &event_defs);
-            super::expr::stdlib::check_functions(&ast).map_err(WaveError::Parse)?;
-            let ast = super::expr::stdlib::desugar(&ast);
+            let ast = crate::cmd::engine::compile(s, &event_defs, "")?;
             match &ast {
                 super::expr::ast::Expr::Signal(name) => {
                     sample_specs.push((s.clone(), SampleSpec::Signal(name.clone())))
@@ -112,31 +105,29 @@ impl crate::Pulse {
         refs.sort();
         refs.dedup();
 
-        // Resolve signals: main scope + each event set's scope
+        // Resolve signals: main scope (resolved + loaded in one step) plus
+        // each event set's scope.
         let mut name_to_sref: BTreeMap<String, SignalRef> = BTreeMap::new();
-        {
-            let h = self.wav.hierarchy();
-
-            // Main scope signals
-            let main_names: Vec<String> = refs
-                .iter()
-                .filter(|(ns, _)| ns.is_none())
-                .map(|(_, n)| n.clone())
-                .collect();
-            if !main_names.is_empty() {
-                let map = super::super::hierarchy::resolve_signals(h, &scope_path, &main_names)?;
-                name_to_sref.extend(map);
-            }
-
-            // Per event-set signals, qualified with the set name
-            for (ns, names) in group_by_namespace(&refs) {
-                let scope = event_scopes
-                    .get(&ns)
-                    .ok_or_else(|| WaveError::Parse(format!("undefined event set '{ns}'")))?;
-                let map = super::super::hierarchy::resolve_signals(h, scope, &names)?;
-                for (local, sr) in map {
-                    name_to_sref.insert(format!("{ns}.{local}"), sr);
-                }
+        let main_names: Vec<String> = refs
+            .iter()
+            .filter(|(ns, _)| ns.is_none())
+            .map(|(_, n)| n.clone())
+            .collect();
+        if !main_names.is_empty() {
+            let map =
+                crate::cmd::hierarchy::resolve_and_load(&mut self.wav, &scope_path, &main_names)?;
+            name_to_sref.extend(map);
+        }
+        for (ns, names) in group_by_namespace(&refs) {
+            let scope = event_scopes
+                .get(&ns)
+                .ok_or_else(|| WaveError::Parse(format!("undefined event set '{ns}'")))?;
+            let map = {
+                let h = self.wav.hierarchy();
+                super::super::hierarchy::resolve_signals(h, scope, &names)?
+            };
+            for (local, sr) in map {
+                name_to_sref.insert(format!("{ns}.{local}"), sr);
             }
         }
 
@@ -146,7 +137,7 @@ impl crate::Pulse {
         let all_cycles =
             crate::cycle::build_cycles(&mut self.wav, &scope_path, Some(clock_name), explicit_on)?;
 
-        // ── Load signal data ────────────────────────────────────
+        // ── Load signal data (event-set signals; main scope already loaded) ──
         let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
         self.wav.load_signals(&srefs);
 
@@ -159,21 +150,7 @@ impl crate::Pulse {
             .collect();
 
         // ── Slice cycles per --cycles ───────────────────────────
-        let (from, to) = match cycles {
-            Some(r) => {
-                // `--cycles ~N` → last N cycles.
-                if let Some(n) = r.tail_n() {
-                    let n = (n as usize).min(all_cycles.len());
-                    (all_cycles.len() - n, all_cycles.len())
-                } else {
-                    (
-                        *r.0.start() as usize,
-                        (*r.0.end() as usize).min(all_cycles.len()),
-                    )
-                }
-            }
-            None => (0, all_cycles.len()),
-        };
+        let (from, to) = crate::cycle::window_bounds(all_cycles.len(), cycles.as_ref());
         if from >= all_cycles.len() || from >= to {
             return Err(WaveError::Parse(format!(
                 "--cycles {from}-{to}: empty window (trace has {} cycles)",
@@ -182,39 +159,10 @@ impl crate::Pulse {
         }
         let cycles = &all_cycles[from..to];
 
-        // tick → global cycle index (from + local index). The evaluator works
-        // in ticks (temporal pairing needs absolute time); we map its output
-        // back to cycle indices so that `from`/`to`/`total_cycles`/`matches`
-        // are all in the same unit (cycle numbers, matching the `--cycles`
-        // window). Each match keeps BOTH domains (CycleTick) so JSON consumers
-        // get `{cycle, tick}` without converting.
-        let tick_to_cycle: std::collections::BTreeMap<u64, usize> = cycles
-            .iter()
-            .enumerate()
-            .map(|(i, &(_tt_idx, t))| (t, from + i))
-            .collect();
-        let map_tick_range =
-            |r: &crate::SerdeRange<u64>| -> crate::SerdeRange<super::output::CycleTick> {
-                let cs = tick_to_cycle
-                    .get(r.0.start())
-                    .copied()
-                    .unwrap_or(*r.0.start() as usize) as u64;
-                let ce = tick_to_cycle
-                    .get(r.0.end())
-                    .copied()
-                    .unwrap_or(*r.0.end() as usize) as u64;
-                crate::SerdeRange(
-                    super::output::CycleTick {
-                        cycle: cs,
-                        tick: *r.0.start(),
-                    }..=super::output::CycleTick {
-                        cycle: ce,
-                        tick: *r.0.end(),
-                    },
-                )
-            };
-
         // ── Evaluate all expressions ────────────────────────────
+        // The evaluator works in ticks (temporal pairing needs absolute
+        // time); matches are mapped back to global {cycle, tick} pairs by the
+        // shared TimeBase so consumers never convert.
         let read_signal = |name: &str, cycle_idx: usize| -> bool {
             if let Some(sig) = signal_sigs.get(name) {
                 let (tt_idx, _) = cycles[cycle_idx];
@@ -232,12 +180,14 @@ impl crate::Pulse {
             }
         };
 
-        let columns: Vec<(String, Vec<crate::SerdeRange<super::output::CycleTick>>)> = asts
+        let columns: Vec<(String, Vec<crate::SerdeRange<crate::cycle::CycleTick>>)> = asts
             .iter()
             .map(|(name, ast)| {
                 let raw = super::expr::eval::eval_temporal(ast, cycles, &read_signal, &read_value);
-                let mut matches: Vec<crate::SerdeRange<super::output::CycleTick>> =
-                    raw.iter().map(&map_tick_range).collect();
+                let mut matches: Vec<crate::SerdeRange<crate::cycle::CycleTick>> = raw
+                    .iter()
+                    .map(|r| crate::cycle::map_match(from, cycles, r))
+                    .collect();
                 if let Some(n) = max {
                     matches.truncate(n);
                 }
@@ -249,7 +199,7 @@ impl crate::Pulse {
         // Signal samples render width-aware; expression samples evaluate
         // through the same value engine (comparisons/logic → 0/1, X → "?").
         let mut sample_rows: Vec<(
-            crate::SerdeRange<super::output::CycleTick>,
+            crate::SerdeRange<crate::cycle::CycleTick>,
             super::output::SampleOut,
         )> = Vec::new();
         if !sample_specs.is_empty() {
@@ -309,23 +259,14 @@ impl crate::Pulse {
     }
 }
 
-/// Render one --sample value: 1-bit signals as 0/1/?, vectors in the
-/// requested radix, X/Z as "?".
+/// Render one --sample value from the shared classification: 1-bit signals as
+/// 0/1/?, vectors in the requested radix, X/Z/missing as "?".
 fn sample_value(sig: &wellen::Signal, tt_idx: u32, radix: crate::radix::Radix) -> String {
-    let Some(off) = sig.get_offset(tt_idx) else {
-        return "?".into();
-    };
-    let v = sig.get_value_at(&off, 0);
-    match v {
-        wellen::SignalValueRef::BitVec(bv) if bv.width() == 1 => match bv.get_bit(0).as_ascii() {
-            '1' => "1".into(),
-            '0' => "0".into(),
-            _ => "?".into(),
-        },
-        other => match u64::try_from(other) {
-            Ok(n) => radix.render(other.width().unwrap_or(32) as usize, n),
-            Err(_) => "?".into(),
-        },
+    match crate::read::classify(sig, tt_idx) {
+        crate::read::SignalValue::Bit(true) => "1".into(),
+        crate::read::SignalValue::Bit(false) => "0".into(),
+        crate::read::SignalValue::Vector { value, width } => radix.render(width, value),
+        crate::read::SignalValue::X(_) | crate::read::SignalValue::Missing => "?".into(),
     }
 }
 

@@ -1,33 +1,8 @@
 use serde::Serialize;
-use serde::ser::SerializeStruct;
 use tabled::builder::Builder;
 
 use crate::SerdeRange;
-
-/// A match expressed in both time domains at once: the global cycle number
-/// (posedge-clock count, the unit `--cycles` uses) and the raw tick. JSON
-/// serializes as `{"cycle": 5, "tick": 5531}` so script consumers never have
-/// to convert; text renders the cycle (legacy readout).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct CycleTick {
-    pub(super) cycle: u64,
-    pub(super) tick: u64,
-}
-
-impl Serialize for CycleTick {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let mut out = s.serialize_struct("CycleTick", 2)?;
-        out.serialize_field("cycle", &self.cycle)?;
-        out.serialize_field("tick", &self.tick)?;
-        out.end()
-    }
-}
-
-impl std::fmt::Display for CycleTick {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.cycle)
-    }
-}
+use crate::cycle::CycleTick;
 
 /// One `--sample` row: the match's cycle/tick plus the requested values,
 /// serialized flat (`{"cycle":5,"tick":5531,"pc":"0x10",...}`) so each row is
