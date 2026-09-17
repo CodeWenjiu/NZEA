@@ -15,6 +15,8 @@ impl crate::Pulse {
         cycles: Option<crate::SerdeRange<u64>>,
         max: Option<usize>,
         count: bool,
+        samples: &[String],
+        radix: &str,
     ) -> Result<(), WaveError> {
         if evals.is_empty() {
             return Err(WaveError::Parse("at least one --eval is required".into()));
@@ -24,6 +26,17 @@ impl crate::Pulse {
                 "--count and --max are mutually exclusive".into(),
             ));
         }
+        if !samples.is_empty() && count {
+            return Err(WaveError::Parse(
+                "--count and --sample are mutually exclusive".into(),
+            ));
+        }
+        if !samples.is_empty() && evals.len() > 1 {
+            return Err(WaveError::Parse(
+                "--sample requires exactly one --eval (multi-column sampling is ambiguous)".into(),
+            ));
+        }
+        let radix = crate::radix::Radix::from_str(radix)?;
 
         // `--on` defaults to "posedge clock"; when the user did not pass it
         // explicitly and the scope has no clock signal, fall back to treating
@@ -62,10 +75,39 @@ impl crate::Pulse {
             asts.push((e.clone(), ast));
         }
 
+        // `--sample` entries: a bare signal name samples that signal; anything
+        // else is a value expression (comparison/logic) evaluated to 0/1 per
+        // match, through the same normalize/desugar pipeline as --eval (so
+        // event-set names work in samples too).
+        enum SampleSpec {
+            Signal(String),
+            Expr(super::expr::ast::Expr),
+        }
+        let mut sample_specs: Vec<(String, SampleSpec)> = Vec::new();
+        for s in samples {
+            let ast = super::expr::parser::parse(s)?;
+            let ast = super::event::normalize(&ast, "", &event_defs);
+            super::expr::stdlib::check_functions(&ast).map_err(WaveError::Parse)?;
+            let ast = super::expr::stdlib::desugar(&ast);
+            match &ast {
+                super::expr::ast::Expr::Signal(name) => {
+                    sample_specs.push((s.clone(), SampleSpec::Signal(name.clone())))
+                }
+                _ => sample_specs.push((s.clone(), SampleSpec::Expr(ast))),
+            }
+        }
+
         // ── Collect referenced signals per scope (all evals) ────
         let mut refs: Vec<(Option<String>, String)> = Vec::new();
         for (_, ast) in &asts {
             super::event::collect_signal_refs(ast, &mut refs);
+        }
+        // --sample signals belong to the main scope.
+        for (_, spec) in &sample_specs {
+            match spec {
+                SampleSpec::Signal(name) => refs.push((None, name.clone())),
+                SampleSpec::Expr(ast) => super::event::collect_signal_refs(ast, &mut refs),
+            }
         }
         refs.sort();
         refs.dedup();
@@ -96,41 +138,17 @@ impl crate::Pulse {
                     name_to_sref.insert(format!("{ns}.{local}"), sr);
                 }
             }
-
-            // Clock signal (main scope); absent clocks fall back to the sample
-            // table only when `--on` was not given explicitly.
-            let clock_map = super::super::hierarchy::resolve_signals(
-                h,
-                &scope_path,
-                &[clock_name.to_string()],
-            );
-            match clock_map {
-                Ok(m) => {
-                    name_to_sref.extend(m);
-                }
-                Err(_) if !explicit_on => {
-                    // No clock in the dump and the user did not pin one:
-                    // cycle = time-table entry (ILA sample index).
-                }
-                Err(e) => return Err(e),
-            }
         }
 
-        let no_clock = !name_to_sref.contains_key(clock_name);
+        // ── Build cycle list from clock posedges ────────────────
+        // Without a clock, every time-table entry is one cycle (e.g. ILA
+        // exports where timestamps are sample indices).
+        let all_cycles =
+            crate::cycle::build_cycles(&mut self.wav, &scope_path, Some(clock_name), explicit_on)?;
 
         // ── Load signal data ────────────────────────────────────
         let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
         self.wav.load_signals(&srefs);
-
-        let clock_sig = if no_clock {
-            None
-        } else {
-            Some(
-                self.wav
-                    .get_signal(name_to_sref[clock_name])
-                    .expect("clock signal not loaded"),
-            )
-        };
 
         let signal_sigs: BTreeMap<String, &wellen::Signal> = name_to_sref
             .iter()
@@ -139,30 +157,6 @@ impl crate::Pulse {
                 (n.clone(), sig)
             })
             .collect();
-
-        // ── Build cycle list from clock posedges ────────────────
-        // Without a clock, every time-table entry is one cycle (e.g. ILA
-        // exports where timestamps are sample indices).
-        let tt = self.wav.time_table();
-        let mut all_cycles: Vec<(usize, u64)> = Vec::new();
-        match clock_sig {
-            None => {
-                for (ti, &t) in tt.iter().enumerate() {
-                    all_cycles.push((ti, t));
-                }
-            }
-            Some(clock_sig) => {
-                let mut prev_clk = false;
-                for (ti, &t) in tt.iter().enumerate() {
-                    let clk_val = super::signals::read_bit(clock_sig, ti as u32);
-                    let is_posedge = !prev_clk && clk_val;
-                    if is_posedge {
-                        all_cycles.push((ti, t));
-                    }
-                    prev_clk = clk_val;
-                }
-            }
-        }
 
         // ── Slice cycles per --cycles ───────────────────────────
         let (from, to) = match cycles {
@@ -180,27 +174,10 @@ impl crate::Pulse {
             }
             None => (0, all_cycles.len()),
         };
-        if from >= all_cycles.len() {
-            // No cycles in the requested window: empty matches, rendered in
-            // the requested shape (single/multi × ranges/count).
-            let columns: Vec<(String, Vec<crate::SerdeRange<u64>>)> = asts
-                .iter()
-                .map(|(name, _)| (name.clone(), Vec::new()))
-                .collect();
-            let out = super::output::render(
-                &columns,
-                count,
-                crate::SerdeRange(from..=from),
-                all_cycles.len(),
-                max,
-            );
-            self.emit(&out);
-            return Ok(());
-        }
-        let to = to.min(all_cycles.len());
-        if from >= to {
+        if from >= all_cycles.len() || from >= to {
             return Err(WaveError::Parse(format!(
-                "--cycles {from}-{to}: from >= to"
+                "--cycles {from}-{to}: empty window (trace has {} cycles)",
+                all_cycles.len()
             )));
         }
         let cycles = &all_cycles[from..to];
@@ -209,23 +186,33 @@ impl crate::Pulse {
         // in ticks (temporal pairing needs absolute time); we map its output
         // back to cycle indices so that `from`/`to`/`total_cycles`/`matches`
         // are all in the same unit (cycle numbers, matching the `--cycles`
-        // window).
+        // window). Each match keeps BOTH domains (CycleTick) so JSON consumers
+        // get `{cycle, tick}` without converting.
         let tick_to_cycle: std::collections::BTreeMap<u64, usize> = cycles
             .iter()
             .enumerate()
             .map(|(i, &(_tt_idx, t))| (t, from + i))
             .collect();
-        let map_tick_range = |r: &crate::SerdeRange<u64>| -> crate::SerdeRange<u64> {
-            let s = tick_to_cycle
-                .get(r.0.start())
-                .copied()
-                .unwrap_or(*r.0.start() as usize) as u64;
-            let e = tick_to_cycle
-                .get(r.0.end())
-                .copied()
-                .unwrap_or(*r.0.end() as usize) as u64;
-            crate::SerdeRange(s..=e)
-        };
+        let map_tick_range =
+            |r: &crate::SerdeRange<u64>| -> crate::SerdeRange<super::output::CycleTick> {
+                let cs = tick_to_cycle
+                    .get(r.0.start())
+                    .copied()
+                    .unwrap_or(*r.0.start() as usize) as u64;
+                let ce = tick_to_cycle
+                    .get(r.0.end())
+                    .copied()
+                    .unwrap_or(*r.0.end() as usize) as u64;
+                crate::SerdeRange(
+                    super::output::CycleTick {
+                        cycle: cs,
+                        tick: *r.0.start(),
+                    }..=super::output::CycleTick {
+                        cycle: ce,
+                        tick: *r.0.end(),
+                    },
+                )
+            };
 
         // ── Evaluate all expressions ────────────────────────────
         let read_signal = |name: &str, cycle_idx: usize| -> bool {
@@ -245,20 +232,67 @@ impl crate::Pulse {
             }
         };
 
-        let columns: Vec<(String, Vec<crate::SerdeRange<u64>>)> = asts
+        let columns: Vec<(String, Vec<crate::SerdeRange<super::output::CycleTick>>)> = asts
             .iter()
             .map(|(name, ast)| {
-                let mut matches =
-                    super::expr::eval::eval_temporal(ast, cycles, &read_signal, &read_value);
-                for r in matches.iter_mut() {
-                    *r = map_tick_range(r);
-                }
+                let raw = super::expr::eval::eval_temporal(ast, cycles, &read_signal, &read_value);
+                let mut matches: Vec<crate::SerdeRange<super::output::CycleTick>> =
+                    raw.iter().map(&map_tick_range).collect();
                 if let Some(n) = max {
                     matches.truncate(n);
                 }
                 (name.clone(), matches)
             })
             .collect();
+
+        // ── --sample: one row per match (single --eval, enforced above) ──
+        // Signal samples render width-aware; expression samples evaluate
+        // through the same value engine (comparisons/logic → 0/1, X → "?").
+        let mut sample_rows: Vec<(
+            crate::SerdeRange<super::output::CycleTick>,
+            super::output::SampleOut,
+        )> = Vec::new();
+        if !sample_specs.is_empty() {
+            for r in &columns[0].1 {
+                let ct = *r.0.start();
+                let ci = ct.cycle as usize - from;
+                let (tt_idx, tick) = cycles[ci];
+                let values: Vec<(String, String)> = sample_specs
+                    .iter()
+                    .map(|(label, spec)| match spec {
+                        SampleSpec::Signal(name) => {
+                            let sig = signal_sigs
+                                .get(name)
+                                .unwrap_or_else(|| panic!("sample signal '{name}' not resolved"));
+                            (label.clone(), sample_value(sig, tt_idx as u32, radix))
+                        }
+                        SampleSpec::Expr(ast) => {
+                            let v = super::expr::eval::eval_value(
+                                ast,
+                                ci,
+                                cycles,
+                                &read_signal,
+                                &read_value,
+                            );
+                            (
+                                label.clone(),
+                                v.map(|b| if b == 0 { "0" } else { "1" })
+                                    .unwrap_or("?")
+                                    .into(),
+                            )
+                        }
+                    })
+                    .collect();
+                sample_rows.push((
+                    r.clone(),
+                    super::output::SampleOut {
+                        cycle: ct.cycle,
+                        tick,
+                        values,
+                    },
+                ));
+            }
+        }
 
         // ── Output ──────────────────────────────────────────────
         let out = super::output::render(
@@ -267,10 +301,31 @@ impl crate::Pulse {
             crate::SerdeRange(from..=to),
             all_cycles.len(),
             max,
+            &sample_rows,
         );
         self.emit(&out);
 
         Ok(())
+    }
+}
+
+/// Render one --sample value: 1-bit signals as 0/1/?, vectors in the
+/// requested radix, X/Z as "?".
+fn sample_value(sig: &wellen::Signal, tt_idx: u32, radix: crate::radix::Radix) -> String {
+    let Some(off) = sig.get_offset(tt_idx) else {
+        return "?".into();
+    };
+    let v = sig.get_value_at(&off, 0);
+    match v {
+        wellen::SignalValueRef::BitVec(bv) if bv.width() == 1 => match bv.get_bit(0).as_ascii() {
+            '1' => "1".into(),
+            '0' => "0".into(),
+            _ => "?".into(),
+        },
+        other => match u64::try_from(other) {
+            Ok(n) => radix.render(other.width().unwrap_or(32) as usize, n),
+            Err(_) => "?".into(),
+        },
     }
 }
 

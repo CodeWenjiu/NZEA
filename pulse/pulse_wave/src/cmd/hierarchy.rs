@@ -144,7 +144,7 @@ fn find_scope_inner(
 
 /// Resolve signal names in a scope to their `SignalRef`s.
 /// Errors if the scope is missing or any requested signal is not found.
-pub(super) fn resolve_signals(
+pub(crate) fn resolve_signals(
     h: &wellen::Hierarchy,
     scope_path: &str,
     names: &[String],

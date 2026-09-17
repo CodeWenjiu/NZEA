@@ -1,11 +1,61 @@
 use serde::Serialize;
+use serde::ser::SerializeStruct;
 use tabled::builder::Builder;
 
 use crate::SerdeRange;
 
-/// Output of a `property` query, shaped by `--count` and the number of
-/// `--eval` columns. `untagged` forwards serialization to the inner value,
-/// so the JSON shape matches the single-variant outputs exactly.
+/// A match expressed in both time domains at once: the global cycle number
+/// (posedge-clock count, the unit `--cycles` uses) and the raw tick. JSON
+/// serializes as `{"cycle": 5, "tick": 5531}` so script consumers never have
+/// to convert; text renders the cycle (legacy readout).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct CycleTick {
+    pub(super) cycle: u64,
+    pub(super) tick: u64,
+}
+
+impl Serialize for CycleTick {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut out = s.serialize_struct("CycleTick", 2)?;
+        out.serialize_field("cycle", &self.cycle)?;
+        out.serialize_field("tick", &self.tick)?;
+        out.end()
+    }
+}
+
+impl std::fmt::Display for CycleTick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.cycle)
+    }
+}
+
+/// One `--sample` row: the match's cycle/tick plus the requested values,
+/// serialized flat (`{"cycle":5,"tick":5531,"pc":"0x10",...}`) so each row is
+/// directly usable as a log entry.
+#[derive(Debug, Clone)]
+pub(super) struct SampleOut {
+    pub(super) cycle: u64,
+    pub(super) tick: u64,
+    /// `(name, rendered value)` pairs, in `--sample` request order.
+    pub(super) values: Vec<(String, String)>,
+}
+
+impl Serialize for SampleOut {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut out = s.serialize_map(Some(2 + self.values.len()))?;
+        out.serialize_entry("cycle", &self.cycle)?;
+        out.serialize_entry("tick", &self.tick)?;
+        for (name, v) in &self.values {
+            out.serialize_entry(name.as_str(), v)?;
+        }
+        out.end()
+    }
+}
+
+/// Output of a `property` query, shaped by `--count`, the number of `--eval`
+/// columns and `--sample`. `untagged` forwards serialization to the inner
+/// value, so the JSON shape matches the single-variant outputs exactly.
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(super) enum PropertyOutput {
@@ -13,6 +63,7 @@ pub(super) enum PropertyOutput {
     Count(PropertyCountOut),
     Columns(PropertyColumnsOut),
     Counts(PropertyCountsOut),
+    Samples(PropertySamplesOut),
 }
 
 impl std::fmt::Display for PropertyOutput {
@@ -22,18 +73,31 @@ impl std::fmt::Display for PropertyOutput {
             PropertyOutput::Count(o) => write!(f, "{o}"),
             PropertyOutput::Columns(o) => write!(f, "{o}"),
             PropertyOutput::Counts(o) => write!(f, "{o}"),
+            PropertyOutput::Samples(o) => write!(f, "{o}"),
         }
     }
 }
 
 /// Build the output shape for a set of evaluated columns.
 pub(super) fn render(
-    columns: &[(String, Vec<SerdeRange<u64>>)],
+    columns: &[(String, Vec<SerdeRange<CycleTick>>)],
     count: bool,
     cycles: SerdeRange<usize>,
     total_cycles: usize,
     max: Option<usize>,
+    samples: &[(SerdeRange<CycleTick>, SampleOut)],
 ) -> PropertyOutput {
+    // `--sample` implies a single --eval column (enforced by the caller);
+    // its rows carry both the match and the sampled values.
+    if !samples.is_empty() {
+        return PropertyOutput::Samples(PropertySamplesOut {
+            cycles,
+            total_cycles,
+            max,
+            matches: samples.iter().map(|(m, _)| m.clone()).collect(),
+            samples: samples.iter().map(|(_, s)| s).cloned().collect(),
+        });
+    }
     match (count, columns.len()) {
         (true, 1) => PropertyOutput::Count(PropertyCountOut {
             cycles,
@@ -72,7 +136,8 @@ pub(super) fn render(
     }
 }
 
-/// Single-expression output (unchanged legacy format).
+/// Single-expression output (text format unchanged: one cycle per line;
+/// JSON matches carry `{cycle, tick}` pairs).
 #[derive(Serialize)]
 pub(super) struct PropertyOut {
     #[serde(flatten)]
@@ -81,13 +146,40 @@ pub(super) struct PropertyOut {
     /// Requested match limit; present when `--max` truncated the output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) max: Option<usize>,
-    pub(super) matches: Vec<SerdeRange<u64>>,
+    pub(super) matches: Vec<SerdeRange<CycleTick>>,
 }
 
 impl std::fmt::Display for PropertyOut {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for ts in &self.matches {
             writeln!(f, "{ts}")?;
+        }
+        Ok(())
+    }
+}
+
+/// `--sample` output: each match row followed by the sampled values
+/// (`cycle  name=value ...` in text; structured JSON).
+#[derive(Serialize)]
+pub(super) struct PropertySamplesOut {
+    #[serde(flatten)]
+    pub(super) cycles: SerdeRange<usize>,
+    pub(super) total_cycles: usize,
+    /// Requested match limit; present when `--max` truncated the output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) max: Option<usize>,
+    pub(super) matches: Vec<SerdeRange<CycleTick>>,
+    pub(super) samples: Vec<SampleOut>,
+}
+
+impl std::fmt::Display for PropertySamplesOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (m, s) in self.matches.iter().zip(&self.samples) {
+            write!(f, "{m}")?;
+            for (name, v) in &s.values {
+                write!(f, "  {name}={v}")?;
+            }
+            writeln!(f)?;
         }
         Ok(())
     }
@@ -123,7 +215,7 @@ pub(super) struct PropertyColumnsOut {
 #[derive(Serialize)]
 pub(super) struct ColumnOut {
     pub(super) name: String,
-    pub(super) matches: Vec<SerdeRange<u64>>,
+    pub(super) matches: Vec<SerdeRange<CycleTick>>,
 }
 
 impl std::fmt::Display for PropertyColumnsOut {
@@ -136,7 +228,11 @@ impl std::fmt::Display for PropertyColumnsOut {
         builder.push_record(header);
         for (ts, cells) in union_segments(&self.columns) {
             let mut row: Vec<String> = vec![ts.to_string()];
-            row.extend(cells.iter().map(|&b| if b { "1".into() } else { "0".into() }));
+            row.extend(
+                cells
+                    .iter()
+                    .map(|&b| if b { "1".into() } else { "0".into() }),
+            );
             builder.push_record(row);
         }
         writeln!(f, "{}", builder.build())
@@ -172,13 +268,14 @@ impl std::fmt::Display for PropertyCountsOut {
 /// Partition the union of all matches into disjoint `[from, to]` segments,
 /// each tagged with which columns cover it. A point match `[p, p]` yields a
 /// degenerate segment `[p, p]`; a range covers a segment iff it contains it.
+/// Segments are compared in the cycle domain.
 fn union_segments(columns: &[ColumnOut]) -> Vec<(SerdeRange<u64>, Vec<bool>)> {
     // Endpoints of every range, plus degenerate single-point segments.
     let mut pts: Vec<u64> = Vec::new();
     let mut points: Vec<u64> = Vec::new();
     for c in columns {
         for r in &c.matches {
-            let (a, b) = (*r.0.start(), *r.0.end());
+            let (a, b) = (r.0.start().cycle, r.0.end().cycle);
             pts.push(a);
             pts.push(b);
             if a == b {
@@ -200,7 +297,7 @@ fn union_segments(columns: &[ColumnOut]) -> Vec<(SerdeRange<u64>, Vec<bool>)> {
                 .map(|c| {
                     c.matches
                         .iter()
-                        .any(|r| *r.0.start() <= s && e <= *r.0.end())
+                        .any(|r| r.0.start().cycle <= s && e <= r.0.end().cycle)
                 })
                 .collect();
             (SerdeRange(s..=e), cells)

@@ -73,7 +73,7 @@ pub(super) fn normalize(expr: &Expr, ns: &str, events: &BTreeMap<String, Expr>) 
 
 /// Collect (namespace, signal name) pairs from a normalized AST.
 /// `namespace` is `None` for the main scope, `Some(set)` for event sets.
-pub(super) fn collect_signal_refs(expr: &Expr, out: &mut Vec<(Option<String>, String)>) {
+pub(crate) fn collect_signal_refs(expr: &Expr, out: &mut Vec<(Option<String>, String)>) {
     super::expr::walk::visit(expr, &mut |e| {
         if let Expr::Signal(name) = e {
             if let Some((ns, local)) = name.split_once('.') {

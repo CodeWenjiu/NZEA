@@ -106,6 +106,109 @@ impl SerdeRange<u64> {
     }
 }
 
+/// One `value --at` argument after parsing: a tick/cycle/absolute-time range,
+/// or a `match(EXPR)` event-expression time source.
+///
+/// Units: bare numbers are ticks (legacy behavior), `Nc` is the Nth cycle
+/// (posedge-clock count), `Nt` an explicit tick, `Nns` an absolute time in
+/// nanoseconds (converted via the waveform timescale). Unit suffixes apply to
+/// a single point; ranges keep the legacy tick semantics.
+#[derive(Debug, Clone)]
+pub(crate) enum AtSpec {
+    Ticks(SerdeRange<u64>),
+    Cycles(SerdeRange<u64>),
+    AbsNs(SerdeRange<u64>),
+    /// `match(EXPR)`: every tick where the event expression fires.
+    Match(String),
+}
+
+impl AtSpec {
+    /// Parse one `--at` token (a user-supplied piece, already comma-split by
+    /// the caller; `match(...)` arguments may contain commas, so that form is
+    /// never split).
+    pub(crate) fn from_str(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("empty --at value".into());
+        }
+        if let Some(inner) = s.strip_prefix("match(") {
+            let inner = inner
+                .strip_suffix(')')
+                .ok_or_else(|| format!("match(...) missing closing paren: '{s}'"))?;
+            if inner.trim().is_empty() {
+                return Err("--at match() needs an event expression".into());
+            }
+            return Ok(AtSpec::Match(inner.to_string()));
+        }
+        // Unit form: `Nc`, `Nt`, `Nns` (point only).
+        let (num, unit) = split_unit(s)?;
+        let range: SerdeRange<u64> = num.parse()?;
+        match unit {
+            "" => Ok(AtSpec::Ticks(range)),
+            "t" => Ok(AtSpec::Ticks(range)),
+            "c" => {
+                if *range.0.start() != *range.0.end() {
+                    return Err(
+                        "--at Nc accepts a single cycle point (ranges stay in ticks)".into(),
+                    );
+                }
+                Ok(AtSpec::Cycles(range))
+            }
+            "ns" => {
+                if *range.0.start() != *range.0.end() {
+                    return Err(
+                        "--at Nns accepts a single time point (ranges stay in ticks)".into(),
+                    );
+                }
+                Ok(AtSpec::AbsNs(range))
+            }
+            other => Err(format!(
+                "unknown --at unit '{other}' (expected c, t, ns, or bare ticks)"
+            )),
+        }
+    }
+}
+
+/// Split `123c` / `45ns` / `67` into the numeric part and the unit suffix.
+/// `-`/`~` prefixes and range forms (`100-200`) fall through as bare (`""`
+/// unit) so `SerdeRange` parses them with its full syntax.
+fn split_unit(s: &str) -> Result<(&str, &str), String> {
+    let first = s.chars().next().unwrap_or(' ');
+    if !first.is_ascii_digit() {
+        return Ok((s, ""));
+    }
+    let digits: usize = s
+        .char_indices()
+        .find(|(_, c)| !c.is_ascii_digit())
+        .map_or(s.len(), |(i, _)| i);
+    let (num, unit) = s.split_at(digits);
+    match unit {
+        "" | "c" | "t" | "ns" => Ok((num, unit)),
+        // Not a unit form (e.g. "100-200"): hand the whole string to the
+        // bare parser, which reports precise errors.
+        _ => Ok((s, "")),
+    }
+}
+
+/// Convert an absolute duration in nanoseconds to waveform ticks, using the
+/// dump's timescale (`factor` × `unit`). Rounds down to the nearest tick.
+/// Unknown units fall back to picoseconds (the common dump resolution).
+pub(crate) fn ns_to_ticks(ns: u64, factor: u64, unit: wellen::TimescaleUnit) -> u64 {
+    use wellen::TimescaleUnit::*;
+    let unit_fs: u128 = match unit {
+        Seconds => 1_000_000_000_000_000,
+        MilliSeconds => 1_000_000_000_000,
+        MicroSeconds => 1_000_000_000,
+        NanoSeconds => 1_000_000,
+        PicoSeconds => 1_000,
+        FemtoSeconds => 1,
+        // Sub-femtosecond or unknown: assume picoseconds (common for dumps).
+        _ => 1_000,
+    };
+    let fs = ns as u128 * 1_000_000;
+    (fs / u128::max(factor as u128, 1).saturating_mul(unit_fs)) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::SerdeRange;
@@ -152,5 +255,75 @@ mod tests {
         // `~0` is clamped to a 1-wide tail.
         let r: SerdeRange<u64> = "~0".parse().unwrap();
         assert_eq!(r.tail_n(), Some(1));
+    }
+
+    use super::AtSpec;
+
+    #[test]
+    fn at_bare_forms_stay_ticks() {
+        let AtSpec::Ticks(r) = AtSpec::from_str("100").unwrap() else {
+            panic!("bare point should be Ticks")
+        };
+        assert_eq!((*r.0.start(), *r.0.end()), (100, 100));
+        let AtSpec::Ticks(r) = AtSpec::from_str("-100").unwrap() else {
+            panic!("-N should be Ticks")
+        };
+        assert_eq!((*r.0.start(), *r.0.end()), (0, 100));
+        let AtSpec::Ticks(r) = AtSpec::from_str("100-200").unwrap() else {
+            panic!("range should be Ticks")
+        };
+        assert_eq!((*r.0.start(), *r.0.end()), (100, 200));
+        let AtSpec::Ticks(r) = AtSpec::from_str("~50").unwrap() else {
+            panic!("~N should be Ticks")
+        };
+        assert_eq!(r.tail_n(), Some(50));
+        // Explicit tick suffix is the same domain.
+        let AtSpec::Ticks(r) = AtSpec::from_str("100t").unwrap() else {
+            panic!("Nt should be Ticks")
+        };
+        assert_eq!((*r.0.start(), *r.0.end()), (100, 100));
+    }
+
+    #[test]
+    fn at_unit_suffixes() {
+        let AtSpec::Cycles(r) = AtSpec::from_str("42c").unwrap() else {
+            panic!("Nc should be Cycles")
+        };
+        assert_eq!(*r.0.start(), 42);
+        let AtSpec::AbsNs(r) = AtSpec::from_str("100ns").unwrap() else {
+            panic!("Nns should be AbsNs")
+        };
+        assert_eq!(*r.0.start(), 100);
+        // Ranges are rejected for unit forms (single point only).
+        assert!(AtSpec::from_str("1c-2c").is_err());
+        assert!(AtSpec::from_str("5xc").is_err());
+    }
+
+    #[test]
+    fn at_match_form() {
+        let AtSpec::Match(e) = AtSpec::from_str("match(commit_fire && rd_valid)").unwrap() else {
+            panic!("match(...) should be Match")
+        };
+        assert_eq!(e, "commit_fire && rd_valid");
+        // Commas inside the expression are fine (never comma-split).
+        let AtSpec::Match(e) = AtSpec::from_str("match(change(a), b)").unwrap() else {
+            panic!("match(...) should be Match")
+        };
+        assert_eq!(e, "change(a), b");
+        assert!(AtSpec::from_str("match(").is_err());
+        assert!(AtSpec::from_str("match()").is_err());
+    }
+
+    #[test]
+    fn ns_to_ticks_conversion() {
+        use wellen::TimescaleUnit::*;
+        // 1 ps dump: 100 ns = 100_000 ticks.
+        assert_eq!(super::ns_to_ticks(100, 1, PicoSeconds), 100_000);
+        // 1 ns dump: 100 ns = 100 ticks.
+        assert_eq!(super::ns_to_ticks(100, 1, NanoSeconds), 100);
+        // 10 ns dump: 100 ns = 10 ticks.
+        assert_eq!(super::ns_to_ticks(100, 10, NanoSeconds), 10);
+        // 1 us dump: 50 ns = 0 ticks (below resolution).
+        assert_eq!(super::ns_to_ticks(50, 1, MicroSeconds), 0);
     }
 }

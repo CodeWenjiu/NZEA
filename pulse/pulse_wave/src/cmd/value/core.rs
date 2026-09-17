@@ -2,67 +2,106 @@ use wellen::SignalRef;
 
 use crate::SerdeRange;
 use crate::WaveError;
-
-/// Radix for rendering multi-bit signal values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Radix {
-    Bin,
-    Hex,
-    Dec,
-    Oct,
-}
-
-impl Radix {
-    fn from_str(s: &str) -> Result<Self, WaveError> {
-        match s.to_ascii_lowercase().as_str() {
-            "bin" => Ok(Radix::Bin),
-            "hex" => Ok(Radix::Hex),
-            "dec" => Ok(Radix::Dec),
-            "oct" => Ok(Radix::Oct),
-            other => Err(WaveError::Parse(format!(
-                "invalid radix '{other}' (expected bin, hex, dec, oct)"
-            ))),
-        }
-    }
-}
+use crate::time_spec::{AtSpec, ns_to_ticks};
 
 impl crate::Pulse {
     pub(crate) fn value(
         &mut self,
         scope_path: &str,
-        at_times: &[SerdeRange<u64>],
+        at_tokens: &[String],
         changes: bool,
         signal_names: &[String],
         radix: &str,
     ) -> Result<(), WaveError> {
-        let radix = Radix::from_str(radix)?;
+        let radix = crate::radix::Radix::from_str(radix)?;
         let last_tick = self.wav.time_table().last().copied().unwrap_or(0);
+
+        // ── Parse --at tokens ────────────────────────────────────
+        // Commas split plain ranges; match(EXPR) is never split (its
+        // expression may contain commas).
+        let specs = parse_at_tokens(at_tokens)?;
+
+        // match() expressions may reference signals beyond --signals; parse
+        // them now, collect those names and resolve/load everything together.
+        let mut all_names: Vec<String> = signal_names.to_vec();
+        let mut match_exprs: Vec<String> = Vec::new();
+        for spec in &specs {
+            if let AtSpec::Match(expr) = spec {
+                let ast = crate::cmd::property::expr::parser::parse(expr)?;
+                let mut refs: Vec<(Option<String>, String)> = Vec::new();
+                crate::cmd::property::event::collect_signal_refs(&ast, &mut refs);
+                for (ns, name) in refs {
+                    if ns.is_some() {
+                        return Err(WaveError::Parse(format!(
+                            "match() cannot reference event sets (value has no --event): '{name}'"
+                        )));
+                    }
+                    if !all_names.iter().any(|n| n == &name) {
+                        all_names.push(name.clone());
+                    }
+                }
+                match_exprs.push(expr.clone());
+            }
+        }
+
+        let name_to_sref = {
+            let h = self.wav.hierarchy();
+            super::super::hierarchy::resolve_signals(h, scope_path, &all_names)?
+        };
+        let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
+        self.wav.load_signals(&srefs);
+
+        // Cycle list, once: cycle-domain --at specs and match() evaluation
+        // both consume it (posedges of `clock`, or every tt entry when the
+        // scope has no clock — the same TimeBase every command shares).
+        let all_cycles =
+            crate::cycle::build_cycles(&mut self.wav, scope_path, Some("clock"), false)?;
+
+        // ── Resolve --at specs to concrete sample ticks ─────────
         let times: Vec<u64> = if changes {
             // --changes scans the whole trace; --at is rejected by clap.
             Vec::new()
         } else {
-            at_times
-                .iter()
-                .flat_map(|ts| {
-                    // Resolve the `~N` "last N ticks" sentinel against the last tick.
-                    if let Some(n) = ts.tail_n() {
-                        let start = last_tick.saturating_sub(n - 1);
-                        return (start..=last_tick).collect::<Vec<u64>>();
+            let timescale = self.wav.hierarchy().timescale();
+            let (scale_f, scale_u) = timescale
+                .map(|ts| (ts.factor, ts.unit))
+                .unwrap_or((1, wellen::TimescaleUnit::PicoSeconds));
+            let mut out = Vec::new();
+            for spec in &specs {
+                match spec {
+                    AtSpec::Ticks(r) => out.extend(resolve_ticks(r, last_tick)),
+                    AtSpec::Cycles(r) => {
+                        // Nth posedge-clock cycle → its tick.
+                        let i = *r.0.start() as usize;
+                        if i >= all_cycles.len() {
+                            return Err(WaveError::Parse(format!(
+                                "--at {i}c: only {} cycles in this dump",
+                                all_cycles.len()
+                            )));
+                        }
+                        out.push(all_cycles[i].1);
                     }
-                    // Clamp open-ended ranges to the last dump tick
-                    let end = (*ts.0.end()).min(last_tick);
-                    SerdeRange(*ts.0.start()..=end).resolve()
-                })
-                .collect()
+                    AtSpec::AbsNs(r) => {
+                        out.push(ns_to_ticks(*r.0.start(), u64::from(scale_f), scale_u))
+                    }
+                    AtSpec::Match(expr) => {
+                        // Reuse the shared event engine (same evaluator as
+                        // property/plot/diff); every match's start tick is a
+                        // sample point.
+                        let matches = crate::cmd::plot::eval_matches(
+                            &self.wav,
+                            &all_cycles,
+                            &name_to_sref,
+                            expr,
+                        )?;
+                        for m in &matches {
+                            out.push(*m.0.start());
+                        }
+                    }
+                }
+            }
+            out
         };
-
-        let name_to_sref = {
-            let h = self.wav.hierarchy();
-            super::super::hierarchy::resolve_signals(h, scope_path, signal_names)?
-        };
-
-        let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
-        self.wav.load_signals(&srefs);
 
         let signals: Vec<(String, &wellen::Signal)> = signal_names
             .iter()
@@ -125,7 +164,38 @@ impl crate::Pulse {
     }
 }
 
-fn sig_val(sig: &wellen::Signal, tt_idx: u32, radix: Radix) -> super::output::Val {
+/// Split `--at` tokens into specs. Bare comma lists expand; `match(...)`
+/// never splits.
+fn parse_at_tokens(tokens: &[String]) -> Result<Vec<AtSpec>, WaveError> {
+    let mut out = Vec::new();
+    for t in tokens {
+        let t = t.trim();
+        if t.starts_with("match(") {
+            out.push(AtSpec::from_str(t).map_err(WaveError::Parse)?);
+        } else {
+            for piece in t.split(',') {
+                let piece = piece.trim();
+                if !piece.is_empty() {
+                    out.push(AtSpec::from_str(piece).map_err(WaveError::Parse)?);
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Expand a bare tick range: `~N` tail sentinel resolved against the last
+/// tick, open-ended ranges clamped to it.
+fn resolve_ticks(r: &SerdeRange<u64>, last_tick: u64) -> Vec<u64> {
+    if let Some(n) = r.tail_n() {
+        let start = last_tick.saturating_sub(n - 1);
+        return (start..=last_tick).collect();
+    }
+    let end = (*r.0.end()).min(last_tick);
+    SerdeRange(*r.0.start()..=end).resolve()
+}
+
+fn sig_val(sig: &wellen::Signal, tt_idx: u32, radix: crate::radix::Radix) -> super::output::Val {
     let val = sig.get_offset(tt_idx).map(|off| sig.get_value_at(&off, 0));
     match val {
         Some(v) => {
@@ -133,32 +203,12 @@ fn sig_val(sig: &wellen::Signal, tt_idx: u32, radix: Radix) -> super::output::Va
                 let s = format!("{v}");
                 super::output::Val::Bit(s.starts_with('1'))
             } else {
-                let s = format!("{v}"); // binary string (wellen Display)
-                match radix {
-                    Radix::Bin => super::output::Val::Hex(s),
-                    Radix::Hex | Radix::Dec | Radix::Oct => {
-                        // Convert via u64; fall back to the binary string for
-                        // X/Z or values wider than u64.
-                        let width = v.width().unwrap_or(32) as usize;
-                        match u64::try_from(v) {
-                            Ok(n) => {
-                                let rendered = match radix {
-                                    Radix::Hex => {
-                                        let nibbles = width.div_ceil(4).max(1);
-                                        format!("{n:0width$x}", width = nibbles)
-                                    }
-                                    Radix::Dec => format!("{n}"),
-                                    Radix::Oct => {
-                                        let digits = width.div_ceil(3).max(1);
-                                        format!("{n:0width$o}", width = digits)
-                                    }
-                                    Radix::Bin => unreachable!(),
-                                };
-                                super::output::Val::Hex(rendered)
-                            }
-                            Err(_) => super::output::Val::Hex(s),
-                        }
-                    }
+                // Multi-bit: render in the requested radix; fall back to the
+                // raw binary string for X/Z or values wider than u64.
+                let width = v.width().unwrap_or(32) as usize;
+                match u64::try_from(v) {
+                    Ok(n) => super::output::Val::Hex(radix.render(width, n)),
+                    Err(_) => super::output::Val::Hex(format!("{v}")),
                 }
             }
         }

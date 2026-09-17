@@ -1,4 +1,4 @@
-mod event;
+pub(crate) mod event;
 pub(crate) mod expr;
-mod output;
+pub(crate) mod output;
 pulse_macro::mod_flat!(clock, core, signals);

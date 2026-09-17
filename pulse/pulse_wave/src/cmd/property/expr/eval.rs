@@ -361,6 +361,19 @@ fn operand_u64(
     }
 }
 
+/// Value-evaluation mode for `--sample`: the scalar value of an expression
+/// at one cycle. Signals read their integer value, literals as-is, composite
+/// expressions evaluate as 0/1 booleans; `None` means unknown (X/Z).
+pub(crate) fn eval_value(
+    ast: &Expr,
+    ci: usize,
+    cycles: &[(usize, u64)],
+    read_signal: &dyn Fn(&str, usize) -> bool,
+    read_value: &dyn Fn(&str, usize) -> Option<u64>,
+) -> Option<u64> {
+    operand_u64(ast, ci, cycles, read_signal, read_value)
+}
+
 fn apply_cmp(op: CmpOp, a: u64, b: u64) -> bool {
     match op {
         CmpOp::Eq => a == b,
@@ -539,5 +552,49 @@ mod tests {
         let b = [false, false, true];
         let out = eval_expr_multi("a 5--5 b", &[("a", &a), ("b", &b)]);
         assert_eq!(ticks(&out), vec![200]);
+    }
+
+    #[test]
+    fn eval_value_signal_constant_and_compare() {
+        // Value engine (the --sample mode): signals read their integer value,
+        // literals as-is, comparisons/logic collapse to 0/1.
+        let ast = super::super::parser::parse("a == 5").expect("parse");
+        let ast = stdlib::desugar(&ast);
+        let cycles: Vec<(usize, u64)> = (0..2).map(|i| (i, 100 * i as u64)).collect();
+        let read_signal = |_: &str, _: usize| false;
+        let read_value = |name: &str, ci: usize| -> Option<u64> {
+            if name == "a" {
+                Some(if ci == 0 { 5 } else { 6 })
+            } else {
+                None
+            }
+        };
+        assert_eq!(
+            super::eval_value(&ast, 0, &cycles, &read_signal, &read_value),
+            Some(1)
+        );
+        assert_eq!(
+            super::eval_value(&ast, 1, &cycles, &read_signal, &read_value),
+            Some(0)
+        );
+
+        // Bare signal: the value itself.
+        let ast = super::super::parser::parse("a").expect("parse");
+        assert_eq!(
+            super::eval_value(&ast, 0, &cycles, &read_signal, &read_value),
+            Some(5)
+        );
+        // Unknown signal value (X) → None.
+        let read_value_x = |name: &str, ci: usize| -> Option<u64> {
+            if name == "a" && ci == 0 {
+                None
+            } else {
+                Some(0)
+            }
+        };
+        assert_eq!(
+            super::eval_value(&ast, 0, &cycles, &read_signal, &read_value_x),
+            None
+        );
     }
 }

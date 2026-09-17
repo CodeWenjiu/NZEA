@@ -45,38 +45,11 @@ pub(crate) fn prepare_wave(
     // Scope + signal resolution (same as `value`).
     let name_to_sref = crate::cmd::hierarchy::resolve_signals(h, scope_path, signal_names)?;
 
-    // Clock detection: `clock` in the scope → posedge cycles; absent →
-    // every time-table entry is a cycle (ILA exports).
-    let clock_sig: Option<SignalRef> =
-        match crate::cmd::hierarchy::resolve_signals(h, scope_path, &["clock".to_string()]) {
-            Ok(m) => m.get("clock").copied(),
-            Err(_) => None,
-        };
-
-    let mut srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
-    if let Some(cs) = clock_sig {
-        srefs.push(cs);
-    }
+    let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
     wav.load_signals(&srefs);
 
-    // Cycle list: posedges of clock, or every tt entry (no clock).
-    let tt = wav.time_table();
-    let cycles: Vec<(usize, u64)> = match clock_sig {
-        None => tt.iter().enumerate().map(|(ti, &t)| (ti, t)).collect(),
-        Some(cs) => {
-            let sig = wav.get_signal(cs).expect("clock not loaded");
-            let mut out = Vec::new();
-            let mut prev = false;
-            for (ti, &t) in tt.iter().enumerate() {
-                let v = read_bit(sig, ti as u32);
-                if !prev && v {
-                    out.push((ti, t));
-                }
-                prev = v;
-            }
-            out
-        }
-    };
+    // Cycle list: posedges of `clock`, or every tt entry (no clock).
+    let cycles = crate::cycle::build_cycles(wav, scope_path, Some("clock"), false)?;
 
     Ok(PreparedWave {
         name_to_sref,
@@ -85,57 +58,14 @@ pub(crate) fn prepare_wave(
 }
 
 /// Slice the full cycle list per `--cycles` (same window semantics as
-/// `property`/`plot`). Errors on an empty window.
-pub(crate) fn slice_cycles(
-    all_cycles: &[(usize, u64)],
-    cycles: Option<SerdeRange<u64>>,
-) -> Result<Vec<(usize, u64)>, WaveError> {
-    let (from, to) = match cycles {
-        Some(r) => {
-            if let Some(n) = r.tail_n() {
-                let n = (n as usize).min(all_cycles.len());
-                (all_cycles.len() - n, all_cycles.len())
-            } else {
-                (
-                    *r.0.start() as usize,
-                    (*r.0.end() as usize).min(all_cycles.len()),
-                )
-            }
-        }
-        None => (0, all_cycles.len()),
-    };
-    if from >= all_cycles.len() || from >= to {
-        return Err(WaveError::Parse(format!(
-            "--cycles {from}-{to}: empty window (trace has {} cycles)",
-            all_cycles.len()
-        )));
-    }
-    Ok(all_cycles[from..to].to_vec())
-}
+/// `property`/`plot`/`value`). Errors on an empty window.
+pub(crate) use crate::cycle::slice_cycles;
 
 /// 1-bit value (false on zero/X).
-pub(crate) fn read_bit(sig: &wellen::Signal, tt_idx: u32) -> bool {
-    sig.get_offset(tt_idx)
-        .map(|off| {
-            let v = sig.get_value_at(&off, 0);
-            match v {
-                wellen::SignalValueRef::BitVec(bv) => {
-                    let msb = bv.width().saturating_sub(1);
-                    bv.get_bit(msb).as_ascii() == '1'
-                }
-                _ => false,
-            }
-        })
-        .unwrap_or(false)
-}
+pub(crate) use crate::read::read_bit;
 
 /// Multi-bit value; None on X/Z or non-vector.
-pub(crate) fn read_u64(sig: &wellen::Signal, tt_idx: u32) -> Option<u64> {
-    let val = sig
-        .get_offset(tt_idx)
-        .map(|off| sig.get_value_at(&off, 0))?;
-    u64::try_from(val).ok()
-}
+pub(crate) use crate::read::read_u64;
 
 /// Classify a signal sample into a plot/diff value.
 pub(crate) fn sample(sig: &wellen::Signal, tt_idx: u32) -> Val {

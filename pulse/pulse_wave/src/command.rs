@@ -87,14 +87,12 @@ pub struct ValueArgs {
     #[arg(long, value_name = "SCOPE")]
     pub scope: String,
 
-    /// Sample ticks: "100,200,100-200,-100,100-"
-    #[arg(
-        long,
-        value_name = "TICKS",
-        value_delimiter = ',',
-        allow_hyphen_values = true
-    )]
-    pub at: Vec<SerdeRange<u64>>,
+    /// Sample points: ticks ("100,200,100-200,-100"), unit suffixes ("100c"
+    /// = cycle, "100t" = tick, "100ns" = absolute time), or a matched event
+    /// ("match(EXPR)" — every tick where EXPR fires; the expression may
+    /// contain commas, so this form is never comma-split).
+    #[arg(long, value_name = "SPEC", allow_hyphen_values = true)]
+    pub at: Vec<String>,
 
     /// Emit one row per value-change tick (full trace scan) instead of sampling
     /// --at. Mutually exclusive with --at; combines with --radix and --signals.
@@ -196,6 +194,16 @@ pub struct PropertyArgs {
     /// Print match counts instead of ranges (mutually exclusive with --max)
     #[arg(long)]
     pub count: bool,
+
+    /// Sample a signal value at every match (repeatable; single --eval only).
+    /// Point matches sample at their cycle; range matches (~~) sample at the
+    /// range start.
+    #[arg(long, value_name = "NAME")]
+    pub sample: Vec<String>,
+
+    /// Radix for --sample values (default: hex)
+    #[arg(long, value_name = "RADIX", default_value = "hex", value_parser = ["bin", "hex", "dec", "oct"])]
+    pub radix: String,
 }
 
 #[derive(Debug, Clone)]
