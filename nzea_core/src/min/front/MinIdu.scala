@@ -1,4 +1,4 @@
-package nzea_core.min
+package nzea_core.min.front
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, Valid}
@@ -6,7 +6,7 @@ import nzea_rtl.PipeIO
 import nzea_core.frontend.{DecodeFields, FuDecode, FuType, ImmType, RiscvInsts}
 import nzea_core.backend.integer.FuOpWidth
 import nzea_config.core.CoreConfig
-import nzea_config.core.PayloadSpec
+import nzea_core.PayloadFields
 
 /** Decode output: resolved indexes + decode info, operands NOT read here — the ARF lives in the execute stage and is
   * read after issue (single-flight: the previous instruction has already committed by then, so no hazard and no forward
@@ -23,11 +23,11 @@ class MinIduOut(width: Int)(implicit config: CoreConfig) extends Bundle {
   val fu_op = UInt(FuOpWidth.Width.W)
   val fu_src = UInt(nzea_core.frontend.FuSrcWidth.Width.W)
   val csr_addr = UInt(12.W)
-  val is_ret = if (PayloadSpec.enabled(PayloadSpec.RetCommit)) Some(Bool()) else None
+  val is_ret = PayloadFields.retCommit
 }
 
-/** Decode only. The register file lives in [[MinEx]] (read after issue, written on commit), so decode never sees stale
-  * operands.
+/** Decode only. The register file lives in [[MinMiddle]] (read after issue, written on commit), so decode never sees
+  * stale operands; execution happens in [[MinExec]] behind a ready-operand uop.
   */
 class MinIdu(width: Int)(implicit config: CoreConfig) extends Module {
 

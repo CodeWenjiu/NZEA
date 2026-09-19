@@ -83,7 +83,7 @@ class NzeaTile(cfg: TileConfig)(implicit
     case r if r.base != BigInt("80000000", 16) => (r.base, r.size)
   }
 
-  val core = withReset(cpuReset) { Module(new nzea_core.min.MinCore(mmioRanges)) }
+  val core = withReset(cpuReset) { nzea_core.CoreEngine(mmioRanges) }
 
   // IBUS: register slice between IFU and crossbar.
   val ibusSlice = withReset(cpuReset) {

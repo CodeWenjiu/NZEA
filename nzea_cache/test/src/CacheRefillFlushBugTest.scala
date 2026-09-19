@@ -6,31 +6,26 @@ import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.freespec.AnyFreeSpec
 
-/** Reproduces issue #4: `CacheRefillCtrl` drops in-flight refill responses after
-  * a brief flush.
+/** Reproduces issue #4: `CacheRefillCtrl` drops in-flight refill responses after a brief flush.
   *
   * Sequence:
-  *   1. CPU issues read → miss → refill controller fires bottom.req
-  *   2. While the response is still in flight, `io.top.resp.flush` pulses high
-  *      for exactly one cycle, then drops. FSM returns to sIdle.
-  *   3. The slave's response arrives later (slave has latency > 0).
+  *   1. CPU issues read → miss → refill controller fires bottom.req 2. While the response is still in flight,
+  *      `io.top.resp.flush` pulses high for exactly one cycle, then drops. FSM returns to sIdle. 3. The slave's
+  *      response arrives later (slave has latency > 0).
   *
   * After step 3, in `CacheRefillCtrl`:
   *   - state == sIdle, so `io.bottom.resp.ready := io.flush` (default from L85).
   *   - flush has already dropped → `resp.ready = 0`.
-  *   - The slave holds `resp.valid = 1` but no one drains it → the bus is
-  *     stuck. Subsequent misses start new refills that send more req's, but
-  *     the outstanding response never clears → eventually the crossbar
-  *     backpressure saturates and the cache hangs.
+  *   - The slave holds `resp.valid = 1` but no one drains it → the bus is stuck. Subsequent misses start new refills
+  *     that send more req's, but the outstanding response never clears → eventually the crossbar backpressure saturates
+  *     and the cache hangs.
   *
-  * In the real trace.fst we observed 34446 refill req fires vs only 31899
-  * storage writes — 2557 refills never completed. This is the smoking gun.
+  * In the real trace.fst we observed 34446 refill req fires vs only 31899 storage writes — 2557 refills never
+  * completed. This is the smoking gun.
   *
-  * The TB drives the bottom bus with a fixed latency (>> 1 cycle), pulses
-  * `io.top.resp.flush` for 1 cycle immediately after the req is accepted, then
-  * asserts that the cache must still be able to drain the in-flight response
-  * — i.e. `io.bottom.resp.ready` must eventually go high so the bus does not
-  * leak an outstanding slot.
+  * The TB drives the bottom bus with a fixed latency (>> 1 cycle), pulses `io.top.resp.flush` for 1 cycle immediately
+  * after the req is accepted, then asserts that the cache must still be able to drain the in-flight response — i.e.
+  * `io.bottom.resp.ready` must eventually go high so the bus does not leak an outstanding slot.
   */
 class CacheRefillFlushBugTest extends AnyFreeSpec with ChiselSim {
 
@@ -40,6 +35,7 @@ class CacheRefillFlushBugTest extends AnyFreeSpec with ChiselSim {
       lineBits: Int = 32,
       userWidth: Int = 8
   ) extends Module {
+
     val io = IO(new Bundle {
       val start = Input(Bool())
       val startAddr = Input(UInt(addrWidth.W))
@@ -141,8 +137,7 @@ class CacheRefillFlushBugTest extends AnyFreeSpec with ChiselSim {
       dut.io.flush.poke(false.B)
 
       // Busy should have dropped (state == sIdle).
-      assert(!dut.io.busy.peek().litToBoolean,
-        "FSM should be idle immediately after flush pulse")
+      assert(!dut.io.busy.peek().litToBoolean, "FSM should be idle immediately after flush pulse")
 
       // Now the slave finally returns the response.
       dut.io.bottomRespValid.poke(true.B)
@@ -158,10 +153,13 @@ class CacheRefillFlushBugTest extends AnyFreeSpec with ChiselSim {
         dut.clock.step()
       }
 
-      assert(sawDrain,
+      assert(
+        sawDrain,
         "issue #4: in-flight response was never drained after a 1-cycle flush — " +
           "the controller only sets resp.ready in sWait or while flush is high, " +
-          "so a straggler response stays stuck forever")
+          "so a straggler response stays stuck forever"
+      )
     }
   }
+
 }

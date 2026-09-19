@@ -11,7 +11,7 @@ import nzea_rtl.{PipelineConnect, StatsRegs}
   * `config.sim` enables simulation-only logic (branch-prediction statistics registers); FPGA builds use `sim = false`
   * and carry no extra state.
   */
-class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module {
+class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreConfig) extends Module with CoreLike {
   private val addrWidth = config.width
   private val robDepth = config.robDepth
   private val robIdWidth = chisel3.util.log2Ceil(robDepth.max(2))
@@ -64,11 +64,7 @@ class Core(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: CoreC
   csr.io.csr_write := csrWriteCommit
   (integerExecutionCluster.robAccessPorts zip rob.io.accessPorts).foreach { case (fu, port) => port <> fu }
 
-  val io = IO(new Bundle {
-    val ibus = chiselTypeOf(ifu.io.bus)
-    val dbus = chiselTypeOf(lsu.io.dbus)
-    val commit_msg = Output(Valid(new retire.CommitMsg))
-  })
+  override val io: CoreIo = IO(new CoreIo(addrWidth))
 
   PipelineConnect(ifu.io.out, idu.io.in)
   PipelineConnect(idu.io.out, isu.io.in)

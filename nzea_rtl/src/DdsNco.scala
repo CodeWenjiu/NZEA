@@ -18,19 +18,20 @@ import chisel3.util.log2Ceil
   *   when asserted, resets the phase accumulator to 0 (for synchronizing start of period)
   */
 class DdsNco(clockHz: Int, tickHz: Int, phaseWidth: Int = 32) extends Module {
+
   val io = IO(new Bundle {
-    val tick       = Output(Bool()) // asserted for 1 cycle on each overflow
-    val resetPhase = Input(Bool())  // reset accumulator → next tick after full period
+    val tick = Output(Bool()) // asserted for 1 cycle on each overflow
+    val resetPhase = Input(Bool()) // reset accumulator → next tick after full period
   })
 
-  private val phaseScale  = (1L << phaseWidth)
+  private val phaseScale = (1L << phaseWidth)
   private val phaseInc: Long = ((tickHz.toLong * phaseScale) + clockHz / 2) / clockHz.toLong
 
-  val phase    = RegInit(0.U(phaseWidth.W))
+  val phase = RegInit(0.U(phaseWidth.W))
   val tickPrev = RegInit(false.B)
 
   io.tick := tickPrev && !phase(phaseWidth - 1)
 
-  phase    := Mux(io.resetPhase, 0.U, phase + phaseInc.U)
+  phase := Mux(io.resetPhase, 0.U, phase + phaseInc.U)
   tickPrev := Mux(io.resetPhase, false.B, phase(phaseWidth - 1))
 }

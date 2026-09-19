@@ -3,9 +3,8 @@ package nzea_device.ddr3
 import chisel3._
 import chisel3.experimental.{attach, Analog}
 
-/** Debug observation port of [[Ddr3Subsystem]]: raw MIG reset/status signals
-  * that are combined into [[MigUiIo.ui_rst]]. Left unconnected in plain usage
-  * (the xsim wrapper leaves it unused); board ILA instrumentation reads it via
+/** Debug observation port of [[Ddr3Subsystem]]: raw MIG reset/status signals that are combined into [[MigUiIo.ui_rst]].
+  * Left unconnected in plain usage (the xsim wrapper leaves it unused); board ILA instrumentation reads it via
   * LxbArtix7Core.
   */
 class Ddr3SubsystemDebug extends Bundle {
@@ -30,6 +29,7 @@ class Ddr3Subsystem extends Module {
     // toolchain)
     val ddr3 = new Ddr3CtrlIo
   })
+
   val dq = IO(Analog(16.W))
   val dqs_p = IO(Analog(2.W))
   val dqs_n = IO(Analog(2.W))

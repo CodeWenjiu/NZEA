@@ -8,11 +8,11 @@ import nzea_config.core.FuConfig
 import nzea_config.core.FuKind
 import nzea_rtl.PipeIO
 
-/** Stage 2: per-port independent read/dispatch.
-  * If pipe is valid, read PRF and drive FU adapter without arbitration.
+/** Stage 2: per-port independent read/dispatch. If pipe is valid, read PRF and drive FU adapter without arbitration.
   * Extracts flush from issuePorts (consumer-driven) and propagates to in.flush.
   */
-class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig) extends Module {
+class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig)
+    extends Module {
   private val numPorts = FuConfig.numIssuePorts
   private val layout = IssuePortLayout.build(config)
   private val wakeupHintSpecs = layout.wakeupHintSpecs
@@ -29,16 +29,20 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
   val io = IO(new Bundle {
     val in = Flipped(Vec(numPorts, new PipeIO(new IntegerIssueQueueEntry(robIdWidth, prfAddrWidth, lsqIdWidth))))
     val prf_read = Vec(numPorts, Vec(2, new PrfReadIO(prfAddrWidth)))
+
     /** Combinational CSR read for SYSU port (addr from [[csr_read_addr]]). */
     val csr_rdata = Input(UInt(32.W))
+
     /** CSR address for [[csr_rdata]] read; 0 when SYSU port not issuing. */
     val csr_read_addr = Output(UInt(12.W))
     val issuePorts = new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth)
+
     /** Early wakeup hints (valid + p_rd) generated from fixed-latency FU issue points. */
     val wakeup_hints = Output(Vec(numWakeupHints, Valid(UInt(prfAddrWidth.W))))
   })
 
   private val flush = io.issuePorts.orderedPorts(0).flush
+
   for (i <- 0 until numPorts) {
     io.in(i).flush := flush
     io.in(i).ready := io.issuePorts.orderedPorts(i).ready
@@ -47,6 +51,7 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
   private def entry(i: Int) = io.in(i).bits
   private def rs1(i: Int) = Mux(entry(i).p_rs1 === 0.U, 0.U(32.W), io.prf_read(i)(0).data)
   private def rs2(i: Int) = Mux(entry(i).p_rs2 === 0.U, 0.U(32.W), io.prf_read(i)(1).data)
+
   for (i <- 0 until numPorts) {
     io.prf_read(i)(0).addr := entry(i).p_rs1
     io.prf_read(i)(1).addr := entry(i).p_rs2
@@ -56,24 +61,24 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
     require(latency >= 0, s"wakeupHintLatency must be >= 0, got $latency for port $portIdx")
     if (latency == 0) {
       dst.valid := io.in(portIdx).valid
-      dst.bits  := entry(portIdx).p_rd
+      dst.bits := entry(portIdx).p_rd
     } else {
       val validPipe = RegInit(VecInit(Seq.fill(latency)(false.B)))
-      val pRdPipe   = Reg(Vec(latency, UInt(prfAddrWidth.W)))
+      val pRdPipe = Reg(Vec(latency, UInt(prfAddrWidth.W)))
       when(flush) {
         for (k <- 0 until latency) {
           validPipe(k) := false.B
         }
       }.otherwise {
         validPipe(0) := io.in(portIdx).valid
-        pRdPipe(0)   := entry(portIdx).p_rd
+        pRdPipe(0) := entry(portIdx).p_rd
         for (k <- 1 until latency) {
           validPipe(k) := validPipe(k - 1)
-          pRdPipe(k)   := pRdPipe(k - 1)
+          pRdPipe(k) := pRdPipe(k - 1)
         }
       }
       dst.valid := validPipe(latency - 1)
-      dst.bits  := pRdPipe(latency - 1)
+      dst.bits := pRdPipe(latency - 1)
     }
   }
 
@@ -142,8 +147,10 @@ class IntegerIssueQueueReadStage(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth:
   )
 
   dispatchToFuPorts()
+
   for (hintIdx <- wakeupHintSpecs.indices) {
     val (portIdx, latency) = wakeupHintSpecs(hintIdx)
     driveWakeupHint(io.wakeup_hints(hintIdx), portIdx, latency)
   }
+
 }

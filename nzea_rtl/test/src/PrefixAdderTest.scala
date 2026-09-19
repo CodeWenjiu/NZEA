@@ -7,35 +7,38 @@ import scala.util.Random
 
 /** Combinational harness: s = PrefixAdder(a, b, cin). */
 class PrefixAdderHarness(width: Int) extends Module {
+
   val io = IO(new Bundle {
-    val a   = Input(UInt(width.W))
-    val b   = Input(UInt(width.W))
+    val a = Input(UInt(width.W))
+    val b = Input(UInt(width.W))
     val cin = Input(Bool())
-    val s   = Output(UInt(width.W))
+    val s = Output(UInt(width.W))
   })
+
   io.s := PrefixAdder(io.a, io.b, io.cin)
 }
 
 /** Combinational harness: s = a - b via the a + ~b + 1 idiom. */
 class PrefixSubHarness(width: Int) extends Module {
+
   val io = IO(new Bundle {
     val a = Input(UInt(width.W))
     val b = Input(UInt(width.W))
     val s = Output(UInt(width.W))
   })
+
   io.s := PrefixAdder(io.a, ~io.b, true.B)
 }
 
-/** PrefixAdder must match plain addition for arbitrary operands (including carry-in),
-  * and support the a + ~b + 1 subtraction idiom used by the ALU.
-  * All checks share one harness (chiseltest compiles per-test, so poke repeatedly).
+/** PrefixAdder must match plain addition for arbitrary operands (including carry-in), and support the a + ~b + 1
+  * subtraction idiom used by the ALU. All checks share one harness (chiseltest compiles per-test, so poke repeatedly).
   */
 class PrefixAdderTest extends AnyFlatSpec with ChiselScalatestTester {
 
   "PrefixAdder" should "match reference add for boundaries, carries, random operands and widths" in {
     test(new PrefixAdderHarness(64)) { dut =>
       val mask32 = (BigInt(1) << 32) - 1
-      val rng = new Random(0xADD)
+      val rng = new Random(0xadd)
       var cases32: Seq[(BigInt, BigInt)] = Seq(
         (BigInt(0), BigInt(0)),
         (BigInt(0xffffffffL), BigInt(0)),
@@ -90,7 +93,7 @@ class PrefixAdderTest extends AnyFlatSpec with ChiselScalatestTester {
   it should "match subtraction idiom a + ~b + 1 = a - b" in {
     test(new PrefixSubHarness(32)) { dut =>
       val mask32 = (BigInt(1) << 32) - 1
-      val rng = new Random(0x5AB)
+      val rng = new Random(0x5ab)
       var cases: Seq[(BigInt, BigInt)] = Seq(
         (BigInt(5), BigInt(2)),
         (BigInt(2), BigInt(5)),
@@ -109,4 +112,5 @@ class PrefixAdderTest extends AnyFlatSpec with ChiselScalatestTester {
       }
     }
   }
+
 }

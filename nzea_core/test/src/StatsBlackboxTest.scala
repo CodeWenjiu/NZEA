@@ -4,11 +4,11 @@ import circt.stage.ChiselStage
 import nzea_core.backend.integer.BRUStage1
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
+import nzea_config.core.EngineKind
 import org.scalatest.freespec.AnyFreeSpec
 
-/** StatsRegs black-box instantiation tests: the sim-only stats counter is
-  * emitted iff `sim=true`. Covers both the Core-level CoreStats and the
-  * BRU-level BpStats.
+/** StatsRegs black-box instantiation tests: the sim-only stats counter is emitted iff `sim=true`. Covers both the
+  * Core-level CoreStats and the BRU-level BpStats.
   */
 class StatsBlackboxTest extends AnyFreeSpec {
 
@@ -22,7 +22,8 @@ class StatsBlackboxTest extends AnyFreeSpec {
     vrfDepth = 64,
     viqDepth = 8,
     bpu = BpuConfig.typical,
-    sim = sim
+    sim = sim,
+    engine = EngineKind.InOrder
   )
 
   "Core instantiates CoreStats when sim=true" in {

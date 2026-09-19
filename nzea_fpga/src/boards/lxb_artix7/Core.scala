@@ -22,6 +22,7 @@ class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends M
     // DDR3 control pins — bidirectional databus is separate below
     val ddr3 = new Ddr3CtrlIo
   })
+
   val dq = IO(Analog(16.W))
   val dqs_p = IO(Analog(2.W))
   val dqs_n = IO(Analog(2.W))
@@ -101,4 +102,5 @@ class LxbArtix7Core(cfg: LxbArtix7Config)(implicit config: CoreConfig) extends M
     // of it = app_rd_data[95:64]) — the physical-layer read data.
     ila.probe10 := ddr.io.mig.app_rd_data(95, 64)
   }
+
 }

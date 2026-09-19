@@ -5,21 +5,23 @@ import chisel3.util.PriorityEncoder
 
 /** Tree mux: O(log N) depth for indexed read. Use for large Vec/Seq to improve timing. */
 object MuxTree {
+
   def apply[T <: Data](idx: UInt, data: Seq[T]): T = {
     if (data.size == 1) data.head
     else {
       val half = data.size / 2
-      val sel  = idx(chisel3.util.log2Ceil(data.size) - 1)
+      val sel = idx(chisel3.util.log2Ceil(data.size) - 1)
       Mux(sel, apply(idx, data.drop(half)), apply(idx, data.take(half)))
     }
   }
+
 }
 
-/** Kogge-Stone prefix adder: O(log2 N) carry depth instead of ripple-carry.
-  *  s = a + b + cin. Use for wide adds on the critical path (e.g. ALU operands),
-  *  where a ripple-carry chain (bit 0 -> bit N-1) would dominate the cycle.
+/** Kogge-Stone prefix adder: O(log2 N) carry depth instead of ripple-carry. s = a + b + cin. Use for wide adds on the
+  * critical path (e.g. ALU operands), where a ripple-carry chain (bit 0 -> bit N-1) would dominate the cycle.
   */
 object PrefixAdder {
+
   def apply(a: UInt, b: UInt, cin: Bool = false.B): UInt = {
     val n = a.getWidth
     require(b.getWidth == n, s"operand widths differ: ${a.getWidth} vs ${b.getWidth}")
@@ -48,14 +50,15 @@ object PrefixAdder {
     // Carry into bit k is g[k-1]; bit 0 takes the explicit cin.
     h0 ^ chisel3.util.Cat(g(n - 2, 0), cin)
   }
+
 }
 
-/** Tree-structured PriorityEncoder: O(log N) depth instead of O(N) linear chain.
-  * Returns index of first 1 (LSB), or 0 when all zeros. Use for large free-list bitmaps.
-  * Result width = log2Ceil(width) to correctly represent 0..(width-1).
+/** Tree-structured PriorityEncoder: O(log N) depth instead of O(N) linear chain. Returns index of first 1 (LSB), or 0
+  * when all zeros. Use for large free-list bitmaps. Result width = log2Ceil(width) to correctly represent 0..(width-1).
   */
 object PriorityEncoderTree {
   def apply(bits: UInt): UInt = apply(bits, bits.getWidth)
+
   def apply(bits: UInt, width: Int): UInt = {
     require(width >= 1 && width <= bits.getWidth)
     val resultWidth = chisel3.util.log2Ceil(width)
@@ -63,13 +66,14 @@ object PriorityEncoderTree {
       PriorityEncoder(bits(width - 1, 0))
     } else {
       val half = width / 2
-      val low  = bits(half - 1, 0)
+      val low = bits(half - 1, 0)
       val high = bits(width - 1, half)
       val lowHasOne = low.orR
-      val lowIdx  = apply(low, half)
+      val lowIdx = apply(low, half)
       val highIdx = apply(high, width - half)
       val sum = half.U(resultWidth.W) + highIdx
       Mux(lowHasOne, lowIdx.pad(resultWidth), sum)
     }
   }
+
 }

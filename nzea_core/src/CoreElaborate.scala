@@ -14,7 +14,7 @@ object CoreElaborate {
     private val addrWidth = config.width
     private val dataWidth = config.width
 
-    val core = Module(new Core(mmioRanges))
+    val core = CoreEngine(mmioRanges)
 
     if (config.sim) {
       val ib = Module(

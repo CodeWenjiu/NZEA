@@ -4,6 +4,7 @@ import chisel3._
 import chiseltest._
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
+import nzea_config.core.EngineKind
 import org.scalatest.flatspec.AnyFlatSpec
 
 /** ALU arithmetic right shift (sra) must sign-fill. Regression test for the MuxTree shifter bug: CIRCT constant-folds
@@ -22,7 +23,8 @@ class AluSraTest extends AnyFlatSpec with ChiselScalatestTester {
     vrfDepth = 64,
     viqDepth = 8,
     bpu = BpuConfig.typical,
-    sim = false
+    sim = false,
+    engine = EngineKind.InOrder
   )
 
   private def sraRef(x: BigInt, sh: Int): BigInt = {

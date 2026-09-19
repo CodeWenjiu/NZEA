@@ -4,12 +4,10 @@ import chisel3._
 import chisel3.util.{is, switch, Cat, Enum}
 import nzea_rtl.LiteBusRW
 
-/** Debug observation port of [[Ddr3Adapter]] (kept out of the main IO so the
-  * bus/mig interfaces stay clean). Tile-domain signals: `reqPending`, `respValid`,
-  * `reqFire`, `flush`, `respReady` (`io.bus.req.ready`), `respValidOut`.
-  * ui-domain signals: `uiState` (FSM state, 3 bits), `uiReqGoSeen`, `uiDoneReq`,
-  * `uiAppEn`. Sampled cross-domain, a stale ui value just means the observing
-  * clock is not aligned with ui_clk.
+/** Debug observation port of [[Ddr3Adapter]] (kept out of the main IO so the bus/mig interfaces stay clean).
+  * Tile-domain signals: `reqPending`, `respValid`, `reqFire`, `flush`, `respReady` (`io.bus.req.ready`),
+  * `respValidOut`. ui-domain signals: `uiState` (FSM state, 3 bits), `uiReqGoSeen`, `uiDoneReq`, `uiAppEn`. Sampled
+  * cross-domain, a stale ui value just means the observing clock is not aligned with ui_clk.
   */
 class Ddr3AdapterDebug extends Bundle {
   val reqPending = Output(Bool())
@@ -49,31 +47,25 @@ class Ddr3AdapterDebug extends Bundle {
   val appAddrFull = Output(UInt(8.W))
 }
 
-/** Bridges a 32-bit LiteBus slave port to the MIG 7-series native UI
-  * (128-bit, 16-byte access granularity, 100 MHz ui_clk).
+/** Bridges a 32-bit LiteBus slave port to the MIG 7-series native UI (128-bit, 16-byte access granularity, 100 MHz
+  * ui_clk).
   *
-  * The bus runs on the module's implicit clock (tile domain, 100 MHz); the
-  * MIG `app_*` interface must be driven from `ui_clk` (same frequency, different
-  * source), so all MIG-facing logic lives in a `withClockAndReset(ui_clk, ui_rst)`
+  * The bus runs on the module's implicit clock (tile domain, 100 MHz); the MIG `app_*` interface must be driven from
+  * `ui_clk` (same frequency, different source), so all MIG-facing logic lives in a `withClockAndReset(ui_clk, ui_rst)`
   * island and crosses domains via pulse synchronizers.
   *
   * Access model (correctness first, single in-flight request):
-  *   - address map: `app_addr = (busAddr - baseAddr) >> 3` — the MIG native
-  *     UI for 16-bit DQ with bl8 addresses an 8-byte half-line per app
-  *     command (app_addr bit0 = col[3] selects which 64-bit half of the
-  *     128-bit datapath belongs to the address; the 128-bit line returned is
-  *     the pair [high8B, low8B] of the two neighboring 8B halves).
-  *   - access granularity: one 8-byte (64-bit) half-line. A 32-bit bus word
-  *     lives in slot 0..1 of its 8B half (uAddr[3] = 1 selects the high 64
-  *     bits of app_rd_data).
-  *   - read: one READ command; the bus word is the addressed 32-bit slot of
-  *     the selected 8B half.
-  *   - write: read-modify-write — READ the 8B half, merge the wstrb bytes
-  *     into the addressed slot, WRITE it back with an 8-bit byte mask.
+  *   - address map: `app_addr = (busAddr - baseAddr) >> 3` — the MIG native UI for 16-bit DQ with bl8 addresses an
+  *     8-byte half-line per app command (app_addr bit0 = col[3] selects which 64-bit half of the 128-bit datapath
+  *     belongs to the address; the 128-bit line returned is the pair [high8B, low8B] of the two neighboring 8B halves).
+  *   - access granularity: one 8-byte (64-bit) half-line. A 32-bit bus word lives in slot 0..1 of its 8B half (uAddr[3]
+  *     \= 1 selects the high 64 bits of app_rd_data).
+  *   - read: one READ command; the bus word is the addressed 32-bit slot of the selected 8B half.
+  *   - write: read-modify-write — READ the 8B half, merge the wstrb bytes into the addressed slot, WRITE it back with
+  *     an 8-bit byte mask.
   *
-  * Request handshake: `reqFire` is latched into `reqPending` and its payload
-  * registers stay stable until the ui-domain completion pulse returns, so the
-  * ui domain may sample them safely after it sees the synchronized fire pulse.
+  * Request handshake: `reqFire` is latched into `reqPending` and its payload registers stay stable until the ui-domain
+  * completion pulse returns, so the ui domain may sample them safely after it sees the synchronized fire pulse.
   */
 class Ddr3Adapter(
     addrWidth: Int,
@@ -149,6 +141,7 @@ class Ddr3Adapter(
     r2 := r1
     r2
   }
+
   val uiRst = io.mig.ui_rst || uiRstSync
 
   val ui = withClockAndReset(io.mig.ui_clk, uiRst) {
@@ -271,10 +264,24 @@ class Ddr3Adapter(
             line(8 * i + 7, 8 * i)
           )
         }
-        Cat(newBytes(15), newBytes(14), newBytes(13), newBytes(12),
-            newBytes(11), newBytes(10), newBytes(9), newBytes(8),
-            newBytes(7), newBytes(6), newBytes(5), newBytes(4),
-            newBytes(3), newBytes(2), newBytes(1), newBytes(0))
+        Cat(
+          newBytes(15),
+          newBytes(14),
+          newBytes(13),
+          newBytes(12),
+          newBytes(11),
+          newBytes(10),
+          newBytes(9),
+          newBytes(8),
+          newBytes(7),
+          newBytes(6),
+          newBytes(5),
+          newBytes(4),
+          newBytes(3),
+          newBytes(2),
+          newBytes(1),
+          newBytes(0)
+        )
       }
 
       // MIG byte mask (active-high 1 = don't write): write the WHOLE 16B line
@@ -514,6 +521,7 @@ class Ddr3Adapter(
     respValid := true.B
     reqPending := false.B
   }
+
   when(respValid && io.bus.resp.ready && !flush) { respValid := false.B }
 
   // ── Request admission (after the completion handshake) ─────────
@@ -541,6 +549,7 @@ class Ddr3Adapter(
 
   // Capture a request with its payload (stable until ui-domain done).
   val reqFire = io.bus.req.valid && reqReady
+
   when(reqFire) {
     reqAddr := io.bus.req.bits.addr
     reqWdata := io.bus.req.bits.wdata

@@ -12,10 +12,12 @@ class StatsRegsHarness(moduleName: String, regs: Seq[(String, Int)]) extends Raw
   val stats = Module(new StatsRegs(moduleName, regs))
   stats.clock := clock
   stats.reset := reset
+
   stats.ports.values.foreach { p =>
     p.en := false.B
     p.data := 0.U
   }
+
 }
 
 class StatsRegsTest extends AnyFreeSpec {

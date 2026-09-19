@@ -8,29 +8,30 @@ import nzea_core.retire.rob.{LsAllocIO, LsAllocReq, LsWriteReq, RobMemReq}
 
 /** LS_Queue slot: alloc writes rob_id/p_rd/lsuOp; AGU writes addr/wdata/wstrb and sets data_ready. */
 class LsqSlot(robIdWidth: Int, prfAddrWidth: Int) extends Bundle {
-  val valid     = Bool()
+  val valid = Bool()
   val data_ready = Bool()
-  val rob_id    = UInt(robIdWidth.W)
-  val p_rd      = UInt(prfAddrWidth.W)
-  val lsuOp     = UInt(LsuOp.getWidth.W)
-  val addr      = UInt(32.W)
-  val wdata     = UInt(32.W)
-  val wstrb     = UInt(4.W)
+  val rob_id = UInt(robIdWidth.W)
+  val p_rd = UInt(prfAddrWidth.W)
+  val lsuOp = UInt(LsuOp.getWidth.W)
+  val addr = UInt(32.W)
+  val wdata = UInt(32.W)
+  val wstrb = UInt(4.W)
 }
 
-/** LSQ: circular buffer, ls_alloc at dispatch, ls_write from AGU. Issues mem_req when head.data_ready.
-  * No logic change from original MemUnit LS_Queue; only structural separation. */
+/** LSQ: circular buffer, ls_alloc at dispatch, ls_write from AGU. Issues mem_req when head.data_ready. No logic change
+  * from original MemUnit LS_Queue; only structural separation.
+  */
 class LSQ(robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) extends Module {
   private val lsqIdWidth = chisel3.util.log2Ceil(lsBufferDepth.max(2))
 
   val io = IO(new Bundle {
-    val ls_alloc       = new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth)
-    val ls_write       = Flipped(new PipeIO(new LsWriteReq(lsqIdWidth)))
-    val issue          = Input(Bool())
-    val issue_rob_id   = Output(Valid(UInt(robIdWidth.W)))
-    val mem_req        = Output(Valid(new RobMemReq(robIdWidth, prfAddrWidth)))
-    val mem_req_ready  = Input(Bool())
-    val flush          = Input(Bool())
+    val ls_alloc = new LsAllocIO(robIdWidth, prfAddrWidth, lsqIdWidth)
+    val ls_write = Flipped(new PipeIO(new LsWriteReq(lsqIdWidth)))
+    val issue = Input(Bool())
+    val issue_rob_id = Output(Valid(UInt(robIdWidth.W)))
+    val mem_req = Output(Valid(new RobMemReq(robIdWidth, prfAddrWidth)))
+    val mem_req_ready = Input(Bool())
+    val flush = Input(Bool())
   })
 
   private val ptrWidth = lsqIdWidth + 1
@@ -40,7 +41,7 @@ class LSQ(robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) extends Module
   val ls_head_phys = ls_head_ptr(lsqIdWidth - 1, 0)
   val ls_tail_phys = ls_tail_ptr(lsqIdWidth - 1, 0)
   val ls_empty = ls_head_ptr === ls_tail_ptr
-  val ls_full  = (ls_tail_phys === ls_head_phys) && (ls_tail_ptr(lsqIdWidth) =/= ls_head_ptr(lsqIdWidth))
+  val ls_full = (ls_tail_phys === ls_head_phys) && (ls_tail_ptr(lsqIdWidth) =/= ls_head_ptr(lsqIdWidth))
 
   io.ls_alloc.ready := !ls_full
   io.ls_alloc.lsq_id := ls_tail_phys
@@ -90,4 +91,5 @@ class LSQ(robIdWidth: Int, lsBufferDepth: Int, prfAddrWidth: Int) extends Module
       ls_head_ptr := (ls_head_ptr + 1.U)(ptrWidth - 1, 0)
     }
   }
+
 }

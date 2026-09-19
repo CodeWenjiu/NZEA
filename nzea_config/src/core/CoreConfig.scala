@@ -15,7 +15,9 @@ case class CoreConfig(
     /** Branch-prediction unit configuration (PHT/BTB/RAS sizing). */
     bpu: BpuConfig,
     /** Simulation mode: enables sim-only logic such as branch-prediction statistics registers. */
-    sim: Boolean
+    sim: Boolean,
+    /** Microarchitecture engine: in-order single-flight (MinCore) or OoO rename/ROB (Core). */
+    engine: EngineKind
 ) {
   val prfAddrWidth: Int = Iterator.from(0).find(i => (1 << i) >= prfDepth).getOrElse(6)
 

@@ -6,6 +6,7 @@ import chisel3.simulator.scalatest.ChiselSim
 import scala.sys.process.Process
 
 trait LiteBusTestHelpers { this: ChiselSim =>
+
   protected lazy val hasVerilator: Boolean =
     Process(Seq("bash", "-lc", "command -v verilator >/dev/null 2>&1")).! == 0
 
@@ -31,13 +32,13 @@ trait LiteBusTestHelpers { this: ChiselSim =>
   }
 
   protected def driveReq(
-    bus: LiteBusRW,
-    addr: BigInt,
-    user: BigInt,
-    id: BigInt,
-    wen: Boolean = false,
-    wdata: BigInt = 0,
-    wstrb: BigInt = 0xf
+      bus: LiteBusRW,
+      addr: BigInt,
+      user: BigInt,
+      id: BigInt,
+      wen: Boolean = false,
+      wdata: BigInt = 0,
+      wstrb: BigInt = 0xf
   ): Unit = {
     bus.req.valid.poke(true.B)
     bus.req.bits.addr.poke(addr.U)

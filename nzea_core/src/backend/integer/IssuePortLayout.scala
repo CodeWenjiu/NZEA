@@ -1,40 +1,32 @@
 package nzea_core.backend.integer
 
-import nzea_core.frontend.FuType
 import nzea_config.core.CoreConfig
 import nzea_config.core.FuConfig
 import nzea_config.core.FuKind
 
-/** Single source of truth for integer issue-port topology and indexing.
-  * Keeps FuKind order, index mapping, and wakeup-hint specs consistent across users.
+/** Single source of truth for integer issue-port topology and indexing. Keeps FuKind order, index mapping, and
+  * wakeup-hint specs consistent across users.
   */
 object IssuePortLayout {
+
   final case class Layout(
-    configs: Seq[FuConfig],
-    kinds: Seq[FuKind],
-    idxByKind: Map[FuKind, Int],
-    wakeupHintSpecs: Seq[(Int, Int)]
+      configs: Seq[FuConfig],
+      kinds: Seq[FuKind],
+      idxByKind: Map[FuKind, Int],
+      wakeupHintSpecs: Seq[(Int, Int)]
   ) {
     def idxOpt(kind: FuKind): Option[Int] = idxByKind.get(kind)
+
     def idx(kind: FuKind): Int =
       idxByKind.getOrElse(kind, throw new IllegalArgumentException(s"Missing issue port for FuKind.$kind"))
-  }
 
-  def fuKindForType(ft: FuType.Type): FuKind = ft match {
-    case FuType.ALU  => FuKind.Alu
-    case FuType.BRU  => FuKind.Bru
-    case FuType.LSU  => FuKind.Agu
-    case FuType.MUL  => FuKind.Mul
-    case FuType.DIV  => FuKind.Div
-    case FuType.SYSU => FuKind.Sysu
-    case FuType.NNU  => FuKind.Nnu
   }
 
   def build(implicit config: CoreConfig): Layout = {
-    val hasM  = config.isaConfig.hasM
+    val hasM = config.isaConfig.hasM
     val hasNn = config.isaConfig.hasWjcus0
     val configs = FuConfig.issuePorts(config)
-    val kinds   = configs.map(_.kind)
+    val kinds = configs.map(_.kind)
     val idxByKind = kinds.zipWithIndex.toMap
     require(idxByKind.size == kinds.size, s"Duplicate FuKind in issue port config: $kinds")
 
@@ -55,4 +47,5 @@ object IssuePortLayout {
     }
     Layout(configs, kinds, idxByKind, wakeupHintSpecs)
   }
+
 }

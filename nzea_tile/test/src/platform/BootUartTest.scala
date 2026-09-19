@@ -8,23 +8,20 @@ import org.scalatest.flatspec.AnyFlatSpec
 
 /** BootFsm + UART boot-path integration test.
   *
-  * Drives real 8N1 serial bytes into [[FabricBusUart]] and checks the full
-  * uart-reset command (magic + addr + size = 0) releases the CPU reset. This
-  * guards the reset-domain invariant in `fpga/Platform.scala`: the UART must
-  * stay alive (bootReset domain) while the BootFsm is receiving a load, even
-  * though the CPU itself is held in reset during the sequence.
+  * Drives real 8N1 serial bytes into [[FabricBusUart]] and checks the full uart-reset command (magic + addr + size = 0)
+  * releases the CPU reset. This guards the reset-domain invariant in `fpga/Platform.scala`: the UART must stay alive
+  * (bootReset domain) while the BootFsm is receiving a load, even though the CPU itself is held in reset during the
+  * sequence.
   *
-  * Complements [[BootFsmTest]], which pokes `rx_valid`/`rx_data` directly and so
-  * cannot see the UART at all: the reset-domain bug only exists once real serial
-  * decoding is in the loop.
+  * Complements [[BootFsmTest]], which pokes `rx_valid`/`rx_data` directly and so cannot see the UART at all: the
+  * reset-domain bug only exists once real serial decoding is in the loop.
   *
-  * A negative control (UART back in the cpuReset domain) pins down that the
-  * positive case is sensitive to the domain choice rather than passing for an
-  * unrelated reason.
+  * A negative control (UART back in the cpuReset domain) pins down that the positive case is sensitive to the domain
+  * choice rather than passing for an unrelated reason.
   */
 class BootUartTest extends AnyFlatSpec with ChiselScalatestTester {
 
-  private val MAGIC = 0xB007B007
+  private val MAGIC = 0xb007b007
   private val RAM_DEPTH = 8
   // bitDiv = 100: UartRx samples every (bitDiv + 1) cycles (one-cycle drift per bit),
   // so a tiny bitDiv (e.g. 10) makes the drift cross bit boundaries and the decoder
@@ -38,11 +35,11 @@ class BootUartTest extends AnyFlatSpec with ChiselScalatestTester {
     Files.writeString(path, text)
   }
 
-  /** Mirrors the boot-path wiring of `fpga/Platform.scala` (keep in sync!):
-    * bootFsm in `bootReset`, UART in `cpuReset`, rx stream bridged across.
-    * The UART domain here is the one under test.
+  /** Mirrors the boot-path wiring of `fpga/Platform.scala` (keep in sync!): bootFsm in `bootReset`, UART in `cpuReset`,
+    * rx stream bridged across. The UART domain here is the one under test.
     */
   private class BootPathHarness(uartInCpuResetDomain: Boolean, hexPath: String) extends Module {
+
     val io = IO(new Bundle {
       val rxd = Input(Bool())
       val extRamCalibDone = Input(Bool())
@@ -110,8 +107,8 @@ class BootUartTest extends AnyFlatSpec with ChiselScalatestTester {
     assert(!dut.io.cpuReset.peek().litToBoolean, "cpu must leave reset after boot")
   }
 
-  /** Drive a complete uart-reset command (magic + addr + size = 0) and report
-    * whether cpu_reset was released afterwards.
+  /** Drive a complete uart-reset command (magic + addr + size = 0) and report whether cpu_reset was released
+    * afterwards.
     */
   private def runUartResetCommand(dut: BootPathHarness): Boolean = {
     sendWord(dut, MAGIC)
@@ -154,4 +151,5 @@ class BootUartTest extends AnyFlatSpec with ChiselScalatestTester {
       )
     }
   }
+
 }

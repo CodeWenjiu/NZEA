@@ -2,7 +2,7 @@ package nzea_core.backend.integer
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_rtl.{PipelineConnect, PipeIO}
+import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.frontend.{IssuePortsBundle, PrfWriteBundle}
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.{LsWriteReq, RobEntryStateUpdate}
@@ -11,27 +11,29 @@ import nzea_config.core.FuConfig
 import nzea_config.core.FuKind
 import nzea_core.backend.integer.nnu.NNU
 
-/** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, NNU (WJCUS0), SYSU; receives per-port payloads from [[IntegerIssueQueue]]. */
+/** Integer execution cluster: ALU, BRU, AGU, MUL/DIV, NNU (WJCUS0), SYSU; receives per-port payloads from
+  * [[IntegerIssueQueue]].
+  */
 class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: Int)(implicit config: CoreConfig)
     extends Module {
-  private val hasM           = config.isaConfig.hasM
-  private val hasNn          = config.isaConfig.hasWjcus0
-  private val numRobPorts    = FuConfig.numRobAccessPorts
+  private val hasM = config.isaConfig.hasM
+  private val hasNn = config.isaConfig.hasWjcus0
+  private val numRobPorts = FuConfig.numRobAccessPorts
   private val numExuPrfPorts = FuConfig.numExuPrfWritePorts
 
-  val alu  = Module(new ALU(robIdWidth, prfAddrWidth))
-  val bru  = Module(new BRU(robIdWidth, prfAddrWidth))
-  val agu  = Module(new AGU(robIdWidth, prfAddrWidth, lsqIdWidth))
+  val alu = Module(new ALU(robIdWidth, prfAddrWidth))
+  val bru = Module(new BRU(robIdWidth, prfAddrWidth))
+  val agu = Module(new AGU(robIdWidth, prfAddrWidth, lsqIdWidth))
   val sysu = Module(new SYSU(robIdWidth, prfAddrWidth))
-  val mul  = Option.when(hasM)(Module(new MUL(robIdWidth, prfAddrWidth)))
-  val div  = Option.when(hasM)(Module(new DIV(robIdWidth, prfAddrWidth)))
-  val nnu  = Option.when(hasNn)(Module(new NNU(robIdWidth, prfAddrWidth)))
+  val mul = Option.when(hasM)(Module(new MUL(robIdWidth, prfAddrWidth)))
+  val div = Option.when(hasM)(Module(new DIV(robIdWidth, prfAddrWidth)))
+  val nnu = Option.when(hasNn)(Module(new NNU(robIdWidth, prfAddrWidth)))
 
   val io = IO(new Bundle {
-    val issuePorts    = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth))
-    val rob_access    = Vec(numRobPorts, Output(Valid(new RobEntryStateUpdate(robIdWidth))))
-    val out           = Vec(numExuPrfPorts, new PipeIO(new PrfWriteBundle(prfAddrWidth)))
-    val agu_ls_write  = new PipeIO(new LsWriteReq(lsqIdWidth))
+    val issuePorts = Flipped(new IssuePortsBundle(robIdWidth, prfAddrWidth, lsqIdWidth))
+    val rob_access = Vec(numRobPorts, Output(Valid(new RobEntryStateUpdate(robIdWidth))))
+    val out = Vec(numExuPrfPorts, new PipeIO(new PrfWriteBundle(prfAddrWidth)))
+    val agu_ls_write = new PipeIO(new LsWriteReq(lsqIdWidth))
     val bru_bp_update = Output(Valid(new BpUpdate))
   })
 
@@ -41,13 +43,13 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
     pipeOut.ready := ready
     PipelineConnect(src, pipeOut)
     dst.valid := pipeOut.valid
-    dst.bits  := pipeOut.bits
+    dst.bits := pipeOut.bits
   }
 
   private case class FuWiring(
-    connectIssue: () => Unit,
-    connectRobAccess: Int => Unit,
-    connectPrfOut: Option[Int => Unit]
+      connectIssue: () => Unit,
+      connectRobAccess: Int => Unit,
+      connectPrfOut: Option[Int => Unit]
   )
 
   private val wiringByKind: Map[FuKind, FuWiring] = Map(
@@ -108,10 +110,10 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
   }
 
   io.agu_ls_write.valid := agu.io.ls_write.valid
-  io.agu_ls_write.bits  := agu.io.ls_write.bits
+  io.agu_ls_write.bits := agu.io.ls_write.bits
   agu.io.ls_write.ready := io.agu_ls_write.ready
   agu.io.ls_write.flush := io.agu_ls_write.flush
-  io.bru_bp_update      := bru.io.bp_update
+  io.bru_bp_update := bru.io.bp_update
 
   FuConfig.robAccessPorts(config).zipWithIndex.foreach { case (cfg, i) =>
     wiringByKind(cfg.kind).connectRobAccess(i)
@@ -121,6 +123,6 @@ class IntegerExecutionCluster(robIdWidth: Int, prfAddrWidth: Int, lsqIdWidth: In
     wiringByKind(kind).connectPrfOut.foreach(_(i))
   }
 
-  def outPorts: Seq[PipeIO[PrfWriteBundle]]              = io.out.toSeq
+  def outPorts: Seq[PipeIO[PrfWriteBundle]] = io.out.toSeq
   def robAccessPorts: Seq[Valid[RobEntryStateUpdate]] = io.rob_access.toSeq
 }

@@ -31,6 +31,7 @@ class LxbArtix7Top(clockHz: Int, debugIla: Boolean)(implicit config: CoreConfig)
   val core = withClockAndReset(clk_100m, coreRst) {
     Module(new LxbArtix7Core(lxbConfig))
   }
+
   core.io.clk_200m := clk_200m
   // DDR3 control pins: per-field because Ddr3PhysIo carries Analog data pins
   // that Ddr3CtrlIo lacks — Chisel `:=` requires the source record to have

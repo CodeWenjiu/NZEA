@@ -8,11 +8,12 @@ import nzea_config.core.CoreConfig
 /** Physical vector register file: `vrfDepth` × 32-bit lanes with per-reg ready (RVV scaffold). */
 class VectorPrf(numReadPorts: Int, numWritePorts: Int)(implicit config: CoreConfig) extends Module {
   private val pvrAddrWidth = config.pvrAddrWidth
-  private val vrfDepth     = config.vrfDepth
+  private val vrfDepth = config.vrfDepth
 
   val io = IO(new Bundle {
-    val write      = Input(Vec(numWritePorts, Valid(new VrfWriteBundle(pvrAddrWidth))))
+    val write = Input(Vec(numWritePorts, Valid(new VrfWriteBundle(pvrAddrWidth))))
     val allocClear = Input(Valid(UInt(pvrAddrWidth.W)))
+
     /** VIQ drives `addr` (Flipped [[frontend.PrfReadIO]] = regfile view). */
     val read = Vec(numReadPorts, Flipped(new PrfReadIO(pvrAddrWidth)))
   })
@@ -30,4 +31,5 @@ class VectorPrf(numReadPorts: Int, numWritePorts: Int)(implicit config: CoreConf
     val a = io.read(r).addr
     io.read(r).data := Mux(a === 0.U, 0.U(32.W), regs(a))
   }
+
 }

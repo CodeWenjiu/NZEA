@@ -3,6 +3,7 @@ package nzea_core.backend.vector
 import _root_.circt.stage.ChiselStage
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
+import nzea_config.core.EngineKind
 import org.scalatest.funsuite.AnyFunSuite
 
 class VectorBackendTest extends AnyFunSuite {
@@ -18,7 +19,8 @@ class VectorBackendTest extends AnyFunSuite {
       vrfDepth = 64,
       viqDepth = 8,
       bpu = BpuConfig.typical,
-      sim = false
+      sim = false,
+      engine = EngineKind.InOrder
     )
     ChiselStage.emitCHIRRTL(new VectorBackend(robIdWidth = 4))
   }

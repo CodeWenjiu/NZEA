@@ -4,6 +4,7 @@ import chisel3._
 import chiseltest._
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
+import nzea_config.core.EngineKind
 import org.scalatest.flatspec.AnyFlatSpec
 
 /** IFU RAS redirect: a `ret` recognized at the IFU output must be delivered to the downstream even when it is stalled
@@ -26,7 +27,8 @@ class IfuRasRetTest extends AnyFlatSpec with ChiselScalatestTester {
     vrfDepth = 64,
     viqDepth = 8,
     bpu = BpuConfig.typical, // rasDepth = Some(8)
-    sim = false
+    sim = false,
+    engine = EngineKind.InOrder
   )
 
   private val RET = 0x00008067

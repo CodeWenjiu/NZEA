@@ -135,6 +135,7 @@ class SetAssoc(
   private val freeWayVec = VecInit((0 until nWays).map(i => !storage.io.vdBits(i)))
   private val freeWayOH = PriorityEncoderOH(freeWayVec.asUInt)
   private val hasFreeWay = freeWayVec.asUInt.orR
+
   refill.io.startWay := Mux(
     hasFreeWay,
     OHToUInt(freeWayOH),

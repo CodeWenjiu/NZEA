@@ -8,6 +8,7 @@ import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
+import nzea_config.core.EngineKind
 import nzea_tile.TileElaborate
 import nzea_tile.platform.yosys
 import nzea_fpga.FpgaElaborate
@@ -31,7 +32,8 @@ object SimElaborate {
       vrfDepth = 64,
       viqDepth = 8,
       bpu = BpuConfig.typical,
-      sim = false
+      sim = false,
+      engine = EngineKind.InOrder
     )
 
     // Step 1: generate DUT RTL

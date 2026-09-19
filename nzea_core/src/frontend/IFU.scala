@@ -89,6 +89,7 @@ class IFU(implicit config: CoreConfig) extends Module {
   // valid until it fires, then redirect.
   val instIsRet = io.out.valid && io.out.bits.inst(6, 0) === 0x67.U(7.W) &&
     io.out.bits.inst(19, 15) === 1.U && io.out.bits.inst(11, 7) =/= 1.U
+
   val rasRedirect = ras.map(r => instIsRet && r.io.top_valid).getOrElse(false.B)
   val rasRedirectFire = io.out.fire && rasRedirect
 

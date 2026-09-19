@@ -5,18 +5,22 @@ import chisel3.util._
 
 /** Width converter between a wide LiteBusRW and a narrow LiteBusRW.
   *
-  * When `wideDataWidth == narrowDataWidth`, the converter degenerates into a
-  * zero-latency wire-through — no FSM, no registers, purely `io.narrow <> io.wide`.
+  * When `wideDataWidth == narrowDataWidth`, the converter degenerates into a zero-latency wire-through — no FSM, no
+  * registers, purely `io.narrow <> io.wide`.
   *
-  * When `wideDataWidth > narrowDataWidth`, one wide request is split into
-  * `ratio` sequential narrow requests (burst), and `ratio` narrow responses
-  * are assembled back into one wide response.
+  * When `wideDataWidth > narrowDataWidth`, one wide request is split into `ratio` sequential narrow requests (burst),
+  * and `ratio` narrow responses are assembled back into one wide response.
   *
-  * @param wideDataWidth   data width on the wide (master) side
-  * @param narrowDataWidth data width on the narrow (slave) side
-  * @param addrWidth       address width (shared)
-  * @param userWidth       user-field width (shared)
-  * @param idWidth         id width (shared)
+  * @param wideDataWidth
+  *   data width on the wide (master) side
+  * @param narrowDataWidth
+  *   data width on the narrow (slave) side
+  * @param addrWidth
+  *   address width (shared)
+  * @param userWidth
+  *   user-field width (shared)
+  * @param idWidth
+  *   id width (shared)
   */
 class LiteBusWidthConverter(
     wideDataWidth: Int,
@@ -25,8 +29,8 @@ class LiteBusWidthConverter(
     userWidth: Int,
     idWidth: Int
 ) extends Module {
-  require(wideDataWidth >= narrowDataWidth,
-    s"wideDataWidth=$wideDataWidth must be >= narrowDataWidth=$narrowDataWidth")
+  require(wideDataWidth >= narrowDataWidth, s"wideDataWidth=$wideDataWidth must be >= narrowDataWidth=$narrowDataWidth")
+
   require(
     wideDataWidth == narrowDataWidth || wideDataWidth % narrowDataWidth == 0,
     s"wideDataWidth=$wideDataWidth must be a multiple of narrowDataWidth=$narrowDataWidth"
@@ -155,4 +159,5 @@ class LiteBusWidthConverter(
       wideRespValid := false.B
     }
   }
+
 }

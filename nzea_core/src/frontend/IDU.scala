@@ -6,9 +6,9 @@ import nzea_rtl.PriorityEncoderTree
 import nzea_rtl.PipeIO
 import nzea_core.backend.integer.{FuOpWidth, SysuOp}
 import nzea_core.frontend.FuDecode
+import nzea_core.PayloadFields
 import nzea_core.retire.IDUCommit
 import nzea_config.core.CoreConfig
-import nzea_config.core.PayloadSpec
 
 // -------- IDU stage output --------
 
@@ -23,7 +23,7 @@ class IDUOut(width: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends
   val pred_next_pc = UInt(width.W)
 
   val is_ret =
-    if (PayloadSpec.enabled(PayloadSpec.RetExec)) Some(Bool()) else None // JALR returning via x1 (BRU ret stats)
+    PayloadFields.retExec // JALR returning via x1 (BRU ret stats)
   val p_rs1 = UInt(prfAddrWidth.W)
   val p_rs2 = UInt(prfAddrWidth.W)
   val old_p_rd = UInt(prfAddrWidth.W)

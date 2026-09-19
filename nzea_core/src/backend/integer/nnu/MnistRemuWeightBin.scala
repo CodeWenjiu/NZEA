@@ -4,16 +4,15 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.{ByteBuffer, ByteOrder}
 import java.nio.file.{Files, Paths}
 
-/** Parses remu `mnist_infer` weight blobs: 12-byte prefix (scale at bytes 8–11 as LE [[Float]]),
-  * then row-major signed int8 weights. Matches
-  * `remu_simulator/.../OP_WJCUS0/mnist_infer.rs` `parse_weight_binary_const` + `scale_to_q16`
+/** Parses remu `mnist_infer` weight blobs: 12-byte prefix (scale at bytes 8–11 as LE [[Float]]), then row-major signed
+  * int8 weights. Matches `remu_simulator/.../OP_WJCUS0/mnist_infer.rs` `parse_weight_binary_const` + `scale_to_q16`
   * (Q16 = truncate toward zero, not `round`).
   *
   * Also materializes `build/nnu_mem_init/fc*_w8.hex` for [[chisel3.util.experimental.loadMemoryFromFile]]
-  * (`$readmemh`): **one line per FC row** = one contiguous hex string of `2*Fc*Cols` digits (**no spaces**).
-  * Spaces would make Verilator fill multiple addresses per line and overflow `Memory[0:rows-1]`. Bytes are
-  * emitted MSB-first (last column first) so column 0 is RAM word bits `[7:0]` (`Vec(0)`). Raw `.bin` is
-  * unsuitable for Binary load type: `$readmemb` expects text bits — Verilator rejects raw `.bin`.
+  * (`$readmemh`): **one line per FC row** = one contiguous hex string of `2*Fc*Cols` digits (**no spaces**). Spaces
+  * would make Verilator fill multiple addresses per line and overflow `Memory[0:rows-1]`. Bytes are emitted MSB-first
+  * (last column first) so column 0 is RAM word bits `[7:0]` (`Vec(0)`). Raw `.bin` is unsuitable for Binary load type:
+  * `$readmemb` expects text bits — Verilator rejects raw `.bin`.
   */
 object MnistRemuWeightBin {
 
@@ -42,9 +41,9 @@ object MnistRemuWeightBin {
 
   /** @return (weight body bytes only, scale_q16 as int32) */
   private def parseLayerBytes(rows: Int, cols: Int, file: String): (Array[Byte], Int) = {
-    val data  = readBin(file)
-    val need  = 12 + rows * cols
-    val got   = data.length
+    val data = readBin(file)
+    val need = 12 + rows * cols
+    val got = data.length
     require(got >= need, s"$file: need at least $need bytes, got $got")
     val scale = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).getFloat(8)
     val scaleQ = (scale * (1 << 16).toFloat).toInt
@@ -55,8 +54,10 @@ object MnistRemuWeightBin {
 
   val (fc1WeightBytes, fc1ScaleQ16) =
     parseLayerBytes(NnuSramDims.Fc1Rows, NnuSramDims.Fc1Cols, "fc1_weight.bin")
+
   val (fc2WeightBytes, fc2ScaleQ16) =
     parseLayerBytes(NnuSramDims.Fc2Rows, NnuSramDims.Fc2Cols, "fc2_weight.bin")
+
   val (fc3WeightBytes, fc3ScaleQ16) =
     parseLayerBytes(NnuSramDims.Fc3Rows, NnuSramDims.Fc3Cols, "fc3_weight.bin")
 
@@ -68,8 +69,8 @@ object MnistRemuWeightBin {
   private def weightsToReadmemhHexRows(bytes: Array[Byte], cols: Int): Array[Byte] = {
     require(cols > 0 && bytes.length % cols == 0, "weight byte count must be divisible by cols")
     val rows = bytes.length / cols
-    val sb   = new StringBuilder(rows * (cols * 2 + 1))
-    var r    = 0
+    val sb = new StringBuilder(rows * (cols * 2 + 1))
+    var r = 0
     while (r < rows) {
       var c = cols - 1
       while (c >= 0) {
@@ -100,4 +101,5 @@ object MnistRemuWeightBin {
       f3.toAbsolutePath.normalize().toString
     )
   }
+
 }

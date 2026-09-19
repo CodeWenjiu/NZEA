@@ -17,7 +17,9 @@ class LSU(
     mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty
 ) extends Module {
   private val lsqIdWidth = chisel3.util.log2Ceil(lsBufferDepth.max(2))
-  private val userPayloadWidth = robIdWidth + nzea_core.backend.integer.LsuOp.getWidth + 2 + prfAddrWidth
+
+  private val userPayloadWidth =
+    robIdWidth + nzea_core.backend.integer.LsuOp.getWidth + 2 + prfAddrWidth + 1 // +1 is_mmio
   private val idWidth = 1
   private val userWidth = width.max(userPayloadWidth)
 

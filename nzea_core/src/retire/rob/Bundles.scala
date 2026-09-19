@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Decoupled, Valid}
 import nzea_core.backend.integer.LsuOp
 import nzea_config.core.CoreConfig
-import nzea_config.core.PayloadSpec
+import nzea_core.PayloadFields
 import nzea_core.frontend.CsrType
 
 // -------- Mem type for ROB slot (set at ISU dispatch) --------
@@ -21,8 +21,8 @@ object RobMemType extends chisel3.ChiselEnum {
 // -------- Bundles --------
 
 /** Rob enq payload: rd_index, might_flush, mem_type, p_rd, old_p_rd. Pure data; no valid/ready. rob_id is separate
-  * (Output from Rob) because Decoupled bits are producer-only.
-  * `is_ret` (commit chain, RAS pop) is a config-derived information unit (see PayloadSpec).
+  * (Output from Rob) because Decoupled bits are producer-only. `is_ret` (commit chain, RAS pop) is a config-derived
+  * information unit (see PayloadSpec).
   */
 class RobEnqPayload(prfAddrWidth: Int)(implicit config: CoreConfig) extends Bundle {
   val rd_index = UInt(5.W)
@@ -30,7 +30,7 @@ class RobEnqPayload(prfAddrWidth: Int)(implicit config: CoreConfig) extends Bund
   val mem_type = RobMemType()
   val p_rd = UInt(prfAddrWidth.W)
   val old_p_rd = UInt(prfAddrWidth.W)
-  val is_ret = if (PayloadSpec.enabled(PayloadSpec.RetCommit)) Some(Bool()) else None
+  val is_ret = PayloadFields.retCommit
 }
 
 /** Rob enq connection: req (Decoupled) + rob_id (from Rob). Module adds Decoupled at req. */

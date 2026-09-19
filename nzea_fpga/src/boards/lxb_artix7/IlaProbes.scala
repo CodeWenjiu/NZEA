@@ -4,14 +4,12 @@ import chisel3._
 
 /** True Xilinx ILA IP blackbox — Vivado IP matches via desiredName.
   *
-  * This is the module name (`u_ila_0`) that the ILA TCL snippet creates. It is
-  * never instantiated directly by RTL; instead it lives inside [[IlaProbes]], the
-  * synthesizable wrapper that firtool emits as its own file.
+  * This is the module name (`u_ila_0`) that the ILA TCL snippet creates. It is never instantiated directly by RTL;
+  * instead it lives inside [[IlaProbes]], the synthesizable wrapper that firtool emits as its own file.
   *
-  * The probe ports are named `probe0..probe10` (matching the Xilinx ILA IP
-  * port names) with widths from [[IlaProbes.widths]]. The wrapper and the
-  * blackbox share the same widths, so the RTL interface and the Vivado IP stay
-  * in lockstep.
+  * The probe ports are named `probe0..probe10` (matching the Xilinx ILA IP port names) with widths from
+  * [[IlaProbes.widths]]. The wrapper and the blackbox share the same widths, so the RTL interface and the Vivado IP
+  * stay in lockstep.
   */
 class IlaProbesBlackbox extends ExtModule {
   override def desiredName = "u_ila_0"
@@ -32,20 +30,17 @@ class IlaProbesBlackbox extends ExtModule {
 
 /** Synthesizable ILA wrapper, instantiated by [[LxbArtix7Core]] when `cfg.debugIla`.
   *
-  * Board-level instrumentation: the tile stays ILA-agnostic and only exposes a
-  * generic debug observation port ([[nzea_tile.platform.fpga.DebugIo]]); the
-  * board layer decides to add the ILA and wires its probes from the tile
+  * Board-level instrumentation: the tile stays ILA-agnostic and only exposes a generic debug observation port
+  * ([[nzea_tile.platform.fpga.DebugIo]]); the board layer decides to add the ILA and wires its probes from the tile
   * boundary signals.
   *
-  * This is a plain `Module` (not an `ExtModule`), so firtool emits it as an
-  * independent `IlaProbes.sv` file in the generated RTL. The Vivado project
-  * generation creates the matching ILA IP from [[FpgaElaborate]]'s
-  * `ila_config.json` (depth + widths), so RTL interface and IP stay in lockstep.
+  * This is a plain `Module` (not an `ExtModule`), so firtool emits it as an independent `IlaProbes.sv` file in the
+  * generated RTL. The Vivado project generation creates the matching ILA IP from [[FpgaElaborate]]'s `ila_config.json`
+  * (depth + widths), so RTL interface and IP stay in lockstep.
   *
-  * Probe count is fixed (11: probe0..probe10), each bit width coming from
-  * [[IlaProbes.widths]] — the single source of truth that the RTL wrapper, the
-  * blackbox, and the generated ILA IP all derive from. The probe wiring lives
-  * in [[LxbArtix7Core]] and must match this order.
+  * Probe count is fixed (11: probe0..probe10), each bit width coming from [[IlaProbes.widths]] — the single source of
+  * truth that the RTL wrapper, the blackbox, and the generated ILA IP all derive from. The probe wiring lives in
+  * [[LxbArtix7Core]] and must match this order.
   */
 class IlaProbes extends Module {
   val probe0 = IO(Input(IlaProbes.probeType(0)))
@@ -76,31 +71,28 @@ class IlaProbes extends Module {
 }
 
 object IlaProbes {
+
   /** ILA capture depth (samples per trigger).
     *
-    * 16384 @ 100 MHz = 164 us. Halving the probe count (from 22 to 11) after
-    * the Ddr3Adapter debug-port shrink leaves BRAM headroom to raise this if a
-    * deeper window is ever needed.
+    * 16384 @ 100 MHz = 164 us. Halving the probe count (from 22 to 11) after the Ddr3Adapter debug-port shrink leaves
+    * BRAM headroom to raise this if a deeper window is ever needed.
     */
   val depth = 16384
 
   /** Probe widths, one entry per probe (probe0 .. probe10).
     *
-    * Order must match the probe wiring in [[LxbArtix7Core]]:
-    * probe0 cpu_reset, probe1 uart_txd, probe2 uart_rxd, probe3 finisher_finished,
-    * probe4 mig ui_rst, probe5 mig calib_done,
-    * probe6 mig app_addr low 8 bits (8b),
-    * probe7 mig app_wdf_rdy, probe8 mig app_rdy,
-    * probe9 mig app_rd_data_valid, probe10 mig app_rd_data[95:64] (32b).
+    * Order must match the probe wiring in [[LxbArtix7Core]]: probe0 cpu_reset, probe1 uart_txd, probe2 uart_rxd, probe3
+    * finisher_finished, probe4 mig ui_rst, probe5 mig calib_done, probe6 mig app_addr low 8 bits (8b), probe7 mig
+    * app_wdf_rdy, probe8 mig app_rdy, probe9 mig app_rd_data_valid, probe10 mig app_rd_data[95:64] (32b).
     *
-    * All 1-bit except probe6 (8b) and probe10 (32b). The adapter-internal
-    * debug probes (bridge.io.debug.*) were dropped — the cosim + unit tests
-    * cover the adapter protocol, and the ILA now only watches the MIG physical
-    * layer and board IO.
+    * All 1-bit except probe6 (8b) and probe10 (32b). The adapter-internal debug probes (bridge.io.debug.*) were dropped
+    * — the cosim + unit tests cover the adapter protocol, and the ILA now only watches the MIG physical layer and board
+    * IO.
     */
   val widths: Seq[Int] = Seq(1, 1, 1, 1, 1, 1, 8, 1, 1, 1, 32)
 
   /** Chisel type for probe i: 1-bit → Bool, wider → UInt(widths(i).W). */
   def probeType(i: Int): Data =
     if (widths(i) == 1) Bool() else UInt(widths(i).W)
+
 }

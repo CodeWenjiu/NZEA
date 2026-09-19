@@ -10,12 +10,12 @@ class VectorBackend(robIdWidth: Int)(implicit config: CoreConfig) extends Module
 
   val io = IO(new Bundle {
     val viq_in = Flipped(new PipeIO(new VectorIssueQueueEntry(robIdWidth, pvrAddrWidth)))
-    val flush  = Input(Bool())
+    val flush = Input(Bool())
   })
 
-  val viq  = Module(new VectorIssueQueue(robIdWidth))
+  val viq = Module(new VectorIssueQueue(robIdWidth))
   val valu = Module(new VALU(robIdWidth))
-  val pvr  = Module(new VectorPrf(2, 1))
+  val pvr = Module(new VectorPrf(2, 1))
   val vwbu = Module(new VectorWbu())
 
   viq.io.in <> io.viq_in
@@ -26,7 +26,8 @@ class VectorBackend(robIdWidth: Int)(implicit config: CoreConfig) extends Module
   for (j <- 0 until 2) {
     pvr.io.read(j) <> viq.io.prf_read(j)
   }
+
   pvr.io.write(0) := vwbu.io.out
   pvr.io.allocClear.valid := false.B
-  pvr.io.allocClear.bits  := 0.U
+  pvr.io.allocClear.bits := 0.U
 }

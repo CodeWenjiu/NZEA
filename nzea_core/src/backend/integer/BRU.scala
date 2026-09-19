@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect, PrefixAdder, StatsRegs}
 import nzea_config.core.CoreConfig
-import nzea_config.core.PayloadSpec
+import nzea_core.PayloadFields
 import nzea_core.frontend.PrfWriteBundle
 import nzea_core.frontend.bp.BpUpdate
 import nzea_core.retire.rob.Rob
@@ -34,12 +34,12 @@ class BruInput(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) 
   val bruOp = BruOp()
   val rob_id = UInt(robIdWidth.W)
   val p_rd = UInt(prfAddrWidth.W)
-  val rd_index = if (PayloadSpec.enabled(PayloadSpec.CallExec)) Some(UInt(5.W)) else None
-  val is_ret = if (PayloadSpec.enabled(PayloadSpec.RetExec)) Some(Bool()) else None
+  val rd_index = PayloadFields.callExecRdIndex
+  val is_ret = PayloadFields.retExec
 }
 
-/** BRU stage-0 payload: computed targets/conditions feeding the S1 select + mispredict check.
-  * `is_call`/`is_ret` exist iff the corresponding payload unit is enabled (PayloadSpec).
+/** BRU stage-0 payload: computed targets/conditions feeding the S1 select + mispredict check. `is_call`/`is_ret` exist
+  * iff the corresponding payload unit is enabled (PayloadSpec).
   */
 class BruS0Out(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Bundle {
   val rob_id = UInt(robIdWidth.W)
@@ -49,8 +49,8 @@ class BruS0Out(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) 
   val target = UInt(32.W)
   val pc_plus_4 = UInt(32.W)
   val is_taken = Bool()
-  val is_call = if (PayloadSpec.enabled(PayloadSpec.CallExec)) Some(Bool()) else None
-  val is_ret = if (PayloadSpec.enabled(PayloadSpec.RetExec)) Some(Bool()) else None
+  val is_call = PayloadFields.callExecIsCall
+  val is_ret = PayloadFields.retExec
 }
 
 /** BRU stage-1 payload: resolved next_pc, flush (mispredict), is_taken; pc_plus_4 for JAL/JALR; for ROB and IFU.
@@ -64,12 +64,11 @@ class BruS1Out(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) 
   val pc_plus_4 = UInt(32.W)
   val flush = Bool()
   val is_taken = Bool()
-  val is_call = if (PayloadSpec.enabled(PayloadSpec.CallExec)) Some(Bool()) else None
+  val is_call = PayloadFields.callExecIsCall
 }
 
-/** BRU Stage 0: computes targets (PrefixAdder) and the branch outcome is_taken only.
-  * The mispredict check lives in Stage 1 so the wide comparators are not serialized
-  * behind the adds. Outputs PipeIO(BruS0Out).
+/** BRU Stage 0: computes targets (PrefixAdder) and the branch outcome is_taken only. The mispredict check lives in
+  * Stage 1 so the wide comparators are not serialized behind the adds. Outputs PipeIO(BruS0Out).
   */
 class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
 
@@ -131,8 +130,8 @@ class BRUStage0(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig)
   io.in.flush := io.out.flush
 }
 
-/** BRU Stage 1: selects the actual next_pc (off the S0 add chain), resolves the
-  * mispredict, and drives the branch-prediction statistics. Outputs PipeIO(BruS1Out).
+/** BRU Stage 1: selects the actual next_pc (off the S0 add chain), resolves the mispredict, and drives the
+  * branch-prediction statistics. Outputs PipeIO(BruS1Out).
   */
 class BRUStage1(robIdWidth: Int, prfAddrWidth: Int)(implicit config: CoreConfig) extends Module {
 

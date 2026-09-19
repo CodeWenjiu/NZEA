@@ -9,6 +9,7 @@ import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
+import nzea_config.core.EngineKind
 
 /** Flat CLI arguments for backward-compatible command-line flags. */
 case class CliArgs(
@@ -36,7 +37,11 @@ case class CliArgs(
     @arg(doc = "I-Cache associativity (ways)") cacheNWays: Int = 8,
     @arg(doc = "I-Cache line width in bits") cacheLineBits: Int = 32,
     @arg(doc = "Per-slave outstanding transactions (bus fabric)") perSlaveOutstanding: Int = 8,
-    @arg(doc = "Instantiate the ILA debug wrapper in the fpga board (arm/capture via just ila-capture)") debugIla: Boolean = false
+    @arg(doc =
+      "Instantiate the ILA debug wrapper in the fpga board (arm/capture via just ila-capture)"
+    ) debugIla: Boolean = false,
+    @arg(doc = "Core engine: in-order (single-flight MinCore) or ooo (rename/ROB Core)") engine: EngineKind =
+      EngineKind.InOrder
 ) {
 
   val synthPlatform: SynthPlatform = SynthPlatform.fromString(platform).getOrElse(SynthPlatform.Yosys)
@@ -56,7 +61,8 @@ case class CliArgs(
       vrfDepth = vrfDepth,
       viqDepth = viqDepth,
       bpu = BpuConfig.typical,
-      sim = sim
+      sim = sim,
+      engine = engine
     )
 
   /** Tile-level I-Cache config from CLI args; None would bypass the cache. */

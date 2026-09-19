@@ -5,6 +5,11 @@
 def main [target: string, platform: string, isa: string, hex?: string] {
     let rtl = $"build/sim/($target)/($platform)/($isa)/hw"
 
+    # Regenerate RTL into a clean directory: stale files from older elaborations
+    # (e.g. the OoO cluster before the MinCore engine switch) would otherwise be
+    # glob-collected and compiled alongside the current RTL.
+    rm -rf $rtl
+
     # Always regenerate RTL (sim is fast enough)
     print $"Generating RTL for ($target)/($platform)/($isa)..."
     if ($hex | is-not-empty) and ($hex | path exists) {

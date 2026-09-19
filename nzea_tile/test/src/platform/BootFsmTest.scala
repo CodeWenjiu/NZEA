@@ -7,14 +7,13 @@ import org.scalatest.flatspec.AnyFlatSpec
 
 /** BootFsm protocol tests.
   *
-  * Covers the boot-from-mrom image, the normal load path, the `size = 0` reset-only
-  * command (no RAM writes, cpu_reset pulsed then released), and the regression where
-  * a program whose final 4 bytes equal the boot magic must not re-trigger boot after
-  * a load (magicLow is cleared on `sDone`).
+  * Covers the boot-from-mrom image, the normal load path, the `size = 0` reset-only command (no RAM writes, cpu_reset
+  * pulsed then released), and the regression where a program whose final 4 bytes equal the boot magic must not
+  * re-trigger boot after a load (magicLow is cleared on `sDone`).
   */
 class BootFsmTest extends AnyFlatSpec with ChiselScalatestTester {
 
-  private val MAGIC = 0xB007B007
+  private val MAGIC = 0xb007b007
   private val RAM_DEPTH = 8
 
   private def writeHex(path: Path, words: Seq[Int]): Unit = {
@@ -79,7 +78,7 @@ class BootFsmTest extends AnyFlatSpec with ChiselScalatestTester {
       dut.io.rx_data.poke(0xde.U)
       assert(dut.io.boot.valid.peek().litToBoolean, "data word must be written")
       assert(
-        dut.io.boot.bits.wdata.peek().litValue == BigInt(0xDEADBEEFL),
+        dut.io.boot.bits.wdata.peek().litValue == BigInt(0xdeadbeefL),
         "wdata must equal the loaded word"
       )
       dut.clock.step()
@@ -127,4 +126,5 @@ class BootFsmTest extends AnyFlatSpec with ChiselScalatestTester {
       }
     }
   }
+
 }

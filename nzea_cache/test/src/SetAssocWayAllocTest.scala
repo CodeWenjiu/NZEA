@@ -5,12 +5,10 @@ import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import org.scalatest.freespec.AnyFreeSpec
 
-/** Tests for [[SetAssoc]]: replacement policy, cross-set isolation, and
-  * backpressure during refill.
+/** Tests for [[SetAssoc]]: replacement policy, cross-set isolation, and backpressure during refill.
   *
-  * The fake memory bus accepts every req instantly and replies after a
-  * per-test configurable number of cycles (`responseDelay`). A `refillCount`
-  * output lets each test observe how many cacheline refills actually fire.
+  * The fake memory bus accepts every req instantly and replies after a per-test configurable number of cycles
+  * (`responseDelay`). A `refillCount` output lets each test observe how many cacheline refills actually fire.
   */
 class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
 
@@ -21,6 +19,7 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
       nWays: Int,
       responseDelay: Int = 1 // cycles between top.req.fire and top.resp.valid
   ) extends Module {
+
     val io = IO(new Bundle {
       val top = Flipped(new nzea_rtl.LiteBusRW(32, 32, 8, 1))
       val refillCount = Output(UInt(32.W))
@@ -36,6 +35,7 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
         userWidth = 8
       )
     )
+
     cache.io.top <> io.top
 
     // Fake memory bus — shift register for configurable response delay.
@@ -58,10 +58,11 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
 
   // ── Test helpers ─────────────────────────────────────────────────
 
-  /** Thin wrapper over a CacheTop DUT that provides issue / awaitResp /
-    * init helpers so every test case can share them without copy-paste.
+  /** Thin wrapper over a CacheTop DUT that provides issue / awaitResp / init helpers so every test case can share them
+    * without copy-paste.
     */
   private class Ctx(dut: CacheTop) {
+
     def init(): Unit = {
       dut.io.top.req.valid.poke(false.B)
       dut.io.top.resp.ready.poke(true.B)
@@ -97,14 +98,14 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
 
     def refillCount: Int = dut.io.refillCount.peek().litValue.toInt
 
-    /** Issue and wait in a single call. Returns whether a new refill fired
-      * (true = miss, false = hit).
+    /** Issue and wait in a single call. Returns whether a new refill fired (true = miss, false = hit).
       */
     def read(addr: BigInt): Boolean = {
       val before = refillCount
       issue(addr); awaitResp()
       refillCount != before
     }
+
   }
 
   // ── Helpers to build addresses ──────────────────────────────────
@@ -132,15 +133,13 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
 
       // Phase 1: install 4 distinct tags into one set. Each must miss+refill.
       for (a <- addrs) { c.read(a) }
-      assert(c.refillCount == 4,
-        s"phase 1 should trigger exactly 4 refills, got ${c.refillCount}")
+      assert(c.refillCount == 4, s"phase 1 should trigger exactly 4 refills, got ${c.refillCount}")
 
       // Phase 2: re-read the 4 tags. All must hit — 0 refills.
       val before = c.refillCount
       for (a <- addrs) { c.read(a) }
       val phase2Refills = c.refillCount - before
-      assert(phase2Refills == 0,
-        s"phase 2 (re-read) should not refill, got $phase2Refills refills")
+      assert(phase2Refills == 0, s"phase 2 (re-read) should not refill, got $phase2Refills refills")
     }
   }
 
@@ -167,9 +166,11 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
       info(s"6-tag re-read (reverse): hits=$hits misses=$misses refills=$phase2Refills")
       // With PLRU we expect at most 3 misses (not perfect LRU), but worst-case
       // the bug (#5 collapse) would cause most tags to miss.
-      assert(phase2Refills <= 3,
+      assert(
+        phase2Refills <= 3,
         s"bug #5: 6-tag re-read (reverse) should miss at most 3 (PLRU slack) " +
-          s"but got $phase2Refills refills")
+          s"but got $phase2Refills refills"
+      )
     }
   }
 
@@ -193,8 +194,7 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
       // Re-read set 0 tags — all 4 must still be resident.
       val before = c.refillCount
       for (t <- set0Tags) { c.read(mkAddr(0, t)) }
-      assert(c.refillCount == before,
-        s"set-0 lines evicted by set-1 traffic: ${c.refillCount - before} extra refills")
+      assert(c.refillCount == before, s"set-0 lines evicted by set-1 traffic: ${c.refillCount - before} extra refills")
     }
   }
 
@@ -233,10 +233,11 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
       }
       dut.io.top.req.valid.poke(false.B)
 
-      assert(sawBlocked,
-        "top.req.ready must be de-asserted during refill busy period")
-      assert(guard >= 2,
-        s"busy period too short ($guard cycles) — responseDelay=8 should keep refill busy for several cycles")
+      assert(sawBlocked, "top.req.ready must be de-asserted during refill busy period")
+      assert(
+        guard >= 2,
+        s"busy period too short ($guard cycles) — responseDelay=8 should keep refill busy for several cycles"
+      )
     }
   }
 

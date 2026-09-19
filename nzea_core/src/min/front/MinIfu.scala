@@ -1,4 +1,4 @@
-package nzea_core.min
+package nzea_core.min.front
 
 import chisel3._
 import nzea_rtl.{LiteBusRW, PipeIO}

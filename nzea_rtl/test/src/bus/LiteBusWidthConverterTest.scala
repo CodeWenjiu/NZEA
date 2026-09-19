@@ -8,6 +8,7 @@ import org.scalatest.freespec.AnyFreeSpec
 class LiteBusWidthConverterTest extends AnyFreeSpec with ChiselSim {
 
   private class ConvTop(wideDW: Int, narrowDW: Int) extends Module {
+
     val io = IO(new Bundle {
       val wide = Flipped(new LiteBusRW(32, wideDW, 8, 1))
       val nReqReady = Input(Bool())
@@ -133,4 +134,5 @@ class LiteBusWidthConverterTest extends AnyFreeSpec with ChiselSim {
       dut.io.wide.resp.bits.data.expect(assembled.U)
     }
   }
+
 }

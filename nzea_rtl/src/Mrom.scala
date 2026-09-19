@@ -6,14 +6,15 @@ import scala.io.Source
 
 /** Combinational mask ROM backed by VecInit.
   *
-  * Parses a Verilog hex file at elaboration time and emits it as a Mux tree.
-  * Zero read latency — data appears the same cycle addr changes.
+  * Parses a Verilog hex file at elaboration time and emits it as a Mux tree. Zero read latency — data appears the same
+  * cycle addr changes.
   *
   * Both depth and dataWidth are auto-detected:
-  * - depth   = hex file line count
-  * - width   = max hex digits per line × 4, rounded up to next power of 2 (min 8)
+  *   - depth = hex file line count
+  *   - width = max hex digits per line × 4, rounded up to next power of 2 (min 8)
   *
-  * @param hexPath path to hex file (one word per line), relative to working dir
+  * @param hexPath
+  *   path to hex file (one word per line), relative to working dir
   */
 class Mrom(hexPath: String) extends Module {
   val parsed = Mrom.loadHex(hexPath)
@@ -35,7 +36,8 @@ object Mrom {
   def loadHex(path: String): Parsed = {
     val src = Source.fromFile(path)
     try {
-      val lines = src.getLines()
+      val lines = src
+        .getLines()
         .map(_.trim)
         .filter(l => l.nonEmpty && !l.startsWith("//") && !l.startsWith("#"))
         .toSeq
@@ -54,4 +56,5 @@ object Mrom {
       src.close()
     }
   }
+
 }

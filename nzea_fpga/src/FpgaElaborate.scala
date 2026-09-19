@@ -36,15 +36,14 @@ object FpgaElaborate {
 
   /** Generate the Vivado project via the `vivado-project.nu` entry point.
     *
-    * All board-specific parameters (part, top module, XDC, IP snippets) are resolved
-    * from `chips.nu` inside the script; this call only passes the board segment and ISA.
+    * All board-specific parameters (part, top module, XDC, IP snippets) are resolved from `chips.nu` inside the script;
+    * this call only passes the board segment and ISA.
     *
-    * When `debugIla` is set, `ila_config.json` is written into the RTL directory so
-    * the ILA IP TCL snippet can be generated with the exact probe widths from
-    * [[IlaProbes.widths]] (the single source of truth). A stale `ila_config.json`
-    * from a previous ILA-enabled build is removed otherwise. When enabled, the
-    * ILA capture script and probe name map are also written into the Vivado work
-    * root (the dump-time pair of the runtime `just ila-capture` flow).
+    * When `debugIla` is set, `ila_config.json` is written into the RTL directory so the ILA IP TCL snippet can be
+    * generated with the exact probe widths from [[IlaProbes.widths]] (the single source of truth). A stale
+    * `ila_config.json` from a previous ILA-enabled build is removed otherwise. When enabled, the ILA capture script and
+    * probe name map are also written into the Vivado work root (the dump-time pair of the runtime `just ila-capture`
+    * flow).
     */
   private def generateVivadoProject(board: FpgaBoard, isa: String, outDir: String, debugIla: Boolean): Unit = {
     val ilaCfg = new File(outDir, "ila_config.json")
@@ -75,6 +74,7 @@ object FpgaElaborate {
 
   /** Static runtime content for the ILA capture flow (paired with `just ila-capture`). */
   private object IlaCapture {
+
     // Dual-key rename map (literal string replacement, longest key first — see
     // probe/cli/src/vcd.rs): bare `probeN` keys catch nets that lost their name
     // in synthesis (the ILA VCD then exports the port name, possibly as
@@ -180,6 +180,7 @@ object FpgaElaborate {
          |close_hw_manager
          |puts "ILA capture written to [pwd]/capture.vcd"
          |""".stripMargin
+
   }
 
   /** Board top module name (mirrors the elaborate() match). */
