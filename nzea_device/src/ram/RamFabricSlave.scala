@@ -19,7 +19,6 @@ class RamFabricSlave(
   })
 
   private val depth = 1 << 15
-  private val flush = io.bus.resp.flush
 
   val busCycle = RegInit(0.U(2.W))
   val isRead = RegInit(false.B)
@@ -27,11 +26,10 @@ class RamFabricSlave(
   val respId = RegInit(0.U(idWidth.W))
   val readData = RegInit(0.U(dataWidth.W))
 
-  val reqReady = busCycle === 0.U && !flush
+  val reqReady = busCycle === 0.U
   val reqFire = io.bus.req.valid && reqReady
   io.bus.req.ready := reqReady
-  io.bus.req.flush := false.B
-  io.bus.resp.valid := busCycle === 3.U && !flush
+  io.bus.resp.valid := busCycle === 3.U
   io.bus.resp.bits.data := Mux(isRead, readData, 0.U)
   io.bus.resp.bits.user := respUser
   io.bus.resp.bits.id := respId
@@ -63,5 +61,5 @@ class RamFabricSlave(
 
   when(busCycle === 1.U) { busCycle := 2.U }
   when(busCycle === 2.U) { busCycle := 3.U }
-  when((busCycle === 3.U && io.bus.resp.ready) || flush) { busCycle := 0.U }
+  when(busCycle === 3.U && io.bus.resp.ready) { busCycle := 0.U }
 }

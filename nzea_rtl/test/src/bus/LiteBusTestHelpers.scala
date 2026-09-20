@@ -19,12 +19,10 @@ trait LiteBusTestHelpers { this: ChiselSim =>
     bus.req.bits.user.poke(0.U)
     bus.req.bits.id.poke(0.U)
     bus.resp.ready.poke(if (respReady) true.B else false.B)
-    bus.resp.flush.poke(false.B)
   }
 
   protected def initEndpoint(bus: LiteBusRW, reqReady: Boolean, respValid: Boolean = false): Unit = {
     bus.req.ready.poke(if (reqReady) true.B else false.B)
-    bus.req.flush.poke(false.B)
     bus.resp.valid.poke(if (respValid) true.B else false.B)
     bus.resp.bits.data.poke(0.U)
     bus.resp.bits.user.poke(0.U)

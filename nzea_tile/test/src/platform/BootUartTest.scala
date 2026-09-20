@@ -64,12 +64,10 @@ class BootUartTest extends AnyFlatSpec with ChiselScalatestTester {
 
     uart.io.rxd := io.rxd
     uart.io.ctsn := false.B
-    // Master-side drive only; req.ready/req.flush/resp.{valid,bits} are driven by the
-    // uart (LiteBus slave convention: the slave owns req.flush).
+    // Master-side drive only; req.ready/resp.{valid,bits} are driven by the uart.
     uart.io.bus.req.valid := false.B
     uart.io.bus.req.bits := DontCare
     uart.io.bus.resp.ready := false.B
-    uart.io.bus.resp.flush := false.B
 
     bootFsm.io.boot_en := true.B
     bootFsm.io.rx_valid := uart.io.boot_rx_valid

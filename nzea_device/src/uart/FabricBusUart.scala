@@ -49,7 +49,6 @@ class FabricBusUart(base: BigInt, simClkHz: Int, baudRate: Int, userWidth: Int, 
   private def LsrW = Cat(0.U(1.W), !txPending, !txPending, 0.U(1.W), rxValid, 0.U(3.W))
 
   // ── Bus interface ──────────────────────────────────────────
-  private val flush = io.bus.resp.flush
   private val busy = RegInit(false.B)
   private val respUser = RegInit(0.U(userWidth.W)); private val respId = RegInit(0.U(idWidth.W))
   private val respData = RegInit(0.U(32.W))
@@ -57,9 +56,8 @@ class FabricBusUart(base: BigInt, simClkHz: Int, baudRate: Int, userWidth: Int, 
   private val wstrb = io.bus.req.bits.wstrb
   private val thrWrite = io.bus.req.bits.wen && wordLo && !dlab && wstrb(0)
 
-  io.bus.req.ready := !busy && !flush && !(thrWrite && txPending)
-  io.bus.req.flush := false.B
-  io.bus.resp.valid := busy && !flush; io.bus.resp.bits.data := respData
+  io.bus.req.ready := !busy && !(thrWrite && txPending)
+  io.bus.resp.valid := busy; io.bus.resp.bits.data := respData
   io.bus.resp.bits.user := respUser; io.bus.resp.bits.id := respId
 
   when(reqFire) {
@@ -78,7 +76,7 @@ class FabricBusUart(base: BigInt, simClkHz: Int, baudRate: Int, userWidth: Int, 
     }
   }
 
-  when(io.bus.resp.fire || flush) { busy := false.B }
+  when(io.bus.resp.fire) { busy := false.B }
 
   // TX: bus writes THR → UartTx
   when(reqFire && thrWrite) { txPending := true.B }

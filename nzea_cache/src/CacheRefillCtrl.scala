@@ -11,7 +11,9 @@ import nzea_rtl.LiteBusRO
   * Reusable across I$, D$ (read-miss path), and L2 cache: connect `start` to miss detect, `bottom` to the memory-side
   * bus, `wr*` to `CacheStorage` write port, `bypass*` to the cache pipeline response.
   *
-  * On flush (`io.flush`), aborts in-flight refill and drains bottom resp.
+  * No cancellation: a refill started before a redirect simply completes — the data stays valid in the storage and the
+  * stale response is digested by the requesting master. (An abort could be re-added later as a point-to-point sideband
+  * from the fetch side; it is not a transport-protocol matter.)
   */
 class CacheRefillCtrl(
     addrWidth: Int,
@@ -53,9 +55,6 @@ class CacheRefillCtrl(
     val bypassValid = Output(Bool())
     val bypassData = Output(UInt(dataWidth.W))
     val bypassUser = Output(UInt(userWidth.W))
-
-    // ── Flush ──
-    val flush = Input(Bool())
   })
 
   private val sIdle :: sReq :: sWait :: Nil = Enum(3)
@@ -83,7 +82,6 @@ class CacheRefillCtrl(
   io.bottom.req.valid := false.B
   io.bottom.req.bits := DontCare
   io.bottom.resp.ready := true.B // always drain; only sWait triggers storage write
-  io.bottom.resp.flush := false.B
 
   // ── FSM ──
   switch(state) {
@@ -121,11 +119,6 @@ class CacheRefillCtrl(
         state := sIdle
       }
     }
-  }
-
-  // ── Flush ──
-  when(io.flush) {
-    state := sIdle
   }
 
 }

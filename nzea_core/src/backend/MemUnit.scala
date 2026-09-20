@@ -73,7 +73,6 @@ class MemUnit(
   io.dbus.req.bits.id := 0.U
 
   io.dbus.resp.ready := !io.out.flush
-  io.dbus.resp.flush := io.out.flush
 
   val rdata = io.dbus.resp.bits.data
   val respUser = io.dbus.resp.bits.user.asTypeOf(userBundleType)

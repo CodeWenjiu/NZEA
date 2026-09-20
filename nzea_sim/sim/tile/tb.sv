@@ -18,32 +18,32 @@ module tb;
     localparam BAUD = 100_000_000 / 115200;  // ~868 cycles/bit (matches DUT UartTx)
 
     // ---- Device fabric wires (one 15-signal LiteBus group per slave) ----
-    wire ram_req_valid, ram_req_ready, ram_req_flush;
+    wire ram_req_valid, ram_req_ready;
     wire [31:0] ram_req_addr, ram_req_wdata;
     wire ram_req_wen; wire [3:0] ram_req_wstrb;
     wire [67:0] ram_req_user; wire [7:0] ram_req_id;
-    wire ram_resp_valid, ram_resp_ready, ram_resp_flush;
+    wire ram_resp_valid, ram_resp_ready;
     wire [31:0] ram_resp_data; wire [67:0] ram_resp_user; wire [7:0] ram_resp_id;
 
-    wire uart_req_valid, uart_req_ready, uart_req_flush;
+    wire uart_req_valid, uart_req_ready;
     wire [31:0] uart_req_addr, uart_req_wdata;
     wire uart_req_wen; wire [3:0] uart_req_wstrb;
     wire [67:0] uart_req_user; wire [7:0] uart_req_id;
-    wire uart_resp_valid, uart_resp_ready, uart_resp_flush;
+    wire uart_resp_valid, uart_resp_ready;
     wire [31:0] uart_resp_data; wire [67:0] uart_resp_user; wire [7:0] uart_resp_id;
 
-    wire fin_req_valid, fin_req_ready, fin_req_flush;
+    wire fin_req_valid, fin_req_ready;
     wire [31:0] fin_req_addr, fin_req_wdata;
     wire fin_req_wen; wire [3:0] fin_req_wstrb;
     wire [67:0] fin_req_user; wire [7:0] fin_req_id;
-    wire fin_resp_valid, fin_resp_ready, fin_resp_flush;
+    wire fin_resp_valid, fin_resp_ready;
     wire [31:0] fin_resp_data; wire [67:0] fin_resp_user; wire [7:0] fin_resp_id;
 
-    wire clint_req_valid, clint_req_ready, clint_req_flush;
+    wire clint_req_valid, clint_req_ready;
     wire [31:0] clint_req_addr, clint_req_wdata;
     wire clint_req_wen; wire [3:0] clint_req_wstrb;
     wire [67:0] clint_req_user; wire [7:0] clint_req_id;
-    wire clint_resp_valid, clint_resp_ready, clint_resp_flush;
+    wire clint_resp_valid, clint_resp_ready;
     wire [31:0] clint_resp_data; wire [67:0] clint_resp_user; wire [7:0] clint_resp_id;
 
     wire finisher_finished;
@@ -67,14 +67,11 @@ module tb;
         .io_yosys_devices_ram_req_bits_wen(ram_req_wen),
         .io_yosys_devices_ram_req_bits_wstrb(ram_req_wstrb),
         .io_yosys_devices_ram_req_bits_user(ram_req_user),
-        .io_yosys_devices_ram_req_bits_id(ram_req_id),
-        .io_yosys_devices_ram_req_flush(ram_req_flush),
         .io_yosys_devices_ram_resp_valid(ram_resp_valid),
         .io_yosys_devices_ram_resp_ready(ram_resp_ready),
         .io_yosys_devices_ram_resp_bits_data(ram_resp_data),
         .io_yosys_devices_ram_resp_bits_user(ram_resp_user),
         .io_yosys_devices_ram_resp_bits_id(ram_resp_id),
-        .io_yosys_devices_ram_resp_flush(ram_resp_flush),
         // uart16550
         .io_yosys_devices_uart16550_req_valid(uart_req_valid),
         .io_yosys_devices_uart16550_req_ready(uart_req_ready),
@@ -83,14 +80,11 @@ module tb;
         .io_yosys_devices_uart16550_req_bits_wen(uart_req_wen),
         .io_yosys_devices_uart16550_req_bits_wstrb(uart_req_wstrb),
         .io_yosys_devices_uart16550_req_bits_user(uart_req_user),
-        .io_yosys_devices_uart16550_req_bits_id(uart_req_id),
-        .io_yosys_devices_uart16550_req_flush(uart_req_flush),
         .io_yosys_devices_uart16550_resp_valid(uart_resp_valid),
         .io_yosys_devices_uart16550_resp_ready(uart_resp_ready),
         .io_yosys_devices_uart16550_resp_bits_data(uart_resp_data),
         .io_yosys_devices_uart16550_resp_bits_user(uart_resp_user),
         .io_yosys_devices_uart16550_resp_bits_id(uart_resp_id),
-        .io_yosys_devices_uart16550_resp_flush(uart_resp_flush),
         // sifive_test_finisher
         .io_yosys_devices_sifive_test_finisher_req_valid(fin_req_valid),
         .io_yosys_devices_sifive_test_finisher_req_ready(fin_req_ready),
@@ -99,14 +93,11 @@ module tb;
         .io_yosys_devices_sifive_test_finisher_req_bits_wen(fin_req_wen),
         .io_yosys_devices_sifive_test_finisher_req_bits_wstrb(fin_req_wstrb),
         .io_yosys_devices_sifive_test_finisher_req_bits_user(fin_req_user),
-        .io_yosys_devices_sifive_test_finisher_req_bits_id(fin_req_id),
-        .io_yosys_devices_sifive_test_finisher_req_flush(fin_req_flush),
         .io_yosys_devices_sifive_test_finisher_resp_valid(fin_resp_valid),
         .io_yosys_devices_sifive_test_finisher_resp_ready(fin_resp_ready),
         .io_yosys_devices_sifive_test_finisher_resp_bits_data(fin_resp_data),
         .io_yosys_devices_sifive_test_finisher_resp_bits_user(fin_resp_user),
         .io_yosys_devices_sifive_test_finisher_resp_bits_id(fin_resp_id),
-        .io_yosys_devices_sifive_test_finisher_resp_flush(fin_resp_flush),
         // clint
         .io_yosys_devices_clint_req_valid(clint_req_valid),
         .io_yosys_devices_clint_req_ready(clint_req_ready),
@@ -115,14 +106,11 @@ module tb;
         .io_yosys_devices_clint_req_bits_wen(clint_req_wen),
         .io_yosys_devices_clint_req_bits_wstrb(clint_req_wstrb),
         .io_yosys_devices_clint_req_bits_user(clint_req_user),
-        .io_yosys_devices_clint_req_bits_id(clint_req_id),
-        .io_yosys_devices_clint_req_flush(clint_req_flush),
         .io_yosys_devices_clint_resp_valid(clint_resp_valid),
         .io_yosys_devices_clint_resp_ready(clint_resp_ready),
         .io_yosys_devices_clint_resp_bits_data(clint_resp_data),
         .io_yosys_devices_clint_resp_bits_user(clint_resp_user),
-        .io_yosys_devices_clint_resp_bits_id(clint_resp_id),
-        .io_yosys_devices_clint_resp_flush(clint_resp_flush));
+        .io_yosys_devices_clint_resp_bits_id(clint_resp_id));
 
     // ---- Real device RTL models (generated by nzea_sim; official models, no hand-written behavior) ----
     RamFabricSlave ram (.clock(clk), .reset(~rst_n),
@@ -130,10 +118,9 @@ module tb;
         .io_bus_req_bits_addr(ram_req_addr), .io_bus_req_bits_wdata(ram_req_wdata),
         .io_bus_req_bits_wen(ram_req_wen), .io_bus_req_bits_wstrb(ram_req_wstrb),
         .io_bus_req_bits_user(ram_req_user), .io_bus_req_bits_id(ram_req_id),
-        .io_bus_req_flush(ram_req_flush),
         .io_bus_resp_valid(ram_resp_valid), .io_bus_resp_ready(ram_resp_ready),
         .io_bus_resp_bits_data(ram_resp_data), .io_bus_resp_bits_user(ram_resp_user),
-        .io_bus_resp_bits_id(ram_resp_id), .io_bus_resp_flush(ram_resp_flush),
+        .io_bus_resp_bits_id(ram_resp_id),
         .io_boot_valid(1'b0), .io_boot_bits_addr(15'b0), .io_boot_bits_wdata(32'b0));
 
     FabricBusUart uart16550 (.clock(clk), .reset(~rst_n),
@@ -141,10 +128,9 @@ module tb;
         .io_bus_req_bits_addr(uart_req_addr), .io_bus_req_bits_wdata(uart_req_wdata),
         .io_bus_req_bits_wen(uart_req_wen), .io_bus_req_bits_wstrb(uart_req_wstrb),
         .io_bus_req_bits_user(uart_req_user), .io_bus_req_bits_id(uart_req_id),
-        .io_bus_req_flush(uart_req_flush),
         .io_bus_resp_valid(uart_resp_valid), .io_bus_resp_ready(uart_resp_ready),
         .io_bus_resp_bits_data(uart_resp_data), .io_bus_resp_bits_user(uart_resp_user),
-        .io_bus_resp_bits_id(uart_resp_id), .io_bus_resp_flush(uart_resp_flush),
+        .io_bus_resp_bits_id(uart_resp_id),
         .io_txd(uart_model_txd), .io_rxd(uart_rxd),
         .io_rtsn(uart_model_rtsn), .io_ctsn(uart_ctsn),
         .io_boot_rx_valid(), .io_boot_rx_data());
@@ -154,10 +140,9 @@ module tb;
         .io_bus_req_bits_addr(clint_req_addr), .io_bus_req_bits_wdata(clint_req_wdata),
         .io_bus_req_bits_wen(clint_req_wen), .io_bus_req_bits_wstrb(clint_req_wstrb),
         .io_bus_req_bits_user(clint_req_user), .io_bus_req_bits_id(clint_req_id),
-        .io_bus_req_flush(clint_req_flush),
         .io_bus_resp_valid(clint_resp_valid), .io_bus_resp_ready(clint_resp_ready),
         .io_bus_resp_bits_data(clint_resp_data), .io_bus_resp_bits_user(clint_resp_user),
-        .io_bus_resp_bits_id(clint_resp_id), .io_bus_resp_flush(clint_resp_flush),
+        .io_bus_resp_bits_id(clint_resp_id),
         .io_timer_interrupt(clint_timer_interrupt));
 
     SifiveTestFinisher finisher (.clock(clk), .reset(~rst_n),
@@ -165,15 +150,20 @@ module tb;
         .io_bus_req_bits_addr(fin_req_addr), .io_bus_req_bits_wdata(fin_req_wdata),
         .io_bus_req_bits_wen(fin_req_wen), .io_bus_req_bits_wstrb(fin_req_wstrb),
         .io_bus_req_bits_user(fin_req_user), .io_bus_req_bits_id(fin_req_id),
-        .io_bus_req_flush(fin_req_flush),
         .io_bus_resp_valid(fin_resp_valid), .io_bus_resp_ready(fin_resp_ready),
         .io_bus_resp_bits_data(fin_resp_data), .io_bus_resp_bits_user(fin_resp_user),
-        .io_bus_resp_bits_id(fin_resp_id), .io_bus_resp_flush(fin_resp_flush),
+        .io_bus_resp_bits_id(fin_resp_id),
         .io_finished(finisher_finished));
 
     assign uart_ctsn = 1'b0;
     reg uart_tx = 1'b1; assign uart_rxd = uart_tx;
     assign finish_passed = finisher_finished;
+    // Device req-id inputs: the tile drives id = 0 internally (firtool folds the constant and prunes the top-level
+    // port), so keep the device-side wires driven to avoid x-propagation into crossbar owner matching under iverilog.
+    assign ram_req_id = 8'h0;
+    assign uart_req_id = 8'h0;
+    assign clint_req_id = 8'h0;
+    assign fin_req_id = 8'h0;
 
     // ---- Sub-modules (Chisel-generated) ----
     CommitTracker tracker (

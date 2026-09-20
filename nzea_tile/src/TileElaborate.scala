@@ -80,11 +80,9 @@ object TileElaborate {
             topExtRam(i).req.valid := io2.extRamBus(i).req.valid
             topExtRam(i).req.bits := io2.extRamBus(i).req.bits
             io2.extRamBus(i).req.ready := topExtRam(i).req.ready
-            io2.extRamBus(i).req.flush := topExtRam(i).req.flush
             io2.extRamBus(i).resp.valid := topExtRam(i).resp.valid
             io2.extRamBus(i).resp.bits := topExtRam(i).resp.bits
             topExtRam(i).resp.ready := io2.extRamBus(i).resp.ready
-            topExtRam(i).resp.flush := io2.extRamBus(i).resp.flush
           }
           io.extRamBoot.get <> io2.extRamBoot
           io2.extRamCalibDone := io.extRamCalibDone.get

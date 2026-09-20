@@ -105,21 +105,13 @@ class Ddr3Adapter(
   val reqWdata = RegInit(0.U(dataWidth.W))
   val reqWstrb = RegInit(0.U((dataWidth / 8).W))
   val reqWen = RegInit(false.B)
-  val reqUser = RegInit(0.U(userWidth.W))
-  val reqId = RegInit(0.U(idWidth.W))
+  private val reqUser = RegInit(0.U(userWidth.W))
+  private val reqId = RegInit(0.U(idWidth.W))
 
-  val flush = io.bus.resp.flush
-
-  io.bus.req.flush := false.B
-  io.bus.resp.valid := respValid && !flush
+  io.bus.resp.valid := respValid
   io.bus.resp.bits.data := respData
   io.bus.resp.bits.user := reqUser
   io.bus.resp.bits.id := reqId
-
-  when(flush) {
-    reqPending := false.B
-    respValid := false.B
-  }
 
   // ══ ui domain: MIG app FSM (clocked by ui_clk) ════════════════
   // The ui domain must also reset on the TILE-domain reset (cpuReset / boot
@@ -522,7 +514,7 @@ class Ddr3Adapter(
     reqPending := false.B
   }
 
-  when(respValid && io.bus.resp.ready && !flush) { respValid := false.B }
+  when(respValid && io.bus.resp.ready) { respValid := false.B }
 
   // ── Request admission (after the completion handshake) ─────────
   // MIG calibration level, synchronized into this (tile) domain: requests are
@@ -542,9 +534,9 @@ class Ddr3Adapter(
   // ui FSM stays in sIdle forever (the board-level back-to-back store wedge).
   val handshakeInProg = RegInit(false.B)
   when(doneSeen) { handshakeInProg := true.B }
-  when(flush || (!doneSync2 && handshakeInProg)) { handshakeInProg := false.B }
+  when(!doneSync2 && handshakeInProg) { handshakeInProg := false.B }
 
-  val reqReady = !reqPending && !respValid && !flush && !handshakeInProg && calibSync2
+  val reqReady = !reqPending && !respValid && !handshakeInProg && calibSync2
   io.bus.req.ready := reqReady
 
   // Capture a request with its payload (stable until ui-domain done).
@@ -564,7 +556,7 @@ class Ddr3Adapter(
   io.debug.reqPending := reqPending
   io.debug.respValid := respValid
   io.debug.reqFire := reqFire
-  io.debug.flush := flush
+  io.debug.flush := false.B // bus has no flush; kept for probe-stability
   io.debug.respReady := io.bus.resp.ready
   io.debug.respValidOut := io.bus.resp.valid
   io.debug.calibDoneSync := calibSync2

@@ -12,7 +12,6 @@ class LiteBusWidthConverterTest extends AnyFreeSpec with ChiselSim {
     val io = IO(new Bundle {
       val wide = Flipped(new LiteBusRW(32, wideDW, 8, 1))
       val nReqReady = Input(Bool())
-      val nReqFlush = Input(Bool())
       val nReqValid = Output(Bool())
       val nReqAddr = Output(UInt(32.W))
       val nRespValid = Input(Bool())
@@ -23,7 +22,6 @@ class LiteBusWidthConverterTest extends AnyFreeSpec with ChiselSim {
     private val dut = Module(new LiteBusWidthConverter(wideDW, narrowDW, 32, 8, 1))
     dut.io.wide <> io.wide
     dut.io.narrow.req.ready := io.nReqReady
-    dut.io.narrow.req.flush := io.nReqFlush
     io.nReqValid := dut.io.narrow.req.valid
     io.nReqAddr := dut.io.narrow.req.bits.addr
     io.nRespReady := dut.io.narrow.resp.ready
@@ -46,7 +44,6 @@ class LiteBusWidthConverterTest extends AnyFreeSpec with ChiselSim {
       dut.io.wide.req.valid.poke(false.B)
       dut.io.wide.resp.ready.poke(true.B)
       dut.io.nReqReady.poke(true.B)
-      dut.io.nReqFlush.poke(false.B)
       dut.io.nRespValid.poke(false.B)
       dut.clock.step(2)
 
@@ -78,7 +75,6 @@ class LiteBusWidthConverterTest extends AnyFreeSpec with ChiselSim {
       dut.io.wide.req.valid.poke(false.B)
       dut.io.wide.resp.ready.poke(true.B)
       dut.io.nReqReady.poke(true.B)
-      dut.io.nReqFlush.poke(false.B)
       dut.io.nRespValid.poke(false.B)
       dut.clock.step(2)
 

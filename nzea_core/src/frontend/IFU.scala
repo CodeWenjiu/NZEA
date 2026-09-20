@@ -137,8 +137,6 @@ class IFU(implicit config: CoreConfig) extends Module {
     .elsewhen(rasRedirectFire) { pc := rasTop }
     .elsewhen(pc_update) { pc := pred_next_pc }
 
-  io.bus.resp.flush := io.out.flush
-
   private val respEpoch = IbusUser.epoch(addrWidth, io.bus.resp.bits.user)
   private val epochMatch = respEpoch === epoch
 
@@ -152,5 +150,7 @@ class IFU(implicit config: CoreConfig) extends Module {
 
   io.out.bits.inst := io.bus.resp.bits.data
   io.out.valid := io.bus.resp.valid && !io.out.flush && epochMatch
-  io.bus.resp.ready := io.out.ready || io.out.flush || !epochMatch
+  // Plain-Decoupled resp side: stale responses (stale epoch) are actively digested so they never hold the channel;
+  // out.valid gates them out. No device cooperation needed (bus has no flush).
+  io.bus.resp.ready := io.out.ready || !epochMatch
 }

@@ -484,7 +484,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.resp.valid.peek().litToBoolean && cycles < 300) {
           dut.clock.step()
@@ -515,7 +514,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.resp.valid.peek().litToBoolean && cycles < 300) {
           dut.clock.step()
@@ -541,7 +539,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
   "request fired before calibration completes must complete after ui reset release" in {
     simulate(new Ddr3AdapterCalibTop) { dut =>
       dut.io.bus.resp.ready.poke(true.B)
-      dut.io.bus.resp.flush.poke(false.B)
       dut.io.bus.req.bits.wen.poke(true.B)
       dut.io.bus.req.bits.addr.poke(0x88000010L)
       dut.io.bus.req.bits.wdata.poke(0xcafebabeL)
@@ -592,7 +589,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.req.ready.peek().litToBoolean && cycles < 300) {
           dut.clock.step(); cycles += 1
@@ -634,7 +630,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
       dut.io.uiReset.poke(false.B)
       dut.io.release_read.poke(false.B)
       dut.io.bus.resp.ready.poke(true.B)
-      dut.io.bus.resp.flush.poke(false.B)
       dut.io.bus.req.valid.poke(false.B)
       dut.clock.step(4)
 
@@ -702,7 +697,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
       dut.io.bus.req.bits.user.poke(0)
       dut.io.bus.req.bits.id.poke(0)
       dut.io.bus.resp.ready.poke(true.B)
-      dut.io.bus.resp.flush.poke(false.B)
       var cycles = 0
       while (!dut.io.bus.req.ready.peek().litToBoolean && cycles < 10) {
         dut.clock.step(); cycles += 1
@@ -733,7 +727,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.resp.valid.peek().litToBoolean && cycles < 300) {
           dut.clock.step(); cycles += 1
@@ -771,7 +764,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.resp.valid.peek().litToBoolean && cycles < 300) {
           dut.clock.step(); cycles += 1
@@ -787,7 +779,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
       // new 16B row). Each write must land in its own address — a row-shift
       // bug (board-level "reads back the previous row") shows up here.
       dut.io.bus.resp.ready.poke(true.B)
-      dut.io.bus.resp.flush.poke(false.B)
       val vals =
         Seq(0x11111111L, 0x22222222L, 0x33333333L, 0x44444444L, 0x55555555L, 0x66666666L, 0x77777777L, 0x88888888L)
       for (i <- vals.indices) {
@@ -901,7 +892,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         }
       }
       dut.io.bus.resp.ready.poke(true.B)
-      dut.io.bus.resp.flush.poke(false.B)
       dut.io.bus.req.valid.poke(false.B)
       dut.clock.step(4)
       val vals =
@@ -948,7 +938,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.req.ready.peek().litToBoolean && cycles < 300) {
           dut.clock.step(); cycles += 1
@@ -1002,7 +991,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.resp.valid.peek().litToBoolean && cycles < 300) {
           dut.clock.step(); cycles += 1
@@ -1045,7 +1033,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
       dut.io.bus.req.bits.user.poke(0)
       dut.io.bus.req.bits.id.poke(0)
       dut.io.bus.resp.ready.poke(true.B)
-      dut.io.bus.resp.flush.poke(false.B)
 
       var swrCmdCycles = 0
       var gotResp = false
@@ -1084,8 +1071,7 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
           dut.io.bus.req.bits.user.poke(0)
           dut.io.bus.req.bits.id.poke(0)
           dut.io.bus.resp.ready.poke(true.B)
-          dut.io.bus.resp.flush.poke(false.B)
-          var cycles = 0
+            var cycles = 0
           while (!dut.io.bus.req.ready.peek().litToBoolean && cycles < 300) {
             dut.clock.step(); cycles += 1
           }
@@ -1132,7 +1118,6 @@ class Ddr3AdapterTest extends AnyFreeSpec with ChiselSim {
         dut.io.bus.req.bits.user.poke(0)
         dut.io.bus.req.bits.id.poke(0)
         dut.io.bus.resp.ready.poke(true.B)
-        dut.io.bus.resp.flush.poke(false.B)
         var cycles = 0
         while (!dut.io.bus.resp.valid.peek().litToBoolean && cycles < 300) {
           dut.clock.step(); cycles += 1

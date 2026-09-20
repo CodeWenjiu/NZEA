@@ -74,9 +74,7 @@ class LiteBusWidthConverter(
     val wideRespUser = RegInit(0.U(userWidth.W))
 
     // ── Flush plumbing ─────────────────────────────────────
-    // Forward flush bidirectionally without creating a combinational loop.
-    io.narrow.resp.flush := io.wide.resp.flush
-    io.wide.req.flush := io.narrow.req.flush
+    // (removed: channels are plain Decoupled — cancellation is master-side)
 
     // ── Defaults ───────────────────────────────────────────
     io.wide.req.ready := false.B
@@ -91,7 +89,7 @@ class LiteBusWidthConverter(
       is(sIdle) {
         io.wide.req.ready := true.B
         io.narrow.resp.ready := true.B // drain stale responses from aborted refills
-        when(io.wide.req.valid && !io.wide.resp.flush && !io.narrow.req.flush) {
+        when(io.wide.req.valid) {
           wideAddr := io.wide.req.bits.addr
           wideUser := io.wide.req.bits.user
           wideId := io.wide.req.bits.id
@@ -152,11 +150,6 @@ class LiteBusWidthConverter(
           state := sIdle
         }
       }
-    }
-
-    when(io.wide.resp.flush || io.narrow.req.flush) {
-      state := sIdle
-      wideRespValid := false.B
     }
   }
 

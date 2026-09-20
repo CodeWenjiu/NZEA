@@ -221,7 +221,9 @@ class Rob(depth: Int, numAccessPorts: Int, prfAddrWidth: Int)(implicit config: C
 
   def slotUpdateFu(): Unit = {
     for (p <- io.accessPorts) {
-      when(p.valid) {
+      // Gated by slot validity: without bus-side flush, a stale response (e.g. a load whose request was
+      // squashed) can arrive after do_flush cleared the ROB and would otherwise write a recycled slot.
+      when(p.valid && slotValid(p.bits.rob_id)) {
         val idx = p.bits.rob_id
         slots_is_done(idx) := p.bits.is_done
         slots_next_pc(idx) := p.bits.next_pc

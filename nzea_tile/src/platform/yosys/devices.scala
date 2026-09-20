@@ -17,13 +17,11 @@ class SimDeviceDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth
 
   private val bridge = Module(new DbusDpiBridge(addrWidth, dataWidth, userWidth, idWidth))
 
-  // Explicit connection to break combinational flush loop (DbusDpiBridge ties req.flush := resp.flush).
+  // Explicit connection (channels are plain Decoupled — no flush).
   bridge.io.bus.req.valid := io.bus.req.valid
   bridge.io.bus.req.bits := io.bus.req.bits
   io.bus.req.ready := bridge.io.bus.req.ready
-  io.bus.req.flush := false.B
   io.bus.resp.valid := bridge.io.bus.resp.valid
   io.bus.resp.bits := bridge.io.bus.resp.bits
   bridge.io.bus.resp.ready := io.bus.resp.ready
-  bridge.io.bus.resp.flush := io.bus.resp.flush
 }

@@ -18,3 +18,4 @@ result
 /vivado_*.backup.jou
 /vivado_*.backup.log
 /vivado_pid*.str
+glog_dump.log

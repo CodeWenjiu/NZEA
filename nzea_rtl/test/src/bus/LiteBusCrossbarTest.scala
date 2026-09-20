@@ -241,7 +241,7 @@ class LiteBusCrossbarTest extends AnyFreeSpec with ChiselSim with LiteBusTestHel
     }
   }
 
-  "flush clears ownership and recovers with fresh traffic" in withSvsim {
+  "stale response routes normally without flush (digest is master-side)" in withSvsim {
     simulate(new Xbar2x2Top) { dut =>
       initMaster(dut.io.in(0)); initMaster(dut.io.in(1))
       initEndpoint(dut.io.out(0), reqReady = true); initEndpoint(dut.io.out(1), reqReady = true)
@@ -250,12 +250,10 @@ class LiteBusCrossbarTest extends AnyFreeSpec with ChiselSim with LiteBusTestHel
       driveReq(dut.io.in(0), addr = BigInt("00000040", 16), user = BigInt("77", 16), id = 7)
       dut.io.in(0).req.ready.expect(true.B); dut.clock.step(); clearReq(dut.io.in(0))
 
-      // Trigger flush.
-      dut.io.in(0).resp.flush.poke(true.B); dut.clock.step(); dut.io.in(0).resp.flush.poke(false.B)
-
-      // Stale response dropped, not delivered.
+      // A response whose owner slot is still allocated (request was squashed master-side, no bus flush)
+      // is routed normally — the master decides whether to digest it.
       driveResp(dut.io.out(0), data = BigInt("DEAD", 16), user = BigInt("77", 16), id = 0)
-      dut.io.in(0).resp.valid.expect(false.B); dut.io.out(0).resp.ready.expect(true.B)
+      dut.io.in(0).resp.valid.expect(true.B); dut.io.out(0).resp.ready.expect(true.B)
       dut.clock.step(); clearResp(dut.io.out(0))
 
       // Fresh request works normally.

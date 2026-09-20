@@ -41,7 +41,6 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
     // Fake memory bus — shift register for configurable response delay.
     private val shift = RegInit(VecInit(Seq.fill(responseDelay)(false.B)))
     cache.io.bottom.req.ready := true.B
-    cache.io.bottom.req.flush := false.B
     cache.io.bottom.resp.valid := shift.last
     cache.io.bottom.resp.bits.data := 0.U
     cache.io.bottom.resp.bits.user := 0.U
@@ -66,7 +65,6 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
     def init(): Unit = {
       dut.io.top.req.valid.poke(false.B)
       dut.io.top.resp.ready.poke(true.B)
-      dut.io.top.resp.flush.poke(false.B)
       dut.clock.step(2)
     }
 

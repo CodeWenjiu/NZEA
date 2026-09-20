@@ -65,9 +65,7 @@ class MinIfu(implicit config: CoreConfig) extends Module {
   // No device-side cancellation on this engine: every response is accepted (digested) and only the out.valid gate
   // (flush/epoch) decides whether it reaches the pipeline — the bus contract for the fetch side is plain Decoupled,
   // cancellation happens entirely in the IFU. A stale response may hold the resp channel for a cycle or two while
-  // REG1 is busy, then is digested on the next REG1-empty window (a flush always empties REG1). resp.flush stays in
-  // the bus protocol for masters without a tag (LSU relies on device-side dropping); this master drives it inert.
-  io.bus.resp.flush := false.B
+  // REG1 is busy, then is digested on the next REG1-empty window (a flush always empties REG1).
 
   io.out.bits.pc := IbusUser.pc(addrWidth, io.bus.resp.bits.user)
   io.out.bits.pred_next_pc := 0.U // prediction chain removed from the fetch core

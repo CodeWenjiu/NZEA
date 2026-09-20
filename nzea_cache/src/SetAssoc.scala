@@ -145,8 +145,6 @@ class SetAssoc(
   refill.io.startUser := t0Req.bits.user
   refill.io.startWordOff := wordOff
 
-  refill.io.flush := io.top.resp.flush
-
   io.bottom <> refill.io.bottom
 
   // Storage write
@@ -172,8 +170,6 @@ class SetAssoc(
   io.top.req.ready := !refill.io.busy && !t1Resp.valid && !t0Req.valid && !bypassPending
   io.top.resp.valid := t1Resp.valid
   io.top.resp.bits := t1Resp.bits
-
-  io.top.req.flush := false.B
 
   // ═══════════════════════════════════════════════════════════════
   // Pipeline advance
@@ -214,15 +210,5 @@ class SetAssoc(
   when(t0Req.valid && hit) { t0Req.valid := false.B }
   when(t1Resp.valid && io.top.resp.ready) { t1Resp.valid := false.B }
   when(bypassPending && t1Resp.valid && io.top.resp.ready) { bypassPending := false.B }
-
-  // ═══════════════════════════════════════════════════════════════
-  // Flush: clear pipeline state
-  // ═══════════════════════════════════════════════════════════════
-
-  when(io.top.resp.flush) {
-    t0Req.valid := false.B
-    t1Resp.valid := false.B
-    bypassPending := false.B
-  }
 
 }

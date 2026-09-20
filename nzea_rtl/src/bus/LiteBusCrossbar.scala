@@ -52,13 +52,6 @@ class LiteBusCrossbar(
     if (n <= 1) 0.U else Mux(x === (n - 1).U, 0.U, x + 1.U)
   }
 
-  private val flushFromMasters = io.in.map(_.resp.flush).reduce(_ || _)
-  private val flushFromSlaves = io.out.map(_.req.flush).reduce(_ || _)
-  private val flush = flushFromMasters || flushFromSlaves
-
-  io.out.foreach(_.resp.flush := flush)
-  io.in.foreach(_.req.flush := flush)
-
   // Outstanding owner table per slave: (id -> owner master).
   private val ownerValid = RegInit(VecInit.fill(numSlaves)(VecInit.fill(perSlaveOutstanding)(false.B)))
   private val ownerId = Reg(Vec(numSlaves, Vec(perSlaveOutstanding, UInt(idWidth.W))))
@@ -70,7 +63,7 @@ class LiteBusCrossbar(
   val hasHit = Wire(Vec(numMasters, Bool()))
 
   for (m <- 0 until numMasters) {
-    eligible(m) := io.in(m).req.valid && !flush
+    eligible(m) := io.in(m).req.valid
     for (s <- 0 until numSlaves) {
       val r = ranges(s)
       val baseHit = io.in(m).req.bits.addr >= r.base.U(addrWidth.W)
@@ -120,7 +113,7 @@ class LiteBusCrossbar(
     val grantIdx = Mux(sumIdx >= numMasters.U, sumIdx - numMasters.U, sumIdx)(mIdxWidth - 1, 0)
     val grantOH = Mux(hasCandidate, UIntToOH(grantIdx, numMasters), 0.U(numMasters.W))
 
-    issueValid(s) := hasCandidate && !flush
+    issueValid(s) := hasCandidate
     issueGrantIdx(s) := grantIdx
     issueGrantOH(s) := grantOH
 
@@ -161,7 +154,7 @@ class LiteBusCrossbar(
       }
       .foldLeft(false.B)(_ || _)
 
-    val miss = io.in(m).req.valid && !flush && !hasHit(m)
+    val miss = io.in(m).req.valid && !hasHit(m)
     val missReady = !missPending(m)
     io.in(m).req.ready := readyFromHits || (miss && missReady)
     missReqFire(m) := miss && missReady
@@ -240,13 +233,13 @@ class LiteBusCrossbar(
 
     val qNonEmpty = respQCount(m) =/= 0.U
     val qHasSpace = respQCount(m) =/= perMasterRespDepth.U
-    val canBypass = !qNonEmpty && io.in(m).resp.ready && !flush
+    val canBypass = !qNonEmpty && io.in(m).resp.ready
     val bypassHit = hasCandidate && canBypass
     val bypassMiss = !hasCandidate && missPending(m) && canBypass
-    val enqHit = hasCandidate && !canBypass && qHasSpace && !flush
-    val enqMiss = !hasCandidate && missPending(m) && !canBypass && qHasSpace && !flush
+    val enqHit = hasCandidate && !canBypass && qHasSpace
+    val enqMiss = !hasCandidate && missPending(m) && !canBypass && qHasSpace
     val enqFire = enqHit || enqMiss
-    val deqFire = qNonEmpty && io.in(m).resp.ready && !flush
+    val deqFire = qNonEmpty && io.in(m).resp.ready
 
     val qHeadData = respQData(m)(respQHead(m))
     val qHeadUser = respQUser(m)(respQHead(m))
@@ -278,21 +271,19 @@ class LiteBusCrossbar(
       respQUser(m)(respQTail(m)) := Mux(hasCandidate, masterRespUserSel(m), missUser(m))
       respQId(m)(respQTail(m)) := Mux(hasCandidate, masterRespIdSel(m), missId(m))
     }
-    when(!flush) {
-      when(enqFire) {
-        respQTail(m) := wrapInc(respQTail(m), perMasterRespDepth)
-      }
-      when(deqFire) {
-        respQHead(m) := wrapInc(respQHead(m), perMasterRespDepth)
-      }
-      respQCount(m) := MuxCase(
-        respQCount(m),
-        Seq(
-          (enqFire && !deqFire) -> (respQCount(m) + 1.U),
-          (!enqFire && deqFire) -> (respQCount(m) - 1.U)
-        )
-      )
+    when(enqFire) {
+      respQTail(m) := wrapInc(respQTail(m), perMasterRespDepth)
     }
+    when(deqFire) {
+      respQHead(m) := wrapInc(respQHead(m), perMasterRespDepth)
+    }
+    respQCount(m) := MuxCase(
+      respQCount(m),
+      Seq(
+        (enqFire && !deqFire) -> (respQCount(m) + 1.U),
+        (!enqFire && deqFire) -> (respQCount(m) - 1.U)
+      )
+    )
 
     when(masterSlaveRespFire(m)) {
       masterRespRrPtr(m) := wrapInc(masterSelectedSlave(m), numSlaves)
@@ -347,20 +338,6 @@ class LiteBusCrossbar(
     }
     when(missRespFire(m)) {
       missPending(m) := false.B
-    }
-  }
-
-  when(flush) {
-    for (m <- 0 until numMasters) {
-      missPending(m) := false.B
-      respQHead(m) := 0.U
-      respQTail(m) := 0.U
-      respQCount(m) := 0.U
-    }
-    for (s <- 0 until numSlaves) {
-      for (e <- 0 until perSlaveOutstanding) {
-        ownerValid(s)(e) := false.B
-      }
     }
   }
 

@@ -20,15 +20,13 @@ class Clint(base: BigInt, userWidth: Int, idWidth: Int) extends Module {
 
   val mtimecmp = RegInit(0.U(64.W))
 
-  private val flush = io.bus.resp.flush
   private val busy = RegInit(false.B)
   private val respUser = RegInit(0.U(userWidth.W))
   private val respId = RegInit(0.U(idWidth.W))
   private val respData = RegInit(0.U(32.W))
 
-  io.bus.req.ready := !busy && !flush
-  io.bus.req.flush := false.B
-  io.bus.resp.valid := busy && !flush
+  io.bus.req.ready := !busy
+  io.bus.resp.valid := busy
   io.bus.resp.bits.data := respData
   io.bus.resp.bits.user := respUser
   io.bus.resp.bits.id := respId
@@ -56,7 +54,7 @@ class Clint(base: BigInt, userWidth: Int, idWidth: Int) extends Module {
     }
   }
 
-  when(io.bus.resp.fire || flush) { busy := false.B }
+  when(io.bus.resp.fire) { busy := false.B }
 
   io.timer_interrupt := mtime >= mtimecmp && mtimecmp =/= 0.U
 }

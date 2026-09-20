@@ -11,9 +11,6 @@ class DbusMemBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
     val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, 1))
   })
 
-  val flush = io.bus.resp.flush
-  io.bus.req.flush := flush
-
   val req = io.bus.req.bits
   val isRead = !req.wen
   val respType = new LiteResp(dataWidth, userWidth, 1)
@@ -21,8 +18,10 @@ class DbusMemBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))
   val readRespOut = Wire(new PipeIO(respType))
-  stage1.flush := flush
-  readRespOut.flush := flush
+  // Internal pipeline keeps the PipeIO container (PipelineConnect), bus side is Decoupled-only.
+  internalResp.flush := false.B
+  stage1.flush := false.B
+  readRespOut.flush := false.B
 
   io.bus.req.ready := internalResp.ready
   val fire = io.bus.req.valid && io.bus.req.ready

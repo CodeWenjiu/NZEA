@@ -1,7 +1,8 @@
 package nzea_rtl
 
 import chisel3._
-import chisel3.util.{log2Ceil, Cat, MuxCase}
+import chisel3.util.{log2Ceil, Cat, MuxCase, RegEnable}
+import chisel3.util.DecoupledIO
 
 /** Address window for bus decode. */
 case class LiteAddrRange(base: BigInt, size: BigInt) {
@@ -34,7 +35,9 @@ trait LiteBusLike { self: Bundle =>
   def idWidth: Int
 }
 
-/** Unified read-write bus with request ID for outstanding support. */
+/** Unified read-write bus with request ID for outstanding support. The channels are plain Decoupled: cancellation is
+  * a master-side contract (digest + tag/epoch matching) — the transport protocol carries no flush/rollback semantics.
+  */
 class LiteBusRW(
     val addrWidth: Int,
     val dataWidth: Int,
@@ -44,8 +47,8 @@ class LiteBusRW(
     with LiteBusLike {
   require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
   require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
-  val req = new PipeIO(new LiteReq(addrWidth, dataWidth, userWidth, idWidth))
-  val resp = Flipped(new PipeIO(new LiteResp(dataWidth, userWidth, idWidth)))
+  val req = new DecoupledIO(new LiteReq(addrWidth, dataWidth, userWidth, idWidth))
+  val resp = Flipped(new DecoupledIO(new LiteResp(dataWidth, userWidth, idWidth)))
 }
 
 /** Read-only request payload: address + user + id, no write fields. */
@@ -56,7 +59,8 @@ class LiteReqRO(addrWidth: Int, userWidth: Int, idWidth: Int) extends Bundle {
 }
 
 /** Read-only bus: request without the write channel (addr/user/id only). Used by fetch-side masters (I-Fetch, I-Cache)
-  * so "never writes" is a type-level guarantee instead of a `wen = false.B` convention.
+  * so "never writes" is a type-level guarantee instead of a `wen = false.B` convention. Channels are plain Decoupled
+  * (cancellation is master-side, see [[LiteBusRW]]).
   */
 class LiteBusRO(
     val addrWidth: Int,
@@ -67,12 +71,12 @@ class LiteBusRO(
     with LiteBusLike {
   require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
   require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
-  val req = new PipeIO(new LiteReqRO(addrWidth, userWidth, idWidth))
-  val resp = Flipped(new PipeIO(new LiteResp(dataWidth, userWidth, idWidth)))
+  val req = new DecoupledIO(new LiteReqRO(addrWidth, userWidth, idWidth))
+  val resp = Flipped(new DecoupledIO(new LiteResp(dataWidth, userWidth, idWidth)))
 }
 
 /** Combinational adapter: read-only master side → full read/write side. Write fields are tied to their inert values;
-  * req/resp handshake and flush pass through. Used where a read-only stream enters a read/write device (register slice,
+  * req/resp handshake pass through. Used where a read-only stream enters a read/write device (register slice,
   * crossbar, cache bottom).
   */
 class LiteBusROToRW(
@@ -96,12 +100,10 @@ class LiteBusROToRW(
   io.rw.req.bits.wen := false.B
   io.rw.req.bits.wstrb := 0.U
   io.ro.req.ready := io.rw.req.ready
-  io.ro.req.flush := io.rw.req.flush
 
   // Resp: write side consumes, read-only side produces.
   io.ro.resp.valid := io.rw.resp.valid
   io.ro.resp.bits := io.rw.resp.bits
-  io.rw.resp.flush := io.ro.resp.flush
   io.rw.resp.ready := io.ro.resp.ready
 }
 
@@ -118,9 +120,15 @@ class LiteBusRegisterSlice(
     val out = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
   })
 
-  PipelineConnect(io.in.req, io.out.req)
+  // Request direction: one-stage register, plain Decoupled (no flush port), same handshake as PipelineConnect.
+  val reqValid = RegInit(false.B)
+  val reqData = RegEnable(io.in.req.bits, io.in.req.fire)
+  io.in.req.ready := !reqValid || io.out.req.ready
+  io.out.req.valid := reqValid
+  io.out.req.bits := reqData
+  reqValid := MuxCase(reqValid, Seq(io.in.req.fire -> true.B, io.out.req.fire -> false.B))
 
-  // Response side: tiny flushable FIFO + registered dequeue output.
+  // Response side: tiny FIFO + registered dequeue output.
   // The FIFO stores entries; the dequeue is locked into `respDeqData` and held until
   // consumed, so `io.in.resp.bits` is register-driven. This cuts the combinational
   // FIFO-read fanout that previously reached the I-Cache refill path (STA critical:
@@ -130,7 +138,6 @@ class LiteBusRegisterSlice(
   val head = RegInit(0.U(1.W))
   val tail = RegInit(0.U(1.W))
   val count = RegInit(0.U(2.W))
-  val flush = io.in.resp.flush
 
   val canEnq = count =/= 2.U
   val canDeq = count =/= 0.U
@@ -140,33 +147,25 @@ class LiteBusRegisterSlice(
   val respDeqValid = RegInit(false.B)
   val respDeqData = RegInit(0.U.asTypeOf(new LiteResp(dataWidth, userWidth, idWidth)))
 
-  io.out.resp.ready := canEnq && !flush
-  io.out.resp.flush := flush
+  io.out.resp.ready := canEnq
 
-  io.in.resp.valid := respDeqValid && !flush
+  io.in.resp.valid := respDeqValid
   io.in.resp.bits := respDeqData
 
   val enqFire = io.out.resp.valid && io.out.resp.ready
   val deqFire = io.in.resp.valid && io.in.resp.ready
   val deqTake = (canDeq && !respDeqValid) || (deqFire && canDeq && count > 1.U)
 
-  when(flush) {
-    head := 0.U
-    tail := 0.U
-    count := 0.U
-    respDeqValid := false.B
-  }.otherwise {
-    when(enqFire) { respQ(tail) := io.out.resp.bits; tail := ~tail }
-    when(deqTake) { respDeqData := respQ(head); head := ~head }
-    when(deqFire) { respDeqValid := false.B }
-    when(deqTake) { respDeqValid := true.B }
-    count := MuxCase(
-      count,
-      Seq(
-        (enqFire && !deqTake) -> (count + 1.U),
-        (!enqFire && deqTake) -> (count - 1.U)
-      )
+  when(enqFire) { respQ(tail) := io.out.resp.bits; tail := ~tail }
+  when(deqTake) { respDeqData := respQ(head); head := ~head }
+  when(deqFire) { respDeqValid := false.B }
+  when(deqTake) { respDeqValid := true.B }
+  count := MuxCase(
+    count,
+    Seq(
+      (enqFire && !deqTake) -> (count + 1.U),
+      (!enqFire && deqTake) -> (count - 1.U)
     )
-  }
+  )
 
 }

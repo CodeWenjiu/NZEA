@@ -7,8 +7,9 @@ import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFu
 import nzea_rtl._
 import nzea_core.retire.CommitMsg
 
-/** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect. Flush clears in-flight;
-  * req.flush/resp.flush from bus.resp.flush.
+/** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect. Bus channels are plain Decoupled:
+  * cancellation is master-side (epoch digest), so the bridge pipeline never needs flushing — every accepted request
+  * simply produces its response. (bus_read is side-effect free.)
   */
 class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
 
@@ -16,13 +17,12 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int
     val bus = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth, idWidth))
   })
 
-  val flush = io.bus.resp.flush
-  io.bus.req.flush := flush
-
   val respType = new LiteResp(dataWidth, userWidth, idWidth)
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))
-  stage1.flush := flush
+  // Internal pipeline keeps the PipeIO container (PipelineConnect), bus side is Decoupled-only.
+  internalResp.flush := false.B
+  stage1.flush := false.B
 
   io.bus.req.ready := internalResp.ready
   val reqFire = io.bus.req.valid && io.bus.req.ready
@@ -40,20 +40,22 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int
   internalResp.bits.id := io.bus.req.bits.id
 
   PipelineConnect(internalResp, stage1)
-  PipelineConnect(stage1, io.bus.resp)
+  // stage1 (PipeIO) -> bus resp (Decoupled): manual tail connection.
+  io.bus.resp.valid := stage1.valid
+  io.bus.resp.bits := stage1.bits
+  stage1.ready := io.bus.resp.ready
 }
 
 /** Bridges Core dbus to DPI-C bus_read and bus_write. Read and write both go through 2-cycle pipeline. Store also waits
-  * for resp (for fault handling). Flush clears in-flight.
+  * for resp (for fault handling). Bus channels are plain Decoupled: cancellation is master-side, the bridge pipeline
+  * never needs flushing (reads are side-effect free; writes, once executed, are not un-executable and their response
+  * is digested by the master if stale).
   */
 class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
 
   val io = IO(new Bundle {
     val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
   })
-
-  val flush = io.bus.resp.flush
-  io.bus.req.flush := flush
 
   val req = io.bus.req.bits
   val isRead = !req.wen
@@ -62,8 +64,10 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int
   val internalResp = Wire(new PipeIO(respType))
   val stage1 = Wire(new PipeIO(respType))
   val readRespOut = Wire(new PipeIO(respType))
-  stage1.flush := flush
-  readRespOut.flush := flush
+  // Internal pipeline keeps the PipeIO container (PipelineConnect), bus side is Decoupled-only.
+  internalResp.flush := false.B
+  stage1.flush := false.B
+  readRespOut.flush := false.B
 
   io.bus.req.ready := internalResp.ready
   val fire = io.bus.req.valid && io.bus.req.ready

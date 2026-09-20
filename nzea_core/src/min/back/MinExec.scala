@@ -238,12 +238,23 @@ class MinExec(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: Co
       .elsewhen(uopEdge && isLsu) { memReqValid := true.B }
   }
 
+  // Request tag (rides the rob_id echo): distinguishes the current uop's response from a stale one — without
+  // bus-side flush, a squashed request's response may arrive while the *next* LSU uop is executing (variable
+  // latency, e.g. cache miss), and would otherwise fire done with wrong data.
+  private val lsuTag = RegInit(0.U(2.W))
+  private val curLsuTag = RegInit(0.U(2.W))
+  when(uopEdge && isLsu) {
+    curLsuTag := lsuTag
+    lsuTag := lsuTag + 1.U
+  }
+  private val respTagMatch = mem.io.rob_access.bits.rob_id === curLsuTag
+
   mem.io.mem_req.valid := memReqValid
   mem.io.mem_req.bits.addr := addr
   mem.io.mem_req.bits.wdata := wdata
   mem.io.mem_req.bits.wstrb := wstrb
   mem.io.mem_req.bits.lsuOp := lsuOp
-  mem.io.mem_req.bits.rob_id := 0.U
+  mem.io.mem_req.bits.rob_id := curLsuTag
   mem.io.mem_req.bits.p_rd := 0.U
   mem.io.out.ready := true.B
   mem.io.out.flush := flushing
@@ -261,8 +272,8 @@ class MinExec(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: Co
       div.map(d => isDiv && d.io.rob_access.valid).getOrElse(false.B) ||
       nnu.map(n => isNnu && n.io.rob_access.valid).getOrElse(false.B))
 
-  private val loadDone = uopValid && isLsu && isLoad && mem.io.out.valid
-  private val storeDone = uopValid && isLsu && !isLoad && mem.io.rob_access.valid
+  private val loadDone = uopValid && isLsu && isLoad && mem.io.out.valid && respTagMatch
+  private val storeDone = uopValid && isLsu && !isLoad && mem.io.rob_access.valid && respTagMatch
   private val done = exuDone || loadDone || storeDone
 
   // -------- Result assembly (combinational, valid on the done edge) --------

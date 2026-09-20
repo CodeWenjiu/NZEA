@@ -12,16 +12,14 @@ import nzea_tile.platform.yosys.SimDeviceDpiBridge
 object Platform {
 
   /** Directional connection between two same-orientation (master-facing, non-Flipped) LiteBusRW endpoints: the
-    * crossbar's out port drives req into the tile boundary bus, and the boundary bus returns ready/flush/resp. `<>`
+    * crossbar's out port drives req into the tile boundary bus, and the boundary bus returns ready/resp. `<>`
     * cannot be used — both ends declare the same directions.
     */
   private def connectExtMem(boundary: LiteBusRW, fabricOut: LiteBusRW): Unit = {
     boundary.req.bits := fabricOut.req.bits
     boundary.req.valid := fabricOut.req.valid
     fabricOut.req.ready := boundary.req.ready
-    fabricOut.req.flush := boundary.req.flush
     boundary.resp.ready := fabricOut.resp.ready
-    boundary.resp.flush := fabricOut.resp.flush
     fabricOut.resp.bits := boundary.resp.bits
     fabricOut.resp.valid := boundary.resp.valid
   }
