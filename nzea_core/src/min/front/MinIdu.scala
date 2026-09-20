@@ -6,34 +6,34 @@ import nzea_rtl.PipeIO
 import nzea_core.frontend.{DecodeFields, FuDecode, FuType, ImmType, RiscvInsts}
 import nzea_core.backend.integer.FuOpWidth
 import nzea_config.core.CoreConfig
-import nzea_core.PayloadFields
 
-/** Decode output: resolved indexes + decode info, operands NOT read here — the ARF lives in the execute stage and is
-  * read after issue (single-flight: the previous instruction has already committed by then, so no hazard and no forward
-  * needed).
+/** Decode output: resolved indexes + decode info. Operand *values* are read here (ARF lives in the fetch stage):
+  * with no register renaming the architectural indexes need no processing, and the front-end capture cycle
+  * (`front.io.out` fires only while the middle is idle) reads exactly the post-commit values — equivalent to the
+  * delayed read, but one stage earlier. Renaming later moves the read into a new middle stage (RAT + PRF) and the
+  * payload reverts to index form; that swap is an engine variant, not a config switch.
   */
 class MinIduOut(width: Int)(implicit config: CoreConfig) extends Bundle {
   val pc = UInt(32.W)
-  val pred_next_pc = UInt(32.W)
   val imm = UInt(32.W)
   val rd_index = UInt(5.W)
-  val rs1_index = UInt(5.W)
-  val rs2_index = UInt(5.W)
+  val rs1_val = UInt(32.W)
+  val rs2_val = UInt(32.W)
   val fu_type = FuType()
   val fu_op = UInt(FuOpWidth.Width.W)
   val fu_src = UInt(nzea_core.frontend.FuSrcWidth.Width.W)
   val csr_addr = UInt(12.W)
-  val is_ret = PayloadFields.retCommit
 }
 
-/** Decode only. The register file lives in [[MinMiddle]] (read after issue, written on commit), so decode never sees
-  * stale operands; execution happens in [[MinExec]] behind a ready-operand uop.
+/** Decode only. The architectural register file lives here (read after decode — see [[MinIduOut]]), its write-back
+  * arrives from the middle commit point over the bus; execution happens in [[MinExec]] behind a ready-operand uop.
   */
 class MinIdu(width: Int)(implicit config: CoreConfig) extends Module {
 
   val io = IO(new Bundle {
     val in = Flipped(new PipeIO(new nzea_core.frontend.IFUOut(width)))
     val out = new PipeIO(new MinIduOut(width))
+    val arf_write = Flipped(nzea_core.min.CoreChannels.arfWrite)
   })
 
   io.in.flush := io.out.flush
@@ -53,6 +53,14 @@ class MinIdu(width: Int)(implicit config: CoreConfig) extends Module {
   val rs2_index = Mux(rs2Rd, io.in.bits.inst(24, 20), 0.U(5.W))
   val rd_index = Mux(gprWr, io.in.bits.inst(11, 7), 0.U(5.W))
 
+  // Architectural register file (fetch stage): combinational read at decode, written by the middle commit point.
+  // x0 is hardwired 0. Read timing equals the delayed read (the front-end capture cycle only fires while the middle
+  // is idle, i.e. after the previous commit's write landed), so no hazard and no forward.
+  private val arf = Reg(Vec(32, UInt(32.W)))
+  when(io.arf_write.valid && io.arf_write.bits.rd_index =/= 0.U) {
+    arf(io.arf_write.bits.rd_index) := io.arf_write.bits.data
+  }
+
   val inst = io.in.bits.inst
   val immI = Cat(Fill(20, inst(31)), inst(31, 20))
   val immS = Cat(Fill(20, inst(31)), inst(31, 25), inst(11, 7))
@@ -64,21 +72,15 @@ class MinIdu(width: Int)(implicit config: CoreConfig) extends Module {
 
   // -------- Operand indexes (values are read in the execute stage) --------
 
-  // RAS classification (commit-chain only): JAL/JALR returning via x1.
-  val isJalr = inst(6, 0) === 0x67.U(7.W)
-  val isRet = isJalr && inst(19, 15) === 1.U && inst(11, 7) =/= 1.U
-
   io.out.valid := io.in.valid && io.out.ready
   io.out.bits.pc := io.in.bits.pc
-  io.out.bits.pred_next_pc := io.in.bits.pred_next_pc
   io.out.bits.imm := imm
   io.out.bits.rd_index := rd_index
-  io.out.bits.rs1_index := rs1_index
-  io.out.bits.rs2_index := rs2_index
+  io.out.bits.rs1_val := Mux(rs1_index === 0.U, 0.U(32.W), arf(rs1_index))
+  io.out.bits.rs2_val := Mux(rs2_index === 0.U, 0.U(32.W), arf(rs2_index))
   io.out.bits.fu_type := fuType
   io.out.bits.fu_op := fuOp
   io.out.bits.fu_src := fuSrc
   io.out.bits.csr_addr := inst(31, 20)
-  io.out.bits.is_ret.foreach(_ := isRet)
   io.in.ready := io.out.ready
 }

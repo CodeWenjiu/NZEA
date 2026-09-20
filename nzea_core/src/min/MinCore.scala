@@ -9,6 +9,10 @@ import nzea_config.core.CoreConfig
 
 /** Baseline core: in-order single-issue, no branch prediction, no renaming.
   *
+  * Baseline ISA is riscv32i: the M-extension multiplier/divider are the STA critical chain on this engine and are
+  * currently not exercised (the hasM-gated FU instances in [[back.MinExec]] stay for the OoO engine, so the baseline
+  * stays lean until the M units get a suitable pipeline).
+  *
   * Same external contract as [[nzea_core.Core]] — ibus / dbus / commit_msg — so it can replace the OoO core in the tile
   * without touching the fabric. Three explicit stages, all traffic flowing through the unified [[CoreBus]]: front-end
   * ([[MinFront]]: fetch + decode with the internal pipeline), middle ([[MinMiddle]]: single-flight dispatch + ARF +

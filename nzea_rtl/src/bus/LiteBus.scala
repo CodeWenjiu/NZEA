@@ -48,6 +48,63 @@ class LiteBusRW(
   val resp = Flipped(new PipeIO(new LiteResp(dataWidth, userWidth, idWidth)))
 }
 
+/** Read-only request payload: address + user + id, no write fields. */
+class LiteReqRO(addrWidth: Int, userWidth: Int, idWidth: Int) extends Bundle {
+  val addr = UInt(addrWidth.W)
+  val user = UInt(userWidth.W)
+  val id = UInt(idWidth.W)
+}
+
+/** Read-only bus: request without the write channel (addr/user/id only). Used by fetch-side masters (I-Fetch, I-Cache)
+  * so "never writes" is a type-level guarantee instead of a `wen = false.B` convention.
+  */
+class LiteBusRO(
+    val addrWidth: Int,
+    val dataWidth: Int,
+    val userWidth: Int,
+    val idWidth: Int
+) extends Bundle
+    with LiteBusLike {
+  require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
+  require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
+  val req = new PipeIO(new LiteReqRO(addrWidth, userWidth, idWidth))
+  val resp = Flipped(new PipeIO(new LiteResp(dataWidth, userWidth, idWidth)))
+}
+
+/** Combinational adapter: read-only master side → full read/write side. Write fields are tied to their inert values;
+  * req/resp handshake and flush pass through. Used where a read-only stream enters a read/write device (register slice,
+  * crossbar, cache bottom).
+  */
+class LiteBusROToRW(
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int
+) extends Module {
+
+  val io = IO(new Bundle {
+    val ro = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth, idWidth))
+    val rw = new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth)
+  })
+
+  // Req: read-only side consumes, write side produces (write payload inert).
+  io.rw.req.valid := io.ro.req.valid
+  io.rw.req.bits.addr := io.ro.req.bits.addr
+  io.rw.req.bits.user := io.ro.req.bits.user
+  io.rw.req.bits.id := io.ro.req.bits.id
+  io.rw.req.bits.wdata := 0.U
+  io.rw.req.bits.wen := false.B
+  io.rw.req.bits.wstrb := 0.U
+  io.ro.req.ready := io.rw.req.ready
+  io.ro.req.flush := io.rw.req.flush
+
+  // Resp: write side consumes, read-only side produces.
+  io.ro.resp.valid := io.rw.resp.valid
+  io.ro.resp.bits := io.rw.resp.bits
+  io.rw.resp.flush := io.ro.resp.flush
+  io.rw.resp.ready := io.ro.resp.ready
+}
+
 /** One-stage register slice. Cuts combinational paths on both req and resp channels. */
 class LiteBusRegisterSlice(
     addrWidth: Int,

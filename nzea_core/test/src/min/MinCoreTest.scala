@@ -31,7 +31,8 @@ class MinCoreTest extends AnyFlatSpec with ChiselScalatestTester {
 
   // (addr -> inst): addi x1,x0,100; addi x2,x1,5; addi x3,x2,-3; sw x3,8(x0);
   // lw x4,8(x0); addi x5,x4,1; beq x5,x5,8; [skipped] addi x6,x0,99;
-  // mul x8,x1,x2; div x9,x8,x1; addi x7,x0,7; ecall
+  // addi x7,x0,7; ecall.
+  // Baseline ISA is riscv32i (M extension not exercised on the in-order engine).
   private val Code = Seq(
     0x8000_0000L -> 0x06400093L,
     0x8000_0004L -> 0x00508113L,
@@ -41,10 +42,8 @@ class MinCoreTest extends AnyFlatSpec with ChiselScalatestTester {
     0x8000_0014L -> 0x00120293L,
     0x8000_0018L -> 0x00528463L,
     0x8000_001cL -> 0x06300313L,
-    0x8000_0020L -> 0x02208433L, // mul x8,x1,x2 (100*105=10500)
-    0x8000_0024L -> 0x021444b3L, // div x9,x8,x1 (10500/100=105)
-    0x8000_0028L -> 0x00700393L,
-    0x8000_002cL -> 0x00000073L
+    0x8000_0020L -> 0x00700393L,
+    0x8000_0024L -> 0x00000073L
   )
 
   // Expected commit stream: (next_pc, rd_index, rd_value) — rd_value checked only when rd != 0.
@@ -56,10 +55,8 @@ class MinCoreTest extends AnyFlatSpec with ChiselScalatestTester {
     (0x8000_0014L, 4, 102L),
     (0x8000_0018L, 5, 103L),
     (0x8000_0020L, 0, 0L), // beq (next_pc = taken target)
-    (0x8000_0024L, 8, 10500L), // mul
-    (0x8000_0028L, 9, 105L), // div
-    (0x8000_002cL, 7, 7L),
-    (0x8000_0030L, 0, 0L) // ecall
+    (0x8000_0024L, 7, 7L),
+    (0x8000_0028L, 0, 0L) // ecall
   )
 
   private case class Pending(addr: Long, user: BigInt, countdown: Int)

@@ -2,7 +2,7 @@ package nzea_core
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_rtl.LiteBusRW
+import nzea_rtl.{LiteBusRO, LiteBusRW}
 import nzea_core.frontend.IbusUser
 import nzea_core.backend.integer.LsuOp
 import nzea_core.retire.CommitMsg
@@ -17,7 +17,7 @@ class CoreIo(addrWidth: Int)(implicit config: CoreConfig) extends Bundle {
   private val robIdWidth = chisel3.util.log2Ceil(config.robDepth.max(2))
   private val dbusUserWidth = addrWidth.max(robIdWidth + LsuOp.getWidth + 2 + config.prfAddrWidth + 1) // +1 is_mmio
 
-  val ibus = new LiteBusRW(addrWidth, addrWidth, IbusUser.userWidth(addrWidth), 1)
+  val ibus = new LiteBusRO(addrWidth, addrWidth, IbusUser.userWidth(addrWidth), 1)
   val dbus = new LiteBusRW(addrWidth, addrWidth, dbusUserWidth, 1)
   val commit_msg = Output(Valid(new CommitMsg))
 }

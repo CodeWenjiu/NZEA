@@ -24,10 +24,19 @@ class MinFront(implicit config: CoreConfig) extends Module {
     val ibus = CoreChannels.ibus(width)
   })
 
-  // Internal pipeline: IFU output registers into the (combinational) IDU, whose output registers onto the boundary.
+  // Internal pipeline: IFU output registers into the (combinational) IDU. The decoded stream stays combinational —
+  // the IDU reads the ARF at decode, and that read must observe post-commit values. A registered decoded boundary
+  // would capture the read two cycles before the middle issues (stale operands): with REG1 + REG2 the addi read of
+  // its source happened before the previous commit's write landed. Keeping the boundary combinational makes the ARF
+  // read happen at the issue capture cycle, which the middle's idle gate (!exValid && !wbValid) already guarantees
+  // happens after every prior commit's write-back.
   PipelineConnect(ifu.io.out, idu.io.in)
-  PipelineConnect(idu.io.out, io.bus.decoded)
+  idu.io.out.ready := io.bus.decoded.ready
+  idu.io.out.flush := io.bus.decoded.flush
+  io.bus.decoded.valid := idu.io.out.valid
+  io.bus.decoded.bits := idu.io.out.bits
 
+  idu.io.arf_write := io.bus.arf_write
   ifu.io.redirect_pc := io.bus.redirect.bits
   io.ibus <> ifu.io.bus
 }

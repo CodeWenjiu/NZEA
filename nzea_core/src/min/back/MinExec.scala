@@ -42,7 +42,6 @@ class MinExecOut(width: Int) extends Bundle {
   */
 class MinIssueUop(width: Int)(implicit config: CoreConfig) extends Bundle {
   val pc = UInt(width.W)
-  val pred_next_pc = UInt(width.W)
   val imm = UInt(32.W)
   val fu_type = FuType()
   val fu_op = UInt(FuOpWidth.Width.W)
@@ -52,7 +51,6 @@ class MinIssueUop(width: Int)(implicit config: CoreConfig) extends Bundle {
   val rs2 = UInt(32.W)
   val csr_type = CsrType()
   val csr_rdata = UInt(32.W)
-  val is_ret = PayloadFields.retCommit
 }
 
 /** Sequential execute stage of the baseline core: own dispatch, in-order single issue.
@@ -133,15 +131,17 @@ class MinExec(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: Co
 
   bru.io.in.valid := uopValid && isBru
   bru.io.in.bits.pc := u.pc
-  bru.io.in.bits.pred_next_pc := u.pred_next_pc
+  // Always-not-taken prediction: the sequential target is known without a prediction chain.
+  bru.io.in.bits.pred_next_pc := u.pc + 4.U
   bru.io.in.bits.offset := u.imm
   bru.io.in.bits.rs1 := u.rs1
   bru.io.in.bits.rs2 := u.rs2
   bru.io.in.bits.bruOp := BruOp.safe(FuDecode.take(u.fu_op, BruOp.getWidth))._1
   bru.io.in.bits.rob_id := 0.U
   bru.io.in.bits.p_rd := 0.U
-  bru.io.in.bits.rd_index.foreach(_ := u.rd_index)
-  bru.io.in.bits.is_ret.foreach(_ := u.is_ret.getOrElse(false.B))
+  // No RAS classification on this engine: the BRU's call/ret side fields stay inert.
+  bru.io.in.bits.rd_index.foreach(_ := 0.U(5.W))
+  bru.io.in.bits.is_ret.foreach(_ := false.B)
   bru.io.out.ready := true.B
   bru.io.out.flush := flushing
 

@@ -7,7 +7,7 @@ import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.CoreConfig
 import nzea_core.dpi.CommitDpiBridge
-import nzea_rtl.{LiteAddrRange, LiteBusCrossbar, LiteBusRW, LiteBusRegisterSlice, LiteBusWidthConverter}
+import nzea_rtl.{LiteAddrRange, LiteBusCrossbar, LiteBusROToRW, LiteBusRW, LiteBusRegisterSlice, LiteBusWidthConverter}
 import nzea_tile.platform.fpga
 import nzea_tile.platform.yosys
 import nzea_tile.platform.HasCommitMsg
@@ -109,7 +109,9 @@ class NzeaTile(cfg: TileConfig)(implicit
       icache.io.top <> core.io.ibus
 
       if (cfg.lineBits == dataWidth) {
-        ibusSlice.io.in <> icache.io.bottom
+        val roToRw = Module(new LiteBusROToRW(addrWidth, dataWidth, core.io.ibus.userWidth, 1))
+        roToRw.io.ro <> icache.io.bottom
+        ibusSlice.io.in <> roToRw.io.rw
       } else {
         val iwidth = withReset(cpuReset) {
           Module(
@@ -122,12 +124,16 @@ class NzeaTile(cfg: TileConfig)(implicit
             )
           )
         }
-        iwidth.io.wide <> icache.io.bottom
+        val roToRw = Module(new LiteBusROToRW(addrWidth, cfg.lineBits, core.io.ibus.userWidth, 1))
+        roToRw.io.ro <> icache.io.bottom
+        iwidth.io.wide <> roToRw.io.rw
         ibusSlice.io.in <> iwidth.io.narrow
       }
 
     case None =>
-      ibusSlice.io.in <> core.io.ibus
+      val roToRw = Module(new LiteBusROToRW(addrWidth, dataWidth, core.io.ibus.userWidth, 1))
+      roToRw.io.ro <> core.io.ibus
+      ibusSlice.io.in <> roToRw.io.rw
   }
 
   // DBUS: register slice between LSU and crossbar.

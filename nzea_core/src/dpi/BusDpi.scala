@@ -13,7 +13,7 @@ import nzea_core.retire.CommitMsg
 class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Module {
 
   val io = IO(new Bundle {
-    val bus = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
+    val bus = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth, idWidth))
   })
 
   val flush = io.bus.resp.flush

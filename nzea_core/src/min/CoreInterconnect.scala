@@ -2,13 +2,19 @@ package nzea_core.min
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_rtl.{LiteBusRW, PipeIO}
+import nzea_rtl.{LiteBusRO, LiteBusRW, PipeIO}
 import nzea_core.frontend.IbusUser
 import nzea_core.backend.integer.LsuOp
 import nzea_core.retire.CommitMsg
 import nzea_core.min.back.{MinExecOut, MinIssueUop}
 import nzea_core.min.front.MinIduOut
 import nzea_config.core.CoreConfig
+
+/** ARF write-back (middle → front): the commit-point retires one architectural register write. */
+class ArfWrite extends Bundle {
+  val rd_index = UInt(5.W)
+  val data = UInt(32.W)
+}
 
 /** Core interconnect channels: the existence of every cross-stage channel (front↔middle↔back) is decided here, not in
   * the modules or in MinCore.
@@ -23,25 +29,28 @@ object CoreChannels {
   def issue(width: Int)(implicit config: CoreConfig): Valid[MinIssueUop] = Valid(new MinIssueUop(width))
   def report(width: Int): MinExecOut = new MinExecOut(width)
   def commit(implicit config: CoreConfig): Valid[CommitMsg] = Valid(new CommitMsg)
-  def ibus(width: Int): LiteBusRW = new LiteBusRW(width, width, IbusUser.userWidth(width), 1)
+  def arfWrite: Valid[ArfWrite] = Valid(new ArfWrite)
+  def ibus(width: Int): LiteBusRO = new LiteBusRO(width, width, IbusUser.userWidth(width), 1)
 
   def dbus(width: Int, robIdWidth: Int, prfAddrWidth: Int): LiteBusRW =
     new LiteBusRW(width, width, width.max(robIdWidth + LsuOp.getWidth + 2 + prfAddrWidth + 1), 1)
 
 }
 
-/** Front-end bus port (module view): decoded stream out, redirect target in. */
+/** Front-end bus port (module view): decoded stream out, redirect target in, ARF write-back in (commit side). */
 class FrontBusPort(width: Int)(implicit config: CoreConfig) extends Bundle {
   val decoded = CoreChannels.decoded(width)
   val redirect = Flipped(CoreChannels.redirect(width))
+  val arf_write = Flipped(CoreChannels.arfWrite)
 }
 
-/** Middle bus port (module view): decoded in, issue out, report in, redirect out, commit out. */
+/** Middle bus port (module view): decoded in, issue out, report in, redirect out, ARF write-back out, commit out. */
 class MiddleBusPort(width: Int)(implicit config: CoreConfig) extends Bundle {
   val decoded = Flipped(CoreChannels.decoded(width))
   val issue = CoreChannels.issue(width)
   val report = Flipped(CoreChannels.report(width))
   val redirect = CoreChannels.redirect(width)
+  val arf_write = CoreChannels.arfWrite
   val commit = CoreChannels.commit
 }
 
@@ -77,4 +86,5 @@ class CoreInterconnect(width: Int)(implicit config: CoreConfig) extends Module {
   io.front.redirect <> io.middle.redirect
   io.back.issue <> io.middle.issue
   io.middle.report <> io.back.report
+  io.front.arf_write <> io.middle.arf_write
 }

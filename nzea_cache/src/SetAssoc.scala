@@ -32,8 +32,8 @@ class SetAssoc(
   private val tagBits = addrWidth - indexBits - offsetBits
 
   val io = IO(new Bundle {
-    val top = Flipped(new LiteBusRW(addrWidth, dataWidth, userWidth, 1))
-    val bottom = new LiteBusRW(addrWidth, lineBits, userWidth, 1)
+    val top = Flipped(new LiteBusRO(addrWidth, dataWidth, userWidth, 1))
+    val bottom = new LiteBusRO(addrWidth, lineBits, userWidth, 1)
   })
 
   // ── Submodules ──

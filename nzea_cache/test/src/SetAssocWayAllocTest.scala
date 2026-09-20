@@ -21,7 +21,7 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
   ) extends Module {
 
     val io = IO(new Bundle {
-      val top = Flipped(new nzea_rtl.LiteBusRW(32, 32, 8, 1))
+      val top = Flipped(new nzea_rtl.LiteBusRO(32, 32, 8, 1))
       val refillCount = Output(UInt(32.W))
     })
 
@@ -75,9 +75,6 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
       dut.io.top.req.bits.addr.poke(addr.U)
       dut.io.top.req.bits.user.poke(0.U)
       dut.io.top.req.bits.id.poke(0.U)
-      dut.io.top.req.bits.wen.poke(false.B)
-      dut.io.top.req.bits.wdata.poke(0.U)
-      dut.io.top.req.bits.wstrb.poke(0xf.U)
       var guard = 0
       while (!dut.io.top.req.ready.peek().litToBoolean && guard < 80) {
         dut.clock.step(); guard += 1
@@ -210,9 +207,6 @@ class SetAssocWayAllocTest extends AnyFreeSpec with ChiselSim {
       dut.io.top.req.bits.addr.poke(addr.U)
       dut.io.top.req.bits.user.poke(0.U)
       dut.io.top.req.bits.id.poke(0.U)
-      dut.io.top.req.bits.wen.poke(false.B)
-      dut.io.top.req.bits.wdata.poke(0.U)
-      dut.io.top.req.bits.wstrb.poke(0xf.U)
 
       // Wait for req acceptance.
       while (!dut.io.top.req.ready.peek().litToBoolean) { dut.clock.step() }
