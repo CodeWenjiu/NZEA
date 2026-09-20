@@ -3,6 +3,7 @@
 .vscode
 .direnv
 .bsp
+.sccache
 ssrc/out
 ssrc/.bloop
 out

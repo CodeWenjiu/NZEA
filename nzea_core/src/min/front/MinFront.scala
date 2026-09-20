@@ -31,12 +31,9 @@ class MinFront(implicit config: CoreConfig) extends Module {
   // read happen at the issue capture cycle, which the middle's idle gate (!exValid && !wbValid) already guarantees
   // happens after every prior commit's write-back.
   PipelineConnect(ifu.io.out, idu.io.in)
-  idu.io.out.ready := io.bus.decoded.ready
-  idu.io.out.flush := io.bus.decoded.flush
-  io.bus.decoded.valid := idu.io.out.valid
-  io.bus.decoded.bits := idu.io.out.bits
+  idu.io.out <> io.bus.decoded
 
   idu.io.arf_write := io.bus.arf_write
-  ifu.io.redirect_pc := io.bus.redirect.bits
+  ifu.io.redirect := io.bus.redirect
   io.ibus <> ifu.io.bus
 }

@@ -7,27 +7,17 @@ import nzea_core.min.front.MinIduOut
 import nzea_core.frontend.{CsrFile, CsrType, FuType}
 import nzea_config.core.CoreConfig
 
-/** Commit-stage entry: everything the in-order commit point needs to retire one instruction (ARF write, CSR write,
-  * external commit message).
-  */
-class MinWbEntry(implicit config: CoreConfig) extends Bundle {
-  val rd_index = UInt(5.W)
-  val data = UInt(32.W)
-  val next_pc = UInt(32.W)
-  val csr_type = CsrType()
-  val csr_data = UInt(32.W)
-  val is_mmio = Bool()
-}
-
 /** In-order middle engine: single-flight dispatch, architectural register file, and the retire/commit point.
   *
-  // Issue captures the decoded instruction — operands arrive as values (the ARF lives in the front, see
-  // [[nzea_core.min.front.MinIdu]]) — single-flight means the previous instruction has already committed, so the
-  // front-end capture cycle did the read against post-commit values: no hazard and no forwarding. The instruction is
-  // wrapped as a ready-operand [[MinIssueUop]] and handed to the execute backend on `bus.issue`, which executes it
-  // and reports done/flush on `bus.report`. On completion the entry is latched into `wbEntry` and retired one cycle
-  // later (ARF write-back on `bus.arf_write`, CSR write, commit_msg on `bus.commit`) while the next instruction
-  // issues. CSR writes only happen on that commit cycle, so squashed instructions never modify architectural state.
+  * // Issue captures the decoded instruction — operands arrive as values (the ARF lives in the front, see
+  * // [[nzea_core.min.front.MinIdu]]) — single-flight means the previous instruction has already committed, so the
+  * // front-end capture cycle did the read against post-commit values: no hazard and no forwarding. The instruction is
+  * // wrapped as a ready-operand [[MinIssueUop]] and handed to the execute backend on `bus.issue`, which executes it
+  * // and reports done/flush on `bus.report`. The backend latches the execution result in its stage-exit register and
+  * // reports it one cycle later; the middle retires it on the following cycle (ARF write-back on `bus.arf_write`, CSR
+  * // write, commit_msg on `bus.commit`) while the next instruction issues — the commit-cycle data comes from the
+  * // backend's exit latch (stable register Q), so the middle holds no result register of its own. CSR writes only
+  * // happen on that commit cycle, so squashed instructions never modify architectural state.
   *
   * This is the middle polymorphic point: an OoO engine (rename + PRF + ROB + issue queue) replaces this module later
   * without touching the front-end ([[MinFront]]) or the execute backend ([[MinExec]]) contracts. Under single-flight
@@ -79,42 +69,33 @@ class MinMiddle(implicit config: CoreConfig) extends Module {
 
   when(flushing || done) { exValid := false.B }.elsewhen(issue) { exValid := true.B }
 
-  // -------- Write-back entry (latched on completion, retired one cycle later) --------
+  // -------- Retire (commit cycle, driven directly by the report pulse) --------
 
-  val wbValid = RegInit(false.B)
-  val wbBits = Reg(new MinWbEntry)
-  when(done) { wbValid := true.B }.elsewhen(wbValid) { wbValid := false.B }
+  // No separate wbValid register: report.done is already a one-cycle pulse (the backend exit latch), so the commit
+  // bus (ARF write, CSR write, commit_msg) is driven combinationally by it — one register per instruction saved.
+  // The commit cycle blocks issue (ready below), so exBits still holds the retiring instruction (its rd_index is the
+  // retiring rd), and the commit data comes from the report channel, which by then carries the backend's exit latch
+  // (stable register Q) — no combinational forward needed, the ARF write lands on the commit edge and the next
+  // decode cycle reads the updated value.
+  io.bus.decoded.ready := !exValid && !io.bus.report.done
 
-  // The commit cycle (wbValid) blocks issue: the ARF write lands on that edge and
-  // the following cycle reads the updated value — no combinational forward needed.
-  io.bus.decoded.ready := !exValid && !wbValid
+  // -------- Commit (report.done cycle: ARF write-back, CSR write, external message) --------
 
-  when(done) {
-    wbBits.rd_index := exBits.rd_index
-    wbBits.data := io.bus.report.data
-    wbBits.next_pc := io.bus.report.next_pc
-    wbBits.csr_type := io.bus.report.csr_type
-    wbBits.csr_data := io.bus.report.csr_data
-    wbBits.is_mmio := io.bus.report.is_mmio
-  }
+  io.bus.arf_write.valid := io.bus.report.done
+  io.bus.arf_write.bits.rd_index := exBits.rd_index
+  io.bus.arf_write.bits.data := io.bus.report.data
 
-  // -------- Commit (wbValid cycle: ARF write-back, CSR write, external message) --------
+  csr.io.csr_write.valid := io.bus.report.done
+  csr.io.csr_write.bits.csr_type := io.bus.report.csr_type
+  csr.io.csr_write.bits.data := io.bus.report.csr_data
 
-  io.bus.arf_write.valid := wbValid
-  io.bus.arf_write.bits.rd_index := wbBits.rd_index
-  io.bus.arf_write.bits.data := wbBits.data
-
-  csr.io.csr_write.valid := wbValid
-  csr.io.csr_write.bits.csr_type := wbBits.csr_type
-  csr.io.csr_write.bits.data := wbBits.csr_data
-
-  io.bus.commit.valid := wbValid
-  io.bus.commit.bits.next_pc := wbBits.next_pc
-  io.bus.commit.bits.rd_index := wbBits.rd_index
-  io.bus.commit.bits.rd_value := wbBits.data
-  io.bus.commit.bits.is_mmio := wbBits.is_mmio
-  io.bus.commit.bits.csr_type := wbBits.csr_type
-  io.bus.commit.bits.csr_data := wbBits.csr_data
+  io.bus.commit.valid := io.bus.report.done
+  io.bus.commit.bits.next_pc := io.bus.report.next_pc
+  io.bus.commit.bits.rd_index := exBits.rd_index
+  io.bus.commit.bits.rd_value := io.bus.report.data
+  io.bus.commit.bits.is_mmio := io.bus.report.is_mmio
+  io.bus.commit.bits.csr_type := io.bus.report.csr_type
+  io.bus.commit.bits.csr_data := io.bus.report.csr_data
   // No RAS on this engine: the commit-message ret field (shared with the OoO contract) stays inert.
   io.bus.commit.bits.is_ret.foreach(_ := false.B)
 }

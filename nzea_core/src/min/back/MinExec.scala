@@ -34,6 +34,15 @@ class MinExecOut(width: Int) extends Bundle {
   val redirect_target = PayloadFields.reportRedirectTarget(width)
 }
 
+/** Execution-stage exit: the result latch between the execute stage and the commit point. */
+class MinExecResult(width: Int) extends Bundle {
+  val data = UInt(32.W)
+  val next_pc = UInt(width.W)
+  val csr_type = CsrType()
+  val csr_data = UInt(32.W)
+  val is_mmio = Bool()
+}
+
 /** Ready-operand uop handed from the in-order middle ([[MinMiddle]]) to the backend ([[MinExec]]).
   *
   * All operands are architectural values resolved by the middle: rs1/rs2 come from the ARF (x0 reads as 0) and
@@ -256,7 +265,7 @@ class MinExec(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: Co
   private val storeDone = uopValid && isLsu && !isLoad && mem.io.rob_access.valid
   private val done = exuDone || loadDone || storeDone
 
-  // -------- Completion report to the middle (fields valid on the done cycle) --------
+  // -------- Result assembly (combinational, valid on the done edge) --------
 
   private val exuData = Mux1H(
     Seq(isAlu -> alu.io.out.bits.data, isBru -> bru.io.out.bits.data, isSysu -> sysu.io.out.bits.data) ++
@@ -265,12 +274,32 @@ class MinExec(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: Co
       nnu.map(n => isNnu -> n.io.out.bits.data).toSeq
   )
 
-  io.bus.report.done := done
-  io.bus.report.data := Mux(isLsu, Mux(isLoad, mem.io.out.bits.data, 0.U(32.W)), exuData)
-  io.bus.report.next_pc := Mux(isBru, bru.io.rob_access.bits.next_pc, u.pc + 4.U)
-  io.bus.report.csr_type := Mux(isSysu, sysu.io.rob_access.bits.csr_type, CsrType.None)
-  io.bus.report.csr_data := Mux(isSysu, sysu.io.rob_access.bits.csr_data, 0.U(32.W))
-  io.bus.report.is_mmio := Mux(isLsu, mem.io.rob_access.bits.is_mmio, false.B)
+  // -------- Execution-stage exit: latch the result once per uop, report it one cycle later --------
+
+  // The execute stage is a complete Q -> combinational -> Q segment: the uop (exBits) enters from registers and the
+  // result is latched here on the done edge, so the completion/commit data path never sees combinational ALU output
+  // (this is the EX/WB boundary of the baseline). report.flush/redirect_target stay combinational: redirect happens
+  // on the same cycle the branch resolves, exactly as before, while done/data/next_pc/CSR wait for the latch.
+  // done is a level, not a pulse: the combinational FUs (ALU/SYSU) report completion for as long as the uop is held.
+  // The exit latch consumes the completion *edge* so one uop commits exactly once (a multi-cycle FU like the BRU
+  // asserts rob_access.valid for a single cycle anyway — the edge unifies both shapes).
+  private val doneEdge = done && !RegNext(done, false.B)
+  val resultReg = Reg(new MinExecResult(width))
+  when(doneEdge) {
+    resultReg.data := Mux(isLsu, Mux(isLoad, mem.io.out.bits.data, 0.U(32.W)), exuData)
+    resultReg.next_pc := Mux(isBru, bru.io.rob_access.bits.next_pc, u.pc + 4.U)
+    resultReg.csr_type := Mux(isSysu, sysu.io.rob_access.bits.csr_type, CsrType.None)
+    resultReg.csr_data := Mux(isSysu, sysu.io.rob_access.bits.csr_data, 0.U(32.W))
+    resultReg.is_mmio := Mux(isLsu, mem.io.rob_access.bits.is_mmio, false.B)
+  }
+  val doneReg = RegNext(doneEdge, false.B)
+
+  io.bus.report.done := doneReg
+  io.bus.report.data := resultReg.data
+  io.bus.report.next_pc := resultReg.next_pc
+  io.bus.report.csr_type := resultReg.csr_type
+  io.bus.report.csr_data := resultReg.csr_data
+  io.bus.report.is_mmio := resultReg.is_mmio
   io.bus.report.flush := flushing
   io.bus.report.redirect_target := bru.io.bp_update.bits.target
 }

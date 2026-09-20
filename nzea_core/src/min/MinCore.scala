@@ -5,6 +5,7 @@ import nzea_core.{CoreIo, CoreLike}
 import nzea_core.min.back.MinExec
 import nzea_core.min.front.MinFront
 import nzea_core.min.middle.MinMiddle
+import nzea_rtl.StatsRegs
 import nzea_config.core.CoreConfig
 
 /** Baseline core: in-order single-issue, no branch prediction, no renaming.
@@ -41,4 +42,20 @@ class MinCore(mmioRanges: Seq[(BigInt, BigInt)] = Seq.empty)(implicit config: Co
   io.ibus <> front.io.ibus
   io.dbus <> back.io.dbus
   io.commit_msg := bus.io.middle.commit
+
+  // Simulation-only execution statistics: total cycles and committed instructions.
+  // Same StatsRegs mechanism as the OoO Core/BpStats (VPI contract: stat_* leaf names globally unique; instantiate
+  // in the sim flow only, so synthesis sees zero resources). Counter state lives in the black box; the update logic
+  // here counts every cycle and every retired instruction (commit_msg.valid = the retire cycle).
+  if (config.sim) {
+    val stats = Module(
+      new StatsRegs("MinCoreStats", Seq("stat_cycle" -> 64, "stat_inst_commit" -> 64))
+    )
+    stats.clock := clock
+    stats.reset := reset
+    stats.ports("stat_cycle").en := true.B
+    stats.ports("stat_cycle").data := stats.ports("stat_cycle").value + 1.U
+    stats.ports("stat_inst_commit").en := io.commit_msg.valid
+    stats.ports("stat_inst_commit").data := stats.ports("stat_inst_commit").value + 1.U
+  }
 }
