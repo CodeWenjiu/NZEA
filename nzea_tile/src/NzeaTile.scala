@@ -33,10 +33,8 @@ object NzeaTile {
     * external device models match the fabric ports exactly.
     */
   def fabricUserWidth(implicit config: CoreConfig): Int = {
-    val ibusUW = nzea_core.frontend.IbusUser.userWidth(config.width)
-    val rw = chisel3.util.log2Ceil(config.robDepth.max(2))
-    val pw = config.prfAddrWidth
-    val dbusUW = config.width.max(rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw + 1)
+    val ibusUW = nzea_core.front.IbusUser.userWidth(config.width)
+    val dbusUW = nzea_core.CoreTagWidths.dbusUserWidth(config.width)
     ibusUW.max(dbusUW)
   }
 
@@ -55,16 +53,9 @@ class NzeaTile(cfg: TileConfig)(implicit
   private val addrWidth = config.width
   private val dataWidth = config.width
   private val ranges = TileAddressMap.forPlatform(cfg.platform)
-  // fabricUserWidth covers ibus + dbus user payloads.
-  // Computed from config (no forward-reference to `core`).
-  private val ibusUserW = nzea_core.frontend.IbusUser.userWidth(config.width)
-
-  private val dbusUserW = {
-    val rw = chisel3.util.log2Ceil(config.robDepth.max(2))
-    val pw = config.prfAddrWidth
-    val upw = rw + nzea_core.backend.integer.LsuOp.getWidth + 2 + pw + 1 // +1 for is_mmio
-    config.width.max(upw)
-  }
+  // fabricUserWidth covers ibus + dbus user payloads, from the single width source (no forward-reference to `core`).
+  private val ibusUserW = nzea_core.front.IbusUser.userWidth(config.width)
+  private val dbusUserW = nzea_core.CoreTagWidths.dbusUserWidth(config.width)
 
   private val fabricUserWidth = ibusUserW.max(dbusUserW)
   private val fabricIdWidth = 8

@@ -156,7 +156,9 @@ class LiteBusCrossbar(
 
     val miss = io.in(m).req.valid && !hasHit(m)
     val missReady = !missPending(m)
-    io.in(m).req.ready := readyFromHits || (miss && missReady)
+    // Reset is a fabric concern, not transport: refuse requests while reset is asserted so masters stay pure
+    // Decoupled (a fired request during reset would advance the master's pc stream).
+    io.in(m).req.ready := (readyFromHits || (miss && missReady)) && !reset.asBool
     missReqFire(m) := miss && missReady
     io.decodeMiss(m) := missReqFire(m)
   }

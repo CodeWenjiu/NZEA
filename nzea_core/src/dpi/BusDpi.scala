@@ -2,10 +2,10 @@ package nzea_core.dpi
 
 import chisel3._
 import chisel3.util.Valid
+import nzea_core.CommitMsg
 import nzea_config.core.CoreConfig
 import chisel3.util.circt.dpi.{RawClockedVoidFunctionCall, RawUnclockedNonVoidFunctionCall}
 import nzea_rtl._
-import nzea_core.retire.CommitMsg
 
 /** Bridges Core ibus to DPI-C bus_read. 2-cycle pipeline via 2x PipelineConnect. Bus channels are plain Decoupled:
   * cancellation is master-side (epoch digest), so the bridge pipeline never needs flushing — every accepted request
@@ -24,7 +24,7 @@ class IbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int
   internalResp.flush := false.B
   stage1.flush := false.B
 
-  io.bus.req.ready := internalResp.ready
+  io.bus.req.ready := internalResp.ready && !reset.asBool // reset refuses traffic (fabric concern, see Ifu)
   val reqFire = io.bus.req.valid && io.bus.req.ready
 
   val rdata = RawUnclockedNonVoidFunctionCall(
@@ -69,7 +69,7 @@ class DbusDpiBridge(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int
   stage1.flush := false.B
   readRespOut.flush := false.B
 
-  io.bus.req.ready := internalResp.ready
+  io.bus.req.ready := internalResp.ready && !reset.asBool // reset refuses traffic (fabric concern, see Ifu)
   val fire = io.bus.req.valid && io.bus.req.ready
   val readFire = fire && isRead
   val writeFire = fire && req.wen
@@ -108,7 +108,7 @@ class CommitDpiBridge(implicit config: CoreConfig) extends Module {
     val commit_msg = Input(Valid(new CommitMsg))
   })
 
-  val (csr_imm, csr_valid) = nzea_core.frontend.CsrType.toImmValid(io.commit_msg.bits.csr_type)
+  val (csr_imm, csr_valid) = nzea_core.front.CsrType.toImmValid(io.commit_msg.bits.csr_type)
 
   RawClockedVoidFunctionCall(
     "commit_trace",

@@ -7,7 +7,7 @@ import nzea_config.PlatformConfig
 import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.CoreConfig
-import nzea_core.retire.CommitMsg
+import nzea_core.CommitMsg
 import nzea_rtl.{BootReq, LiteBusRW}
 
 object TileElaborate {

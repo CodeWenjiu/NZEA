@@ -23,7 +23,7 @@ class DbusMemBridge(addrWidth: Int, dataWidth: Int, userWidth: Int = 0) extends 
   stage1.flush := false.B
   readRespOut.flush := false.B
 
-  io.bus.req.ready := internalResp.ready
+  io.bus.req.ready := internalResp.ready && !reset.asBool // reset refuses traffic (fabric concern, see Ifu)
   val fire = io.bus.req.valid && io.bus.req.ready
   val readFire = fire && isRead
   val writeFire = fire && req.wen

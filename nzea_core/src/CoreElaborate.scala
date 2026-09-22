@@ -30,7 +30,7 @@ object CoreElaborate {
     } else {
       val ibus = IO(chiselTypeOf(core.io.ibus))
       val dbus = IO(chiselTypeOf(core.io.dbus))
-      val commit_msg = IO(Output(Valid(new retire.CommitMsg)))
+      val commit_msg = IO(Output(Valid(new CommitMsg)))
       ibus <> core.io.ibus
       dbus <> core.io.dbus
       commit_msg := core.io.commit_msg

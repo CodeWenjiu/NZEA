@@ -6,9 +6,7 @@ import nzea_config.FpgaBoard
 import nzea_config.PlatformConfig
 import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
-import nzea_config.core.BpuConfig
 import nzea_config.core.CoreConfig
-import nzea_config.core.EngineKind
 import nzea_tile.TileElaborate
 import nzea_tile.platform.yosys
 import nzea_fpga.FpgaElaborate
@@ -25,15 +23,7 @@ object SimElaborate {
     implicit val coreConfig: CoreConfig = CoreConfig(
       isa = isa,
       defaultPc = 0x8000_0000L,
-      robDepth = 16,
-      issueQueueDepth = 4,
-      prfDepth = 64,
-      vlen = 128,
-      vrfDepth = 64,
-      viqDepth = 8,
-      bpu = BpuConfig.typical,
-      sim = false,
-      engine = EngineKind.InOrder
+      sim = false
     )
 
     // Step 1: generate DUT RTL

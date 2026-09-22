@@ -3,7 +3,7 @@ package nzea_tile.platform.fpga
 import chisel3._
 import chisel3.util.Valid
 import nzea_config.core.CoreConfig
-import nzea_core.retire.CommitMsg
+import nzea_core.CommitMsg
 import nzea_device.uart.UartIo
 import nzea_rtl.{BootReq, LiteBusRW}
 import nzea_tile.platform.HasCommitMsg
