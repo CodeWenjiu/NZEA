@@ -3,7 +3,7 @@ package nzea_core.back
 import chisel3._
 import chisel3.util.{MuxCase, Valid}
 import nzea_rtl.PipeIO
-import nzea_core.front.{CsrType, PrfWriteBundle}
+import nzea_core.front.idu.CsrType
 import nzea_core.back.FuCompletion
 
 /** SYSU op: CSR ops + ECALL/EBREAK/FENCE. Decoded from funct3 like other FU ops. */

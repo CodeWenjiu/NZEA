@@ -33,7 +33,7 @@ object NzeaTile {
     * external device models match the fabric ports exactly.
     */
   def fabricUserWidth(implicit config: CoreConfig): Int = {
-    val ibusUW = nzea_core.front.IbusUser.userWidth(config.width)
+    val ibusUW = nzea_core.front.ifu.IbusUser.userWidth(config.width)
     val dbusUW = nzea_core.CoreTagWidths.dbusUserWidth(config.width)
     ibusUW.max(dbusUW)
   }
@@ -54,7 +54,7 @@ class NzeaTile(cfg: TileConfig)(implicit
   private val dataWidth = config.width
   private val ranges = TileAddressMap.forPlatform(cfg.platform)
   // fabricUserWidth covers ibus + dbus user payloads, from the single width source (no forward-reference to `core`).
-  private val ibusUserW = nzea_core.front.IbusUser.userWidth(config.width)
+  private val ibusUserW = nzea_core.front.ifu.IbusUser.userWidth(config.width)
   private val dbusUserW = nzea_core.CoreTagWidths.dbusUserWidth(config.width)
 
   private val fabricUserWidth = ibusUserW.max(dbusUserW)

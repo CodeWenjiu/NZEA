@@ -4,7 +4,6 @@ import chisel3._
 import nzea_core.back.LsuOp
 import chisel3.util.{Cat, Mux1H, Valid}
 import nzea_rtl.LiteBusRW
-import nzea_core.front.PrfWriteBundle
 import nzea_rtl.PipeIO
 
 /** Dbus user payload: tag + lsuOp + addr2 + waddr, passthrough req->resp for load PRF write. */

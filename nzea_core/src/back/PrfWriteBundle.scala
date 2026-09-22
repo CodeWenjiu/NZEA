@@ -1,4 +1,4 @@
-package nzea_core.front
+package nzea_core.back
 
 import chisel3._
 

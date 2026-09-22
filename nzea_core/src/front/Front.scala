@@ -2,6 +2,8 @@ package nzea_core.front
 
 import chisel3._
 import nzea_core.{CoreChannels, FrontBusPort}
+import nzea_core.front.ifu.Ifu
+import nzea_core.front.idu.Idu
 import nzea_rtl.PipelineConnect
 import nzea_config.core.CoreConfig
 

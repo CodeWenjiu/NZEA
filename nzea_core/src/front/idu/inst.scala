@@ -1,4 +1,4 @@
-package nzea_core.front
+package nzea_core.front.idu
 
 import chisel3._
 import chisel3.util.{BitPat, Mux1H, MuxCase}

@@ -1,9 +1,8 @@
-package nzea_core.front
+package nzea_core.front.idu
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, Valid}
 import nzea_rtl.PipeIO
-import nzea_core.front.{DecodeFields, FuDecode, FuType, ImmType, RiscvInsts}
 import nzea_core.back.FuOpWidth
 import nzea_config.core.CoreConfig
 
@@ -18,7 +17,7 @@ class IduOut(width: Int)(implicit config: CoreConfig) extends Bundle {
   val rs2_val = UInt(32.W)
   val fu_type = FuType()
   val fu_op = UInt(FuOpWidth.Width.W)
-  val fu_src = UInt(nzea_core.front.FuSrcWidth.Width.W)
+  val fu_src = UInt(FuSrcWidth.Width.W)
   val csr_addr = UInt(12.W)
 }
 
@@ -26,7 +25,7 @@ class IduOut(width: Int)(implicit config: CoreConfig) extends Bundle {
 class Idu(width: Int)(implicit config: CoreConfig) extends Module {
 
   val io = IO(new Bundle {
-    val in = Flipped(new PipeIO(new nzea_core.front.IFUOut(width)))
+    val in = Flipped(new PipeIO(new nzea_core.front.ifu.IFUOut(width)))
     val out = new PipeIO(new IduOut(width))
     val arf_write = Flipped(nzea_core.CoreChannels.arfWrite)
   })

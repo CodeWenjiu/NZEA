@@ -1,4 +1,4 @@
-package nzea_core.front
+package nzea_core.front.ifu
 
 import chisel3._
 import chiseltest._

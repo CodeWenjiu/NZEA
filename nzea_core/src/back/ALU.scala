@@ -3,7 +3,6 @@ package nzea_core.back
 import chisel3._
 import chisel3.util.{Fill, Mux1H, Valid}
 import nzea_rtl.{MuxTree, PipeIO, PrefixAdder}
-import nzea_core.front.PrfWriteBundle
 import nzea_core.back.FuCompletion
 
 /** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */

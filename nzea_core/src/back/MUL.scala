@@ -3,7 +3,6 @@ package nzea_core.back
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, MuxCase, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect}
-import nzea_core.front.PrfWriteBundle
 import nzea_core.back.FuCompletion
 
 /** MUL FU op: MUL, MULH, MULHSU, MULHU (M extension). */

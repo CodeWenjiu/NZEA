@@ -21,9 +21,11 @@ nzea_core/src/
   CoreInterconnect.scala  统一 CoreBus：通道工厂 + 阶段配对
   CoreEngine.scala       CoreLike 契约 + 宽度单一来源（CoreTagWidths）
   CommitMsg.scala        提交消息
-  front/                Ifu / Idu / Front / CsrFile / IbusUser / inst(decode) / PrfWriteBundle
-  middle/               Middle（单飞行分发 + 提交，多态点）
-  back/                 Exec / ALU / BRU / MUL / DIV / SYSU / MemUnit / FuCompletion / LsuOp / FuOpWidth
+  front/                Front（装配）
+    ifu/                Ifu / IbusUser
+    idu/                Idu / inst(decode tables)
+  middle/               Middle（单飞行分发 + 提交，多态点）/ CsrFile
+  back/                 Exec / ALU / BRU / MUL / DIV / SYSU / MemUnit / FuCompletion / LsuOp / FuOpWidth / PrfWriteBundle
   dpi/                  ibus/dbus/commit 的 DPI 桥
 ```
 

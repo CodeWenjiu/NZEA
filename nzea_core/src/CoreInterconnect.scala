@@ -3,10 +3,10 @@ package nzea_core
 import chisel3._
 import chisel3.util.Valid
 import nzea_rtl.{LiteBusRO, LiteBusRW, PipeIO}
-import nzea_core.front.IbusUser
+import nzea_core.front.ifu.IbusUser
 import nzea_core.back.LsuOp
 import nzea_core.back.{ExecOut, IssueUop}
-import nzea_core.front.IduOut
+import nzea_core.front.idu.IduOut
 import nzea_config.core.CoreConfig
 
 /** ARF write-back (middle → front): the commit-point retires one architectural register write. */

@@ -3,7 +3,6 @@ package nzea_core.back
 import chisel3._
 import chisel3.util.{Cat, Mux1H, Valid}
 import nzea_rtl.PipeIO
-import nzea_core.front.PrfWriteBundle
 import nzea_core.back.FuCompletion
 
 /** DIV FU op: DIV, DIVU, REM, REMU (M extension). */

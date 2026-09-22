@@ -4,7 +4,6 @@ import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect, PrefixAdder, StatsRegs}
 import nzea_config.core.CoreConfig
-import nzea_core.front.PrfWriteBundle
 import nzea_core.back.FuCompletion
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */

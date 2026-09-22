@@ -7,7 +7,7 @@ import nzea_core.{BackBusPort, CoreChannels}
 import nzea_rtl.{LiteBusRW, PrefixAdder}
 import nzea_core.back.MemUnit
 import nzea_core.back._
-import nzea_core.front.{AluSrc, CsrType, FuDecode, FuSrcWidth, FuType}
+import nzea_core.front.idu.{AluSrc, CsrType, FuDecode, FuSrcWidth, FuType}
 import nzea_config.core.CoreConfig
 
 /** Completion report from the backend to the in-order middle — the single reverse channel (back → middle). */

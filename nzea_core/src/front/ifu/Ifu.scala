@@ -1,9 +1,8 @@
-package nzea_core.front
+package nzea_core.front.ifu
 
 import chisel3._
 import chisel3.util.Valid
 import nzea_rtl.{LiteBusRO, PipeIO}
-import nzea_core.front.{IFUOut, IbusUser}
 import nzea_config.core.CoreConfig
 
 /** Minimal in-order fetcher: sequential `pc+4` only (always-not-taken), no BPU.
