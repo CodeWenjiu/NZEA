@@ -1,9 +1,10 @@
-package nzea_core.back
+package nzea_core.back.int
 
 import chisel3._
 import chiseltest._
 import nzea_config.core.CoreConfig
 import org.scalatest.flatspec.AnyFlatSpec
+import nzea_core.isa.AluOp
 
 /** ALU arithmetic right shift (sra) must sign-fill. Regression test for the MuxTree shifter bug: CIRCT constant-folds
   * `asUInt(shr(sint, const))` into a logical shift, so `srai a1, a0, 0x11` produced 0x00005e70 instead of 0xffffde70 in

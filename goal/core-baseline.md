@@ -25,7 +25,10 @@ nzea_core/src/
     ifu/                Ifu / IbusUser
     idu/                Idu / inst(decode tables)
   middle/               Middle（单飞行分发 + 提交，多态点）/ CsrFile
-  back/                 Exec / ALU / BRU / MUL / DIV / SYSU / MemUnit / FuCompletion / LsuOp / FuOpWidth / PrfWriteBundle
+  back/                 Exec（单飞行控制 + 路由）/ FuCompletion / PrfWriteBundle
+    int/                ALU / BRU / MUL / DIV / SYSU
+    mem/                MemUnit
+  isa/                  跨段 ISA 级类型：FuType / Fu（描述符）/ 各 FU 操作码 / CsrType / FuOpWidth
   dpi/                  ibus/dbus/commit 的 DPI 桥
 ```
 

@@ -4,7 +4,7 @@ import chisel3._
 import nzea_core.MiddleBusPort
 import nzea_core.back.IssueUop
 import nzea_core.front.idu.IduOut
-import nzea_core.front.idu.{CsrType, FuType}
+import nzea_core.isa.{CsrType, FuType}
 import nzea_config.core.CoreConfig
 
 /** In-order middle engine: single-flight dispatch, commit point, CSR file.

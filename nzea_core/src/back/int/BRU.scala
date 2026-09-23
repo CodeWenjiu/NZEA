@@ -1,22 +1,12 @@
-package nzea_core.back
+package nzea_core.back.int
 
 import chisel3._
 import chisel3.util.{Mux1H, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect, PrefixAdder, StatsRegs}
 import nzea_config.core.CoreConfig
 import nzea_core.back.FuCompletion
-
-/** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
-object BruOp extends chisel3.ChiselEnum {
-  val JAL = Value((1 << 0).U)
-  val JALR = Value((1 << 1).U)
-  val BEQ = Value((1 << 2).U)
-  val BNE = Value((1 << 3).U)
-  val BLT = Value((1 << 4).U)
-  val BGE = Value((1 << 5).U)
-  val BLTU = Value((1 << 6).U)
-  val BGEU = Value((1 << 7).U)
-}
+import nzea_core.back.PrfWriteBundle
+import nzea_core.isa.BruOp
 
 /** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; tag, waddr from the issue side. */
 class BruInput(tagWidth: Int, waddrWidth: Int) extends Bundle {

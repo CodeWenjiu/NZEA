@@ -3,7 +3,7 @@ package nzea_core.front.idu
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, Valid}
 import nzea_rtl.PipeIO
-import nzea_core.back.FuOpWidth
+import nzea_core.isa.{FuDecode, FuOpWidth, FuSrcWidth, FuType}
 import nzea_config.core.CoreConfig
 
 /** Decode output: resolved indexes + decode info, with operand values read at decode (the ARF lives in the fetch

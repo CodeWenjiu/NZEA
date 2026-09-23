@@ -108,7 +108,7 @@ class CommitDpiBridge(implicit config: CoreConfig) extends Module {
     val commit_msg = Input(Valid(new CommitMsg))
   })
 
-  val (csr_imm, csr_valid) = nzea_core.front.idu.CsrType.toImmValid(io.commit_msg.bits.csr_type)
+  val (csr_imm, csr_valid) = nzea_core.isa.CsrType.toImmValid(io.commit_msg.bits.csr_type)
 
   RawClockedVoidFunctionCall(
     "commit_trace",

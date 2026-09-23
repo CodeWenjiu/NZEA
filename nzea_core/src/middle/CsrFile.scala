@@ -2,7 +2,7 @@ package nzea_core.middle
 
 import chisel3._
 import chisel3.util.{is, switch, Mux1H, Valid}
-import nzea_core.front.idu.CsrType
+import nzea_core.isa.CsrType
 
 /** CSR write payload (used at ROB commit in [[nzea_core.Core]], not on execute). */
 class CsrWriteBundle extends Bundle {

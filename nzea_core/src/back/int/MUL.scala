@@ -1,17 +1,11 @@
-package nzea_core.back
+package nzea_core.back.int
 
 import chisel3._
 import chisel3.util.{Cat, Fill, Mux1H, MuxCase, Valid}
 import nzea_rtl.{PipeIO, PipelineConnect}
 import nzea_core.back.FuCompletion
-
-/** MUL FU op: MUL, MULH, MULHSU, MULHU (M extension). */
-object MulOp extends chisel3.ChiselEnum {
-  val Mul = Value((1 << 0).U)
-  val Mulh = Value((1 << 1).U)
-  val Mulhsu = Value((1 << 2).U)
-  val Mulhu = Value((1 << 3).U)
-}
+import nzea_core.back.PrfWriteBundle
+import nzea_core.isa.MulOp
 
 /** MUL FU input: operands, mul op; tag, waddr from IS. */
 class MulInput(tagWidth: Int, waddrWidth: Int) extends Bundle {

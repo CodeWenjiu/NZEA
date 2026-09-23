@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.Valid
 import nzea_rtl.{LiteBusRO, LiteBusRW}
 import nzea_core.front.ifu.IbusUser
-import nzea_core.back.LsuOp
+import nzea_core.isa.LsuOp
 import nzea_config.core.CoreConfig
 
 /** Width sources for the shared interface fields that used to be sized from removed microarchitecture config.

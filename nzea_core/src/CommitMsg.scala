@@ -1,7 +1,7 @@
 package nzea_core
 
 import chisel3._
-import nzea_core.front.idu.CsrType
+import nzea_core.isa.CsrType
 import nzea_config.core.CoreConfig
 
 /** Commit logical state (external): the core-level commit message, carrying only architectural state changes. */

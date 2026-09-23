@@ -1,23 +1,11 @@
-package nzea_core.back
+package nzea_core.back.int
 
 import chisel3._
 import chisel3.util.{Fill, Mux1H, Valid}
 import nzea_rtl.{MuxTree, PipeIO, PrefixAdder}
 import nzea_core.back.FuCompletion
-
-/** ALU op: one-hot for Mux1H (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
-object AluOp extends chisel3.ChiselEnum {
-  val Add = Value((1 << 0).U)
-  val Sub = Value((1 << 1).U)
-  val And = Value((1 << 2).U)
-  val Or = Value((1 << 3).U)
-  val Xor = Value((1 << 4).U)
-  val Sll = Value((1 << 5).U)
-  val Srl = Value((1 << 6).U)
-  val Sra = Value((1 << 7).U)
-  val Slt = Value((1 << 8).U)
-  val Sltu = Value((1 << 9).U)
-}
+import nzea_core.back.PrfWriteBundle
+import nzea_core.isa.AluOp
 
 /** ALU FU input: operands, ALU ctrl; pc for AUIPC; tag, waddr from IS. */
 class AluInput(tagWidth: Int, waddrWidth: Int) extends Bundle {

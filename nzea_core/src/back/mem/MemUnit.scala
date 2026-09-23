@@ -1,10 +1,13 @@
-package nzea_core.back
+package nzea_core.back.mem
 
 import chisel3._
-import nzea_core.back.LsuOp
+import nzea_core.isa.LsuOp
 import chisel3.util.{Cat, Mux1H, Valid}
 import nzea_rtl.LiteBusRW
 import nzea_rtl.PipeIO
+import nzea_core.back.PrfWriteBundle
+import nzea_core.back.FuCompletion
+import nzea_core.back.MemRequest
 
 /** Dbus user payload: tag + lsuOp + addr2 + waddr, passthrough req->resp for load PRF write. */
 class DbusUserBundle(tagWidth: Int, waddrWidth: Int) extends Bundle {

@@ -2,8 +2,8 @@ package nzea_core.back
 
 import chisel3._
 import chisel3.util.Valid
-import nzea_core.back.LsuOp
-import nzea_core.front.idu.CsrType
+import nzea_core.isa.LsuOp
+import nzea_core.isa.CsrType
 
 /** FU completion report: the uniform shape every FU drives to the backend's completion point.
   *

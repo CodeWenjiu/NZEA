@@ -3,10 +3,10 @@ package nzea_core.front.idu
 import chisel3._
 import chisel3.util.{BitPat, Mux1H, MuxCase}
 import chisel3.util.experimental.decode.{decoder, DecodeField, DecodePattern, QMCMinimizer, TruthTable}
-import nzea_core.back.FuOpWidth
-import nzea_core.back.{AluOp, BruOp, DivOp, LsuOp, MulOp, SysuOp}
+import nzea_core.isa.{AluOp, AluSrc, BruOp, BruSrc, DivOp, Fu, FuDecode, FuOpWidth, FuSrcWidth, FuType, LsuOp, LsuSrc, MulOp, SysuOp}
 import nzea_config.core.CoreConfig
-// -------- Instruction pattern & decode fields (ImmType, Fu = op+src per FU, RVInst, RiscvInsts) --------
+
+// -------- Instruction pattern & decode fields (RVInst, RiscvInsts) --------
 
 /** One-hot encoding for Mux1H; better timing than binary. */
 object ImmType extends chisel3.ChiselEnum {
@@ -16,137 +16,6 @@ object ImmType extends chisel3.ChiselEnum {
   val U = Value((1 << 3).U)
   val J = Value((1 << 4).U)
   val Z = Value((1 << 5).U) // zero-extend inst[19:15] for CSR zimm
-}
-
-/** Function unit type for routing (ALU/BRU/LSU/MUL/DIV/SYSU). */
-object FuType extends chisel3.ChiselEnum {
-  val ALU = Value
-  val BRU = Value
-  val LSU = Value
-  val MUL = Value
-  val DIV = Value
-  val SYSU = Value
-
-}
-
-/** CSR type: None = no mapping (for blocking/bypass); others = machine-mode CSRs. */
-object CsrType extends chisel3.ChiselEnum {
-  val None = Value
-  val Mstatus = Value
-  val Mtvec = Value
-  val Mepc = Value
-  val Mcause = Value
-  val Mscratch = Value
-
-  val MSTATUS_ADDR = 0x300
-  val MTVEC_ADDR = 0x305
-  val MSCRATCH_ADDR = 0x340
-  val MEPC_ADDR = 0x341
-  val MCAUSE_ADDR = 0x342
-
-  def fromAddr(addr: UInt): CsrType.Type = {
-    val a = addr(11, 0)
-    MuxCase(
-      CsrType.None,
-      Seq(
-        (a === MSTATUS_ADDR.U) -> CsrType.Mstatus,
-        (a === MTVEC_ADDR.U) -> CsrType.Mtvec,
-        (a === MSCRATCH_ADDR.U) -> CsrType.Mscratch,
-        (a === MEPC_ADDR.U) -> CsrType.Mepc,
-        (a === MCAUSE_ADDR.U) -> CsrType.Mcause
-      )
-    )
-  }
-
-  /** Convert CsrType to (imm, valid) for DPI commit_trace. imm = CSR addr (12-bit), valid = csr_type =/= None. */
-  def toImmValid(csrType: CsrType.Type): (UInt, Bool) = {
-    val valid = csrType =/= CsrType.None
-    val imm = Mux1H(
-      Seq(
-        csrType === CsrType.Mstatus,
-        csrType === CsrType.Mtvec,
-        csrType === CsrType.Mepc,
-        csrType === CsrType.Mcause,
-        csrType === CsrType.Mscratch
-      ),
-      Seq(MSTATUS_ADDR.U, MTVEC_ADDR.U, MEPC_ADDR.U, MCAUSE_ADDR.U, MSCRATCH_ADDR.U)
-    )
-    (imm, valid)
-  }
-
-}
-
-/** ALU operand source for opA/opB; one-hot (Rs1Rs2, Rs1Imm, ImmZero, PcImm). */
-object AluSrc extends chisel3.ChiselEnum {
-  val Rs1Rs2 = Value((1 << 0).U)
-  val Rs1Imm = Value((1 << 1).U)
-  val ImmZero = Value((1 << 2).U)
-  val PcImm = Value((1 << 3).U)
-}
-
-/** BRU target source: one-hot (PcImm, Rs1Imm). */
-object BruSrc extends chisel3.ChiselEnum {
-  val PcImm = Value((1 << 0).U)
-  val Rs1Imm = Value((1 << 1).U)
-}
-
-/** LSU address source: one-hot (Rs1Imm). */
-object LsuSrc extends chisel3.ChiselEnum {
-  val Rs1Imm = Value((1 << 0).U)
-}
-
-/** Single FU descriptor per instruction: op + src for that FU (no cross-FU op/src). Decode yields fu_type, fu_op,
-  * fu_src.
-  */
-object Fu {
-  sealed trait Type
-  case class ALU(op: AluOp.Type, src: AluSrc.Type) extends Type
-  case class BRU(op: BruOp.Type, src: BruSrc.Type) extends Type
-  case class LSU(op: LsuOp.Type, src: LsuSrc.Type) extends Type
-  case class MUL(op: MulOp.Type) extends Type
-  case class DIV(op: DivOp.Type) extends Type
-  case class SYSU(op: SysuOp.Type) extends Type
-
-  def fuTypeOf(fu: Fu.Type): FuType.Type = fu match {
-    case ALU(_, _) => FuType.ALU
-    case BRU(_, _) => FuType.BRU
-    case LSU(_, _) => FuType.LSU
-    case MUL(_)    => FuType.MUL
-    case DIV(_)    => FuType.DIV
-    case SYSU(_)   => FuType.SYSU
-  }
-
-  def opLitValue(fu: Fu.Type): BigInt = fu match {
-    case ALU(op, _) => op.litValue
-    case BRU(op, _) => op.litValue
-    case LSU(op, _) => op.litValue
-    case MUL(op)    => op.litValue
-    case DIV(op)    => op.litValue
-    case SYSU(op)   => op.litValue
-  }
-
-  def srcLitValue(fu: Fu.Type): BigInt = fu match {
-    case ALU(_, s) => s.litValue
-    case BRU(_, s) => s.litValue
-    case LSU(_, s) => s.litValue
-    case MUL(_)    => BigInt(0)
-    case DIV(_)    => BigInt(0)
-    case SYSU(_)   => BigInt(0)
-  }
-
-}
-
-/** fu_src width: max of all FU src enum widths; when adding/changing FUs, update this Seq and the ChiselEnums only.
-  */
-object FuSrcWidth {
-  val Width: Int = Seq(AluSrc.getWidth, BruSrc.getWidth, LsuSrc.getWidth).max
-}
-
-/** Slice unified fu_src/fu_op by enum width for each FU's .safe(); use take(fu_*, X.getWidth) in ISU, no manual
-  * bit-width.
-  */
-object FuDecode {
-  def take(u: UInt, width: Int): UInt = u(width - 1, 0)
 }
 
 /** RISC-V instruction pattern: single fu (op+src); decode yields fu_type, fu_op, fu_src, gpr_wr (true if instruction

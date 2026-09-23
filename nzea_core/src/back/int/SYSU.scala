@@ -1,23 +1,11 @@
-package nzea_core.back
+package nzea_core.back.int
 
 import chisel3._
 import chisel3.util.{MuxCase, Valid}
 import nzea_rtl.PipeIO
-import nzea_core.front.idu.CsrType
+import nzea_core.isa.{CsrType, SysuOp}
 import nzea_core.back.FuCompletion
-
-/** SYSU op: CSR ops + ECALL/EBREAK/FENCE. Decoded from funct3 like other FU ops. */
-object SysuOp extends chisel3.ChiselEnum {
-  val CSRRW = Value // 001
-  val CSRRS = Value // 010
-  val CSRRC = Value // 011
-  val CSRRWI = Value // 101
-  val CSRRSI = Value // 110
-  val CSRRCI = Value // 111
-  val ECALL = Value
-  val EBREAK = Value
-  val FENCE = Value
-}
+import nzea_core.back.PrfWriteBundle
 
 /** SYSU FU input: tag, pc, waddr from IS; csr_type, csr_rdata, rs1_val, sysuOp, imm (zimm for I-type). */
 class SysuInput(tagWidth: Int, waddrWidth: Int) extends Bundle {

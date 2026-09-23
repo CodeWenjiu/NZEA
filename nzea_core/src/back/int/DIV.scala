@@ -1,17 +1,11 @@
-package nzea_core.back
+package nzea_core.back.int
 
 import chisel3._
 import chisel3.util.{Cat, Mux1H, Valid}
 import nzea_rtl.PipeIO
 import nzea_core.back.FuCompletion
-
-/** DIV FU op: DIV, DIVU, REM, REMU (M extension). */
-object DivOp extends chisel3.ChiselEnum {
-  val Div = Value((1 << 0).U)
-  val Divu = Value((1 << 1).U)
-  val Rem = Value((1 << 2).U)
-  val Remu = Value((1 << 3).U)
-}
+import nzea_core.back.PrfWriteBundle
+import nzea_core.isa.DivOp
 
 /** DIV FU input: operands, div op; tag, waddr from IS. */
 class DivInput(tagWidth: Int, waddrWidth: Int) extends Bundle {
