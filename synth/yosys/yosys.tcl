@@ -62,6 +62,9 @@ muxpack
 opt_demorgan
 opt_ffinv
 synth -run fine:
+# Flatten before PDK mapping: ABC then optimizes across module boundaries. Without it the new back-end
+# path modules (IntPath/MemPath) leave a cross-boundary tail on the report mux (WNS +0.232 -> +0.635 @500MHz).
+flatten
 opt_clean -purge
 
 if {$USE_PDK} {
