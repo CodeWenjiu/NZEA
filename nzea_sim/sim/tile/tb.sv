@@ -9,13 +9,14 @@ module tb;
     wire [4:0]  commit_msg_rd_index;
     wire [2:0]  commit_msg_csr_type;
     wire [31:0] commit_msg_csr_data;
+    wire        commit_msg_is_mmio;
     wire uart_model_txd;
     reg  uart_rxd, uart_ctsn;
     wire finish_passed;
     wire [1:0]  tracker_result;
 
     localparam RESET_CYCLES = 10;
-    localparam BAUD = 100_000_000 / 115200;  // ~868 cycles/bit (matches DUT UartTx)
+    localparam int unsigned BAUD = 100_000_000 / 115200;  // ~868 cycles/bit (matches DUT UartTx)
 
     // ---- Device fabric wires (one 15-signal LiteBus group per slave) ----
     wire ram_req_valid, ram_req_ready;
@@ -49,6 +50,11 @@ module tb;
     wire finisher_finished;
     wire uart_model_rtsn;
     wire clint_timer_interrupt;
+    wire uart_boot_rx_valid; wire [7:0] uart_boot_rx_data;
+
+    // Kept for waveform visibility / device outputs the TB does not consume; the sink keeps linters quiet.
+    wire _unused_ok = &{1'b0, commit_msg_csr_type, commit_msg_csr_data, commit_msg_is_mmio, uart_model_rtsn,
+                        clint_timer_interrupt, uart_boot_rx_valid, uart_boot_rx_data};
 
     initial clk = 0; always #5 clk = ~clk;
 
@@ -59,6 +65,7 @@ module tb;
         .io_commit_msg_bits_rd_value(commit_msg_rd_value),
         .io_commit_msg_bits_csr_type(commit_msg_csr_type),
         .io_commit_msg_bits_csr_data(commit_msg_csr_data),
+        .io_commit_msg_bits_is_mmio(commit_msg_is_mmio),
         // ram
         .io_yosys_devices_ram_req_valid(ram_req_valid),
         .io_yosys_devices_ram_req_ready(ram_req_ready),
@@ -133,7 +140,7 @@ module tb;
         .io_bus_resp_bits_id(uart_resp_id),
         .io_txd(uart_model_txd), .io_rxd(uart_rxd),
         .io_rtsn(uart_model_rtsn), .io_ctsn(uart_ctsn),
-        .io_boot_rx_valid(), .io_boot_rx_data());
+        .io_boot_rx_valid(uart_boot_rx_valid), .io_boot_rx_data(uart_boot_rx_data));
 
     Clint clint (.clock(clk), .reset(~rst_n),
         .io_bus_req_valid(clint_req_valid), .io_bus_req_ready(clint_req_ready),
@@ -183,7 +190,7 @@ module tb;
     reg        finisher_seen;
     reg [15:0] drain_cnt;
     reg        wave_enabled;
-    localparam DRAIN_MAX = 50000;
+    localparam int unsigned DRAIN_MAX = 50000;
     // Waveform path hint
     task show_wave;
         if (wave_enabled)
@@ -269,7 +276,6 @@ module tb;
     // ---- Test program ----
     reg [1023:0] hex_file;
     reg [1023:0] boot_mode;
-    reg [1023:0] wave_mode;
     `ifndef HEX_BUF_WORDS
     `define HEX_BUF_WORDS 256
     `endif

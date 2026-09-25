@@ -1,7 +1,6 @@
 package nzea_rtl
 
 import chisel3._
-import chisel3.experimental.ExtModule
 
 /** Write/read ports for one annotated register inside a [[StatsRegs]] black box. */
 class StatsRegPort(val en: Bool, val data: UInt, val value: UInt)

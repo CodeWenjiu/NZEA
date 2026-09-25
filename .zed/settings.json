@@ -8,5 +8,13 @@
         ]
       }
     }
-  }
+  },
+  "languages": {
+      "Python": {
+          "enable_language_server": false,
+      },
+      "SystemVerilog": {
+          "enable_language_server": false,
+      }
+  },
 }
