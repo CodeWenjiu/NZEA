@@ -1,7 +1,7 @@
 # 核心基线：最简 in-order 核
 
 Status: **基线已落地** — nzea_core 已完成瘦身：OoO/BPU/向量/NNU/retire 结构全部移除，当前只有三段式
-in-order 基线（`Core` = Front + Middle + Exec），后续微架构按新思路逐步加回。
+in-order 基线（`Core` = Front + Middle + Back），后续微架构按新思路逐步加回。
 
 ## 目标形态（三段）
 
@@ -25,15 +25,17 @@ nzea_core/src/
     ifu/                Ifu / IbusUser
     idu/                Idu / inst(decode tables)
   middle/               Middle（单飞行分发 + 提交，多态点）/ CsrFile
-  back/                 Exec（单飞行控制 + 路由）/ FuCompletion / PrfWriteBundle
-    int/                ALU / BRU / MUL / DIV / SYSU
-    mem/                MemUnit
+  back/                 Back（路径分发 + 完成合并 + 出口锁存）/ ExecPath（路径端口契约 + FuType 路由表）/ FuCompletion / PrfWriteBundle
+    int/                IntPath（ALU/BRU/MUL/DIV/SYSU 的驱动与完成合并）/ ALU / BRU / MUL / DIV / SYSU
+    mem/                MemPath（LSU：请求保持 + 响应 tag 匹配）/ MemUnit
   isa/                  跨段 ISA 级类型：FuType / Fu（描述符）/ 各 FU 操作码 / CsrType / FuOpWidth
   dpi/                  ibus/dbus/commit 的 DPI 桥
 ```
 
 - 合同：前端→中端 `IduOut`（架构级）；中端→后端 `IssueUop`（就绪操作数）；
-  后端→中端 `ExecOut`（完成报告）；中端→前端 `Redirect`（显式事件）+ flush 链。
+  后端→中端 `BackOut`（完成报告）；中端→前端 `Redirect`（显式事件）+ flush 链。
+- 路径合同：`ExecPathPort`（issue/flush 入，done/result/redirect 出）；`ExecPath` 路由表强制每个
+  `FuType` 归属唯一路径（未登记即 elaborate 期报错）。调度器将来插在端口之后、FU 之前。
 - FU 完成契约：`FuCompletion.report(...)`（`tag` 回显、`is_done`、`flush`、`next_pc`、CSR 字段）。
 
 ## 基线行为

@@ -5,7 +5,7 @@ import chisel3.util.Valid
 import nzea_rtl.{LiteBusRO, LiteBusRW, PipeIO}
 import nzea_core.front.ifu.IbusUser
 import nzea_core.isa.LsuOp
-import nzea_core.back.{ExecOut, IssueUop}
+import nzea_core.back.{BackOut, IssueUop}
 import nzea_core.front.idu.IduOut
 import nzea_config.core.CoreConfig
 
@@ -22,7 +22,7 @@ object CoreChannels {
   def decoded(width: Int)(implicit config: CoreConfig): PipeIO[IduOut] = new PipeIO(new IduOut(width))
   def redirect(width: Int): Valid[UInt] = Valid(UInt(width.W))
   def issue(width: Int)(implicit config: CoreConfig): Valid[IssueUop] = Valid(new IssueUop(width))
-  def report(width: Int): ExecOut = new ExecOut(width)
+  def report(width: Int): BackOut = new BackOut(width)
   def commit(implicit config: CoreConfig): Valid[CommitMsg] = Valid(new CommitMsg)
   def arfWrite: Valid[ArfWrite] = Valid(new ArfWrite)
   def ibus(width: Int): LiteBusRO = new LiteBusRO(width, width, IbusUser.userWidth(width), 1)
