@@ -4,6 +4,8 @@ import chisel3._
 import chisel3.util.Valid
 import _root_.circt.stage.ChiselStage
 import nzea_config.core.CoreConfig
+import nzea_core.stats.CoreStats
+import nzea_rtl.StatSchema
 
 object CoreElaborate {
 
@@ -54,6 +56,9 @@ object CoreElaborate {
       args = Array("--target-dir", outDir),
       firtoolOpts = firtoolOpts
     )
+
+    // Counters only exist in simulation dumps; the schema travels with the RTL it describes.
+    if (config.sim) StatSchema.emit(outDir, "NzeaCore", CoreStats.schema)
   }
 
 }

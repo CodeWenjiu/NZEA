@@ -8,7 +8,8 @@ import nzea_config.SynthPlatform
 import nzea_config.tile.TileConfig
 import nzea_config.core.CoreConfig
 import nzea_core.CommitMsg
-import nzea_rtl.{BootReq, LiteBusRW}
+import nzea_core.stats.CoreStats
+import nzea_rtl.{BootReq, LiteBusRW, StatSchema}
 
 object TileElaborate {
 
@@ -105,6 +106,9 @@ object TileElaborate {
       args = Array("--target-dir", outDir),
       firtoolOpts = cfg.synthPlatform.firtoolOpts(config.sim)
     )
+
+    // Counters only exist in simulation dumps; the schema travels with the RTL it describes.
+    if (config.sim) StatSchema.emit(outDir, "NzeaTile", CoreStats.schema)
   }
 
 }

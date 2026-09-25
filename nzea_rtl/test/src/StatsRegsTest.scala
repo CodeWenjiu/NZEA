@@ -5,8 +5,15 @@ import chisel3._
 import org.scalatest.freespec.AnyFreeSpec
 
 /** StatsRegs black-box tests: inline Verilog generation and port naming. */
+object StatsRegsTestFixture {
+  val Region = StatRegion("test", "test region")
+  val A = StatCounter("stat_a", 32, Region, "counter a")
+  val B = StatCounter("stat_b", 8, Region, "counter b")
+  val Decls = Seq(A, B)
+}
+
 /** Minimal harness to elaborate a [[StatsRegs]] black box. */
-class StatsRegsHarness(moduleName: String, regs: Seq[(String, Int)]) extends RawModule {
+class StatsRegsHarness(moduleName: String, regs: Seq[StatCounter]) extends RawModule {
   val clock = IO(Input(Clock()))
   val reset = IO(Input(Bool()))
   val stats = Module(new StatsRegs(moduleName, regs))
@@ -22,8 +29,10 @@ class StatsRegsHarness(moduleName: String, regs: Seq[(String, Int)]) extends Raw
 
 class StatsRegsTest extends AnyFreeSpec {
 
+  import StatsRegsTestFixture._
+
   "verilog generation" in {
-    val v = StatsRegs.verilog("BpStats", Seq("stat_a" -> 32, "stat_b" -> 8))
+    val v = StatsRegs.verilog("BpStats", Decls)
     assert(v.contains("module BpStats("), s"module header missing:\n$v")
     assert(v.contains("input clock") && v.contains("input reset"), s"clock/reset missing:\n$v")
     // Each register: annotated declaration, read-back assign, and write ports.
@@ -36,7 +45,7 @@ class StatsRegsTest extends AnyFreeSpec {
   }
 
   "elaborates with expected port names" in {
-    val sv = ChiselStage.emitSystemVerilog(new StatsRegsHarness("BpStats", Seq("stat_a" -> 32, "stat_b" -> 8)))
+    val sv = ChiselStage.emitSystemVerilog(new StatsRegsHarness("BpStats", Decls))
     assert(sv.contains("module BpStats("), s"module header:\n$sv")
     assert(sv.contains("input stat_a_en"), s"stat_a_en port:\n$sv")
     assert(sv.contains("input [31:0] stat_a_data"), s"stat_a_data port:\n$sv")

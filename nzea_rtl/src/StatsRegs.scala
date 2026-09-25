@@ -13,23 +13,29 @@ class StatsRegPort(val en: Bool, val data: UInt, val value: UInt)
   * unchanged: every register becomes VPI-readable by its leaf name (contract: `stat_*` leaf names are globally unique).
   * Other tools (iverilog, Vivado) treat the metacomment as an ordinary comment.
   *
+  * Counters are declared as [[StatCounter]]s, so the same declaration that wires the register also feeds the emitted
+  * [[StatSchema]] — a counter cannot exist in the RTL without being part of the schema file the simulator reads.
+  *
   * State lives inside the black box; all update logic stays on the Chisel side through per-register `en`/`data` write
   * ports plus a `value` read-back port. The black box is opaque to firtool, so it is never constant-folded or removed —
   * no `dontTouch` needed. Instantiate it only when simulation is enabled (e.g. under `config.sim`) so synthesis sees
   * zero resources.
   */
-class StatsRegs(moduleName: String, regs: Seq[(String, Int)]) extends ExtModule {
+class StatsRegs(moduleName: String, regs: Seq[StatCounter]) extends ExtModule {
   override def desiredName: String = moduleName
+
+  require(regs.nonEmpty, s"$moduleName declares no counters")
+  require(regs.map(_.name).distinct.size == regs.size, s"$moduleName declares duplicate counter names")
 
   val clock = IO(Input(Clock()))
   val reset = IO(Input(Bool()))
 
-  /** Per-register ports, keyed by register name. */
-  val ports: Map[String, StatsRegPort] = regs.map { case (name, width) =>
-    name -> new StatsRegPort(
-      en = IO(Input(Bool())).suggestName(s"${name}_en"),
-      data = IO(Input(UInt(width.W))).suggestName(s"${name}_data"),
-      value = IO(Output(UInt(width.W))).suggestName(s"${name}_value")
+  /** Per-register ports, keyed by declaration. */
+  val ports: Map[StatCounter, StatsRegPort] = regs.map { c =>
+    c -> new StatsRegPort(
+      en = IO(Input(Bool())).suggestName(s"${c.name}_en"),
+      data = IO(Input(UInt(c.width.W))).suggestName(s"${c.name}_data"),
+      value = IO(Output(UInt(c.width.W))).suggestName(s"${c.name}_value")
     )
   }.toMap
 
@@ -39,15 +45,15 @@ class StatsRegs(moduleName: String, regs: Seq[(String, Int)]) extends ExtModule 
 object StatsRegs {
 
   /** Generate the SystemVerilog body for [[StatsRegs]]. Pure function for tests. */
-  private[nzea_rtl] def verilog(moduleName: String, regs: Seq[(String, Int)]): String = {
-    val portsDecl = regs.map { case (name, width) =>
-      s"  input ${name}_en,\n  input [${width - 1}:0] ${name}_data,\n  output [${width - 1}:0] ${name}_value"
+  private[nzea_rtl] def verilog(moduleName: String, regs: Seq[StatCounter]): String = {
+    val portsDecl = regs.map { c =>
+      s"  input ${c.name}_en,\n  input [${c.width - 1}:0] ${c.name}_data,\n  output [${c.width - 1}:0] ${c.name}_value"
     }
-    val regsDecl = regs.map { case (name, width) =>
-      s"  reg [${width - 1}:0] $name /*verilator public_flat_rd*/;\n  assign ${name}_value = $name;"
+    val regsDecl = regs.map { c =>
+      s"  reg [${c.width - 1}:0] ${c.name} /*verilator public_flat_rd*/;\n  assign ${c.name}_value = ${c.name};"
     }
-    val resets = regs.map { case (name, _) => s"      $name <= '0;" }
-    val writes = regs.map { case (name, _) => s"      if (${name}_en) $name <= ${name}_data;" }
+    val resets = regs.map { c => s"      ${c.name} <= '0;" }
+    val writes = regs.map { c => s"      if (${c.name}_en) ${c.name} <= ${c.name}_data;" }
     s"""module $moduleName(
        |  input clock,
        |  input reset,

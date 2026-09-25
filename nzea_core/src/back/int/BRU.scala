@@ -7,6 +7,7 @@ import nzea_config.core.CoreConfig
 import nzea_core.back.FuCompletion
 import nzea_core.back.PrfWriteBundle
 import nzea_core.isa.BruOp
+import nzea_core.stats.CoreStats
 
 /** BRU input: pc, pred_next_pc, offset (imm), rs1/rs2 for branch compare, bruOp; tag, waddr from the issue side. */
 class BruInput(tagWidth: Int, waddrWidth: Int) extends Bundle {
@@ -114,17 +115,15 @@ class BRUStage1(tagWidth: Int, waddrWidth: Int)(implicit config: CoreConfig) ext
 
   // Simulation-only branch statistics (baseline: always-not-taken prediction, so a taken branch is a mispredict).
   if (config.sim) {
-    val stats = Module(
-      new StatsRegs("BpStats", Seq("stat_bp_branch" -> 32, "stat_bp_mispred" -> 32, "stat_bp_actual_taken" -> 32))
-    )
+    val stats = Module(new StatsRegs("BpStats", CoreStats.bpCounters))
     stats.clock := clock
     stats.reset := reset
-    stats.ports("stat_bp_branch").en := io.in.valid
-    stats.ports("stat_bp_branch").data := stats.ports("stat_bp_branch").value + 1.U
-    stats.ports("stat_bp_mispred").en := io.in.valid && mispredict
-    stats.ports("stat_bp_mispred").data := stats.ports("stat_bp_mispred").value + 1.U
-    stats.ports("stat_bp_actual_taken").en := io.in.valid && b.is_taken
-    stats.ports("stat_bp_actual_taken").data := stats.ports("stat_bp_actual_taken").value + 1.U
+    stats.ports(CoreStats.bpBranch).en := io.in.valid
+    stats.ports(CoreStats.bpBranch).data := stats.ports(CoreStats.bpBranch).value + 1.U
+    stats.ports(CoreStats.bpMispred).en := io.in.valid && mispredict
+    stats.ports(CoreStats.bpMispred).data := stats.ports(CoreStats.bpMispred).value + 1.U
+    stats.ports(CoreStats.bpTaken).en := io.in.valid && b.is_taken
+    stats.ports(CoreStats.bpTaken).data := stats.ports(CoreStats.bpTaken).value + 1.U
   }
 
   io.out.valid := io.in.valid
