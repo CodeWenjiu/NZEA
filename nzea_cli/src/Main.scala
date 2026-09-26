@@ -1,8 +1,8 @@
 package nzea_cli
 
 import nzea_core.stats.{BpCounters, BpCountersParameter, CoreStats, ThroughputCounters, ThroughputCountersParameter}
-import nzea_core.{NzeaCore, NzeaCoreParameter}
 import nzea_rtl.{Elaborate, StatSchema, StatsRegs}
+import nzea_top.{NzeaCore, NzeaCoreParameter}
 
 /** Elaborate one design to Verilog.
   *

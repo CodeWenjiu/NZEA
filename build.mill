@@ -113,7 +113,16 @@ object nzea_core extends ZaoziModule {
   }
 }
 
+/** Level tops: how a level is presented for a dump flow — its interfaces as ports, or wired to the simulation bridges.
+  *
+  * A level owns the RTL it is ([[nzea_core]]); how that RTL is attached upwards is a wiring decision, so it lives here
+  * rather than inside the level. One top per level, each a thin shell around the level's engine.
+  */
+object nzea_top extends ZaoziModule {
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_config)
+}
+
 /** Command line: the one place that turns flags into an elaboration (which module, which platform, where it goes). */
 object nzea_cli extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_config)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_top, nzea_core, nzea_rtl, nzea_config)
 }

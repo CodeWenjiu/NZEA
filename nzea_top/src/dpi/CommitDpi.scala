@@ -1,4 +1,4 @@
-package nzea_core.dpi
+package nzea_top.dpi
 
 import java.lang.foreign.Arena
 
