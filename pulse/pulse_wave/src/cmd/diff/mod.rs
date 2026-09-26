@@ -27,8 +27,8 @@ pub(crate) fn run_diff(json: bool, args: &crate::command::DiffArgs) -> Result<()
         ));
     }
 
-    let mut wav_a = wellen::simple::read(&args.wave_a)?;
-    let mut wav_b = wellen::simple::read(&args.wave_b)?;
+    let mut wav_a = crate::load_waveform(&args.wave_a)?;
+    let mut wav_b = crate::load_waveform(&args.wave_b)?;
 
     // Default scope: each wave's top-level scope (must exist in both).
     let scope_path = match &args.scope {

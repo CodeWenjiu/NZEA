@@ -74,13 +74,23 @@ impl crate::Pulse {
 
         // `--sample` entries: a bare signal name samples that signal; anything
         // else is a value expression (comparison/logic) evaluated to 0/1 per
-        // match, through the same engine pipeline as --eval.
+        // match, through the same engine pipeline as --eval. A comma is never
+        // part of an expression, so reject it here: the expression parser's
+        // "unexpected trailing input" would not hint at `--signals`-style
+        // comma splitting.
         enum SampleSpec {
             Signal(String),
             Expr(super::expr::ast::Expr),
         }
         let mut sample_specs: Vec<(String, SampleSpec)> = Vec::new();
         for s in samples {
+            if s.contains(',') {
+                return Err(WaveError::Parse(format!(
+                    "--sample takes one name per occurrence, but '{s}' contains a comma; \
+                     pass --sample once per signal (--sample does not split on commas, \
+                     unlike --signals)"
+                )));
+            }
             let ast = crate::cmd::engine::compile(s, &event_defs, "")?;
             match &ast {
                 super::expr::ast::Expr::Signal(name) => {

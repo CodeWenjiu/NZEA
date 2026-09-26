@@ -1,8 +1,91 @@
-use clap::{CommandFactory, FromArgMatches};
+use clap::{CommandFactory, FromArgMatches, Parser};
 use wellen::simple;
 
 pulse_macro::mod_flat!(command, cycle, error, radix, read, skill, time_spec, tree);
 pulse_macro::mod_pub!(cmd);
+
+/// Parse process arguments, exiting with clap's message (plus the quoting tip)
+/// on error.
+///
+/// The binary uses this instead of `Parser::parse` so that a mistyped batch
+/// line or CLI invocation points at the quoting rule rather than only at the
+/// stray token clap found.
+pub fn parse_args() -> PulseCommand {
+    match PulseCommand::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => hint_quoting(e).exit(),
+    }
+}
+
+/// Load a waveform, turning the reader's failures — including panics — into
+/// `WaveError`s.
+///
+/// wellen's FST reader `assert!`s on malformed blocks (typically the
+/// half-written tail of a dump whose writer was killed) instead of returning an
+/// error; the release profile therefore keeps `panic = "unwind"` so that a bad
+/// dump cannot abort the whole process. The panic hook is silenced while
+/// parsing — a broken file is not a pulse bug — but the payload text is kept in
+/// the error.
+pub fn load_waveform(path: &std::path::Path) -> Result<simple::Waveform, WaveError> {
+    if !path.is_file() {
+        return Err(WaveError::NotAFile {
+            path: path.display().to_string(),
+        });
+    }
+    let owned = path.to_path_buf();
+    match catch_unwind_quietly(move || simple::read(&owned)) {
+        Ok(Ok(wav)) => Ok(wav),
+        Ok(Err(e)) => Err(WaveError::unreadable(path, e)),
+        Err(panic) => Err(WaveError::unreadable(
+            path,
+            format!("the waveform reader panicked: {panic}"),
+        )),
+    }
+}
+
+/// Run `f`, returning the panic message as text instead of unwinding past the
+/// caller (the FST reader's malformed-block checks are `assert!`s).
+fn catch_unwind_quietly<T>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> Result<T, String> {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let r = std::panic::catch_unwind(f);
+    std::panic::set_hook(hook);
+    r.map_err(|payload| panic_text(payload.as_ref()))
+}
+
+/// Text of a panic payload (`&str`/`String` payloads; a placeholder otherwise).
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "<non-string panic payload>".to_string()
+    }
+}
+
+/// Add a quoting tip to clap's "unexpected argument" errors: expressions and
+/// signal lists are single arguments, so an unquoted `&&`, `||` or `>` arrives
+/// as a stray token and clap can only report that the argument is unexpected.
+fn hint_quoting(err: clap::Error) -> clap::Error {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    if !matches!(
+        err.kind(),
+        ErrorKind::UnknownArgument | ErrorKind::TooManyValues
+    ) {
+        return err;
+    }
+    let mut err = err;
+    err.insert(
+        ContextKind::Suggested,
+        ContextValue::StyledStrs(vec![
+            "expressions are single arguments: quote anything containing spaces or shell \
+             operators, e.g. --eval 'fire && !stall'"
+                .into(),
+        ]),
+    );
+    err
+}
 
 pub struct Pulse {
     wav: simple::Waveform,
@@ -12,9 +95,8 @@ pub struct Pulse {
 impl Pulse {
     pub fn new(cli: &PulseCommand) -> Result<Self, WaveError> {
         let wave = cli.wave.clone().ok_or(WaveError::NoWaveform)?;
-        let wav = simple::read(&wave)?;
         Ok(Self {
-            wav,
+            wav: load_waveform(&wave)?,
             json: cli.json,
         })
     }
@@ -115,7 +197,7 @@ impl Pulse {
                 Ok(m) => m,
                 Err(e) => {
                     eprintln!("line {}", lineno + 1);
-                    eprintln!("{e}");
+                    eprintln!("{}", hint_quoting(e));
                     ok = false;
                     if !keep_going {
                         break;
@@ -126,7 +208,7 @@ impl Pulse {
             let cli = match PulseCommand::from_arg_matches(&matches) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("line {}: {e}", lineno + 1);
+                    eprintln!("line {}: {}", lineno + 1, hint_quoting(e));
                     ok = false;
                     if !keep_going {
                         break;
@@ -237,7 +319,33 @@ fn split_command(line: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::split_command;
+    use super::{catch_unwind_quietly, load_waveform, split_command};
+
+    #[test]
+    fn reader_panics_become_errors() {
+        let msg = catch_unwind_quietly(|| panic!("assertion failed: left == right"))
+            .expect_err("a panic must not escape the waveform loader");
+        assert!(msg.contains("assertion failed"), "unexpected text: {msg}");
+    }
+
+    #[test]
+    fn an_unreadable_dump_reports_the_truncation_hint() {
+        let path = std::env::temp_dir().join("pulse-test-unreadable.fst");
+        std::fs::write(&path, [0u8; 9]).unwrap();
+        let msg = load_waveform(&path).unwrap_err().to_string();
+        let _ = std::fs::remove_file(&path);
+        assert!(msg.contains("truncated"), "unexpected message: {msg}");
+    }
+
+    #[test]
+    fn a_missing_file_is_reported_as_such() {
+        let path = std::path::Path::new("/nonexistent/pulse-test/wave.fst");
+        let msg = load_waveform(path).unwrap_err().to_string();
+        assert!(
+            msg.contains("not a readable waveform file"),
+            "unexpected message: {msg}"
+        );
+    }
 
     #[test]
     fn splits_plain_words() {

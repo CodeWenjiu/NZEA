@@ -7,7 +7,10 @@ members = [
 ]
 
 [profile.release]
-panic         = "abort"
+# Keep unwinding: wellen's FST reader asserts on malformed blocks (the
+# half-written tail of a dump whose writer was killed), and pulse turns that
+# panic into a plain error instead of aborting the process.
+panic         = "unwind"
 incremental   = true
 
 # Bench-only profile for more informative flamegraphs:

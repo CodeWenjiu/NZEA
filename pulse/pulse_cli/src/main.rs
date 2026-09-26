@@ -1,7 +1,5 @@
-use clap::Parser;
-
 fn main() -> anyhow::Result<()> {
-    let cli = pulse_wave::PulseCommand::parse();
+    let cli = pulse_wave::parse_args();
     // `skill` is self-contained: it must work without a waveform file.
     if let pulse_wave::Command::Skill = &cli.command {
         print!("{}", pulse_wave::SKILL_MARKDOWN);
