@@ -48,15 +48,20 @@ class PocCounterIO(parameter: PocCounterParameter) extends HWBundle(parameter):
   val incr = Flipped(Bool())
   val value = Aligned(Bits(32))
 
-class PocCounterProbe(parameter: PocCounterParameter)
-    extends DVBundle[PocCounterParameter, PocCounterLayers](parameter)
+class PocCounterProbe(parameter: PocCounterParameter) extends DVBundle[PocCounterParameter, PocCounterLayers](parameter)
 
 case class PocCounterVerilogParams(width: Int) extends VerilogParameter
 
 /** Register with a VPI-readable leaf name, declared in Verilog we supply (PocEmit writes the file). */
 @generator
 object PocCounter
-    extends VerilogWrapper[PocCounterParameter, PocCounterLayers, PocCounterIO, PocCounterProbe, PocCounterVerilogParams]:
+    extends VerilogWrapper[
+      PocCounterParameter,
+      PocCounterLayers,
+      PocCounterIO,
+      PocCounterProbe,
+      PocCounterVerilogParams
+    ]:
   def verilogModuleName(parameter: PocCounterParameter) = s"PocCounter_w${parameter.width}"
   def verilogParameter(parameter: PocCounterParameter) = PocCounterVerilogParams(parameter.width)
 

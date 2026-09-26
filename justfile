@@ -44,7 +44,7 @@ clean:
 
 [group('utility')]
 clean-all: clean
-    @mill mill clean
+    @mill --no-server clean
 
 # ---- legacy oracle ----
 # Runs `git worktree add .oracle legacy-baseline`; the worktree has its own flake, see legacy/README.md.
