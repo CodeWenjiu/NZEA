@@ -3,7 +3,6 @@
 .bsp
 .cache
 .direnv
-.metals
 .sccache
 .scala-build
 .vscode
