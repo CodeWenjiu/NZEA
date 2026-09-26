@@ -64,7 +64,9 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     val pc = RegInit(BigInt(parameter.config.defaultPc & ((1L << width) - 1)).U(width))
     val epoch = RegInit(0.U(IbusUser.epochBits))
 
-    val pcNext = (pc.asBits.asUInt + 4.U(width)).asBits.bits(width - 1, 0).asUInt
+    // A prefix adder, not `+`: abc maps a general add to a carry chain, and this incrementer sits on the fetch-rate path
+    // (`pc` to `pc` in one cycle), so its depth is the front end's stage length.
+    val pcNext = prefixAdder(pc, 4.U(width), false.B, width)
     val epochNext = (epoch.asBits.asUInt + 1.U(IbusUser.epochBits)).asBits.bits(IbusUser.epochBits - 1, 0).asUInt
 
     when(io.redirect.valid) {
