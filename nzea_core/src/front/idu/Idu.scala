@@ -3,6 +3,7 @@ package nzea_core.front.idu
 import java.lang.foreign.Arena
 
 import me.jiuyang.stdlib.ValidIO
+import me.jiuyang.stdlib.{Decoupled, DecoupledIO}
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -47,8 +48,9 @@ class IduLayers(parameter: IduParameter) extends LayerInterface(parameter):
 class IduIO(parameter: IduParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val in = Flipped(PipeIO(new FetchedInst(parameter.config.width)))
-  val out = Aligned(PipeIO(new IduOut(parameter.config.width)))
+  val flush = Flipped(Bool())
+  val in = Flipped(Decoupled(new FetchedInst(parameter.config.width)))
+  val out = Aligned(Decoupled(new IduOut(parameter.config.width)))
   val arf_write = Flipped(ValidIO(new ArfWrite(parameter.config.width)))
 
 class IduProbe(parameter: IduParameter) extends DVBundle[IduParameter, IduLayers](parameter)
@@ -113,9 +115,8 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val rs1Val = (rs1Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs1Index))
     val rs2Val = (rs2Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs2Index))
 
-    io.in.flush := io.out.flush
-    io.in.ready := io.out.ready & !io.out.flush
-    io.out.valid := io.in.valid & !io.out.flush
+    io.in.ready := io.out.ready & !io.flush
+    io.out.valid := io.in.valid & !io.flush
     io.out.bits.pc := io.in.bits.pc
     io.out.bits.imm := imm
     io.out.bits.rd_index := rdIndex

@@ -8,6 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import me.jiuyang.stdlib.Decoupled
 import nzea_config.core.CoreConfig
 import nzea_rtl.LiteBusRO
 import nzea_rtl.stdlib.*
@@ -29,9 +30,10 @@ class IfuLayers(parameter: IfuParameter) extends LayerInterface(parameter):
 class IfuIO(parameter: IfuParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
+  val flush = Flipped(Bool())
   val ibus = Aligned(Ifu.busType(parameter.config))
   val redirect = Flipped(Valid(UInt(parameter.config.width)))
-  val out = Aligned(PipeIO(new FetchedInst(parameter.config.width)))
+  val out = Aligned(Decoupled(new FetchedInst(parameter.config.width)))
 
 class IfuProbe(parameter: IfuParameter) extends DVBundle[IfuParameter, IfuLayers](parameter)
 
@@ -81,6 +83,6 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     // `out.ready` is the only condition on accepting a response: a fetch from a killed stream is consumed and digested
     // (out.valid stays low) instead of being refused, so no request is left dangling on the bus.
     io.ibus.resp.ready := io.out.ready
-    io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user) === epoch) & !io.out.flush
+    io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user) === epoch) & !io.flush
     io.out.bits.pc := IbusUser.pcOf(io.ibus.resp.bits.user, width)
     io.out.bits.inst := io.ibus.resp.bits.data

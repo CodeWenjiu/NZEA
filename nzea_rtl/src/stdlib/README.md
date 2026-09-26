@@ -1,7 +1,7 @@
 # stdlib/
 
 DSL-level utilities that the zaozi frontend does not ship yet: `mux1H` / `muxCase` / `muxLookup` / `fill` / `log2Ceil`,
-the `PipeIO` / `pipelineConnect` pipeline register, the `Opcode` opcode-table helper, the DPI-C call layer
+the `pipelineConnect` register between `Decoupled` stages, the `Opcode` opcode-table helper, the DPI-C call layer
 (`dpiUnclockedCall` / `dpiClockedCall`), and the decode pair `Qmc` + `PlaPlan`.
 
 `Qmc` replaces `me.jiuyang.decoder.espresso` with an in-process Quine–McCluskey minimizer (zaozi has a `TODO` for it and

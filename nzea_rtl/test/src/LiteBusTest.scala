@@ -19,9 +19,10 @@ class BusPipeTestLayers(parameter: BusPipeTestParameter) extends LayerInterface(
 class BusPipeTestIO(parameter: BusPipeTestParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
+  val flush = Flipped(Bool())
   val ibus = Flipped(new LiteBusRO(parameter.width, parameter.width, 4, 4))
-  val in = Flipped(new PipeIO(Bits(parameter.width)))
-  val out = Aligned(new PipeIO(Bits(parameter.width)))
+  val in = Flipped(Decoupled(Bits(parameter.width)))
+  val out = Aligned(Decoupled(Bits(parameter.width)))
 
 class BusPipeTestProbe(parameter: BusPipeTestParameter)
     extends DVBundle[BusPipeTestParameter, BusPipeTestLayers](parameter)
@@ -36,7 +37,7 @@ object BusPipeTestModule extends Generator[BusPipeTestParameter, BusPipeTestLaye
     given ClockScope = ClockScope.posedge(io.clock)
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    pipelineConnect(io.in, io.out)
+    pipelineConnect(io.in, io.out, io.flush)
 
     // Loopback slave: every request field is consumed and every response field is driven, so the flattened port list is
     // checked in both directions and a dropped field cannot slip through unnoticed.
@@ -79,7 +80,8 @@ object LiteBusTest extends TestSuite:
       assert(!sv.contains("ibus_req_bits_wstrb"))
       assert(!sv.contains("ibus_req_bits_wdata"))
 
-    test("pipe channels carry valid/ready/bits/flush"):
-      for port <- Seq("in_valid", "in_ready", "in_bits", "in_flush", "out_valid", "out_ready", "out_bits", "out_flush")
+    test("pipe channels are Decoupled, and flush is the register's own port"):
+      for port <- Seq("flush", "in_valid", "in_ready", "in_bits", "out_valid", "out_ready", "out_bits")
       do assert(sv.contains(port))
+      assert(!sv.contains("in_flush"))
       assert(sv.contains("always @(posedge clock)"))

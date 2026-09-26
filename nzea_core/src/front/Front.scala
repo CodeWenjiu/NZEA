@@ -4,6 +4,7 @@ import java.lang.foreign.Arena
 
 import me.jiuyang.stdlib.Valid
 import me.jiuyang.stdlib.ValidIO
+import me.jiuyang.stdlib.Decoupled
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -27,10 +28,11 @@ class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
+  val flush = Flipped(Bool())
   val ibus = Aligned(Ifu.busType(parameter.config))
   val redirect = Flipped(Valid(UInt(width)))
   val arf_write = Flipped(ValidIO(new ArfWrite(width)))
-  val out = Aligned(PipeIO(new IduOut(width)))
+  val out = Aligned(Decoupled(new IduOut(width)))
 
 class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, FrontLayers](parameter)
 
@@ -39,6 +41,8 @@ class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, Fro
   * The decoded stream onto the boundary stays combinational: the register read happens in decode and the middle's idle
   * gate guarantees it follows every earlier commit's write-back. A registered boundary would capture the read cycles
   * before issue and hand the middle stale operands.
+  *
+  * `flush` is the core's broadcast: both stages and the register between them read it directly.
   */
 @generator
 object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]:
@@ -55,14 +59,15 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
 
     ifu.io.clock := io.clock
     ifu.io.resetN := io.resetN
+    ifu.io.flush := io.flush
     idu.io.clock := io.clock
     idu.io.resetN := io.resetN
+    idu.io.flush := io.flush
 
     io.ibus :<>= ifu.io.ibus
     ifu.io.redirect :<>= io.redirect
 
-    // Fetched instructions cross one register; its flush is the decode stage's, which comes from the middle.
-    pipelineConnect(ifu.io.out, idu.io.in)
+    pipelineConnect(ifu.io.out, idu.io.in, io.flush)
 
     idu.io.arf_write :<>= io.arf_write
     io.out :<>= idu.io.out

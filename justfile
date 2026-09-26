@@ -23,21 +23,6 @@ test-match module pattern:
 zaozi-publish:
     @nix develop --command bash -c 'cd .zaozi && JAVA_TOOL_OPTIONS=-Xss32m mill --no-server mlirlib.publishLocal && mill --no-server circtlib.publishLocal && mill --no-server zaozi.publishLocal && mill --no-server decoder.publishLocal && mill --no-server stdlib.publishLocal && mill --no-server zaozi-compiler-plugin.publishLocal'
 
-# Each generator writes its own .mlirbc, so `firld` links them into one circuit before firtool;
-# the counter's Verilog body comes from the flow, not from firtool.
-# Toolchain spike (temporary): elaborate, link, lower and simulate the POC into build/poc.
-[group('zaozi')]
-poc:
-    @nix develop --command bash -c 'set -e; rm -rf build/poc; mkdir -p build/poc; \
-      mill --no-server nzea_rtl.runMain nzea_rtl.PocEmit build/poc 8; \
-      ZAOZI_OUTDIR=build/poc mill --no-server nzea_rtl.runMain nzea_rtl.Poc config build/poc/poc.json --width 8 --depth 4; \
-      ZAOZI_OUTDIR=build/poc mill --no-server nzea_rtl.runMain nzea_rtl.Poc design build/poc/poc.json; \
-      cd build/poc; \
-      firld *.mlirbc --base-circuit Poc_w8_d4 --no-mangle -o design.mlir; \
-      firtool design.mlir -o Poc_w8_d4.sv --lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb -disable-all-randomization -strip-debug-info; \
-      iverilog -g2012 -o tb.vvp ../../nzea_rtl/sim/poc/tb.sv Poc_w8_d4.sv PocCounter_w8.sv; \
-      vvp tb.vvp'
-
 [group('utility')]
 clean:
     @rm -rf build
