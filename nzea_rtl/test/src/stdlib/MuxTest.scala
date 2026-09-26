@@ -4,6 +4,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_rtl.TestFlow
 import utest.*
 
 case class MuxTestParameter(width: Int, variants: Int) extends Parameter:
@@ -50,18 +51,15 @@ object MuxTest extends TestSuite:
 
   /** Elaborate `MuxTestModule` and lower it to Verilog. */
   private def elaborated(width: Int, variants: Int): String =
-    val dir = os.temp.dir(prefix = "mux-test")
-    val cfg = dir / "mux.json"
     val module = MuxTestModule.moduleName(MuxTestParameter(width, variants))
-    val mlirbc = os.pwd / s"$module.mlirbc"
-    val cleanup = () => if os.exists(mlirbc) then os.remove(mlirbc)
-
-    try
-      MuxTestModule.main(Array("config", cfg.toString, "--width", width.toString, "--variants", variants.toString))
-      MuxTestModule.main(Array("design", cfg.toString))
-      assert(os.exists(mlirbc))
-      os.proc("firtool", mlirbc.toString, "--lowering-options=disallowPackedArrays,noAlwaysComb").call().out.text()
-    finally cleanup()
+    TestFlow.lower(
+      module,
+      cfg =>
+        MuxTestModule.main(
+          Array("config", cfg.toString, "--width", width.toString, "--variants", variants.toString)
+        ),
+      cfg => MuxTestModule.main(Array("design", cfg.toString))
+    )
 
   val tests = Tests:
     test("helpers elaborate into verifiable FIRRTL with the expected interface"):

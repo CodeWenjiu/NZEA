@@ -46,6 +46,7 @@ trait ZaoziModule extends Scala3Module {
   override def mvnDeps = Task {
     super.mvnDeps() ++ Seq(
       mvn"me.jiuyang::zaozi:$zaoziV",
+      mvn"me.jiuyang::stdlib:$zaoziV",
       mvn"com.lihaoyi::mainargs:$mainargsV",
       mvn"com.lihaoyi::upickle:$upickleV"
     )
