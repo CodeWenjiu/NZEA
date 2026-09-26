@@ -11,12 +11,14 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** One-entry pipeline register between a producer's output (`in`) and a consumer's input (`out`).
   *
-  * Both ends are referables, so the caller can pass module ports (the usual case) or internal wires. `flush` is the
-  * core's cancellation broadcast — one net every stage reads directly, rather than something a stage asks its consumer
-  * for, so no stage's cancellation depends on the stage below it.
+  * Both ends are referables, so the caller can pass module ports (the usual case) or internal wires. `flush` is this
+  * register's cancellation net: the core broadcasts one, but whether a register obeys it is the caller's decision —
+  * architectural state and anything that has to drain rather than vanish must not be wired to it.
   *
-  * A flushed entry never reaches the consumer, even when it was handed over in the same cycle: flush has priority over
-  * the load.
+  * A flushed entry never reaches the consumer, in either window: the entry the register holds is not presented while
+  * flush is asserted (and is cleared at the edge), and one handed over in that same cycle is dropped rather than
+  * loaded. That is the whole of the register's cancellation — no consumer needs to look at flush to be sure it was not
+  * handed a stale entry, because an entry carries no generation of its own once it has left the bus.
   */
 def pipelineConnect[T <: HardwareDataType](
     in: Referable[DecoupledIO[T]],
@@ -38,7 +40,7 @@ def pipelineConnect[T <: HardwareDataType](
   val bitsReg = Reg(in.bits.getType)
 
   in.ready := !valid | out.ready
-  out.valid := valid
+  out.valid := valid & !flush
   out.bits :<= bitsReg
 
   val fire = in.valid & in.ready

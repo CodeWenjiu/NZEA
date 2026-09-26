@@ -30,7 +30,6 @@ class IfuLayers(parameter: IfuParameter) extends LayerInterface(parameter):
 class IfuIO(parameter: IfuParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val flush = Flipped(Bool())
   val ibus = Aligned(Ifu.busType(parameter.config))
   val redirect = Flipped(Valid(UInt(parameter.config.width)))
   val out = Aligned(Decoupled(new FetchedInst(parameter.config.width)))
@@ -39,8 +38,10 @@ class IfuProbe(parameter: IfuParameter) extends DVBundle[IfuParameter, IfuLayers
 
 /** In-order fetcher: `pc`, `pc+4`, one request at a time, no prediction (always-not-taken).
   *
-  * Redirect is the only event that steers pc, and it starts a new epoch. The fetcher never gates on reset: it asks and
-  * lets the slave refuse (a slave that is not ready does not accept), so the pc only moves on a real transfer.
+  * Redirect is the only event in this module's world: it steers pc and starts a new epoch, which is also how the fetch
+  * stream is cancelled — a response of a killed stream is consumed and digested, never refused. The fetcher never gates
+  * on reset: it asks and lets the slave refuse (a slave that is not ready does not accept), so the pc only moves on a
+  * real transfer.
   */
 @generator
 object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
@@ -83,6 +84,6 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     // `out.ready` is the only condition on accepting a response: a fetch from a killed stream is consumed and digested
     // (out.valid stays low) instead of being refused, so no request is left dangling on the bus.
     io.ibus.resp.ready := io.out.ready
-    io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user) === epoch) & !io.flush
+    io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user) === epoch)
     io.out.bits.pc := IbusUser.pcOf(io.ibus.resp.bits.user, width)
     io.out.bits.inst := io.ibus.resp.bits.data

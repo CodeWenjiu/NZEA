@@ -48,7 +48,6 @@ class IduLayers(parameter: IduParameter) extends LayerInterface(parameter):
 class IduIO(parameter: IduParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val flush = Flipped(Bool())
   val in = Flipped(Decoupled(new FetchedInst(parameter.config.width)))
   val out = Aligned(Decoupled(new IduOut(parameter.config.width)))
   val arf_write = Flipped(ValidIO(new ArfWrite(parameter.config.width)))
@@ -115,8 +114,8 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val rs1Val = (rs1Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs1Index))
     val rs2Val = (rs2Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs2Index))
 
-    io.in.ready := io.out.ready & !io.flush
-    io.out.valid := io.in.valid & !io.flush
+    io.in.ready := io.out.ready
+    io.out.valid := io.in.valid
     io.out.bits.pc := io.in.bits.pc
     io.out.bits.imm := imm
     io.out.bits.rd_index := rdIndex

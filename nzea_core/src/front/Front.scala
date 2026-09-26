@@ -42,7 +42,8 @@ class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, Fro
   * gate guarantees it follows every earlier commit's write-back. A registered boundary would capture the read cycles
   * before issue and hand the middle stale operands.
   *
-  * `flush` is the core's broadcast: both stages and the register between them read it directly.
+  * `flush` is the core's broadcast and the register between the stages is the only thing here that obeys it: the
+  * fetcher's cancellation is its epoch and the decoded stream onto the middle is gated by that same register.
   */
 @generator
 object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]:
@@ -59,10 +60,8 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
 
     ifu.io.clock := io.clock
     ifu.io.resetN := io.resetN
-    ifu.io.flush := io.flush
     idu.io.clock := io.clock
     idu.io.resetN := io.resetN
-    idu.io.flush := io.flush
 
     io.ibus :<>= ifu.io.ibus
     ifu.io.redirect :<>= io.redirect
