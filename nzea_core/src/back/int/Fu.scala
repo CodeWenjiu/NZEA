@@ -65,3 +65,8 @@ object IntOp:
 
   /** Decode side: one int instruction's window value. */
   def lit(unit: FuType, op: Opcode, src: Opcode): Int = fuOp.lit(op) | fuType.lit(unit) | fuSrc.lit(src)
+
+  /** Units that take no operand source (MUL/DIV/SYSU): the source column stays zero on purpose, like the legacy
+    * decoder, and the FU never looks at it.
+    */
+  def lit(unit: FuType, op: Opcode): Int = fuOp.lit(op) | fuType.lit(unit)
