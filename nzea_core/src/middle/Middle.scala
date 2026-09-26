@@ -24,7 +24,7 @@ class Middle(implicit config: CoreConfig) extends Module {
 
   val exValid = RegInit(false.B)
   val exBits = Reg(new IduOut(width))
-  val issue = io.bus.decoded.valid && io.bus.decoded.ready
+  val issue = io.bus.decoded.fire
   when(issue) { exBits := io.bus.decoded.bits }
 
   private val csr = Module(new CsrFile)
