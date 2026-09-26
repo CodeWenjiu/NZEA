@@ -77,7 +77,7 @@ object nzea_rtl extends ZaoziModule {
 
 /** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). */
 object nzea_core extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_config)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
