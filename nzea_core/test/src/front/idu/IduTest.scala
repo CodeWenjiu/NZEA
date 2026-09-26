@@ -27,6 +27,9 @@ object IduTest extends TestSuite:
       assert(Gpr.indexWidth == 5)
       assert(1 << Gpr.indexWidth == Gpr.depth)
 
+    test("the tables are 32-bit only, and say so instead of elaborating wrong widths"):
+      assert(scala.util.Try(RiscvInsts.all(CoreConfig("riscv64i", 0x80000000L, sim = false))).isFailure)
+
     test("every decoded window fits the shared op field"):
       for
         config <- configs

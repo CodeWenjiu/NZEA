@@ -470,4 +470,9 @@ object RiscvInsts:
   private val m: Seq[RVInst] = Seq(MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU)
 
   /** All instructions for decode; M is gated like every other optional extension. */
-  def all(config: CoreConfig): Seq[RVInst] = base ++ (if config.isaConfig.hasM then m else Seq.empty)
+  def all(config: CoreConfig): Seq[RVInst] =
+    require(
+      config.width == 32,
+      s"the decode tables describe a 32-bit instruction word, but the ISA config is ${config.width} bits"
+    )
+    base ++ (if config.isaConfig.hasM then m else Seq.empty)
