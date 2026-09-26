@@ -74,3 +74,19 @@ object nzea_rtl extends ZaoziModule {
     }
   }
 }
+
+/** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). */
+object nzea_core extends ZaoziModule {
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = utestDeps
+
+    // Reuse nzea_rtl's elaborate -> firtool helper, and load libMLIR/libCIRCT through the FFM API.
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+
+    override def forkArgs = Task {
+      super.forkArgs() ++ zaoziJvmFlags
+    }
+  }
+}
