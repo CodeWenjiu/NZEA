@@ -81,12 +81,12 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val srcs = decode.field(DecodeTables.SrcsName, decoded)
     val immType = decode.field(DecodeTables.ImmTypeName, decoded)
     val gprWr = decode.flag(DecodeTables.GprWrName, decoded)
-    val rs1Rd = decode.flag(DecodeTables.Rs1RdName, decoded)
-    val rs2Rd = decode.flag(DecodeTables.Rs2RdName, decoded)
 
-    // An operand that is not read is requested as x0, so the read path below is unconditional.
-    val rs1Index = rs1Rd ? (inst.bits(19, 15).asUInt, 0.U(Gpr.indexWidth))
-    val rs2Index = rs2Rd ? (inst.bits(24, 20).asUInt, 0.U(Gpr.indexWidth))
+    // Both source indexes come straight from the instruction word, so the read does not wait on the PLA: which slot a
+    // value lands in is the operand form's business, and the form resolves it below. The destination index stays gated
+    // because it is a write address: an instruction without a destination must not name one.
+    val rs1Index: Node[UInt] = inst.bits(19, 15).asUInt
+    val rs2Index: Node[UInt] = inst.bits(24, 20).asUInt
     val rdIndex = gprWr ? (inst.bits(11, 7).asUInt, 0.U(Gpr.indexWidth))
 
     // The immediate shapes, built from the instruction's scattered fields (`[31:25]` funct7, `[24:20]` rs2,
@@ -115,8 +115,8 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
         when(io.arf_write.bits.rd_index === index.U(Gpr.indexWidth)) { gprs(index) := io.arf_write.bits.data }
     }
 
-    val rs1Val = (rs1Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs1Index))
-    val rs2Val = (rs2Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs2Index))
+    val rs1Val = gprs.ref(rs1Index)
+    val rs2Val = gprs.ref(rs2Index)
 
     // The operand form says which architectural source feeds each uop slot; resolving it here is what keeps the source
     // selection out of the backend's execute cycle.
