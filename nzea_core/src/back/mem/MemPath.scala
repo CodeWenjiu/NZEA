@@ -93,7 +93,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     val wdata = muxTree(offset, Seq(0, 8, 16, 24).map(shift => (rs2 << shift).bits(width - 1, 0)))
 
     // One request per uop, held until the bus accepts it and dropped when the uop goes away.
-    val uopEdge = uopValid & !regNext(uopValid)
+    val uopEdge = uopValid & !regNext(uopValid, false.B)
     val reqValid = RegInit(false.B)
     when(uopEdge) { reqValid := true.B }
     when(!uopValid | (reqValid & io.dbus.req.ready)) { reqValid := false.B }

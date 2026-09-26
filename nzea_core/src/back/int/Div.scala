@@ -96,7 +96,7 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val newRq = (newRem ## shifted.bits(width - 1, 1) ## ge.asBits).asUInt
 
     val last = count === (width - 1).U(countWidth)
-    val start = io.issue.valid & !regNext(io.issue.valid)
+    val start = io.issue.valid & !regNext(io.issue.valid, false.B)
 
     val quoAbs = Node(newRq.asBits).bits(width - 1, 0).asUInt
     val remAbs = Node(newRq.asBits).bits(workingWidth - 1, width).asUInt

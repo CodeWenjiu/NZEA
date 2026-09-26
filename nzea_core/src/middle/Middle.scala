@@ -12,6 +12,8 @@ import nzea_config.core.CoreConfig
 import nzea_core.back.{BackOut, IssueUop}
 import nzea_core.front.idu.{ArfWrite, IduOut}
 import nzea_core.isa.{Backend, CsrType}
+import nzea_core.stats.{CoreStats, ThroughputCounters, ThroughputCountersParameter}
+import nzea_rtl.StatsRegs
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -112,3 +114,16 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     io.commit.bits.is_mmio := io.report.is_mmio
     io.commit.bits.csr_type := io.report.csr_type
     io.commit.bits.csr_data := io.report.csr_data
+
+    // Simulation-only counters: the retirement rate is counted here because this is where cycles and commits are both
+    // known. The box they live in is emitted and declared by `nzea_rtl.StatsRegs` / `nzea_core.stats.CoreStats`.
+    if parameter.config.sim then
+      val stats = ThroughputCounters.instantiate(ThroughputCountersParameter())
+      stats.io.clock := io.clock
+      stats.io.resetN := io.resetN.asBool
+      stats.io.stat_cycle.en := true.B
+      stats.io.stat_cycle.data :=
+        addWrap(stats.io.stat_cycle.value, 1.U(StatsRegs.Width), StatsRegs.Width)
+      stats.io.stat_inst_commit.en := done
+      stats.io.stat_inst_commit.data :=
+        addWrap(stats.io.stat_inst_commit.value, 1.U(StatsRegs.Width), StatsRegs.Width)

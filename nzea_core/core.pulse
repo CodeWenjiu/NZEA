@@ -1,0 +1,15 @@
+-- Core retire and dispatch events, relative to the middle's scope (TOP.NzeaCore.middle).
+--
+-- These are the events the retire counters cannot answer: the counters say how many, these say when and in what order.
+-- Bind them with --event, e.g. the commit log with its redirects marked:
+--   pulse property --event nzea_core/core.pulse <MIDDLE> Core --eval 'Core.commit_fire || Core.redirect' --cycles 0-500
+
+-- One instruction retired: register write-back, CSR write and the commit trace all ride this pulse.
+commit_fire = commit_valid
+
+-- A taken branch: the backend resolved a redirect and the front restarts from report_redirect_target. The baseline
+-- predicts not-taken, so a taken branch is also a mispredict.
+redirect = report_flush
+
+-- There is a uop in flight, held stable by the single-flight lock until it commits or is flushed.
+inflight = exValid

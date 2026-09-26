@@ -11,7 +11,9 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.CoreConfig
 import nzea_core.back.{IssueUop, PathResult}
 import nzea_core.isa.CsrType
+import nzea_rtl.StatsRegs
 import nzea_rtl.stdlib.*
+import nzea_core.stats.{BpCounters, BpCountersParameter}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class IntPathParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:
@@ -217,3 +219,24 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     io.result.csr_type := isSysu ? (csrWrite ? (u.csr_type, csrNone), csrNone)
     io.result.csr_data := isSysu ? (csrWrite ? (csrData, 0.U(width)), 0.U(width))
     io.result.is_mmio := false.B
+
+    // Simulation-only branch counters: every branch or jump that resolves here, and how the fetch stream did against it.
+    if parameter.config.sim then
+      val stats = BpCounters.instantiate(BpCountersParameter())
+      stats.io.clock := io.clock
+      stats.io.resetN := io.resetN.asBool
+      // A combinational unit holds its uop for the whole residence, so a per-instruction event is the arrival edge —
+      // counting the level would count one branch once per cycle it is held. It is a named wire on purpose: the
+      // counters and the waveform's event file (`nzea_core/branch.pulse`) both address this event by name, and a plain
+      // val would be inlined into an anonymous net.
+      val branchResolved = Wire(Bool())
+      branchResolved := uopValid & isBru & !regNext(uopValid, false.B)
+      stats.io.stat_bp_branch.en := branchResolved
+      stats.io.stat_bp_branch.data :=
+        addWrap(stats.io.stat_bp_branch.value, 1.U(StatsRegs.Width), StatsRegs.Width)
+      stats.io.stat_bp_mispred.en := branchResolved & mispredict
+      stats.io.stat_bp_mispred.data :=
+        addWrap(stats.io.stat_bp_mispred.value, 1.U(StatsRegs.Width), StatsRegs.Width)
+      stats.io.stat_bp_actual_taken.en := branchResolved & taken
+      stats.io.stat_bp_actual_taken.data :=
+        addWrap(stats.io.stat_bp_actual_taken.value, 1.U(StatsRegs.Width), StatsRegs.Width)

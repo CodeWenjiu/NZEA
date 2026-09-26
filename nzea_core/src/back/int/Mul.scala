@@ -77,7 +77,7 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
     val busy = RegInit(false.B)
     val doneReg = RegInit(false.B)
 
-    val start = io.issue.valid & !regNext(io.issue.valid)
+    val start = io.issue.valid & !regNext(io.issue.valid, false.B)
     val last = count === (width - 1).U(countWidth)
 
     when(busy & io.issue.valid) {

@@ -1,19 +1,22 @@
 package nzea_rtl
 
-/** Pure SystemVerilog text for a [[StatsRegs]] black box: the VPI contract's source of truth.
+/** Pure SystemVerilog text for a counter black box, plus the emit step that puts it next to the design's Verilog.
   *
   * The registers carry a `verilator public_flat_rd` metacomment so every register is readable by its leaf name from the
   * simulator (contract: `stat_*` leaf names are globally unique across the whole design). Other tools (iverilog,
   * Vivado) treat the metacomment as an ordinary comment.
   *
   * A counter cannot exist in the RTL without being part of the emitted [[StatSchema]]: both come from the same
-  * [[StatCounter]] declarations.
+  * [[StatCounter]] declarations, and the zaozi side (`nzea_core.stats`) instantiates this text through a wrapper whose
+  * ports are the declarations' names.
   *
   * State lives inside the black box — all update logic stays on the RTL side through per-register `en`/`data` write
-  * ports plus a `value` read-back port, so the box is opaque to constant folding. This module holds the text only; the
-  * zaozi wrapper that instantiates it, and the emit step that writes this text next to the generated RTL, follow.
+  * ports plus a `value` read-back port, so the box is opaque to constant folding.
   */
 object StatsRegs:
+
+  /** Width of every counter and of the wrapper's ports: the schema's maximum, so one port bundle serves all of them. */
+  val Width: Int = 64
 
   /** Generate the SystemVerilog body for a black box named `moduleName` holding `regs`. Pure function for tests. */
   def verilog(moduleName: String, regs: Seq[StatCounter]): String =
@@ -27,12 +30,12 @@ object StatsRegs:
     val writes = regs.map { c => s"      if (${c.name}_en) ${c.name} <= ${c.name}_data;" }
     s"""module $moduleName(
        |  input clock,
-       |  input reset,
+       |  input resetN,
        |${portsDecl.mkString(",\n")}
        |);
        |${regsDecl.mkString("\n")}
        |  always @(posedge clock) begin
-       |    if (reset) begin
+       |    if (!resetN) begin
        |${resets.mkString("\n")}
        |    end else begin
        |${writes.mkString("\n")}
@@ -40,3 +43,20 @@ object StatsRegs:
        |  end
        |endmodule
        |""".stripMargin
+
+  /** Write the counter modules of `modules` into `dir` and add them to its file list, which firtool's own list cannot
+    * carry: a black box has no body to lower, so its implementation is a file the design flow supplies. Returns the
+    * file names added.
+    */
+  def emit(dir: os.Path, modules: Seq[(String, Seq[StatCounter])]): Seq[String] =
+    os.makeDir.all(dir)
+    val names = modules.map { (moduleName, regs) =>
+      val file = s"$moduleName.sv"
+      os.write.over(dir / file, verilog(moduleName, regs))
+      file
+    }
+    val filelist = dir / "filelist.f"
+    val listed = if os.exists(filelist) then os.read(filelist) else ""
+    val terminated = if listed.isEmpty || listed.endsWith("\n") then listed else s"$listed\n"
+    os.write.over(filelist, terminated ++ names.map(_ + "\n").mkString)
+    names

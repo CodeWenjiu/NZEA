@@ -1,7 +1,8 @@
 package nzea_cli
 
+import nzea_core.stats.{BpCounters, BpCountersParameter, CoreStats, ThroughputCounters, ThroughputCountersParameter}
 import nzea_core.{NzeaCore, NzeaCoreParameter}
-import nzea_rtl.Elaborate
+import nzea_rtl.{Elaborate, StatSchema, StatsRegs}
 
 /** Elaborate one design to Verilog.
   *
@@ -53,6 +54,17 @@ object Main:
           outDir,
           Seq("--split-verilog", "-disable-all-randomization", "-strip-debug-info")
         )
+        // The counters and the schema that describes them travel with the RTL they belong to: a simulator reads the
+        // counters through VPI and interprets them through the schema.
+        if sim then
+          StatsRegs.emit(
+            outDir,
+            Seq(
+              (ThroughputCounters.verilogModuleName(ThroughputCountersParameter()), CoreStats.throughputCounters),
+              (BpCounters.verilogModuleName(BpCountersParameter()), CoreStats.bpCounters)
+            )
+          )
+          StatSchema.emit(outDir.toString, NzeaCore.moduleName(parameter), CoreStats.schema)
     finally os.remove.all(scratch)
 
     println(s"elaborated $target:$isa for $platform into $outDir")
