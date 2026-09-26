@@ -1,3 +1,4 @@
+//| mill-jvm-version: system
 import mill._
 import mill.scalalib._
 
@@ -32,9 +33,17 @@ trait ZaoziModule extends ScalaModule {
     )
   }
 
-  // The DSL reaches CIRCT through the FFM API.
+  // The DSL reaches CIRCT through the FFM API; the shared libraries live in the
+  // dev shell's install trees (see CIRCT_INSTALL_PATH / MLIR_INSTALL_PATH).
   override def forkArgs = Task {
-    super.forkArgs() ++ Seq("--enable-native-access=ALL-UNNAMED")
+    val nativeLibraryPaths = Seq("MLIR_INSTALL_PATH", "CIRCT_INSTALL_PATH")
+      .flatMap(name => Task.env.get(name))
+      .map(_ + "/lib")
+      .mkString(":")
+    super.forkArgs() ++ Seq(
+      "--enable-native-access=ALL-UNNAMED",
+      s"-Djava.library.path=$nativeLibraryPaths"
+    )
   }
 }
 
