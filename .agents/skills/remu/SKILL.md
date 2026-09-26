@@ -20,7 +20,11 @@ When working with remu as an AI agent, **always** apply these rules:
 2. **Always enable the watchdog** — append `--sim-opt watchdog=5` when
    using nzea backend. Without it, a deadlocked program will hang indefinitely.
    Format: `MxN` where M = consecutive misses (default 3), N = check interval in seconds.
-   Use `watchdog=10` for programs expected to run long between I/O.
+   The watchdog is fed by *commits*: it trips when the core retires no instruction
+   for `M × N` seconds, prints the last commit cycle, and the run fails as
+   `stalled: no architectural progress` (distinct from the Ctrl+C `interrupted`).
+   Use `watchdog=10` for programs whose steps are expected to take long (e.g. a slow
+   access) between commits.
 
 3. **Check the exit code** — `GOOD EXIT` means success, `BAD EXIT` means the
    program terminated abnormally. Any other output on stderr is an error.
@@ -97,8 +101,12 @@ Notes:
   directly reuses the stale ELF.
 - RTL simulation is ~40-50x slower than the built-in simulator: microbench
   `ref` takes about an hour on RTL; use `test` (~10s) for RTL runs.
-- The nzea watchdog (`--sim-opt watchdog=N`) interrupts programs with no
-  observed progress for `3×N` seconds; long RTL runs may need a large N.
+- The nzea watchdog (`--sim-opt watchdog=N`, `3×N` s by default) trips when the
+  core commits nothing for `misses × interval` — it is fed per committed
+  instruction, not per cycle. On a trip it prints the last commit cycle and the
+  run fails as `stalled: no architectural progress`; a workload that can go
+  longer between commits (e.g. a slow access) needs a larger window
+  (`--sim-opt watchdog=3x30`), not `watchdog=off`.
 
 #### `build-app APP [target]`
 
@@ -168,6 +176,11 @@ or pass multiple pairs space-separated.
 --sim-opt target=core --sim-opt watchdog=5  # or repeat --sim-opt
 ```
 
+The watchdog measures architectural progress, not cycles: it is fed per committed
+instruction. `test` = 1 miss × 0 s (trips as soon as it is not fed; for tests).
+A legitimately long gap between commits needs a larger `M`/`N`
+(`--sim-opt watchdog=3x30`) rather than `off`.
+
 ### Automation
 
 ```sh
@@ -224,4 +237,5 @@ value prints `n/a (reason)` instead of a fabricated number.
 - `GOOD EXIT`: program terminated via sifive_test_finisher with code 0x5555
 - `BAD EXIT`: program terminated with other finisher code
 - Error output: difftest mismatches, state access errors, deadlock detection
+  (`stalled: no architectural progress`; the watchdog prints the last commit cycle)
 - exit code 0: success; non-zero: failure (check stderr for details)
