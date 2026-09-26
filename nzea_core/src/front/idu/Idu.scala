@@ -94,7 +94,8 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val immS = (fill(20, inst.bit(31)) ## inst.bits(31, 25) ## inst.bits(11, 7)).asUInt
     val immB = (fill(19, inst.bit(31)) ## bit(31) ## bit(7) ## inst.bits(30, 25) ## inst.bits(11, 8) ## 0.B(1)).asUInt
     val immU = (inst.bits(31, 12) ## 0.B(12)).asUInt
-    val immJ = (fill(11, inst.bit(31)) ## inst.bits(19, 12) ## bit(20) ## inst.bits(30, 21) ## 0.B(1)).asUInt
+    val immJ =
+      (fill(11, inst.bit(31)) ## bit(31) ## inst.bits(19, 12) ## bit(20) ## inst.bits(30, 21) ## 0.B(1)).asUInt
     val immZ = (0.B(27) ## inst.bits(19, 15)).asUInt
     val imm = mux1H(immType, Seq(immI, immS, immB, immU, immJ, immZ), width)
 

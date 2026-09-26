@@ -64,8 +64,8 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val isBru = selects(FuType.BRU)
     val isSysu = selects(FuType.SYSU)
 
-    val a: Node[Bits] = Node(u.rs1.asBits)
-    val b: Node[Bits] = Node(u.rs2.asBits)
+    val rs1Bits: Node[Bits] = Node(u.rs1.asBits)
+    val rs2Bits: Node[Bits] = Node(u.rs2.asBits)
 
     // ALU: operands by source select, one result per op class, 4:1 on top of the four classes. The class and per-class
     // selects come off the op field directly — it is one-hot, so a result only sees the selector bits that name it.
@@ -83,28 +83,38 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       )
     )
 
-    val shamt: Node[UInt] = b.bits(4, 0).asUInt
-    val signFill: Node[Bits] = fill(width, a.bit(width - 1))
+    // Every ALU op reads the source-selected operands, never the raw register fields: an immediate form has no rs2 to
+    // read at all (the decode stage requests x0 for it), so a raw `rs2` is zero rather than the immediate.
+    val opABits: Node[Bits] = Node(aluOpA.asBits)
+    val opBBits: Node[Bits] = Node(aluOpB.asBits)
+    val shamt: Node[UInt] = opBBits.bits(4, 0).asUInt
+    val signFill: Node[Bits] = fill(width, opABits.bit(width - 1))
 
     // Tree shifters, not barrel shifters: selecting a constant shift is free rewiring, so only the select network is
     // left. Arithmetic right shift rides on the logical one: a signed constant shift folds back into a logical shift
     // (the sign is dropped), so the fill is explicit, as a tree of constant masks.
-    val sll: Node[UInt] = muxTree(shamt, (0 until width).map(i => (a.asUInt << i).asBits.bits(width - 1, 0).asUInt))
-    val srl: Node[UInt] = muxTree(shamt, (0 until width).map(i => (a.asUInt >> i).asBits.pad(width).asUInt))
+    val sll: Node[UInt] =
+      muxTree(shamt, (0 until width).map(i => (opABits.asUInt << i).asBits.bits(width - 1, 0).asUInt))
+    val srl: Node[UInt] =
+      muxTree(shamt, (0 until width).map(i => (opABits.asUInt >> i).asBits.pad(width).asUInt))
     val sra: Node[UInt] = muxTree(
       shamt,
       (0 until width).map: i =>
         val mask = if i == 0 then BigInt(0) else ((BigInt(1) << i) - 1) << (width - i)
-        ((a.asUInt >> i).asBits.pad(width) | (mask.U(width).asBits & signFill)).asUInt
+        ((opABits.asUInt >> i).asBits.pad(width) | (mask.U(width).asBits & signFill)).asUInt
     )
 
     val add = prefixAdder(aluOpA, aluOpB, false.B, width)
-    val sub = prefixAdder(a.asUInt, (~b).asUInt, true.B, width)
-    val slt = (a.asSInt < b.asSInt) ? (1.U(width), 0.U(width))
-    val sltu = (u.rs1 < u.rs2) ? (1.U(width), 0.U(width))
+    val sub = prefixAdder(aluOpA, (~opBBits).asUInt, true.B, width)
+    val slt = (opABits.asSInt < opBBits.asSInt) ? (1.U(width), 0.U(width))
+    val sltu = (aluOpA < aluOpB) ? (1.U(width), 0.U(width))
 
     val arith = fuOpBits.bit(1) ? (sub, add)
-    val logic = mux1H(Node(fuOpBits.bits(4, 2)).asUInt, Seq((a & b).asUInt, (a | b).asUInt, (a ^ b).asUInt), width)
+    val logic = mux1H(
+      Node(fuOpBits.bits(4, 2)).asUInt,
+      Seq((opABits & opBBits).asUInt, (opABits | opBBits).asUInt, (opABits ^ opBBits).asUInt),
+      width
+    )
     val shift = mux1H(Node(fuOpBits.bits(7, 5)).asUInt, Seq(sll, srl, sra), width)
     val cmp = fuOpBits.bit(9) ? (sltu, slt)
     val arithSel = fuOpBits.bit(0) | fuOpBits.bit(1)
@@ -158,8 +168,8 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         true.B,
         u.rs1 === u.rs2,
         u.rs1 =/= u.rs2,
-        (a.asSInt < b.asSInt),
-        (a.asSInt >= b.asSInt),
+        (rs1Bits.asSInt < rs2Bits.asSInt),
+        (rs1Bits.asSInt >= rs2Bits.asSInt),
         u.rs1 < u.rs2,
         u.rs1 >= u.rs2
       )
