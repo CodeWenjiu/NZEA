@@ -13,18 +13,18 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *
   * The memory path needs no unit select on top of this: it has a single unit.
   */
-enum LsuOp(val lit: Int) extends Opcode:
-  case LB extends LsuOp(1 << 0)
-  case LH extends LsuOp(1 << 1)
-  case LW extends LsuOp(1 << 2)
-  case LBU extends LsuOp(1 << 3)
-  case LHU extends LsuOp(1 << 4)
-  case SB extends LsuOp(1 << 5)
-  case SH extends LsuOp(1 << 6)
-  case SW extends LsuOp(1 << 7)
+enum LsuOp extends Encoding.OneHot:
+  case LB
+  case LH
+  case LW
+  case LBU
+  case LHU
+  case SB
+  case SH
+  case SW
 
 object LsuOp:
-  val width: Int = Opcode.width(values)
+  val width: Int = Encoding.width(values)
 
   /** True for the store ops; a field that selects no store is treated as a load, like the legacy decoder. */
   def isStore[LHS <: Referable[UInt]](op: LHS)(using
@@ -55,7 +55,7 @@ object LsuOp:
   * sized from [[MemOp.width]]. The address base, the offset and the store data arrive in the uop's operand slots.
   */
 object MemOp:
-  val op = OpColumn(0, LsuOp.width)
+  val op = Encoding.Column(0, LsuOp.width)
 
   /** Window length: the bits this backend needs the shared field to have. */
   val width: Int = op.end

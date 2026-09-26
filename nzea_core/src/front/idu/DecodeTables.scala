@@ -1,7 +1,7 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.{BitPat, BitSet, TruthTable}
-import nzea_core.back.OpField
+import nzea_core.back.OpWindow
 import nzea_core.isa.{Backend, Srcs}
 import nzea_config.core.CoreConfig
 
@@ -47,7 +47,7 @@ object DecodeTables:
       OpName,
       insts.map(i => i.pattern -> i.dispatch.name),
       NoWindowKey,
-      encode(insts.map(i => i.dispatch.name -> i.dispatch.window) :+ (NoWindowKey -> 0), OpField.Width)
+      encode(insts.map(i => i.dispatch.name -> i.dispatch.window) :+ (NoWindowKey -> 0), OpWindow.Width)
     )
 
   /** The operand form: which source feeds each of the uop's three operand slots. */

@@ -26,7 +26,7 @@ object QmcTest extends TestSuite:
     )
 
   /** A 5-bit space: one field whose default asserts a bit (the `00001` encoding), one whose default is zero, and one
-    * entry that covers two opcodes — the merge the decode tables rely on.
+    * entry that covers two patterns — the merge the decode tables rely on.
     */
   private val shape = field(
     "shape",

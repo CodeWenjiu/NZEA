@@ -52,7 +52,7 @@ object BackPathTest extends TestSuite:
           "issue_bits_src_b" -> width,
           "issue_bits_src_c" -> width,
           "issue_bits_backend" -> Backend.width,
-          "issue_bits_op" -> OpField.Width,
+          "issue_bits_op" -> OpWindow.Width,
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
           "report_done" -> 1,

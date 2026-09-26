@@ -6,9 +6,9 @@ import utest.*
 /** The ISA-level decoder outputs everyone shares: the backend dispatch and the CSR map. */
 object IsaTest extends TestSuite:
 
-  private def checkSequential(values: Seq[Opcode], expectedWidth: Int): Unit =
+  private def checkSequential(values: Seq[Encoding], expectedWidth: Int): Unit =
     assert(values.map(_.lit) == values.indices)
-    assert(Opcode.width(values) == expectedWidth)
+    assert(Encoding.width(values) == expectedWidth)
 
   val tests = Tests:
     test("backend dispatch keeps a stable encoding"):

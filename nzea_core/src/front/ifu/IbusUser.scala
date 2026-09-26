@@ -23,10 +23,10 @@ object IbusUser:
   val epochBits: Int = 4
 
   /** Epoch column, low-anchored, so the pc's position follows the address width alone. */
-  val epochField: OpColumn = OpColumn(0, epochBits)
+  val epochField: Encoding.Column = Encoding.Column(0, epochBits)
 
   /** Pc column: the address the request was issued for. */
-  def pcField(addrWidth: Int): OpColumn = OpColumn(epochField.end, addrWidth)
+  def pcField(addrWidth: Int): Encoding.Column = Encoding.Column(epochField.end, addrWidth)
 
   def userWidth(addrWidth: Int): Int = pcField(addrWidth).end
 

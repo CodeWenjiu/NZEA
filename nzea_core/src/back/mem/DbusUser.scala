@@ -21,7 +21,7 @@ object DbusUser:
 
   val tagWidth: Int = 2
 
-  val tagField: OpColumn = OpColumn(0, tagWidth)
+  val tagField: Encoding.Column = Encoding.Column(0, tagWidth)
 
   def userWidth: Int = tagField.end
 

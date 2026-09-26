@@ -115,7 +115,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
     // SYSU: the CSR read is already in the uop; the write data and whether to write at all depend on the op. The only
     // operand is the slot the form filled — rs1 for the register forms, the immediate for the immediate forms.
-    val sysuOp: Node[UInt] = Opcode.take(fuOp, SysuOp.width)
+    val sysuOp: Node[UInt] = Encoding.take(fuOp, SysuOp.width)
     def isSysuOp(sysu: SysuOp): Node[Bool] = sysuOp === sysu.lit.U(SysuOp.width)
     val csrOp: Node[Bits] = Node(u.src_a.asBits)
     val csrRdata: Node[Bits] = Node(u.csr_rdata.asBits)
@@ -140,7 +140,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
     // BRU: not-taken prediction, so `next_pc` is the target exactly when the branch is taken, and the redirect is a taken
     // branch whose target is not the fall-through (a zero-offset branch is taken but nothing changes).
-    val bruOp: Node[UInt] = Opcode.take(fuOp, BruOp.width)
+    val bruOp: Node[UInt] = Encoding.take(fuOp, BruOp.width)
     // JALR bases its target on its register operand; every other jump and branch bases on the pc.
     val isJalr = bruOp === BruOp.JALR.lit.U(BruOp.width)
     val pcPlus4 = prefixAdder(u.pc, 4.U(width), false.B, width)
@@ -172,14 +172,14 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       m.io.issue.valid := uopValid & selects(FuType.MUL)
       m.io.issue.bits.opA := u.src_a
       m.io.issue.bits.opB := u.src_b
-      m.io.issue.bits.op := Opcode.take(fuOp, MulOp.width)
+      m.io.issue.bits.op := Encoding.take(fuOp, MulOp.width)
     for d <- div do
       d.io.clock := io.clock
       d.io.resetN := io.resetN
       d.io.issue.valid := uopValid & selects(FuType.DIV)
       d.io.issue.bits.opA := u.src_a
       d.io.issue.bits.opB := u.src_b
-      d.io.issue.bits.op := Opcode.take(fuOp, DivOp.width)
+      d.io.issue.bits.op := Encoding.take(fuOp, DivOp.width)
     val mulDone = mul.map(m => selects(FuType.MUL) & m.io.done).getOrElse(false.B)
     val divDone = div.map(d => selects(FuType.DIV) & d.io.done).getOrElse(false.B)
     val mulData: Referable[UInt] = mul.map(m => m.io.data).getOrElse(0.U(width))

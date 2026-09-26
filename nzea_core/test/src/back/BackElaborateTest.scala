@@ -21,7 +21,7 @@ class BackElaborateTestLayers(parameter: BackElaborateTestParameter) extends Lay
 /** The decode result the middle hands to a backend, read the way the backends read it. */
 class BackElaborateTestIO(parameter: BackElaborateTestParameter) extends HWBundle(parameter):
   val backend = Flipped(UInt(Backend.width))
-  val op = Flipped(UInt(OpField.Width))
+  val op = Flipped(UInt(OpWindow.Width))
   val int_fu_type = Aligned(UInt(FuType.width))
   val alu_op = Aligned(UInt(AluOp.width))
   val bru_op = Aligned(UInt(BruOp.width))
@@ -47,8 +47,8 @@ object BackElaborateTestModule
     // The int path unpacks its own window, and its FUs eat the low column straight from it.
     io.int_fu_type := IntOp.fuType(io.op)
     io.alu_op := IntOp.fuOp(io.op)
-    io.bru_op := Opcode.take(io.op, BruOp.width)
-    io.mul_op := Opcode.take(io.op, MulOp.width)
+    io.bru_op := Encoding.take(io.op, BruOp.width)
+    io.mul_op := Encoding.take(io.op, MulOp.width)
 
     // The mem path unpacks its own, which starts at bit 0 as well: the windows alias.
     val memOp = MemOp.op(io.op)
@@ -75,7 +75,7 @@ object BackElaborateTest extends TestSuite:
       assert(
         ports == Map(
           "backend" -> Backend.width,
-          "op" -> OpField.Width,
+          "op" -> OpWindow.Width,
           "int_fu_type" -> FuType.width,
           "alu_op" -> IntOp.fuOp.width,
           "bru_op" -> BruOp.width,

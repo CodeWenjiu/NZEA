@@ -2,7 +2,7 @@ package nzea_core.front
 
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{Backend, Gpr}
-import nzea_core.back.OpField
+import nzea_core.back.OpWindow
 import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
@@ -58,7 +58,7 @@ object FrontElaborateTest extends TestSuite:
           "out_bits_src_b" -> width,
           "out_bits_src_c" -> width,
           "out_bits_backend" -> Backend.width,
-          "out_bits_op" -> OpField.Width,
+          "out_bits_op" -> OpWindow.Width,
           "out_bits_csr_addr" -> 12
         )
       )

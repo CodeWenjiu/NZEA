@@ -1,8 +1,9 @@
 # stdlib/
 
 DSL-level utilities that the zaozi frontend does not ship yet: `mux1H` / `muxCase` / `muxLookup` / `fill` / `log2Ceil`,
-the `pipelineConnect` register between `Decoupled` stages, the `Opcode` opcode-table helper, the DPI-C call layer
-(`dpiUnclockedCall` / `dpiClockedCall`), and the decode pair `Qmc` + `PlaPlan`.
+the `pipelineConnect` register between `Decoupled` stages, the `Encoding` field-encoding helper (`Encoding.OneHot` /
+`Encoding.Sequential` derive a set's literals from its declaration order, `OneHotSet` muxes over the whole variant set), the
+DPI-C call layer (`dpiUnclockedCall` / `dpiClockedCall`), and the decode pair `Qmc` + `PlaPlan`.
 
 `Qmc` replaces `me.jiuyang.decoder.espresso` with an in-process Quine–McCluskey minimizer (zaozi has a `TODO` for it and
 otherwise shells out to the Berkeley binary), and `PlaPlan` turns a minimized PLA into logic without going through

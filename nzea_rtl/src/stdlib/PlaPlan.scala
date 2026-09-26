@@ -15,7 +15,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * decoded word by field name. Fields sit where the tables' concatenation puts them — first table in the high bits — so
   * a field's position follows the table list instead of a hand-written bit range.
   */
-final class PlaPlan private (val pla: PLA, val columns: Map[String, OpColumn]):
+final class PlaPlan private (val pla: PLA, val columns: Map[String, Encoding.Column]):
 
   /** Emit the decode: one AND term per PLA row, one OR per output bit, inverted where the default asserts.
     *
@@ -105,8 +105,8 @@ object PlaPlan:
       s"baked PLA width ${pla.outputWidth} does not match the tables' fields ($width)"
     )
     val columns = tables
-      .foldLeft((width, Map.empty[String, OpColumn])): (state, table) =>
+      .foldLeft((width, Map.empty[String, Encoding.Column])): (state, table) =>
         val (high, acc) = state
-        (high - table.outputBits, acc + (table.name -> OpColumn(high - table.outputBits, table.outputBits)))
+        (high - table.outputBits, acc + (table.name -> Encoding.Column(high - table.outputBits, table.outputBits)))
       ._2
     new PlaPlan(pla, columns)

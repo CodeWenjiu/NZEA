@@ -1,6 +1,6 @@
 package nzea_core.middle
 
-import nzea_core.back.OpField
+import nzea_core.back.OpWindow
 import nzea_core.isa.{Backend, CsrType, Gpr}
 import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
@@ -42,7 +42,7 @@ object MiddleElaborateTest extends TestSuite:
           "decoded_bits_src_b" -> width,
           "decoded_bits_src_c" -> width,
           "decoded_bits_backend" -> Backend.width,
-          "decoded_bits_op" -> OpField.Width,
+          "decoded_bits_op" -> OpWindow.Width,
           "decoded_bits_csr_addr" -> 12,
           "redirect_valid" -> 1,
           "redirect_bits" -> width,
@@ -56,7 +56,7 @@ object MiddleElaborateTest extends TestSuite:
           "issue_bits_src_b" -> width,
           "issue_bits_src_c" -> width,
           "issue_bits_backend" -> Backend.width,
-          "issue_bits_op" -> OpField.Width,
+          "issue_bits_op" -> OpWindow.Width,
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
           "report_done" -> 1,

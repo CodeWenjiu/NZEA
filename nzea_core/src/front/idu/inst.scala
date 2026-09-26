@@ -10,16 +10,16 @@ import nzea_rtl.stdlib.*
 /** Immediate shape, one-hot so the decode stage picks an immediate with `mux1H` and gets the better timing of a one-hot
   * select. `Z` zero-extends `inst[19:15]` for the CSR immediate forms.
   */
-enum ImmType(val lit: Int) extends Opcode:
-  case I extends ImmType(1 << 0)
-  case S extends ImmType(1 << 1)
-  case B extends ImmType(1 << 2)
-  case U extends ImmType(1 << 3)
-  case J extends ImmType(1 << 4)
-  case Z extends ImmType(1 << 5)
+enum ImmType extends Encoding.OneHot:
+  case I
+  case S
+  case B
+  case U
+  case J
+  case Z
 
 object ImmType:
-  val width: Int = Opcode.width(values)
+  val width: Int = Encoding.width(values)
 
 /** What decode answers for one instruction: the backend it goes to, the window that backend's columns were packed into,
   * the operand form its slots are resolved from, and a name for reports and decode-table encoding keys.
@@ -40,7 +40,7 @@ object Dispatch:
   def sysu(op: SysuOp, srcs: Srcs): Dispatch = int(FuType.SYSU, op, srcs)
   def mem(op: LsuOp, srcs: Srcs): Dispatch = Dispatch(Backend.MEM, MemOp.lit(op), srcs, s"mem_${op}_$srcs")
 
-  private def int(unit: FuType, op: Opcode, srcs: Srcs): Dispatch =
+  private def int(unit: FuType, op: Encoding, srcs: Srcs): Dispatch =
     Dispatch(Backend.INT, IntOp.lit(unit, op), srcs, s"int_${unit}_${op}_$srcs")
 
 /** One RISC-V instruction pattern: the immediate shape it needs (`None` = it has no immediate, so the decode table

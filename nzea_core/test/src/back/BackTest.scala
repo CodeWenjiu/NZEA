@@ -6,51 +6,33 @@ import nzea_core.isa.Srcs
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** The opcode tables the decode stage and the backends share: widths and (one-hot) encodings are load bearing, so they
-  * are pinned here rather than left implicit in the consumers. Each backend owns its own table and its own window in the
-  * shared op field.
+/** The field encodings the decode stage and the backends share: their field widths are load bearing numbers, so they
+  * are pinned here rather than left implicit in the consumers. Each backend owns its own table and its own window in
+  * the shared op field; the codes come from `Encoding.OneHot` / `Encoding.Sequential`, so there is no hand-written
+  * literal left to drift (their derivation is checked by the stdlib's `EncodingTest`).
   */
 object BackTest extends TestSuite:
 
-  /** A one-hot set: literals are `1 << i` in declaration order. */
-  private def checkOneHot(values: Seq[Opcode], expectedWidth: Int): Unit =
-    assert(values.map(_.lit) == values.indices.map(1 << _))
-    assert(Opcode.width(values) == expectedWidth)
-
-  /** A sequential set: literals are `0, 1, 2, ...` in declaration order. */
-  private def checkSequential(values: Seq[Opcode], expectedWidth: Int): Unit =
-    assert(values.map(_.lit) == values.indices)
-    assert(Opcode.width(values) == expectedWidth)
-
   /** What a backend reads back out of a window: the bits the decode side packed into that column. */
-  private def unpack(window: Int, column: OpColumn): Int =
+  private def unpack(window: Int, column: Encoding.Column): Int =
     (window >> column.offset) & ((1 << column.width) - 1)
 
   val tests = Tests:
-    test("the int path's unit select keeps its encoding"):
-      checkSequential(FuType.values.toSeq, 3)
-
-    test("the int path's op sets keep their encodings"):
-      checkOneHot(AluOp.values.toSeq, 10)
-      checkOneHot(BruOp.values.toSeq, 8)
-      checkOneHot(MulOp.values.toSeq, 4)
-      checkOneHot(DivOp.values.toSeq, 4)
-      checkSequential(SysuOp.values.toSeq, 4)
+    test("the encodings keep their field widths"):
+      assert(FuType.width == 3)
+      assert(AluOp.width == 10)
+      assert(BruOp.width == 8)
+      assert(MulOp.width == 4)
+      assert(DivOp.width == 4)
+      assert(SysuOp.width == 4)
       assert(FuOpWidth.Width == 10)
-
-    test("the memory path's op set keeps its encoding"):
-      checkOneHot(LsuOp.values.toSeq, 8)
-
-    test("the operand forms keep their one-hot encoding"):
-      // One form per source assignment; the field selects a slot's source with `mux1H`, which is only correct while the
-      // literals are one-hot and in this order.
-      checkOneHot(Srcs.values.toSeq, 7)
-      assert(Srcs.NoOperand.lit == 1)
+      assert(LsuOp.width == 8)
+      assert(Srcs.width == 7)
 
     test("the int window separates its columns"):
       assert(IntOp.width == FuOpWidth.Width + FuType.width)
       // One encoding per unit, using the widest literal of each op set.
-      val encodings: Seq[(FuType, Opcode)] = Seq(
+      val encodings: Seq[(FuType, Encoding)] = Seq(
         (FuType.ALU, AluOp.Sltu),
         (FuType.BRU, BruOp.BGEU),
         (FuType.MUL, MulOp.Mulhsu),
@@ -72,12 +54,12 @@ object BackTest extends TestSuite:
       for op <- LsuOp.values do assert(unpack(MemOp.lit(op), MemOp.op) == op.lit)
 
     test("the shared op field holds the longest window, low-anchored"):
-      assert(OpField.Width == IntOp.width.max(MemOp.width))
-      assert(OpField.Width == 13)
-      for window <- Seq(IntOp.width, MemOp.width) do assert(window <= OpField.Width)
+      assert(OpWindow.Width == IntOp.width.max(MemOp.width))
+      assert(OpWindow.Width == 13)
+      for window <- Seq(IntOp.width, MemOp.width) do assert(window <= OpWindow.Width)
 
       // Columns are contiguous from bit 0, so a window is low-anchored and its length is exactly what it declares.
-      def contiguous(columns: Seq[OpColumn]): Boolean =
+      def contiguous(columns: Seq[Encoding.Column]): Boolean =
         columns.head.offset == 0 && columns.zip(columns.tail).forall((low, high) => high.offset == low.end)
       assert(contiguous(Seq(IntOp.fuOp, IntOp.fuType)))
       assert(contiguous(Seq(MemOp.op)))

@@ -1,7 +1,7 @@
 package nzea_core.front.idu
 
 import nzea_config.core.CoreConfig
-import nzea_core.back.OpField
+import nzea_core.back.OpWindow
 import nzea_core.isa.{Backend, Gpr}
 import nzea_rtl.stdlib.*
 import utest.*
@@ -36,5 +36,5 @@ object IduTest extends TestSuite:
         inst <- RiscvInsts.all(config)
       do
         assert(inst.dispatch.window > 0)
-        assert(inst.dispatch.window < (1 << OpField.Width))
+        assert(inst.dispatch.window < (1 << OpWindow.Width))
         assert(inst.dispatch.backend.lit < (1 << Backend.width))

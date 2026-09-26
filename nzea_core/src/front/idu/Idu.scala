@@ -10,7 +10,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.CoreConfig
-import nzea_core.back.OpField
+import nzea_core.back.OpWindow
 import nzea_core.front.ifu.FetchedInst
 import nzea_core.isa.{Backend, Gpr, Srcs}
 import nzea_rtl.stdlib.*
@@ -36,7 +36,7 @@ class IduOut(width: Int) extends Bundle:
   val src_b = Aligned(UInt(width))
   val src_c = Aligned(UInt(width))
   val backend = Aligned(UInt(Backend.width))
-  val op = Aligned(UInt(OpField.Width))
+  val op = Aligned(UInt(OpWindow.Width))
   val csr_addr = Aligned(UInt(12))
 
 case class IduParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:

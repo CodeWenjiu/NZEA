@@ -14,7 +14,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *
   * All of them are combinational folds over `?`, so there is no priority subtlety: like Chisel's `MuxCase`/`MuxLookup`
   * the first matching entry wins, and like `Mux1H` an all-zero selector yields zero (Chisel's `Mux1H` ORs independently
-  * gated values, so an invalid one-hot opcode degrades to zero instead of aliasing an entry).
+  * gated values, so an all-zero one-hot select degrades to zero instead of aliasing an entry).
   *
   * Bit-vector widths are explicit: the DSL keeps an element's width internal, so callers pass the width they already
   * have in scope (the legacy call sites all had one).

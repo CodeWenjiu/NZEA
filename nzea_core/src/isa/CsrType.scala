@@ -13,16 +13,16 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *
   * ISA-level: produced by decode, carried through the middle and backend, committed by the CSR file.
   */
-enum CsrType(val lit: Int) extends Opcode:
-  case None extends CsrType(0)
-  case Mstatus extends CsrType(1)
-  case Mtvec extends CsrType(2)
-  case Mepc extends CsrType(3)
-  case Mcause extends CsrType(4)
-  case Mscratch extends CsrType(5)
+enum CsrType extends Encoding.Sequential:
+  case None
+  case Mstatus
+  case Mtvec
+  case Mepc
+  case Mcause
+  case Mscratch
 
 object CsrType:
-  val width: Int = Opcode.width(values)
+  val width: Int = Encoding.width(values)
 
   val MSTATUS_ADDR = 0x300
   val MTVEC_ADDR = 0x305
