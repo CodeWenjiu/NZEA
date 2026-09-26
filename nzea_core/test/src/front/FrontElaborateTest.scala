@@ -54,8 +54,9 @@ object FrontElaborateTest extends TestSuite:
           "out_bits_pc" -> width,
           "out_bits_imm" -> width,
           "out_bits_rd_index" -> Gpr.indexWidth,
-          "out_bits_rs1_val" -> width,
-          "out_bits_rs2_val" -> width,
+          "out_bits_src_a" -> width,
+          "out_bits_src_b" -> width,
+          "out_bits_src_c" -> width,
           "out_bits_backend" -> Backend.width,
           "out_bits_op" -> OpField.Width,
           "out_bits_csr_addr" -> 12

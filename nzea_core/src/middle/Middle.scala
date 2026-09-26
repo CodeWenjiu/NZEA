@@ -71,8 +71,9 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     val uop = Wire(new IssueUop(width))
     uop.pc := ex.pc
     uop.imm := ex.imm
-    uop.rs1 := ex.rs1_val
-    uop.rs2 := ex.rs2_val
+    uop.src_a := ex.src_a
+    uop.src_b := ex.src_b
+    uop.src_c := ex.src_c
     uop.backend := ex.backend
     uop.op := ex.op
     // A memory instruction's `inst[31:20]` is an address offset, not a CSR address, so it maps to none.

@@ -12,7 +12,7 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.CoreConfig
 import nzea_core.back.OpField
 import nzea_core.front.ifu.FetchedInst
-import nzea_core.isa.{Backend, Gpr}
+import nzea_core.isa.{Backend, Gpr, Srcs}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -21,18 +21,20 @@ class ArfWrite(width: Int) extends Bundle:
   val rd_index = Aligned(UInt(Gpr.indexWidth))
   val data = Aligned(UInt(width))
 
-/** What decode hands the middle: the decode result plus the operands, already read from the register file.
+/** What decode hands the middle: the decode result plus the operands, already read from the register file and already
+  * selected into the three slots the issue uop carries.
   *
-  * The read sits in decode because nothing renames registers yet and the middle's idle gate already guarantees the read
-  * happens after the previous commit's write-back. Adding renaming moves the read into a middle stage, and this payload
-  * reverts to index form.
+  * The read and the selection sit in decode because nothing renames registers yet and the middle's idle gate already
+  * guarantees the read happens after the previous commit's write-back. Adding renaming moves both into a middle stage,
+  * and this payload reverts to index form.
   */
 class IduOut(width: Int) extends Bundle:
   val pc = Aligned(UInt(width))
   val imm = Aligned(UInt(width))
   val rd_index = Aligned(UInt(Gpr.indexWidth))
-  val rs1_val = Aligned(UInt(width))
-  val rs2_val = Aligned(UInt(width))
+  val src_a = Aligned(UInt(width))
+  val src_b = Aligned(UInt(width))
+  val src_c = Aligned(UInt(width))
   val backend = Aligned(UInt(Backend.width))
   val op = Aligned(UInt(OpField.Width))
   val csr_addr = Aligned(UInt(12))
@@ -76,6 +78,7 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val decoded = decode.decode(inst)
     val backend = decode.field(DecodeTables.BackendName, decoded)
     val op = decode.field(DecodeTables.OpName, decoded)
+    val srcs = decode.field(DecodeTables.SrcsName, decoded)
     val immType = decode.field(DecodeTables.ImmTypeName, decoded)
     val gprWr = decode.flag(DecodeTables.GprWrName, decoded)
     val rs1Rd = decode.flag(DecodeTables.Rs1RdName, decoded)
@@ -115,13 +118,18 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val rs1Val = (rs1Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs1Index))
     val rs2Val = (rs2Index === 0.U(Gpr.indexWidth)) ? (0.U(width), gprs.ref(rs2Index))
 
+    // The operand form says which architectural source feeds each uop slot; resolving it here is what keeps the source
+    // selection out of the backend's execute cycle.
+    val (srcA, srcB, srcC) = Srcs.resolve(srcs, rs1Val, rs2Val, imm, io.in.bits.pc, width)
+
     io.in.ready := io.out.ready
     io.out.valid := io.in.valid
     io.out.bits.pc := io.in.bits.pc
     io.out.bits.imm := imm
     io.out.bits.rd_index := rdIndex
-    io.out.bits.rs1_val := rs1Val
-    io.out.bits.rs2_val := rs2Val
+    io.out.bits.src_a := srcA
+    io.out.bits.src_b := srcB
+    io.out.bits.src_c := srcC
     io.out.bits.backend := backend
     io.out.bits.op := op
     io.out.bits.csr_addr := inst.bits(31, 20).asUInt

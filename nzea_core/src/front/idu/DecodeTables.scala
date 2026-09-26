@@ -2,7 +2,7 @@ package nzea_core.front.idu
 
 import me.jiuyang.decoder.{BitPat, BitSet, TruthTable}
 import nzea_core.back.OpField
-import nzea_core.isa.Backend
+import nzea_core.isa.{Backend, Srcs}
 import nzea_config.core.CoreConfig
 
 import scala.collection.immutable.SortedMap
@@ -20,6 +20,7 @@ object DecodeTables:
   /** Names of the decode output fields; the PLA emits one field per table, in this order. */
   val BackendName = "backend"
   val OpName = "op"
+  val SrcsName = "srcs"
   val ImmTypeName = "imm_type"
   val GprWrName = "gpr_wr"
   val Rs1RdName = "rs1_rd"
@@ -30,7 +31,7 @@ object DecodeTables:
 
   def all(config: CoreConfig): Seq[TruthTable] =
     val insts = RiscvInsts.all(config)
-    Seq(backend(insts), window(insts), immType(insts), gprWr(insts), rs1Rd(insts), rs2Rd(insts))
+    Seq(backend(insts), window(insts), srcs(insts), immType(insts), gprWr(insts), rs1Rd(insts), rs2Rd(insts))
 
   private def backend(insts: Seq[RVInst]): TruthTable =
     TruthTable(
@@ -47,6 +48,15 @@ object DecodeTables:
       insts.map(i => i.pattern -> i.dispatch.name),
       NoWindowKey,
       encode(insts.map(i => i.dispatch.name -> i.dispatch.window) :+ (NoWindowKey -> 0), OpField.Width)
+    )
+
+  /** The operand form: which source feeds each of the uop's three operand slots. */
+  private def srcs(insts: Seq[RVInst]): TruthTable =
+    TruthTable(
+      SrcsName,
+      insts.flatMap(i => Option.when(i.dispatch.srcs != Srcs.NoOperand)(i.pattern -> i.dispatch.srcs.toString)),
+      Srcs.NoOperand.toString,
+      encode(Srcs.values.toSeq.map(s => s.toString -> s.lit), Srcs.width)
     )
 
   private def immType(insts: Seq[RVInst]): TruthTable =

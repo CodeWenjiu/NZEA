@@ -1,9 +1,9 @@
 package nzea_core.front.idu
 
 import nzea_core.back.OpField
-import nzea_core.back.int.{AluOp, AluSrc, BruOp, BruSrc, FuType, IntOp, MulOp, SysuOp}
-import nzea_core.back.mem.{LsuOp, LsuSrc, MemOp}
-import nzea_core.isa.Backend
+import nzea_core.back.int.{AluOp, BruOp, FuType, IntOp, MulOp, SysuOp}
+import nzea_core.back.mem.{LsuOp, MemOp}
+import nzea_core.isa.{Backend, Srcs}
 import nzea_config.core.CoreConfig
 import nzea_rtl.PlaSim
 import nzea_rtl.stdlib.{Opcode, Qmc}
@@ -26,6 +26,7 @@ object DecodeTablesTest extends TestSuite:
   private val fields = Seq(
     DecodeTables.BackendName -> Backend.width,
     DecodeTables.OpName -> OpField.Width,
+    DecodeTables.SrcsName -> Srcs.width,
     DecodeTables.ImmTypeName -> ImmType.width,
     DecodeTables.GprWrName -> 1,
     DecodeTables.Rs1RdName -> 1,
@@ -55,6 +56,7 @@ object DecodeTablesTest extends TestSuite:
   private def declared(inst: RVInst): Map[String, BigInt] = Map(
     DecodeTables.BackendName -> BigInt(inst.dispatch.backend.lit),
     DecodeTables.OpName -> BigInt(inst.dispatch.window),
+    DecodeTables.SrcsName -> BigInt(inst.dispatch.srcs.lit),
     DecodeTables.ImmTypeName -> BigInt(inst.immType.fold(ImmType.I.lit)(_.lit)),
     DecodeTables.GprWrName -> BigInt(if inst.gprWr then 1 else 0),
     DecodeTables.Rs1RdName -> BigInt(if inst.rs1Rd then 1 else 0),
@@ -79,6 +81,7 @@ object DecodeTablesTest extends TestSuite:
       val noop = decode(BigInt(0))
       assert(noop(DecodeTables.BackendName) == BigInt(Backend.INT.lit))
       assert(noop(DecodeTables.OpName) == 0)
+      assert(noop(DecodeTables.SrcsName) == BigInt(Srcs.NoOperand.lit))
       assert(noop(DecodeTables.ImmTypeName) == BigInt(ImmType.I.lit))
       assert(noop(DecodeTables.GprWrName) == 0)
       assert(noop(DecodeTables.Rs1RdName) == 0)
@@ -98,6 +101,7 @@ object DecodeTablesTest extends TestSuite:
           name: String,
           backend: Backend,
           window: Int,
+          srcs: Srcs,
           immType: Option[ImmType],
           gprWr: Boolean,
           rs1Rd: Boolean,
@@ -106,26 +110,27 @@ object DecodeTablesTest extends TestSuite:
         val inst = entry(name)
         assert(inst.dispatch.backend == backend)
         assert(inst.dispatch.window == window)
+        assert(inst.dispatch.srcs == srcs)
         assert(inst.immType == immType)
         assert(inst.gprWr == gprWr)
         assert(inst.rs1Rd == rs1Rd)
         assert(inst.rs2Rd == rs2Rd)
 
-      def intWindow(unit: FuType, op: Opcode, src: Opcode): Int = IntOp.lit(unit, op, src)
-      def memWindow(op: LsuOp): Int = MemOp.lit(op, LsuSrc.Rs1Imm)
+      def intWindow(unit: FuType, op: Opcode): Int = IntOp.lit(unit, op)
+      def memWindow(op: LsuOp): Int = MemOp.lit(op)
 
-      check("LUI", Backend.INT, intWindow(FuType.ALU, AluOp.Add, AluSrc.ImmZero), Some(ImmType.U), true, false, false)
-      check("AUIPC", Backend.INT, intWindow(FuType.ALU, AluOp.Add, AluSrc.PcImm), Some(ImmType.U), true, false, false)
-      check("JAL", Backend.INT, intWindow(FuType.BRU, BruOp.JAL, BruSrc.PcImm), Some(ImmType.J), true, false, false)
-      check("JALR", Backend.INT, intWindow(FuType.BRU, BruOp.JALR, BruSrc.Rs1Imm), Some(ImmType.I), true, true, false)
-      check("LW", Backend.MEM, memWindow(LsuOp.LW), Some(ImmType.I), true, true, false)
-      check("SB", Backend.MEM, memWindow(LsuOp.SB), Some(ImmType.S), false, true, true)
-      check("ADDI", Backend.INT, intWindow(FuType.ALU, AluOp.Add, AluSrc.Rs1Imm), Some(ImmType.I), true, true, false)
-      check("SLLI", Backend.INT, intWindow(FuType.ALU, AluOp.Sll, AluSrc.Rs1Imm), Some(ImmType.I), true, true, false)
-      check("ADD", Backend.INT, intWindow(FuType.ALU, AluOp.Add, AluSrc.Rs1Rs2), None, true, true, true)
-      check("BEQ", Backend.INT, intWindow(FuType.BRU, BruOp.BEQ, BruSrc.PcImm), Some(ImmType.B), false, true, true)
-      check("ECALL", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.ECALL), Some(ImmType.I), false, false, false)
-      check("CSRRW", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.CSRRW), Some(ImmType.I), true, true, true)
-      check("CSRRWI", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.CSRRWI), Some(ImmType.Z), true, false, false)
-      check("FENCE", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.FENCE), None, false, false, false)
-      check("MUL", Backend.INT, IntOp.lit(FuType.MUL, MulOp.Mul), None, true, true, true)
+      check("LUI", Backend.INT, intWindow(FuType.ALU, AluOp.Add), Srcs.ImmZero, Some(ImmType.U), true, false, false)
+      check("AUIPC", Backend.INT, intWindow(FuType.ALU, AluOp.Add), Srcs.PcImm, Some(ImmType.U), true, false, false)
+      check("JAL", Backend.INT, intWindow(FuType.BRU, BruOp.JAL), Srcs.NoOperand, Some(ImmType.J), true, false, false)
+      check("JALR", Backend.INT, intWindow(FuType.BRU, BruOp.JALR), Srcs.Rs1Imm, Some(ImmType.I), true, true, false)
+      check("LW", Backend.MEM, memWindow(LsuOp.LW), Srcs.Rs1Imm, Some(ImmType.I), true, true, false)
+      check("SB", Backend.MEM, memWindow(LsuOp.SB), Srcs.Rs1ImmRs2, Some(ImmType.S), false, true, true)
+      check("ADDI", Backend.INT, intWindow(FuType.ALU, AluOp.Add), Srcs.Rs1Imm, Some(ImmType.I), true, true, false)
+      check("SLLI", Backend.INT, intWindow(FuType.ALU, AluOp.Sll), Srcs.Rs1Imm, Some(ImmType.I), true, true, false)
+      check("ADD", Backend.INT, intWindow(FuType.ALU, AluOp.Add), Srcs.Rs1Rs2, None, true, true, true)
+      check("BEQ", Backend.INT, intWindow(FuType.BRU, BruOp.BEQ), Srcs.Rs1Rs2, Some(ImmType.B), false, true, true)
+      check("ECALL", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.ECALL), Srcs.NoOperand, Some(ImmType.I), false, false, false)
+      check("CSRRW", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.CSRRW), Srcs.Rs1, Some(ImmType.I), true, true, true)
+      check("CSRRWI", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.CSRRWI), Srcs.ImmZero, Some(ImmType.Z), true, false, false)
+      check("FENCE", Backend.INT, IntOp.lit(FuType.SYSU, SysuOp.FENCE), Srcs.NoOperand, None, false, false, false)
+      check("MUL", Backend.INT, IntOp.lit(FuType.MUL, MulOp.Mul), Srcs.Rs1Rs2, None, true, true, true)

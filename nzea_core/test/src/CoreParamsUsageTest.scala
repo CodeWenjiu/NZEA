@@ -90,7 +90,7 @@ object CoreParamsUsageTest extends TestSuite:
       assert(
         ports == Map(
           "dispatch" -> 1,
-          "op" -> 17,
+          "op" -> 13,
           "is_mem" -> 1,
           "alu_op" -> IntOp.fuOp.width,
           "mem_op" -> MemOp.op.width

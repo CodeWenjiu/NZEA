@@ -74,7 +74,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     val op: Node[UInt] = MemOp.op(u.op)
     val isStore = LsuOp.isStore(op)
 
-    val addr = prefixAdder(u.rs1, u.imm, false.B, width)
+    val addr = prefixAdder(u.src_a, u.src_b, false.B, width)
     val addrBits: Node[Bits] = Node(addr.asBits)
     val offset: Node[UInt] = addrBits.bits(1, 0).asUInt
 
@@ -89,8 +89,8 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
       Seq(zeroStrb, zeroStrb, zeroStrb, zeroStrb, zeroStrb, byteStrb, halfStrb, wordStrb),
       width / 8
     )
-    val rs2: Node[Bits] = Node(u.rs2.asBits)
-    val wdata = muxTree(offset, Seq(0, 8, 16, 24).map(shift => (rs2 << shift).bits(width - 1, 0)))
+    val storeData: Node[Bits] = Node(u.src_c.asBits)
+    val wdata = muxTree(offset, Seq(0, 8, 16, 24).map(shift => (storeData << shift).bits(width - 1, 0)))
 
     // One request per uop, held until the bus accepts it and dropped when the uop goes away.
     val uopEdge = uopValid & !regNext(uopValid, false.B)

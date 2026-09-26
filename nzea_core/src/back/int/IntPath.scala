@@ -66,27 +66,14 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val isBru = selects(FuType.BRU)
     val isSysu = selects(FuType.SYSU)
 
-    val rs1Bits: Node[Bits] = Node(u.rs1.asBits)
-    val rs2Bits: Node[Bits] = Node(u.rs2.asBits)
+    val srcABits: Node[Bits] = Node(u.src_a.asBits)
+    val srcBBits: Node[Bits] = Node(u.src_b.asBits)
 
-    // ALU: operands by source select, one result per op class, 4:1 on top of the four classes. The class and per-class
-    // selects come off the op field directly — it is one-hot, so a result only sees the selector bits that name it.
-    val aluOpA: Referable[UInt] = muxLookup(IntOp.fuSrc(op), u.rs1)(
-      Seq[(Referable[UInt], Referable[UInt])](
-        AluSrc.ImmZero.lit.U(AluSrc.width) -> u.imm,
-        AluSrc.PcImm.lit.U(AluSrc.width) -> u.pc
-      )
-    )
-    val aluOpB: Referable[UInt] = muxLookup(IntOp.fuSrc(op), u.rs2)(
-      Seq[(Referable[UInt], Referable[UInt])](
-        AluSrc.Rs1Imm.lit.U(AluSrc.width) -> u.imm,
-        AluSrc.ImmZero.lit.U(AluSrc.width) -> 0.U(width),
-        AluSrc.PcImm.lit.U(AluSrc.width) -> u.imm
-      )
-    )
+    // Operands: decode resolved them into the uop's slots, so the ALU reads them straight instead of selecting a source
+    // here.
+    val aluOpA: Referable[UInt] = u.src_a
+    val aluOpB: Referable[UInt] = u.src_b
 
-    // Every ALU op reads the source-selected operands, never the raw register fields: an immediate form has no rs2 to
-    // read at all (the decode stage requests x0 for it), so a raw `rs2` is zero rather than the immediate.
     val opABits: Node[Bits] = Node(aluOpA.asBits)
     val opBBits: Node[Bits] = Node(aluOpB.asBits)
     val shamt: Node[UInt] = opBBits.bits(4, 0).asUInt
@@ -126,17 +113,17 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val classSel: Node[UInt] = (cmpSel.asBits ## shiftSel.asBits ## logicSel.asBits ## arithSel.asBits).asUInt
     val aluData: Node[UInt] = mux1H(classSel, Seq(arith, logic, shift, cmp), width)
 
-    // SYSU: the CSR read is already in the uop; the write data and whether to write at all depend on the op.
+    // SYSU: the CSR read is already in the uop; the write data and whether to write at all depend on the op. The only
+    // operand is the slot the form filled — rs1 for the register forms, the immediate for the immediate forms.
     val sysuOp: Node[UInt] = Opcode.take(fuOp, SysuOp.width)
     def isSysuOp(sysu: SysuOp): Node[Bool] = sysuOp === sysu.lit.U(SysuOp.width)
-    val csrSrc = (isSysuOp(SysuOp.CSRRWI) | isSysuOp(SysuOp.CSRRSI) | isSysuOp(SysuOp.CSRRCI)) ? (u.imm, u.rs1)
-    val csrOp: Node[Bits] = Node(csrSrc.asBits)
+    val csrOp: Node[Bits] = Node(u.src_a.asBits)
     val csrRdata: Node[Bits] = Node(u.csr_rdata.asBits)
     val csrData: Referable[UInt] = muxCase(
       0.U(width),
       Seq[(Referable[Bool], Referable[UInt])](
-        (isSysuOp(SysuOp.CSRRW), u.rs1),
-        (isSysuOp(SysuOp.CSRRWI), u.imm),
+        (isSysuOp(SysuOp.CSRRW), u.src_a),
+        (isSysuOp(SysuOp.CSRRWI), u.src_a),
         (isSysuOp(SysuOp.CSRRS), (csrRdata | csrOp).asUInt),
         (isSysuOp(SysuOp.CSRRSI), (csrRdata | csrOp).asUInt),
         (isSysuOp(SysuOp.CSRRC), (csrRdata & ~csrOp).asUInt),
@@ -146,34 +133,29 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     // A CSRRS/CSRRC with a zero source reads without writing, which is not the same as writing the old value back. Only
     // the six CSR ops write at all: the address field of the others (ECALL, EBREAK, FENCE) is not a CSR address, even
     // when it happens to alias one.
+    val csrRw = isSysuOp(SysuOp.CSRRS) | isSysuOp(SysuOp.CSRRC) | isSysuOp(SysuOp.CSRRSI) | isSysuOp(SysuOp.CSRRCI)
     val csrWrite = (u.csr_type =/= CsrType.None.lit.U(CsrType.width)) & (sysuOp < SysuOp.ECALL.lit.U(SysuOp.width)) &
-      muxCase(
-        true.B,
-        Seq(
-          (isSysuOp(SysuOp.CSRRS), u.rs1 =/= 0.U(width)),
-          (isSysuOp(SysuOp.CSRRC), u.rs1 =/= 0.U(width)),
-          (isSysuOp(SysuOp.CSRRSI), u.imm =/= 0.U(width)),
-          (isSysuOp(SysuOp.CSRRCI), u.imm =/= 0.U(width))
-        )
-      )
+      (csrRw ? (u.src_a =/= 0.U(width), true.B))
     val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
 
     // BRU: not-taken prediction, so `next_pc` is the target exactly when the branch is taken, and the redirect is a taken
     // branch whose target is not the fall-through (a zero-offset branch is taken but nothing changes).
     val bruOp: Node[UInt] = Opcode.take(fuOp, BruOp.width)
+    // JALR bases its target on its register operand; every other jump and branch bases on the pc.
+    val isJalr = bruOp === BruOp.JALR.lit.U(BruOp.width)
     val pcPlus4 = prefixAdder(u.pc, 4.U(width), false.B, width)
-    val target = prefixAdder((bruOp === BruOp.JALR.lit.U(BruOp.width)) ? (u.rs1, u.pc), u.imm, false.B, width)
+    val target = prefixAdder(isJalr ? (u.src_a, u.pc), u.imm, false.B, width)
     val taken = mux1H(
       bruOp,
       Seq(
         true.B,
         true.B,
-        u.rs1 === u.rs2,
-        u.rs1 =/= u.rs2,
-        (rs1Bits.asSInt < rs2Bits.asSInt),
-        (rs1Bits.asSInt >= rs2Bits.asSInt),
-        u.rs1 < u.rs2,
-        u.rs1 >= u.rs2
+        u.src_a === u.src_b,
+        u.src_a =/= u.src_b,
+        (srcABits.asSInt < srcBBits.asSInt),
+        (srcABits.asSInt >= srcBBits.asSInt),
+        u.src_a < u.src_b,
+        u.src_a >= u.src_b
       )
     )
     val nextPc = taken ? (target, pcPlus4)
@@ -188,15 +170,15 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       m.io.clock := io.clock
       m.io.resetN := io.resetN
       m.io.issue.valid := uopValid & selects(FuType.MUL)
-      m.io.issue.bits.opA := u.rs1
-      m.io.issue.bits.opB := u.rs2
+      m.io.issue.bits.opA := u.src_a
+      m.io.issue.bits.opB := u.src_b
       m.io.issue.bits.op := Opcode.take(fuOp, MulOp.width)
     for d <- div do
       d.io.clock := io.clock
       d.io.resetN := io.resetN
       d.io.issue.valid := uopValid & selects(FuType.DIV)
-      d.io.issue.bits.opA := u.rs1
-      d.io.issue.bits.opB := u.rs2
+      d.io.issue.bits.opA := u.src_a
+      d.io.issue.bits.opB := u.src_b
       d.io.issue.bits.op := Opcode.take(fuOp, DivOp.width)
     val mulDone = mul.map(m => selects(FuType.MUL) & m.io.done).getOrElse(false.B)
     val divDone = div.map(d => selects(FuType.DIV) & d.io.done).getOrElse(false.B)

@@ -4,8 +4,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.back.int.{AluOp, AluSrc, BruOp, FuType, IntOp, MulOp}
-import nzea_core.back.mem.{LsuOp, LsuSrc, MemOp}
+import nzea_core.back.int.{AluOp, BruOp, FuType, IntOp, MulOp}
+import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.Backend
 import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
@@ -24,11 +24,9 @@ class BackElaborateTestIO(parameter: BackElaborateTestParameter) extends HWBundl
   val op = Flipped(UInt(OpField.Width))
   val int_fu_type = Aligned(UInt(FuType.width))
   val alu_op = Aligned(UInt(AluOp.width))
-  val alu_src = Aligned(UInt(AluSrc.width))
   val bru_op = Aligned(UInt(BruOp.width))
   val mul_op = Aligned(UInt(MulOp.width))
   val mem_op = Aligned(UInt(LsuOp.width))
-  val mem_src = Aligned(UInt(LsuSrc.width))
   val is_store = Aligned(Bool())
   val is_load = Aligned(Bool())
 
@@ -49,14 +47,12 @@ object BackElaborateTestModule
     // The int path unpacks its own window, and its FUs eat the low column straight from it.
     io.int_fu_type := IntOp.fuType(io.op)
     io.alu_op := IntOp.fuOp(io.op)
-    io.alu_src := IntOp.fuSrc(io.op)
     io.bru_op := Opcode.take(io.op, BruOp.width)
     io.mul_op := Opcode.take(io.op, MulOp.width)
 
     // The mem path unpacks its own, which starts at bit 0 as well: the windows alias.
     val memOp = MemOp.op(io.op)
     io.mem_op := memOp
-    io.mem_src := MemOp.src(io.op)
     io.is_store := isMem & LsuOp.isStore(memOp)
     io.is_load := isMem & LsuOp.isLoad(memOp)
 
@@ -82,11 +78,9 @@ object BackElaborateTest extends TestSuite:
           "op" -> OpField.Width,
           "int_fu_type" -> FuType.width,
           "alu_op" -> IntOp.fuOp.width,
-          "alu_src" -> IntOp.fuSrc.width,
           "bru_op" -> BruOp.width,
           "mul_op" -> MulOp.width,
           "mem_op" -> MemOp.op.width,
-          "mem_src" -> MemOp.src.width,
           "is_store" -> 1,
           "is_load" -> 1
         )

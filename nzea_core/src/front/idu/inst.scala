@@ -1,9 +1,9 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.BitSet
-import nzea_core.back.int.{AluOp, AluSrc, BruOp, BruSrc, DivOp, FuType, IntOp, MulOp, SysuOp}
-import nzea_core.back.mem.{LsuOp, LsuSrc, MemOp}
-import nzea_core.isa.Backend
+import nzea_core.back.int.{AluOp, BruOp, DivOp, FuType, IntOp, MulOp, SysuOp}
+import nzea_core.back.mem.{LsuOp, MemOp}
+import nzea_core.isa.{Backend, Srcs}
 import nzea_config.core.CoreConfig
 import nzea_rtl.stdlib.*
 
@@ -22,27 +22,26 @@ object ImmType:
   val width: Int = Opcode.width(values)
 
 /** What decode answers for one instruction: the backend it goes to, the window that backend's columns were packed into,
-  * and a name for reports and decode-table encoding keys.
+  * the operand form its slots are resolved from, and a name for reports and decode-table encoding keys.
   *
   * Only the combinators below can build one, so a table entry never spells out a window layout and the name always
   * agrees with what is packed.
   */
-case class Dispatch private (backend: Backend, window: Int, name: String)
+case class Dispatch private (backend: Backend, window: Int, srcs: Srcs, name: String)
 
 object Dispatch:
-  def alu(op: AluOp, src: AluSrc): Dispatch = int(FuType.ALU, op, src)
-  def bru(op: BruOp, src: BruSrc): Dispatch = int(FuType.BRU, op, src)
-  def mul(op: MulOp): Dispatch = int(FuType.MUL, op)
-  def div(op: DivOp): Dispatch = int(FuType.DIV, op)
-  def sysu(op: SysuOp): Dispatch = int(FuType.SYSU, op)
-  def mem(op: LsuOp, src: LsuSrc): Dispatch = Dispatch(Backend.MEM, MemOp.lit(op, src), s"mem_${op}_$src")
+  def alu(op: AluOp, srcs: Srcs): Dispatch = int(FuType.ALU, op, srcs)
+  def bru(op: BruOp, srcs: Srcs): Dispatch = int(FuType.BRU, op, srcs)
 
-  /** MUL/DIV/SYSU take no operand source: the window packs without one, leaving that column zero. */
-  private def int(unit: FuType, op: Opcode, src: Opcode): Dispatch =
-    Dispatch(Backend.INT, IntOp.lit(unit, op, src), s"int_${unit}_${op}_$src")
+  /** MUL and DIV read both register sources, so their operand form is fixed. */
+  def mul(op: MulOp): Dispatch = int(FuType.MUL, op, Srcs.Rs1Rs2)
+  def div(op: DivOp): Dispatch = int(FuType.DIV, op, Srcs.Rs1Rs2)
 
-  private def int(unit: FuType, op: Opcode): Dispatch =
-    Dispatch(Backend.INT, IntOp.lit(unit, op), s"int_${unit}_$op")
+  def sysu(op: SysuOp, srcs: Srcs): Dispatch = int(FuType.SYSU, op, srcs)
+  def mem(op: LsuOp, srcs: Srcs): Dispatch = Dispatch(Backend.MEM, MemOp.lit(op), srcs, s"mem_${op}_$srcs")
+
+  private def int(unit: FuType, op: Opcode, srcs: Srcs): Dispatch =
+    Dispatch(Backend.INT, IntOp.lit(unit, op), srcs, s"int_${unit}_${op}_$srcs")
 
 /** One RISC-V instruction pattern: the immediate shape it needs (`None` = it has no immediate, so the decode table
   * leaves that field to its default) and what decode hands the backend.
@@ -73,7 +72,7 @@ object RiscvInsts:
     "LUI",
     "b" + n(25) + "0110111",
     Some(ImmType.U),
-    Dispatch.alu(AluOp.Add, AluSrc.ImmZero),
+    Dispatch.alu(AluOp.Add, Srcs.ImmZero),
     rs1Rd = false,
     rs2Rd = false
   )
@@ -82,7 +81,7 @@ object RiscvInsts:
     "AUIPC",
     "b" + n(25) + "0010111",
     Some(ImmType.U),
-    Dispatch.alu(AluOp.Add, AluSrc.PcImm),
+    Dispatch.alu(AluOp.Add, Srcs.PcImm),
     rs1Rd = false,
     rs2Rd = false
   )
@@ -92,7 +91,7 @@ object RiscvInsts:
     "JAL",
     "b" + n(25) + "1101111",
     Some(ImmType.J),
-    Dispatch.bru(BruOp.JAL, BruSrc.PcImm),
+    Dispatch.bru(BruOp.JAL, Srcs.NoOperand),
     rs1Rd = false,
     rs2Rd = false
   )
@@ -102,7 +101,7 @@ object RiscvInsts:
     "JALR",
     "b" + n(12) + n(5) + "000" + n(5) + "1100111",
     Some(ImmType.I),
-    Dispatch.bru(BruOp.JALR, BruSrc.Rs1Imm),
+    Dispatch.bru(BruOp.JALR, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -110,7 +109,7 @@ object RiscvInsts:
     "LB",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LB, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.LB, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -118,7 +117,7 @@ object RiscvInsts:
     "LH",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LH, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.LH, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -126,7 +125,7 @@ object RiscvInsts:
     "LW",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LW, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.LW, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -134,7 +133,7 @@ object RiscvInsts:
     "LBU",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LBU, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.LBU, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -142,7 +141,7 @@ object RiscvInsts:
     "LHU",
     "b" + n(7) + n(5) + n(5) + "101" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LHU, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.LHU, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -150,7 +149,7 @@ object RiscvInsts:
     "ADDI",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Add, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Add, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -158,7 +157,7 @@ object RiscvInsts:
     "SLTI",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Slt, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Slt, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -166,7 +165,7 @@ object RiscvInsts:
     "SLTIU",
     "b" + n(7) + n(5) + n(5) + "011" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sltu, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Sltu, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -174,7 +173,7 @@ object RiscvInsts:
     "XORI",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Xor, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Xor, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -182,7 +181,7 @@ object RiscvInsts:
     "ORI",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Or, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Or, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -190,7 +189,7 @@ object RiscvInsts:
     "ANDI",
     "b" + n(7) + n(5) + n(5) + "111" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.And, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.And, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -198,7 +197,7 @@ object RiscvInsts:
     "SLLI",
     "b0000000" + n(5) + n(5) + "001" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sll, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Sll, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -206,7 +205,7 @@ object RiscvInsts:
     "SRLI",
     "b0000000" + n(5) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Srl, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Srl, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -214,7 +213,7 @@ object RiscvInsts:
     "SRAI",
     "b0100000" + n(5) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sra, AluSrc.Rs1Imm),
+    Dispatch.alu(AluOp.Sra, Srcs.Rs1Imm),
     rs2Rd = false
   )
 
@@ -222,7 +221,7 @@ object RiscvInsts:
     "ECALL",
     "b00000000000000000000000001110011",
     Some(ImmType.I),
-    Dispatch.sysu(SysuOp.ECALL),
+    Dispatch.sysu(SysuOp.ECALL, Srcs.NoOperand),
     gprWr = false,
     rs1Rd = false,
     rs2Rd = false
@@ -232,7 +231,7 @@ object RiscvInsts:
     "EBREAK",
     "b00000000000100000000000001110011",
     Some(ImmType.I),
-    Dispatch.sysu(SysuOp.EBREAK),
+    Dispatch.sysu(SysuOp.EBREAK, Srcs.NoOperand),
     gprWr = false,
     rs1Rd = false,
     rs2Rd = false
@@ -242,28 +241,28 @@ object RiscvInsts:
     "CSRRW",
     "b" + n(12) + n(5) + "001" + n(5) + "1110011",
     Some(ImmType.I),
-    Dispatch.sysu(SysuOp.CSRRW)
+    Dispatch.sysu(SysuOp.CSRRW, Srcs.Rs1)
   )
 
   val CSRRS = RVInst(
     "CSRRS",
     "b" + n(12) + n(5) + "010" + n(5) + "1110011",
     Some(ImmType.I),
-    Dispatch.sysu(SysuOp.CSRRS)
+    Dispatch.sysu(SysuOp.CSRRS, Srcs.Rs1)
   )
 
   val CSRRC = RVInst(
     "CSRRC",
     "b" + n(12) + n(5) + "011" + n(5) + "1110011",
     Some(ImmType.I),
-    Dispatch.sysu(SysuOp.CSRRC)
+    Dispatch.sysu(SysuOp.CSRRC, Srcs.Rs1)
   )
 
   val CSRRWI = RVInst(
     "CSRRWI",
     "b" + n(12) + n(5) + "101" + n(5) + "1110011",
     Some(ImmType.Z),
-    Dispatch.sysu(SysuOp.CSRRWI),
+    Dispatch.sysu(SysuOp.CSRRWI, Srcs.ImmZero),
     rs1Rd = false,
     rs2Rd = false
   )
@@ -272,7 +271,7 @@ object RiscvInsts:
     "CSRRSI",
     "b" + n(12) + n(5) + "110" + n(5) + "1110011",
     Some(ImmType.Z),
-    Dispatch.sysu(SysuOp.CSRRSI),
+    Dispatch.sysu(SysuOp.CSRRSI, Srcs.ImmZero),
     rs1Rd = false,
     rs2Rd = false
   )
@@ -281,7 +280,7 @@ object RiscvInsts:
     "CSRRCI",
     "b" + n(12) + n(5) + "111" + n(5) + "1110011",
     Some(ImmType.Z),
-    Dispatch.sysu(SysuOp.CSRRCI),
+    Dispatch.sysu(SysuOp.CSRRCI, Srcs.ImmZero),
     rs1Rd = false,
     rs2Rd = false
   )
@@ -291,7 +290,7 @@ object RiscvInsts:
     "SB",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0100011",
     Some(ImmType.S),
-    Dispatch.mem(LsuOp.SB, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.SB, Srcs.Rs1ImmRs2),
     gprWr = false
   )
 
@@ -299,7 +298,7 @@ object RiscvInsts:
     "SH",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "0100011",
     Some(ImmType.S),
-    Dispatch.mem(LsuOp.SH, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.SH, Srcs.Rs1ImmRs2),
     gprWr = false
   )
 
@@ -307,7 +306,7 @@ object RiscvInsts:
     "SW",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0100011",
     Some(ImmType.S),
-    Dispatch.mem(LsuOp.SW, LsuSrc.Rs1Imm),
+    Dispatch.mem(LsuOp.SW, Srcs.Rs1ImmRs2),
     gprWr = false
   )
 
@@ -316,7 +315,7 @@ object RiscvInsts:
     "BEQ",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "1100011",
     Some(ImmType.B),
-    Dispatch.bru(BruOp.BEQ, BruSrc.PcImm),
+    Dispatch.bru(BruOp.BEQ, Srcs.Rs1Rs2),
     gprWr = false
   )
 
@@ -324,7 +323,7 @@ object RiscvInsts:
     "BNE",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "1100011",
     Some(ImmType.B),
-    Dispatch.bru(BruOp.BNE, BruSrc.PcImm),
+    Dispatch.bru(BruOp.BNE, Srcs.Rs1Rs2),
     gprWr = false
   )
 
@@ -332,7 +331,7 @@ object RiscvInsts:
     "BLT",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "1100011",
     Some(ImmType.B),
-    Dispatch.bru(BruOp.BLT, BruSrc.PcImm),
+    Dispatch.bru(BruOp.BLT, Srcs.Rs1Rs2),
     gprWr = false
   )
 
@@ -340,7 +339,7 @@ object RiscvInsts:
     "BGE",
     "b" + n(7) + n(5) + n(5) + "101" + n(5) + "1100011",
     Some(ImmType.B),
-    Dispatch.bru(BruOp.BGE, BruSrc.PcImm),
+    Dispatch.bru(BruOp.BGE, Srcs.Rs1Rs2),
     gprWr = false
   )
 
@@ -348,7 +347,7 @@ object RiscvInsts:
     "BLTU",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "1100011",
     Some(ImmType.B),
-    Dispatch.bru(BruOp.BLTU, BruSrc.PcImm),
+    Dispatch.bru(BruOp.BLTU, Srcs.Rs1Rs2),
     gprWr = false
   )
 
@@ -356,46 +355,46 @@ object RiscvInsts:
     "BGEU",
     "b" + n(7) + n(5) + n(5) + "111" + n(5) + "1100011",
     Some(ImmType.B),
-    Dispatch.bru(BruOp.BGEU, BruSrc.PcImm),
+    Dispatch.bru(BruOp.BGEU, Srcs.Rs1Rs2),
     gprWr = false
   )
 
   // R-type: rs1, rs2
   val ADD =
-    RVInst("ADD", "b0000000" + n(5) + n(5) + "000" + n(5) + "0110011", None, Dispatch.alu(AluOp.Add, AluSrc.Rs1Rs2))
+    RVInst("ADD", "b0000000" + n(5) + n(5) + "000" + n(5) + "0110011", None, Dispatch.alu(AluOp.Add, Srcs.Rs1Rs2))
 
   val SUB =
-    RVInst("SUB", "b0100000" + n(5) + n(5) + "000" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sub, AluSrc.Rs1Rs2))
+    RVInst("SUB", "b0100000" + n(5) + n(5) + "000" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sub, Srcs.Rs1Rs2))
 
   val SLL =
-    RVInst("SLL", "b0000000" + n(5) + n(5) + "001" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sll, AluSrc.Rs1Rs2))
+    RVInst("SLL", "b0000000" + n(5) + n(5) + "001" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sll, Srcs.Rs1Rs2))
 
   val SLT =
-    RVInst("SLT", "b0000000" + n(5) + n(5) + "010" + n(5) + "0110011", None, Dispatch.alu(AluOp.Slt, AluSrc.Rs1Rs2))
+    RVInst("SLT", "b0000000" + n(5) + n(5) + "010" + n(5) + "0110011", None, Dispatch.alu(AluOp.Slt, Srcs.Rs1Rs2))
 
   val SLTU =
-    RVInst("SLTU", "b0000000" + n(5) + n(5) + "011" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sltu, AluSrc.Rs1Rs2))
+    RVInst("SLTU", "b0000000" + n(5) + n(5) + "011" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sltu, Srcs.Rs1Rs2))
 
   val XOR =
-    RVInst("XOR", "b0000000" + n(5) + n(5) + "100" + n(5) + "0110011", None, Dispatch.alu(AluOp.Xor, AluSrc.Rs1Rs2))
+    RVInst("XOR", "b0000000" + n(5) + n(5) + "100" + n(5) + "0110011", None, Dispatch.alu(AluOp.Xor, Srcs.Rs1Rs2))
 
   val SRL =
-    RVInst("SRL", "b0000000" + n(5) + n(5) + "101" + n(5) + "0110011", None, Dispatch.alu(AluOp.Srl, AluSrc.Rs1Rs2))
+    RVInst("SRL", "b0000000" + n(5) + n(5) + "101" + n(5) + "0110011", None, Dispatch.alu(AluOp.Srl, Srcs.Rs1Rs2))
 
   val SRA =
-    RVInst("SRA", "b0100000" + n(5) + n(5) + "101" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sra, AluSrc.Rs1Rs2))
+    RVInst("SRA", "b0100000" + n(5) + n(5) + "101" + n(5) + "0110011", None, Dispatch.alu(AluOp.Sra, Srcs.Rs1Rs2))
 
   val OR =
-    RVInst("OR", "b0000000" + n(5) + n(5) + "110" + n(5) + "0110011", None, Dispatch.alu(AluOp.Or, AluSrc.Rs1Rs2))
+    RVInst("OR", "b0000000" + n(5) + n(5) + "110" + n(5) + "0110011", None, Dispatch.alu(AluOp.Or, Srcs.Rs1Rs2))
 
   val AND =
-    RVInst("AND", "b0000000" + n(5) + n(5) + "111" + n(5) + "0110011", None, Dispatch.alu(AluOp.And, AluSrc.Rs1Rs2))
+    RVInst("AND", "b0000000" + n(5) + n(5) + "111" + n(5) + "0110011", None, Dispatch.alu(AluOp.And, Srcs.Rs1Rs2))
 
   val FENCE = RVInst(
     "FENCE",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0001111",
     None,
-    Dispatch.sysu(SysuOp.FENCE),
+    Dispatch.sysu(SysuOp.FENCE, Srcs.NoOperand),
     gprWr = false,
     rs1Rd = false,
     rs2Rd = false
