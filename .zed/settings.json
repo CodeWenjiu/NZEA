@@ -1,4 +1,5 @@
 {
+  "load_direnv": "direct",
   "file_scan_exclusions": [
     ".oracle"
   ],

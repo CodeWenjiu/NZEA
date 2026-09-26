@@ -40,7 +40,7 @@ trait Scala3Module extends ScalaModule {
   */
 trait ZaoziModule extends Scala3Module {
   override def scalacOptions = Task {
-    super.scalacOptions() ++ Seq("-experimental")
+    super.scalacOptions() ++ Seq("-experimental") ++ zaoziPluginArgs()
   }
 
   override def mvnDeps = Task {
@@ -54,6 +54,28 @@ trait ZaoziModule extends Scala3Module {
 
   override def forkArgs = Task {
     super.forkArgs() ++ zaoziJvmFlags
+  }
+
+  /** The zaozi SemanticDB-enhancer compiler plugin.
+    *
+    * Bundle fields reached through `scala.Dynamic` (`io.<field>`) get no use-site occurrences from a plain scalac
+    * run, so go-to/references on them would land on the access itself (or on `selectDynamic`). The plugin's batch
+    * phase injects those occurrences into the emitted SemanticDB, and its interactive phase steers the language
+    * server's presentation compiler to the field declaration.
+    */
+  override def scalacPluginMvnDeps = Task {
+    super.scalacPluginMvnDeps() ++ Seq(mvn"me.jiuyang::zaozi-compiler-plugin:$zaoziV")
+  }
+
+  /** The plugin as scalac options: `scalacOptions` is what the language server reads over BSP, while Mill's own plugin
+    * classpath is invisible there. Taken from the resolved plugin classpath (filtered by artifact name, since it also
+    * carries scala-library) and hashed into the compile inputs through `scalacPluginClasspath`.
+    */
+  private def zaoziPluginArgs = Task {
+    scalacPluginClasspath()
+      .map(_.path)
+      .filter(_.last.startsWith("zaozi-compiler-plugin"))
+      .map(path => s"-Xplugin:$path")
   }
 }
 
