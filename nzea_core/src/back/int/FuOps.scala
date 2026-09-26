@@ -1,18 +1,10 @@
-package nzea_core.isa
+package nzea_core.back.int
 
-import java.lang.foreign.Arena
-
-import me.jiuyang.zaozi.*
-import me.jiuyang.zaozi.default.{*, given}
-import me.jiuyang.zaozi.reftpe.*
-import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.stdlib.*
-import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** Per-FU operation enums and the unified `fu_op` field width.
-  *
-  * ISA-level: the decode table encodes them into the issue uop, each FU slices its own field with [[FuDecode.take]].
-  * The one-hot encodings are load bearing — the FUs dispatch with `mux1H` over the raw field.
+/** Op encodings of the integer path's FUs. Decode places one of them in the uop's shared `op` field, the backend slices
+  * it back out with `Opcode.take`, and the FU dispatches with `mux1H` over the raw field — which is why the one-hot
+  * encodings below are load bearing.
   */
 
 /** ALU op: one-hot (add, sub, and, or, xor, sll, srl, sra, slt, sltu). */
@@ -44,42 +36,6 @@ enum BruOp(val lit: Int) extends Opcode:
 
 object BruOp:
   val width: Int = Opcode.width(values)
-
-/** LSU op: one-hot (LB, LH, LW, LBU, LHU, SB, SH, SW); used by decode, the LSU and the bus user payload. */
-enum LsuOp(val lit: Int) extends Opcode:
-  case LB extends LsuOp(1 << 0)
-  case LH extends LsuOp(1 << 1)
-  case LW extends LsuOp(1 << 2)
-  case LBU extends LsuOp(1 << 3)
-  case LHU extends LsuOp(1 << 4)
-  case SB extends LsuOp(1 << 5)
-  case SH extends LsuOp(1 << 6)
-  case SW extends LsuOp(1 << 7)
-
-object LsuOp:
-  val width: Int = Opcode.width(values)
-
-  /** True for the store ops; a field that selects no store is treated as a load, like the legacy decoder. */
-  def isStore[LHS <: Referable[UInt]](op: LHS)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[Bool] =
-    (op === LsuOp.SB.lit.U(width)) | (op === LsuOp.SH.lit.U(width)) | (op === LsuOp.SW.lit.U(width))
-
-  def isLoad[LHS <: Referable[UInt]](op: LHS)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[Bool] = !isStore(op)
 
 /** MUL FU op: MUL, MULH, MULHSU, MULHU (M extension). */
 enum MulOp(val lit: Int) extends Opcode:
@@ -115,7 +71,3 @@ enum SysuOp(val lit: Int) extends Opcode:
 
 object SysuOp:
   val width: Int = Opcode.width(values)
-
-/** Unified `fu_op` field width: the widest FU op encoding, so one field can feed every FU. */
-object FuOpWidth:
-  val Width: Int = Seq(AluOp.width, BruOp.width, LsuOp.width, MulOp.width, DivOp.width, SysuOp.width).max

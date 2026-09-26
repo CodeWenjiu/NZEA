@@ -19,17 +19,13 @@ class IsaElaborateTestIO(parameter: IsaElaborateTestParameter) extends HWBundle(
   val csr_type = Aligned(UInt(CsrType.width))
   val csr_addr = Aligned(UInt(12))
   val csr_valid = Aligned(Bool())
-  val fu_op = Flipped(UInt(FuOpWidth.Width))
-  val alu_op = Aligned(UInt(AluOp.width))
-  val bru_op = Aligned(UInt(BruOp.width))
-  val alu_src = Aligned(UInt(AluSrc.width))
-  val is_store = Aligned(Bool())
-  val is_load = Aligned(Bool())
 
 class IsaElaborateTestProbe(parameter: IsaElaborateTestParameter)
     extends DVBundle[IsaElaborateTestParameter, IsaElaborateTestLayers](parameter)
 
-/** Exercises the hardware side of the ISA tables: address<->type mapping and the unified field slices. */
+/** Exercises the hardware side of the ISA-level tables: the CSR address <-> type mapping used by decode and by the
+  * commit trace.
+  */
 @generator
 object IsaElaborateTestModule
     extends Generator[IsaElaborateTestParameter, IsaElaborateTestLayers, IsaElaborateTestIO, IsaElaborateTestProbe]:
@@ -43,12 +39,6 @@ object IsaElaborateTestModule
     io.csr_addr := csrAddr
     io.csr_valid := csrValid
 
-    io.alu_op := FuDecode.take(io.fu_op, AluOp.width)
-    io.bru_op := FuDecode.take(io.fu_op, BruOp.width)
-    io.alu_src := FuDecode.take(io.fu_op, AluSrc.width)
-    io.is_store := LsuOp.isStore(FuDecode.take(io.fu_op, LsuOp.width))
-    io.is_load := LsuOp.isLoad(FuDecode.take(io.fu_op, LsuOp.width))
-
 /** Structural checks: the field widths and the CSR address map reach the lowered Verilog. */
 object IsaElaborateTest extends TestSuite:
 
@@ -60,30 +50,12 @@ object IsaElaborateTest extends TestSuite:
     cfg => IsaElaborateTestModule.main(Array("design", cfg.toString))
   )
 
-  /** The module's port table, so a port check cannot be satisfied by a signal of the same name inside the body. */
-  private lazy val header: String =
-    val start = sv.indexOf(s"module $module(")
-    sv.substring(start, sv.indexOf(");", start))
-
-  private def port(name: String, width: Int): Boolean =
-    val declaration =
-      if width <= 1 then raw"""(?m)(?:input|output)\s+$name\b|,\s*$name\b"""
-      else raw"""\[${width - 1}:0\]\s+$name\b"""
-    declaration.r.findFirstIn(header).isDefined
+  private lazy val ports = TestFlow.ports(sv, module)
 
   val tests = Tests:
     test("module lowers with the expected port widths"):
       assert(sv.contains(s"module $module("))
-      assert(port("addr", 32))
-      assert(port("fu_op", FuOpWidth.Width))
-      assert(port("csr_type", CsrType.width))
-      assert(port("csr_addr", 12))
-      assert(port("csr_valid", 1))
-      assert(port("alu_op", AluOp.width))
-      assert(port("bru_op", BruOp.width))
-      assert(port("alu_src", AluSrc.width))
-      assert(port("is_store", 1))
-      assert(port("is_load", 1))
+      assert(ports == Map("addr" -> 32, "csr_type" -> CsrType.width, "csr_addr" -> 12, "csr_valid" -> 1))
 
     test("CSR address map reaches the lowered logic"):
       for addr <- Seq(
