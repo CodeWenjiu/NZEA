@@ -6,9 +6,9 @@ it and renders it (`remu_simulator_nzea::stat_schema`). The acceptance values in
 
 Scope: the statistics path only (`stat` command / `stat_*` VPI counters / derived values). Nothing else in remu.
 
-Migration note (2026-09-26): the `nzea_*` implementation paths referenced below are frozen in `legacy/`
-(tag `legacy-baseline`) while the core is rewritten on Scala 3 / zaozi. The specification itself stays in
-force and is re-implemented on the new tree.
+Migration note (2026-09-26; updated 2026-09-27): the core rewrite on Scala 3 / zaozi landed and the stats path was
+re-ported with it, so the implementation paths in §11 are current again. The specification below was not changed by the
+rewrite; `legacy/` (tag `legacy-baseline`) keeps the pre-rewrite version, and the tile / fpga side is still frozen there.
 
 Verification owner: the nzea side provides the artifact, the reference values (§8) and the acceptance run; the
 requirements below are testable one by one.
@@ -229,8 +229,8 @@ approximate there. The rules whose counters no longer exist (`dir_mispred_rate`,
 | `nzea_rtl/src/StatExpr.scala` | grammar + evaluator (the normative reference for §5) |
 | `nzea_rtl/src/StatsRegs.scala` | `public_flat_rd` counter black box; declarations drive RTL **and** schema |
 | `nzea_core/src/stats/CoreStats.scala` | declarations: regions `throughput`, `bp`; counters `stat_cycle`, `stat_inst_commit`, `stat_bp_branch`, `stat_bp_mispred`, `stat_bp_actual_taken`; derived `ipc`, `cpi`, `mispredict_rate`, `taken_rate` |
-| `nzea_core/src/CoreElaborate.scala`, `nzea_tile/src/TileElaborate.scala` | `StatSchema.emit(...)` on `sim` dumps |
-| `nzea_core/test/src/stats/CoreStatsTest.scala`, `nzea_rtl/test/src/StatSchemaTest.scala` | pin the emitted counters/widths and the grammar semantics |
+| `nzea_cli/src/Main.scala` (sim dumps; the tile owns its own emitter once ported) | `StatSchema.emit(...)` on `sim` dumps |
+| `nzea_core/test/src/stats/CountersTest.scala`, `nzea_rtl/test/src/{StatSchemaTest,StatsRegsTest}.scala` | pin the emitted counters/widths and the grammar semantics |
 
 Guarantees: the schema is validated before it is written (unique names, known regions, expression syntax, resolvable
 references), and a test asserts the emitted RTL exposes **exactly** the declared counters with the declared widths —

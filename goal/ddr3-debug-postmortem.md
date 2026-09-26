@@ -2,6 +2,9 @@
 
 Status: **复盘记录** — 记录 DDR3 从"无法工作"到"稳定读写"的完整调试历程，提炼项目可改进点。作为后续优化的设计参考。
 
+路径说明（2026-09-27）：文中的 `nzea_fpga/`、`nzea_tile/` 等路径是迁移前（Chisel 树）的快照，现已冻结在 `legacy/`
+（tag `legacy-baseline`）；文中的 `just vivado-*` 等命令需在 `just legacy-oracle` 工作区里运行。
+
 ## 背景
 
 目标：把 lxb_artix7 板载 DDR3（通过 MIG 7-series IP）作为 fabric 从设备（0x88000000）接入 nzea，写 memtest 验证读写。用户提供了 `21_ddr3_test/` Vivado 参考工程作为金标准。
