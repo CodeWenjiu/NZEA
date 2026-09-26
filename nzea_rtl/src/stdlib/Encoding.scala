@@ -36,8 +36,8 @@ object Encoding:
     val bits: Node[Bits] = Node(u.asBits)
     bits.bits(width - 1, 0).asUInt
 
-  /** Bits `[offset + width - 1 : offset]` of a shared field: the general form of [[take]], for the columns that sit
-    * above each other inside one window (see [[Column]]).
+  /** Bits `[offset + width - 1 : offset]` of a shared field: the general form of [[take]], for a field that sits above
+    * another inside one value.
     */
   def slice[LHS <: Referable[UInt]](u: LHS, offset: Int, width: Int)(using
       Arena,
@@ -66,15 +66,15 @@ object Encoding:
     self: scala.reflect.Enum =>
     final def lit: Int = ordinal
 
-  /** A named column of a composed field: where it sits, how wide it is, and how the host-side code (the side that
-    * composes a value) and the hardware (the side that reads it back) map into each other.
+  /** One column of a shared field: where it sits, how wide it is, and the two directions of that map — [[lit]] on the
+    * host side that composes the value, [[apply]] on the hardware side that reads it back.
     *
     * Fields are low-anchored, so a column's offset is stable however wide the shared field grows, and two columns
-    * compose with `|` because they never overlap. A [[Union]] derives its columns from its cases instead of taking one
-    * from a caller; the primitive stays reachable for the fields that are genuinely products — several values sharing
-    * one field at once, like the bus user fields (`IbusUser`, `DbusUser`).
+    * compose with `|` because they never overlap. A declared field is never a bare column: a [[Union]] derives its
+    * columns from its cases and an [[Aggregate]] from its fields. What is left here is the layout that follows data
+    * instead of a declaration — the [[PlaPlan]]'s table list — so it stays package-private.
     */
-  case class Column(offset: Int, width: Int):
+  private[stdlib] case class Column(offset: Int, width: Int):
     require(offset >= 0 && width >= 1, s"Column expects offset >= 0 and width >= 1, got offset $offset width $width")
 
     /** One past this column's last bit: the next column's offset, and the field length once this is the last column. */

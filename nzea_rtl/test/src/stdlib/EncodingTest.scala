@@ -36,15 +36,6 @@ object EncodingTestUnion extends Encoding.UnionSet[EncodingTestUnion]:
 object EncodingTestAggregate extends Encoding.Aggregate:
   val fields: Seq[(String, Int)] = Seq("narrow" -> EncodingTestNarrow.width, "op" -> EncodingTestOp.width)
 
-/** A local window over both sets, low-anchored as `[narrow | op]`. */
-object EncodingTestWindow:
-  val op = Encoding.Column(0, EncodingTestOp.width)
-  val narrow = Encoding.Column(op.end, EncodingTestNarrow.width)
-  val width: Int = narrow.end
-
-  def lit(narrow: EncodingTestNarrow, op: EncodingTestOp): Int =
-    EncodingTestWindow.narrow.lit(narrow) | EncodingTestWindow.op.lit(op)
-
 case class EncodingTestParameter(dummy: Int) extends Parameter
 
 given upickle.default.ReadWriter[EncodingTestParameter] = upickle.default.macroRW
@@ -56,9 +47,6 @@ class EncodingTestIO(parameter: EncodingTestParameter) extends HWBundle(paramete
   val raw = Flipped(UInt(8))
   val wide = Aligned(UInt(EncodingTestOp.width))
   val narrow = Aligned(UInt(EncodingTestNarrow.width))
-  val window = Flipped(UInt(EncodingTestWindow.width))
-  val window_op = Aligned(UInt(EncodingTestOp.width))
-  val window_narrow = Aligned(UInt(EncodingTestNarrow.width))
   val variant = Flipped(UInt(EncodingTestUnion.width))
   val union_payload = Aligned(UInt(EncodingTestUnion.payloadWidth))
   val union_tag = Aligned(UInt(EncodingTestUnion.tagWidth))
@@ -73,7 +61,9 @@ class EncodingTestIO(parameter: EncodingTestParameter) extends HWBundle(paramete
 class EncodingTestProbe(parameter: EncodingTestParameter)
     extends DVBundle[EncodingTestParameter, EncodingTestLayers](parameter)
 
-/** Slices two aliased encodings out of one field, unpacks a window, and materializes a member as a constant. */
+/** Slices two aliased encodings out of one field, unpacks a union, reads an aggregate's fields, and materializes a
+  * member as a constant.
+  */
 @generator
 object EncodingTestModule
     extends Generator[EncodingTestParameter, EncodingTestLayers, EncodingTestIO, EncodingTestProbe]:
@@ -83,8 +73,6 @@ object EncodingTestModule
     val io = summon[Interface[EncodingTestIO]]
     io.wide := Encoding.take(io.raw, EncodingTestOp.width)
     io.narrow := Encoding.take(io.raw, EncodingTestNarrow.width)
-    io.window_op := EncodingTestWindow.op(io.window)
-    io.window_narrow := EncodingTestWindow.narrow(io.window)
     io.union_payload := EncodingTestUnion.payload(io.variant)
     io.union_tag := EncodingTestUnion.tag(io.variant)
     io.union_wide := EncodingTestUnion.isCase(EncodingTestUnion.Wide(EncodingTestOp.A), io.variant)
@@ -93,7 +81,7 @@ object EncodingTestModule
     io.constant := EncodingTestOp.C.lit.U(6)
     io.muxed := EncodingTestOp.mux1H(io.sel, op => op.lit.U(6), 6)
 
-/** Structural checks: the width rule, the window pack/unpack pair, and the lowered field widths. */
+/** Structural checks: the width rule, the union and aggregate layouts, and the lowered field widths. */
 object EncodingTest extends TestSuite:
 
   private val module = EncodingTestModule.moduleName(EncodingTestParameter(0))
@@ -117,13 +105,6 @@ object EncodingTest extends TestSuite:
       assert(EncodingTestOp.variants.zipWithIndex.forall((op, i) => op.lit == 1 << i))
       assert(EncodingTestNarrow.values.toSeq.map(_.lit) == Seq(0, 1))
 
-    test("a window composes and separates its columns"):
-      assert(EncodingTestWindow.width == 4)
-      for narrow <- EncodingTestNarrow.values; op <- EncodingTestOp.values do
-        val window = EncodingTestWindow.lit(narrow, op)
-        assert(((window >> EncodingTestWindow.narrow.offset) & 0x1) == narrow.lit)
-        assert(((window >> EncodingTestWindow.op.offset) & 0x7) == op.lit)
-
     test("a union puts the payload under the case's tag, and derives its codes"):
       assert(EncodingTestUnion.payloadWidth == EncodingTestOp.width)
       assert(EncodingTestUnion.tagWidth == 1)
@@ -137,6 +118,11 @@ object EncodingTest extends TestSuite:
       assert(EncodingTestAggregate.offset("op") == EncodingTestNarrow.width)
       assert(EncodingTestAggregate.width == EncodingTestNarrow.width + EncodingTestOp.width)
       assert(EncodingTestAggregate.lit("op", EncodingTestOp.C) == EncodingTestOp.C.lit << EncodingTestNarrow.width)
+      // Composition and the slicing the hardware does are the same map: a code lands where its field reads it back.
+      for narrow <- EncodingTestNarrow.values; op <- EncodingTestOp.values do
+        val field = EncodingTestAggregate.lit("narrow", narrow) | EncodingTestAggregate.lit("op", op)
+        assert(((field >> EncodingTestAggregate.offset("narrow")) & 0x1) == narrow.lit)
+        assert(((field >> EncodingTestAggregate.offset("op")) & 0x7) == op.lit)
 
     test("slices and member constants reach the lowered Verilog"):
       assert(sv.contains("module EncodingTest("))
@@ -145,9 +131,6 @@ object EncodingTest extends TestSuite:
           "raw" -> 8,
           "wide" -> EncodingTestOp.width,
           "narrow" -> EncodingTestNarrow.width,
-          "window" -> EncodingTestWindow.width,
-          "window_op" -> EncodingTestWindow.op.width,
-          "window_narrow" -> EncodingTestWindow.narrow.width,
           "variant" -> EncodingTestUnion.width,
           "union_payload" -> EncodingTestUnion.payloadWidth,
           "union_tag" -> EncodingTestUnion.tagWidth,

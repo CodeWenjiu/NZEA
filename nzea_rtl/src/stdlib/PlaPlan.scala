@@ -15,7 +15,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * decoded word by field name. Fields sit where the tables' concatenation puts them — first table in the high bits — so
   * a field's position follows the table list instead of a hand-written bit range.
   */
-final class PlaPlan private (val pla: PLA, val columns: Map[String, Encoding.Column]):
+final class PlaPlan private (val pla: PLA, private[stdlib] val columns: Map[String, Encoding.Column]):
 
   /** Emit the decode: one AND term per PLA row, one OR per output bit, inverted where the default asserts.
     *
