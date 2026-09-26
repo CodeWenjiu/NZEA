@@ -22,6 +22,61 @@ def log2Ceil(x: Int): Int =
     bits += 1
   bits
 
+/** `a + b` kept to `width` bits (Chisel's `+%`): FIRRTL's `add` is one bit wider than its operands, so a wrap-around
+  * add has to say so.
+  */
+def addWrap(a: Referable[UInt], b: Referable[UInt], width: Int)(using
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): Node[UInt] = (a + b).asBits.bits(width - 1, 0).asUInt
+
+/** `a - b` kept to `width` bits (Chisel's `-%`); also the way to negate a two's complement value. */
+def subWrap(a: Referable[UInt], b: Referable[UInt], width: Int)(using
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): Node[UInt] = (a - b).asBits.bits(width - 1, 0).asUInt
+
+/** One-cycle delayed copy of `ref` (Chisel `RegNext`). */
+def regNext[T <: Data & Connectable](ref: Referable[T])(using
+    ClockScope,
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): Reg[T] =
+  val delayed = Reg(ref.getType)
+  delayed :<= ref
+  delayed
+
+/** One-cycle delayed copy of `ref`, reset to `init` (Chisel's two-argument `RegNext`). */
+def regNext[T <: Data & Connectable](ref: Referable[T], init: Const[T])(using
+    ClockScope,
+    ResetScope,
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): Reg[T] =
+  val delayed = RegInit(init)
+  delayed :<= ref
+  delayed
+
 /** Replicate a 1-bit value `n` times (Chisel `Fill`); `n >= 1`. */
 def fill(n: Int, bit: Referable[Bool])(using
     Arena,

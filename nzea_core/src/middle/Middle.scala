@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.CoreConfig
-import nzea_core.back.BackOut
+import nzea_core.back.{BackOut, IssueUop}
 import nzea_core.front.idu.{ArfWrite, IduOut}
 import nzea_core.isa.{Backend, CsrType}
 import nzea_rtl.stdlib.*

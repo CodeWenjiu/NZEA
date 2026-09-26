@@ -1,9 +1,8 @@
-package nzea_core.middle
+package nzea_core.back
 
 import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.back.OpField
 import nzea_core.isa.{Backend, CsrType}
 
 /** Ready-operand uop: every operand is a value the middle resolved (rs1/rs2 from the register file, csr_rdata from the
