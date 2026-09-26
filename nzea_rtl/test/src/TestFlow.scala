@@ -1,43 +1,20 @@
 package nzea_rtl
 
-/** Test helper: elaborate a generator through the real flow and lower it to Verilog.
+/** Test helper: elaborate a generator through the real flow and lower it to Verilog, then read the result structurally.
   *
-  * `config`/`design` write `<moduleName>.mlirbc` into the working directory (the DSL's default output location), so the
-  * caller only has to describe how to invoke the generated `main`.
+  * The flow itself is [[nzea_rtl.Elaborate]]'s — the same one the dump recipe runs — so a test that elaborates is
+  * exercising the build path, not a copy of it.
   */
 object TestFlow:
 
-  /** Run `writeConfig` then `design`, link every module the design produced, and lower the top to Verilog.
-    *
-    * A generator instantiating another writes one `.mlirbc` per module, and only `firld` knows how to join them into
-    * one circuit — the same two steps the `just zaozi-*` recipes run.
-    */
+  /** firtool flags the tests lower with: packed arrays and `always_comb` are what the synthesis flows refuse. */
+  private val loweringOptions: Seq[String] = Seq("--lowering-options=disallowPackedArrays,noAlwaysComb")
+
+  /** Run `writeConfig` then `design`, link every module the design produced, and lower the top to Verilog. */
   def lower(moduleName: String, writeConfig: os.Path => Unit, design: os.Path => Unit): String =
-    val dir = os.temp.dir(prefix = "nzea-elab")
-    val cfg = dir / "config.json"
-    try
-      writeConfig(cfg)
-      design(cfg)
-      val produced = os.list(os.pwd).filter(_.ext == "mlirbc")
-      try
-        assert(produced.exists(_.baseName == moduleName), s"no $moduleName.mlirbc among $produced")
-        val input =
-          if produced.lengthCompare(1) == 0 then produced.head.toString
-          else
-            val linked = dir / "design.mlir"
-            os.proc(
-              "firld",
-              produced.map(_.toString),
-              "--base-circuit",
-              moduleName,
-              "--no-mangle",
-              "-o",
-              linked.toString
-            ).call()
-            linked.toString
-        os.proc("firtool", input, "--lowering-options=disallowPackedArrays,noAlwaysComb").call().out.text()
-      finally produced.foreach(file => if os.exists(file) then os.remove(file))
-    finally if os.exists(cfg) then os.remove(cfg)
+    val scratch = os.temp.dir(prefix = "nzea-elab")
+    try Elaborate.withLinked(moduleName, scratch, writeConfig, design)(Elaborate.verilog(_, loweringOptions))
+    finally os.remove.all(scratch)
 
   /** Port widths of `module`, parsed from its port table.
     *

@@ -5,6 +5,13 @@ _default:
 init:
     @mill --no-server mill.bsp.BSP/install
 
+# Elaborate RTL to Verilog. `just dump --target core --isa riscv32im [--outDir <dir>]` is what the simulators
+# call, so the flags are passed through to the CLI (defaults live there); without --outDir the legacy layout
+# build/<target>/<platform>/<isa>/<dpi|hw> is used.
+[group('build')]
+dump *ARGS:
+    @mill --no-server nzea_cli.runMain nzea_cli.Main {{ ARGS }}
+
 # Run a module's test suite (e.g. `just test nzea_rtl`)
 [group('test')]
 test module='nzea_rtl':

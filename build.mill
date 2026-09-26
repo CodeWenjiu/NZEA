@@ -90,3 +90,8 @@ object nzea_core extends ZaoziModule {
     }
   }
 }
+
+/** Command line: the one place that turns flags into an elaboration (which module, which platform, where it goes). */
+object nzea_cli extends ZaoziModule {
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_config)
+}
