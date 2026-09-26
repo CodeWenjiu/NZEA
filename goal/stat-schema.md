@@ -6,6 +6,10 @@ it and renders it (`remu_simulator_nzea::stat_schema`). The acceptance values in
 
 Scope: the statistics path only (`stat` command / `stat_*` VPI counters / derived values). Nothing else in remu.
 
+Migration note (2026-09-26): the `nzea_*` implementation paths referenced below are frozen in `legacy/`
+(tag `legacy-baseline`) while the core is rewritten on Scala 3 / zaozi. The specification itself stays in
+force and is re-implemented on the new tree.
+
 Verification owner: the nzea side provides the artifact, the reference values (§8) and the acceptance run; the
 requirements below are testable one by one.
 

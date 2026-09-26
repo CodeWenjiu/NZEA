@@ -2,6 +2,8 @@
 
 Status: **全部搁置（2026-09-14）** — 用户决定暂停执行剩余任务；保留记录以防遗忘，重新开始时重新评估优先级。由 `goal/README.md` 的规则管理；本文件继承自已删除的 `debug-tooling-gaps.md`（G3-G7）、`board-specific-build-hooks.md`（P1-P6）、`wave-mcp-lessons.md`（W1-W5）。格式：`[状态] 任务名 — 位置/验收`。
 
+迁移说明（2026-09-26）：核心重写到 Scala 3 + zaozi 期间，本文引用的 `nzea_*` 路径已冻结进 `legacy/`（tag `legacy-baseline`，不参与构建）；查看实现请到 `legacy/`，需运行旧流程请用 `just legacy-oracle`。
+
 ## 已完成（本文件生命周期内，勿重复提出）
 
 | 原编号 | 内容 | 落地 |

@@ -1,16 +1,27 @@
-.cache
-.metals
-.vscode
-.direnv
+# Editors / language servers / build frontends
+.bloop
 .bsp
+.cache
+.direnv
+.metals
 .sccache
-ssrc/out
-ssrc/.bloop
+.scala-build
+.vscode
+
+# Build outputs (Mill `out`, elaboration/synthesis RTL and reports under `build`)
 out
 build
+result*
+
+# Side worktree holding the frozen pre-migration core (`just legacy-oracle`)
+.oracle
+
+# nix-built language server pinned into the tree (`nix build ... -o .zed/ls`)
+.zed/ls
+
+# Agent scratch
 /.sisyphus
 /.deepseek
-result
 
 # Vivado runtime residue (journal/log/pid files dropped in cwd)
 /vivado.jou

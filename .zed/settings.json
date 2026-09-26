@@ -1,4 +1,7 @@
 {
+  "file_scan_exclusions": [
+    ".oracle"
+  ],
   "lsp": {
     "rust-analyzer": {
       "initialization_options": {

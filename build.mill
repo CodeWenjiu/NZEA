@@ -1,148 +1,45 @@
 import mill._
 import mill.scalalib._
 
-val scalaV  = "2.13.18"
-val chiselV = "7.13.0"
-val mainargsVersion = "0.5.2"
-val scalatestVersion = "3.2.19"
+val scalaV = "3.8.4"
+val zaoziV = "0.0.1-SNAPSHOT"
+val utestV = "0.8.4"
 
-val sharedScalacOptions = Seq(
-  "-language:reflectiveCalls",
-  "-deprecation",
-  "-feature",
-  "-Xcheckinit",
-  "-Ymacro-annotations"
-)
-
-object nzea_cli extends ScalaModule {
-  def scalaVersion = scalaV
-
-  def moduleDeps = Seq(nzea_core, nzea_tile, nzea_config, nzea_fpga)
-
-  override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
-}
-
-object nzea_config extends ScalaModule {
-  def scalaVersion = scalaV
-  // Depends only on mainargs: ElaborationTarget/SynthPlatform etc. carry TokensReader
-  // instances used by the CLI layer, so they must live in this leaf module.
-  override def mvnDeps = Seq(mvn"com.lihaoyi::mainargs:$mainargsVersion")
-}
-
-object nzea_rtl extends ScalaModule {
-  def scalaVersion = scalaV
-  def chiselVersion = chiselV
-
-  override def scalacOptions = sharedScalacOptions
-
-  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselVersion")
-  override def scalacPluginMvnDeps = Seq(
-    mvn"org.chipsalliance:::chisel-plugin:$chiselVersion"
-  )
-
-  object test extends ScalaTests with TestModule.ScalaTest {
-    def mvnDeps = Seq(mvn"org.scalatest::scalatest:$scalatestVersion")
-    def forkEnv = Map("PATH" -> sys.env.getOrElse("PATH", ""))
-  }
-}
-
-object nzea_core extends ScalaModule {
-  def scalaVersion = scalaV
-  def chiselVersion = chiselV
-
-  def moduleDeps = Seq(nzea_rtl, nzea_config)
-
-  override def scalacOptions = sharedScalacOptions
-
-  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselVersion")
-  override def scalacPluginMvnDeps = Seq(
-    mvn"org.chipsalliance:::chisel-plugin:$chiselVersion"
-  )
-
-  object test extends ScalaTests with TestModule.ScalaTest {
-    def mvnDeps = Seq(mvn"org.scalatest::scalatest:$scalatestVersion")
-  }
-}
-
-object nzea_tile extends ScalaModule {
-  def scalaVersion = scalaV
-
-  def moduleDeps = Seq(nzea_core, nzea_rtl, nzea_config, nzea_device, nzea_cache)
-
-  override def scalacOptions = sharedScalacOptions
-
-  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
-  override def scalacPluginMvnDeps = Seq(
-    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
-  )
-
-  object test extends ScalaTests with TestModule.ScalaTest {
-    def mvnDeps = Seq(mvn"org.scalatest::scalatest:$scalatestVersion")
-    def forkEnv = Map("PATH" -> sys.env.getOrElse("PATH", ""))
-  }
-}
-
-object nzea_device extends ScalaModule {
-  def scalaVersion = scalaV
-
-  def moduleDeps = Seq(nzea_rtl)
-
-  override def scalacOptions = sharedScalacOptions
-
-  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
-  override def scalacPluginMvnDeps = Seq(
-    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
-  )
-
-  object test extends ScalaTests with TestModule.ScalaTest {
-    def mvnDeps = Seq(mvn"org.scalatest::scalatest:$scalatestVersion")
-    def forkEnv = Map("PATH" -> sys.env.getOrElse("PATH", ""))
-  }
-}
-
-object nzea_cache extends ScalaModule {
-  def scalaVersion = scalaV
-
-  def moduleDeps = Seq(nzea_rtl)
-
-  override def scalacOptions = sharedScalacOptions
-
-  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
-  override def scalacPluginMvnDeps = Seq(
-    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
-  )
-
-  object test extends ScalaTests with TestModule.ScalaTest {
-    def mvnDeps = Seq(mvn"org.scalatest::scalatest:$scalatestVersion")
-    def forkEnv = Map("PATH" -> sys.env.getOrElse("PATH", ""))
-  }
-}
-
-object nzea_fpga extends ScalaModule {
-  def scalaVersion = scalaV
-
-  def moduleDeps = Seq(nzea_tile, nzea_config, nzea_device)
-
-  override def scalacOptions = sharedScalacOptions
-
-  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
-  override def scalacPluginMvnDeps = Seq(
-    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
-  )
-}
-
-/** Simulation target — sits above all other modules.
-  * Generates RTL into build/sim/ for iverilog simulation.
+/** Shared setup for every module of the core.
+  *
+  * Requires the zaozi toolchain: `nix develop` (JDK 25 + CIRCT/MLIR) and the
+  * locally published `.zaozi` submodule (`just z-publish` — see legacy/README.md).
   */
-object nzea_sim extends ScalaModule {
-  def scalaVersion = scalaV
+trait ZaoziModule extends ScalaModule {
+  override def scalaVersion = scalaV
 
-  def moduleDeps = Seq(nzea_core, nzea_tile, nzea_fpga, nzea_config)
+  override def scalacOptions = Task {
+    super.scalacOptions() ++ Seq(
+      "-experimental",
+      "-java-output-version",
+      "25",
+      "-Xsemanticdb",
+      "-sourceroot",
+      mill.api.BuildCtx.workspaceRoot.toString
+    )
+  }
 
-  override def scalacOptions = sharedScalacOptions
+  override def mvnDeps = Task {
+    super.mvnDeps() ++ Seq(
+      mvn"me.jiuyang::zaozi:$zaoziV",
+      mvn"com.lihaoyi::mainargs:0.7.6",
+      mvn"com.lihaoyi::upickle:4.0.2"
+    )
+  }
 
-  override def mvnDeps = Seq(mvn"org.chipsalliance::chisel:$chiselV")
-  override def scalacPluginMvnDeps = Seq(
-    mvn"org.chipsalliance:::chisel-plugin:$chiselV"
-  )
+  // The DSL reaches CIRCT through the FFM API.
+  override def forkArgs = Task {
+    super.forkArgs() ++ Seq("--enable-native-access=ALL-UNNAMED")
+  }
+}
+
+object nzea_rtl extends ZaoziModule {
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = Seq(mvn"com.lihaoyi::utest:$utestV")
+  }
 }
