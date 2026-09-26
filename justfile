@@ -49,6 +49,19 @@ zed-setup:
 dump *ARGS:
     @mill --no-server nzea_cli.runMain nzea_cli.Main {{ ARGS }}
 
+# Run Yosys synthesis: dumps the synthesis top (`--sim false`, buses exposed, no DPI bridges) and synthesizes it,
+# mapping onto the PDK when PDK_PATH is set
+[group('synth')]
+synth *ARGS:
+    @just dump --sim false {{ ARGS }}
+    @nu synth/flow/synth.nu {{ ARGS }}
+
+# Run STA on the synthesized netlist (requires `just synth` first; needs PDK_PATH and iEDA)
+[group('synth')]
+sta *ARGS:
+    @just synth {{ ARGS }}
+    @nu synth/flow/sta.nu {{ ARGS }}
+
 # Run a module's test suite (e.g. `just test nzea_rtl`)
 [group('test')]
 test module='nzea_rtl':

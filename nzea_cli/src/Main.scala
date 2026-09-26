@@ -20,6 +20,19 @@ object Main:
     """usage: just dump [--target core] [--platform yosys] [--isa riscv32i] [--defaultPc 0x80000000]
       |                 [--sim true] [--outDir <dir>]""".stripMargin
 
+  /** firtool flags per dump shape. A simulation dump is only ever read by Verilator, but Yosys refuses what firtool
+    * emits by default — `always_comb` and local variables inside it — so the synthesis top is lowered without either.
+    */
+  private val dpiLowering =
+    Seq("--split-verilog", "-disable-all-randomization", "-strip-debug-info")
+
+  private val hwLowering = Seq(
+    "--split-verilog",
+    "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb",
+    "-disable-all-randomization",
+    "-strip-debug-info"
+  )
+
   def main(args: Array[String]): Unit =
     val flags = parse(args.toList)
     val target = flags.getOrElse("target", "core")
@@ -33,10 +46,9 @@ object Main:
       .fold(os.pwd / "build" / target / platform / isa / (if sim then "dpi" else "hw"))(os.Path(_, os.pwd))
 
     require(target == "core", s"only --target core is ported, got '$target'")
-    require(sim, "the core's synthesis top (exposed buses) arrives with the tile; pass --sim true")
     require(platform == "yosys" || platform == "fpga", s"unknown platform '$platform'")
 
-    val parameter = NzeaCoreParameter(isa, defaultPc, mmioWindows)
+    val parameter = NzeaCoreParameter(isa, defaultPc, sim, mmioWindows)
     val scratch = os.temp.dir(prefix = "nzea-dump")
     try
       Elaborate.withLinked(
@@ -44,7 +56,7 @@ object Main:
         scratch,
         cfg =>
           NzeaCore.main(
-            Array("config", cfg.toString, "--isa", isa, "--defaultPc", defaultPc.toString) ++
+            Array("config", cfg.toString, "--isa", isa, "--defaultPc", defaultPc.toString, "--sim", sim.toString) ++
               mmioWindows.flatMap(window => Seq("--mmioRanges", window))
           ),
         cfg => NzeaCore.main(Array("design", cfg.toString))
@@ -52,7 +64,7 @@ object Main:
         Elaborate.verilogInto(
           circuit,
           outDir,
-          Seq("--split-verilog", "-disable-all-randomization", "-strip-debug-info")
+          if sim then dpiLowering else hwLowering
         )
         // The counters and the schema that describes them travel with the RTL they belong to: a simulator reads the
         // counters through VPI and interprets them through the schema.
