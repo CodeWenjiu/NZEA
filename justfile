@@ -5,6 +5,43 @@ _default:
 init:
     @mill --no-server mill.bsp.BSP/install
 
+# Wire this clone to the language server the flake pins: build `zaozi-lsp` from the flake.lock revision into
+# `.zed/ls` (gitignored; `.envrc` puts its bin on PATH, which is what the Zed extension resolves), and point the
+# presentation-compiler island at the locally published `zaozi-compiler-plugin` jar. The two Zed-side steps that
+# cannot live in a repository are printed at the end; run `just zaozi-publish` first on a fresh clone.
+[group('editor')]
+zed-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rev=$(nix eval --impure --raw --expr "(builtins.fromJSON (builtins.readFile \"$PWD/flake.lock\")).nodes.\"zaozi-lsp\".locked.rev")
+    [ -n "$rev" ] || { echo "zed-setup: flake.lock carries no 'zaozi-lsp' input to pin" >&2; exit 1; }
+    echo "zaozi-lsp revision (flake.lock): $rev"
+    nix build "github:xinpian-tech/zaozi-lsp/$rev" -o .zed/ls
+    .zed/ls/bin/zaozi-lsp --version
+    jar=$(find "$HOME/.ivy2/local/me.jiuyang" -path '*/jars/zaozi-compiler-plugin_3.jar' 2>/dev/null | head -1 || true)
+    if [ -n "${jar:-}" ]; then
+      mkdir -p .zaozi-lsp
+      printf '{ "compilerPlugins": [ { "jars": ["%s"], "options": [] } ], "servicePluginJars": [] }\n' "$jar" > .zaozi-lsp/pc-plugins.json
+      echo "island PC plugin -> .zaozi-lsp/pc-plugins.json ($jar)"
+    else
+      echo "zed-setup: no locally published zaozi-compiler-plugin jar — run 'just zaozi-publish' and re-run" >&2
+    fi
+    if [ -f zaozi-lsp-zed/extension/extension.toml ]; then
+      echo "installing the Zed extension from ./zaozi-lsp-zed (nix-zed-extensions build)"
+      nix run ./zaozi-lsp-zed#install
+    else
+      echo "zed-setup: zaozi-lsp-zed/ submodule is empty — run 'git submodule update --init zaozi-lsp-zed'" >&2
+    fi
+    cat <<'EOF'
+
+    Zed-side steps (once per machine, not expressible in a repository):
+      zed: extensions                            # uninstall the `scala` (metals-zed) extension
+      zed: reload extensions                     # after this recipe installs or updates the extension
+      zed: restart language server               # after pulling changes to build.mill
+    Run `direnv allow` after .envrc changes; the LSP and extension themselves are pinned by flake.lock and
+    the zaozi-lsp-zed submodule, so a checkout only needs this recipe.
+    EOF
+
 # Elaborate RTL to Verilog. `just dump --target core --isa riscv32im [--outDir <dir>]` is what the simulators
 # call, so the flags are passed through to the CLI (defaults live there); without --outDir the legacy layout
 # build/<target>/<platform>/<isa>/<dpi|hw> is used.

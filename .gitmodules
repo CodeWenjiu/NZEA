@@ -1,3 +1,6 @@
 [submodule ".zaozi"]
 	path = .zaozi
 	url = https://github.com/CodeWenjiu/zaozi
+[submodule "zaozi-lsp-zed"]
+	path = zaozi-lsp-zed
+	url = https://github.com/CodeWenjiu/zaozi-lsp-zed
