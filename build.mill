@@ -8,10 +8,17 @@ val utestV    = "0.8.4"
 val mainargsV = "0.7.6"
 val upickleV  = "4.0.2"
 
-/** Common Scala 3 setup: JDK 25 output and SemanticDB for the language server.
-  *
-  * Every module gets a `test` submodule on the usual `test/src` path.
-  */
+/** JVM flags the DSL needs at run time: the FFM bindings load libMLIR/libCIRCT by name. */
+def zaoziJvmFlags: Seq[String] =
+  val libraryPaths = Seq("MLIR_INSTALL_PATH", "CIRCT_INSTALL_PATH")
+    .flatMap(sys.env.get)
+    .map(_ + "/lib")
+    .mkString(":")
+  Seq("--enable-native-access=ALL-UNNAMED", s"-Djava.library.path=$libraryPaths")
+
+def utestDeps: Seq[Dep] = Seq(mvn"com.lihaoyi::utest:$utestV")
+
+/** Common Scala 3 setup: JDK 25 output and SemanticDB for the language server. */
 trait Scala3Module extends ScalaModule {
   override def scalaVersion = scalaV
 
@@ -23,10 +30,6 @@ trait Scala3Module extends ScalaModule {
       "-sourceroot",
       mill.api.BuildCtx.workspaceRoot.toString
     )
-  }
-
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = Seq(mvn"com.lihaoyi::utest:$utestV")
   }
 }
 
@@ -48,21 +51,25 @@ trait ZaoziModule extends Scala3Module {
     )
   }
 
-  // The DSL reaches CIRCT through the FFM API; the shared libraries live in the
-  // dev shell's install trees (see CIRCT_INSTALL_PATH / MLIR_INSTALL_PATH).
   override def forkArgs = Task {
-    val nativeLibraryPaths = Seq("MLIR_INSTALL_PATH", "CIRCT_INSTALL_PATH")
-      .flatMap(name => Task.env.get(name))
-      .map(_ + "/lib")
-      .mkString(":")
-    super.forkArgs() ++ Seq(
-      "--enable-native-access=ALL-UNNAMED",
-      s"-Djava.library.path=$nativeLibraryPaths"
-    )
+    super.forkArgs() ++ zaoziJvmFlags
   }
 }
 
 /** Configuration model: leaf module, no hardware dependencies. */
-object nzea_config extends Scala3Module
+object nzea_config extends Scala3Module {
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = utestDeps
+  }
+}
 
-object nzea_rtl extends ZaoziModule
+object nzea_rtl extends ZaoziModule {
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = utestDeps
+
+    // Elaboration tests load libMLIR/libCIRCT through the FFM API.
+    override def forkArgs = Task {
+      super.forkArgs() ++ zaoziJvmFlags
+    }
+  }
+}
