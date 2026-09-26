@@ -40,8 +40,8 @@ class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParamete
   *
   * This is where the unit select and the op mean something — decode only packed them into [[IntOp]]'s columns. ALU, BRU
   * and SYSU are combinational and report completion for as long as the uop is held; MUL and DIV are multi-cycle units
-  * that report it from their FSM. The redirect is the resolved branch: a taken branch is always a mispredict here,
-  * because the fetch stream predicts not-taken.
+  * that report it from their FSM. The redirect is the resolved branch, and its mispredict test is the fetch stream's
+  * prediction check — see `mispredict` for why it does not touch the target adder.
   */
 @generator
 object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, IntPathProbe]:
@@ -138,12 +138,17 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       (csrRw ? (u.src_a =/= 0.U(width), true.B))
     val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
 
-    // BRU: not-taken prediction, so `next_pc` is the target exactly when the branch is taken, and the redirect is a taken
-    // branch whose target is not the fall-through (a zero-offset branch is taken but nothing changes).
+    // BRU: the fetch stream predicts the fall-through, so a taken branch redirects — and its mispredict is the fetch
+    // stream's prediction check, `pred_next_pc =/= target`, with the prediction folded away. Both sides of that test
+    // are instruction-static for the pc-relative forms, so it reduces to the immediate not being 4, which keeps the
+    // target adder — the one slow cone in this cycle — out of the redirect's valid path. JALR bases its target on a
+    // register, so it always redirects: a JALR that lands on its own fall-through refetches instead of continuing.
     val bruOp: Node[UInt] = Encoding.take(fuOp, BruOp.width)
     // JALR bases its target on its register operand; every other jump and branch bases on the pc.
     val isJalr = bruOp === BruOp.JALR.lit.U(BruOp.width)
     val pcPlus4 = prefixAdder(u.pc, 4.U(width), false.B, width)
+    // The offset is the `imm` field, not slot B: the slot carries the same value but has come through the operand-form
+    // select, and the addend is the adder's own input.
     val target = prefixAdder(isJalr ? (u.src_a, u.pc), u.imm, false.B, width)
     val taken = mux1H(
       bruOp,
@@ -159,9 +164,10 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       )
     )
     val nextPc = taken ? (target, pcPlus4)
-    val mispredict = taken & (target =/= pcPlus4)
+    val mispredict = taken & (isJalr | (u.imm =/= 4.U(width)))
     io.redirect.valid := uopValid & isBru & mispredict
-    io.redirect.bits := nextPc
+    // The target, not `nextPc`: the middle reads the redirect target only when it flushes, which means taken.
+    io.redirect.bits := target
 
     // MUL and DIV only exist when the ISA has M, so an ISA without it pays nothing for them.
     val mul = Option.when(parameter.config.isaConfig.hasM)(Mul.instantiate(MulParameter(width)))
