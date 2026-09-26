@@ -2,21 +2,21 @@
 import mill._
 import mill.scalalib._
 
-val scalaV = "3.8.4"
-val zaoziV = "0.0.1-SNAPSHOT"
-val utestV = "0.8.4"
+val scalaV    = "3.8.4"
+val zaoziV    = "0.0.1-SNAPSHOT"
+val utestV    = "0.8.4"
+val mainargsV = "0.7.6"
+val upickleV  = "4.0.2"
 
-/** Shared setup for every module of the core.
+/** Common Scala 3 setup: JDK 25 output and SemanticDB for the language server.
   *
-  * Requires the zaozi toolchain: `nix develop` (JDK 25 + CIRCT/MLIR) and the
-  * locally published `.zaozi` submodule (`just z-publish` — see legacy/README.md).
+  * Every module gets a `test` submodule on the usual `test/src` path.
   */
-trait ZaoziModule extends ScalaModule {
+trait Scala3Module extends ScalaModule {
   override def scalaVersion = scalaV
 
   override def scalacOptions = Task {
     super.scalacOptions() ++ Seq(
-      "-experimental",
       "-java-output-version",
       "25",
       "-Xsemanticdb",
@@ -25,11 +25,26 @@ trait ZaoziModule extends ScalaModule {
     )
   }
 
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = Seq(mvn"com.lihaoyi::utest:$utestV")
+  }
+}
+
+/** Modules that build hardware with the zaozi DSL.
+  *
+  * Requires the zaozi toolchain from the dev shell (`CIRCT_INSTALL_PATH` / `MLIR_INSTALL_PATH`) and the locally
+  * published `.zaozi` submodule (`just zaozi-publish`).
+  */
+trait ZaoziModule extends Scala3Module {
+  override def scalacOptions = Task {
+    super.scalacOptions() ++ Seq("-experimental")
+  }
+
   override def mvnDeps = Task {
     super.mvnDeps() ++ Seq(
       mvn"me.jiuyang::zaozi:$zaoziV",
-      mvn"com.lihaoyi::mainargs:0.7.6",
-      mvn"com.lihaoyi::upickle:4.0.2"
+      mvn"com.lihaoyi::mainargs:$mainargsV",
+      mvn"com.lihaoyi::upickle:$upickleV"
     )
   }
 
@@ -47,8 +62,7 @@ trait ZaoziModule extends ScalaModule {
   }
 }
 
-object nzea_rtl extends ZaoziModule {
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = Seq(mvn"com.lihaoyi::utest:$utestV")
-  }
-}
+/** Configuration model: leaf module, no hardware dependencies. */
+object nzea_config extends Scala3Module
+
+object nzea_rtl extends ZaoziModule
