@@ -86,6 +86,6 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     // `out.ready` is the only condition on accepting a response: a fetch from a killed stream is consumed and digested
     // (out.valid stays low) instead of being refused, so no request is left dangling on the bus.
     io.ibus.resp.ready := io.out.ready
-    io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user) === epoch)
+    io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user, width) === epoch)
     io.out.bits.pc := IbusUser.pcOf(io.ibus.resp.bits.user, width)
     io.out.bits.inst := io.ibus.resp.bits.data

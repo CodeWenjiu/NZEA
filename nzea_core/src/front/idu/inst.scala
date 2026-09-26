@@ -1,7 +1,7 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.BitSet
-import nzea_core.back.int.{AluOp, BruOp, DivOp, FuType, IntOp, MulOp, SysuOp}
+import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.{Backend, Srcs}
 import nzea_config.core.CoreConfig
@@ -30,18 +30,20 @@ object ImmType:
 case class Dispatch private (backend: Backend, window: Int, srcs: Srcs, name: String)
 
 object Dispatch:
-  def alu(op: AluOp, srcs: Srcs): Dispatch = int(FuType.ALU, op, srcs)
-  def bru(op: BruOp, srcs: Srcs): Dispatch = int(FuType.BRU, op, srcs)
+  def alu(op: AluOp, srcs: Srcs): Dispatch = int(IntOp.Alu(op), srcs)
+  def bru(op: BruOp, srcs: Srcs): Dispatch = int(IntOp.Bru(op), srcs)
 
   /** MUL and DIV read both register sources, so their operand form is fixed. */
-  def mul(op: MulOp): Dispatch = int(FuType.MUL, op, Srcs.Rs1Rs2)
-  def div(op: DivOp): Dispatch = int(FuType.DIV, op, Srcs.Rs1Rs2)
+  def mul(op: MulOp): Dispatch = int(IntOp.Mul(op), Srcs.Rs1Rs2)
+  def div(op: DivOp): Dispatch = int(IntOp.Div(op), Srcs.Rs1Rs2)
 
-  def sysu(op: SysuOp, srcs: Srcs): Dispatch = int(FuType.SYSU, op, srcs)
-  def mem(op: LsuOp, srcs: Srcs): Dispatch = Dispatch(Backend.MEM, MemOp.lit(op), srcs, s"mem_${op}_$srcs")
+  def sysu(op: SysuOp, srcs: Srcs): Dispatch = int(IntOp.Sysu(op), srcs)
 
-  private def int(unit: FuType, op: Encoding, srcs: Srcs): Dispatch =
-    Dispatch(Backend.INT, IntOp.lit(unit, op), srcs, s"int_${unit}_${op}_$srcs")
+  def mem(op: LsuOp, srcs: Srcs): Dispatch =
+    Dispatch(Backend.MEM, MemOp.lit(MemOp.Lsu(op)), srcs, s"mem_${op}_$srcs")
+
+  private def int(op: IntOp, srcs: Srcs): Dispatch =
+    Dispatch(Backend.INT, IntOp.lit(op), srcs, s"int_${op}_$srcs")
 
 /** One RISC-V instruction pattern: the immediate shape it needs (`None` = it has no immediate, so the decode table
   * leaves that field to its default) and what decode hands the backend.

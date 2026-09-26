@@ -2,41 +2,27 @@ package nzea_core.back.int
 
 import nzea_rtl.stdlib.*
 
-/** Unit select inside the integer path (ALU/BRU/MUL/DIV/SYSU).
+/** The int path's window in the issue uop's shared `op` field: which FU takes the uop, and that FU's own op.
   *
-  * Internal to this backend: decode dispatches to `nzea_core.isa.Backend` first, then this field says which int FU
-  * takes the uop. The memory path needs no equivalent — it has a single unit.
+  * One case per unit, each carrying that unit's op encoding. The layout below the cases — the payload column and the
+  * case (tag) column above it — is the union's own business (`Encoding.UnionSet`), so this backend states neither an
+  * offset nor a width. Operands are not part of this window: the uop's slots carry them already resolved, and which
+  * slot a unit reads is this backend's own wiring.
   */
-enum FuType extends Encoding.Sequential:
-  case ALU
-  case BRU
-  case MUL
-  case DIV
-  case SYSU
+enum IntOp(val childWidth: Int) extends Encoding.Union:
+  case Alu(payload: AluOp) extends IntOp(AluOp.width)
+  case Bru(payload: BruOp) extends IntOp(BruOp.width)
+  case Mul(payload: MulOp) extends IntOp(MulOp.width)
+  case Div(payload: DivOp) extends IntOp(DivOp.width)
+  case Sysu(payload: SysuOp) extends IntOp(SysuOp.width)
 
-object FuType:
-  val width: Int = Encoding.width(values)
+object IntOp extends Encoding.UnionSet[IntOp]:
 
-/** This backend's op field: wide enough for every op encoding its FUs accept. */
-object FuOpWidth:
-  val Width: Int = Seq(AluOp.width, BruOp.width, MulOp.width, DivOp.width, SysuOp.width).max
+  /** One representative per case, for the tag tests: they read the case, never its payload. */
+  val alu = Alu(AluOp.Add)
+  val bru = Bru(BruOp.JAL)
+  val mul = Mul(MulOp.Mul)
+  val div = Div(DivOp.Div)
+  val sysu = Sysu(SysuOp.ECALL)
 
-/** The int path's window in the issue uop's shared `op` field, low-anchored: the FU's own op, then the unit select.
-  *
-  * The whole decode result of an int instruction lives here and nowhere else knows the layout: decode composes it with
-  * [[IntOp.lit]], this backend reads the columns back with the columns themselves, and the shared field is sized from
-  * [[IntOp.width]]. Operands are not part of this window — the uop's slots carry them already resolved, and which slot
-  * a unit reads is this backend's own wiring.
-  */
-object IntOp:
-  /** The FU's own op, which the FUs dispatch over with `mux1H` straight from this slice. */
-  val fuOp = Encoding.Column(0, FuOpWidth.Width)
-
-  /** Which int FU takes the uop. */
-  val fuType = Encoding.Column(fuOp.end, FuType.width)
-
-  /** Window length: the bits this backend needs the shared field to have. */
-  val width: Int = fuType.end
-
-  /** Decode side: one int instruction's window value. */
-  def lit(unit: FuType, op: Encoding): Int = fuOp.lit(op) | fuType.lit(unit)
+  val cases: Seq[IntOp] = Seq(alu, bru, mul, div, sysu)

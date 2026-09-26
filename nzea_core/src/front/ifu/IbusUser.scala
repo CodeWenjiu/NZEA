@@ -22,13 +22,14 @@ object IbusUser:
 
   val epochBits: Int = 4
 
-  /** Epoch column, low-anchored, so the pc's position follows the address width alone. */
-  val epochField: Encoding.Column = Encoding.Column(0, epochBits)
+  /** The user field for one address width: the epoch low-anchored, the pc above it. */
+  private final class Layout(addrWidth: Int) extends Encoding.Aggregate:
+    val fields: Seq[(String, Int)] = Seq("epoch" -> epochBits, "pc" -> addrWidth)
 
-  /** Pc column: the address the request was issued for. */
-  def pcField(addrWidth: Int): Encoding.Column = Encoding.Column(epochField.end, addrWidth)
+  /** Host-side, so one instance per call costs nothing; the layout is the declaration the accessors below read. */
+  def layout(addrWidth: Int): Encoding.Aggregate = new Layout(addrWidth)
 
-  def userWidth(addrWidth: Int): Int = pcField(addrWidth).end
+  def userWidth(addrWidth: Int): Int = layout(addrWidth).width
 
   def pack[PC <: Referable[UInt], E <: Referable[UInt]](pc: PC, epoch: E)(using
       Arena,
@@ -44,7 +45,7 @@ object IbusUser:
     val packed: Node[Bits] = Node(pcBits ## epochBits)
     packed.asUInt
 
-  def epochOf[U <: Referable[UInt]](user: U)(using
+  def epochOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
       Arena,
       Context,
       Block,
@@ -52,7 +53,7 @@ object IbusUser:
       sourcecode.Line,
       sourcecode.Name.Machine,
       InstanceContext
-  ): Node[UInt] = epochField(user)
+  ): Node[UInt] = layout(addrWidth).read("epoch", user)
 
   def pcOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
       Arena,
@@ -62,4 +63,4 @@ object IbusUser:
       sourcecode.Line,
       sourcecode.Name.Machine,
       InstanceContext
-  ): Node[UInt] = pcField(addrWidth)(user)
+  ): Node[UInt] = layout(addrWidth).read("pc", user)

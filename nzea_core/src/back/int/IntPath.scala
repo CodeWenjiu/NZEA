@@ -57,14 +57,14 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val u = io.issue.bits
 
     val op: Referable[UInt] = u.op
-    val fuOp: Node[UInt] = IntOp.fuOp(op)
+    val fuOp: Node[UInt] = IntOp.payload(op)
     val fuOpBits: Node[Bits] = Node(fuOp.asBits)
-    val fuType: Node[UInt] = IntOp.fuType(op)
+    val fuType: Node[UInt] = IntOp.tag(op)
 
-    def selects(unit: FuType): Node[Bool] = fuType === unit.lit.U(FuType.width)
-    val isAlu = selects(FuType.ALU)
-    val isBru = selects(FuType.BRU)
-    val isSysu = selects(FuType.SYSU)
+    def selects(caseOf: IntOp): Node[Bool] = IntOp.isCase(caseOf, op)
+    val isAlu = selects(IntOp.alu)
+    val isBru = selects(IntOp.bru)
+    val isSysu = selects(IntOp.sysu)
 
     val srcABits: Node[Bits] = Node(u.src_a.asBits)
     val srcBBits: Node[Bits] = Node(u.src_b.asBits)
@@ -175,30 +175,30 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     for m <- mul do
       m.io.clock := io.clock
       m.io.resetN := io.resetN
-      m.io.issue.valid := uopValid & selects(FuType.MUL)
+      m.io.issue.valid := uopValid & selects(IntOp.mul)
       m.io.issue.bits.opA := u.src_a
       m.io.issue.bits.opB := u.src_b
       m.io.issue.bits.op := Encoding.take(fuOp, MulOp.width)
     for d <- div do
       d.io.clock := io.clock
       d.io.resetN := io.resetN
-      d.io.issue.valid := uopValid & selects(FuType.DIV)
+      d.io.issue.valid := uopValid & selects(IntOp.div)
       d.io.issue.bits.opA := u.src_a
       d.io.issue.bits.opB := u.src_b
       d.io.issue.bits.op := Encoding.take(fuOp, DivOp.width)
-    val mulDone = mul.map(m => selects(FuType.MUL) & m.io.done).getOrElse(false.B)
-    val divDone = div.map(d => selects(FuType.DIV) & d.io.done).getOrElse(false.B)
+    val mulDone = mul.map(m => selects(IntOp.mul) & m.io.done).getOrElse(false.B)
+    val divDone = div.map(d => selects(IntOp.div) & d.io.done).getOrElse(false.B)
     val mulData: Referable[UInt] = mul.map(m => m.io.data).getOrElse(0.U(width))
     val divData: Referable[UInt] = div.map(d => d.io.data).getOrElse(0.U(width))
 
-    val data: Referable[UInt] = muxCase(
-      aluData,
-      Seq[(Referable[Bool], Referable[UInt])](
-        (isBru, pcPlus4),
-        (isSysu, u.csr_rdata),
-        (selects(FuType.MUL), mulData),
-        (selects(FuType.DIV), divData)
-      )
+    // Every case's value is built and the tag picks between them: the union owns that mux, in the order this path
+    // wants its tests.
+    val data: Referable[UInt] = IntOp.dispatch(op)(
+      IntOp.alu -> (_ => aluData),
+      IntOp.bru -> (_ => pcPlus4),
+      IntOp.sysu -> (_ => u.csr_rdata),
+      IntOp.mul -> (_ => mulData),
+      IntOp.div -> (_ => divData)
     )
 
     io.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone)

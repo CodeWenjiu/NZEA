@@ -21,9 +21,11 @@ object DbusUser:
 
   val tagWidth: Int = 2
 
-  val tagField: Encoding.Column = Encoding.Column(0, tagWidth)
+  /** The user field: the request tag, the whole payload. */
+  object Layout extends Encoding.Aggregate:
+    val fields: Seq[(String, Int)] = Seq("tag" -> tagWidth)
 
-  def userWidth: Int = tagField.end
+  def userWidth: Int = Layout.width
 
   def pack[T <: Referable[UInt]](tag: T)(using
       Arena,
@@ -43,4 +45,4 @@ object DbusUser:
       sourcecode.Line,
       sourcecode.Name.Machine,
       InstanceContext
-  ): Node[UInt] = tagField(user)
+  ): Node[UInt] = Layout.read("tag", user)

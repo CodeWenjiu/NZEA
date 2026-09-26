@@ -71,7 +71,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     val uopValid = io.issue.valid
     val u = io.issue.bits
 
-    val op: Node[UInt] = MemOp.op(u.op)
+    val op: Node[UInt] = MemOp.payload(u.op)
     val isStore = LsuOp.isStore(op)
 
     val addr = prefixAdder(u.src_a, u.src_b, false.B, width)

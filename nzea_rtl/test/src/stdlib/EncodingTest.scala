@@ -24,6 +24,18 @@ enum EncodingTestNarrow extends Encoding.Sequential:
 object EncodingTestNarrow:
   val width: Int = Encoding.width(values)
 
+/** A local union over both sets: each case carries one of them, and the case's tag sits above the payload. */
+enum EncodingTestUnion(val childWidth: Int) extends Encoding.Union:
+  case Wide(payload: EncodingTestOp) extends EncodingTestUnion(EncodingTestOp.width)
+  case Narrow(payload: EncodingTestNarrow) extends EncodingTestUnion(EncodingTestNarrow.width)
+
+object EncodingTestUnion extends Encoding.UnionSet[EncodingTestUnion]:
+  val cases: Seq[EncodingTestUnion] = Seq(Wide(EncodingTestOp.A), Narrow(EncodingTestNarrow.P))
+
+/** A local aggregate: two fields sharing one value, the narrow one low-anchored. */
+object EncodingTestAggregate extends Encoding.Aggregate:
+  val fields: Seq[(String, Int)] = Seq("narrow" -> EncodingTestNarrow.width, "op" -> EncodingTestOp.width)
+
 /** A local window over both sets, low-anchored as `[narrow | op]`. */
 object EncodingTestWindow:
   val op = Encoding.Column(0, EncodingTestOp.width)
@@ -47,6 +59,13 @@ class EncodingTestIO(parameter: EncodingTestParameter) extends HWBundle(paramete
   val window = Flipped(UInt(EncodingTestWindow.width))
   val window_op = Aligned(UInt(EncodingTestOp.width))
   val window_narrow = Aligned(UInt(EncodingTestNarrow.width))
+  val variant = Flipped(UInt(EncodingTestUnion.width))
+  val union_payload = Aligned(UInt(EncodingTestUnion.payloadWidth))
+  val union_tag = Aligned(UInt(EncodingTestUnion.tagWidth))
+  val union_wide = Aligned(Bool())
+  val agg = Flipped(UInt(EncodingTestAggregate.width))
+  val agg_narrow = Aligned(UInt(EncodingTestNarrow.width))
+  val agg_op = Aligned(UInt(EncodingTestOp.width))
   val constant = Aligned(UInt(6))
   val sel = Flipped(UInt(EncodingTestOp.width))
   val muxed = Aligned(UInt(6))
@@ -66,6 +85,11 @@ object EncodingTestModule
     io.narrow := Encoding.take(io.raw, EncodingTestNarrow.width)
     io.window_op := EncodingTestWindow.op(io.window)
     io.window_narrow := EncodingTestWindow.narrow(io.window)
+    io.union_payload := EncodingTestUnion.payload(io.variant)
+    io.union_tag := EncodingTestUnion.tag(io.variant)
+    io.union_wide := EncodingTestUnion.isCase(EncodingTestUnion.Wide(EncodingTestOp.A), io.variant)
+    io.agg_narrow := EncodingTestAggregate.read("narrow", io.agg)
+    io.agg_op := EncodingTestAggregate.read("op", io.agg)
     io.constant := EncodingTestOp.C.lit.U(6)
     io.muxed := EncodingTestOp.mux1H(io.sel, op => op.lit.U(6), 6)
 
@@ -100,6 +124,20 @@ object EncodingTest extends TestSuite:
         assert(((window >> EncodingTestWindow.narrow.offset) & 0x1) == narrow.lit)
         assert(((window >> EncodingTestWindow.op.offset) & 0x7) == op.lit)
 
+    test("a union puts the payload under the case's tag, and derives its codes"):
+      assert(EncodingTestUnion.payloadWidth == EncodingTestOp.width)
+      assert(EncodingTestUnion.tagWidth == 1)
+      assert(EncodingTestUnion.width == EncodingTestOp.width + 1)
+      assert(EncodingTestUnion.lit(EncodingTestUnion.Wide(EncodingTestOp.C)) == EncodingTestOp.C.lit)
+      assert(EncodingTestUnion.lit(EncodingTestUnion.Narrow(EncodingTestNarrow.Q)) == ((1 << EncodingTestOp.width) | 1))
+      assert(EncodingTestUnion.tagOf(EncodingTestUnion.Narrow(EncodingTestNarrow.P)) == 1)
+
+    test("an aggregate lays its fields end to end and derives their columns"):
+      assert(EncodingTestAggregate.offset("narrow") == 0)
+      assert(EncodingTestAggregate.offset("op") == EncodingTestNarrow.width)
+      assert(EncodingTestAggregate.width == EncodingTestNarrow.width + EncodingTestOp.width)
+      assert(EncodingTestAggregate.lit("op", EncodingTestOp.C) == EncodingTestOp.C.lit << EncodingTestNarrow.width)
+
     test("slices and member constants reach the lowered Verilog"):
       assert(sv.contains("module EncodingTest("))
       assert(
@@ -110,6 +148,13 @@ object EncodingTest extends TestSuite:
           "window" -> EncodingTestWindow.width,
           "window_op" -> EncodingTestWindow.op.width,
           "window_narrow" -> EncodingTestWindow.narrow.width,
+          "variant" -> EncodingTestUnion.width,
+          "union_payload" -> EncodingTestUnion.payloadWidth,
+          "union_tag" -> EncodingTestUnion.tagWidth,
+          "union_wide" -> 1,
+          "agg" -> EncodingTestAggregate.width,
+          "agg_narrow" -> EncodingTestAggregate.fieldWidth("narrow"),
+          "agg_op" -> EncodingTestAggregate.fieldWidth("op"),
           "constant" -> 6,
           "sel" -> EncodingTestOp.width,
           "muxed" -> 6

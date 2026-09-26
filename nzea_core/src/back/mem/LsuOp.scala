@@ -48,17 +48,14 @@ object LsuOp:
       InstanceContext
   ): Node[Bool] = !isStore(op)
 
-/** The mem path's window in the issue uop's shared `op` field.
+/** The mem path's window in the issue uop's shared `op` field: one unit, so the union has a single case and no tag.
   *
-  * This backend has a single unit and no unit select, so the window is its op alone — but it is still its own: decode
-  * composes it with [[MemOp.lit]], this backend reads the column back with the column itself, and the shared field is
-  * sized from [[MemOp.width]]. The address base, the offset and the store data arrive in the uop's operand slots.
+  * It is a union all the same, so both backends name and derive their window the same way; with one case the payload
+  * column is the whole window, which is the load/store op's own field. The address base, the offset and the store data
+  * arrive in the uop's operand slots.
   */
-object MemOp:
-  val op = Encoding.Column(0, LsuOp.width)
+enum MemOp(val childWidth: Int) extends Encoding.Union:
+  case Lsu(payload: LsuOp) extends MemOp(LsuOp.width)
 
-  /** Window length: the bits this backend needs the shared field to have. */
-  val width: Int = op.end
-
-  /** Decode side: one mem instruction's window value. */
-  def lit(op: LsuOp): Int = MemOp.op.lit(op)
+object MemOp extends Encoding.UnionSet[MemOp]:
+  val cases: Seq[MemOp] = Seq(Lsu(LsuOp.LB))

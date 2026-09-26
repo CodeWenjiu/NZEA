@@ -4,7 +4,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.back.int.{AluOp, BruOp, FuType, IntOp, MulOp}
+import nzea_core.back.int.{AluOp, BruOp, IntOp, MulOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.Backend
 import nzea_rtl.TestFlow
@@ -22,7 +22,7 @@ class BackElaborateTestLayers(parameter: BackElaborateTestParameter) extends Lay
 class BackElaborateTestIO(parameter: BackElaborateTestParameter) extends HWBundle(parameter):
   val backend = Flipped(UInt(Backend.width))
   val op = Flipped(UInt(OpWindow.Width))
-  val int_fu_type = Aligned(UInt(FuType.width))
+  val int_fu_type = Aligned(UInt(IntOp.tagWidth))
   val alu_op = Aligned(UInt(AluOp.width))
   val bru_op = Aligned(UInt(BruOp.width))
   val mul_op = Aligned(UInt(MulOp.width))
@@ -45,13 +45,13 @@ object BackElaborateTestModule
     val isMem = io.backend === Backend.MEM.lit.U(Backend.width)
 
     // The int path unpacks its own window, and its FUs eat the low column straight from it.
-    io.int_fu_type := IntOp.fuType(io.op)
-    io.alu_op := IntOp.fuOp(io.op)
+    io.int_fu_type := IntOp.tag(io.op)
+    io.alu_op := IntOp.payload(io.op)
     io.bru_op := Encoding.take(io.op, BruOp.width)
     io.mul_op := Encoding.take(io.op, MulOp.width)
 
     // The mem path unpacks its own, which starts at bit 0 as well: the windows alias.
-    val memOp = MemOp.op(io.op)
+    val memOp = MemOp.payload(io.op)
     io.mem_op := memOp
     io.is_store := isMem & LsuOp.isStore(memOp)
     io.is_load := isMem & LsuOp.isLoad(memOp)
@@ -76,11 +76,11 @@ object BackElaborateTest extends TestSuite:
         ports == Map(
           "backend" -> Backend.width,
           "op" -> OpWindow.Width,
-          "int_fu_type" -> FuType.width,
-          "alu_op" -> IntOp.fuOp.width,
+          "int_fu_type" -> IntOp.tagWidth,
+          "alu_op" -> IntOp.payloadWidth,
           "bru_op" -> BruOp.width,
           "mul_op" -> MulOp.width,
-          "mem_op" -> MemOp.op.width,
+          "mem_op" -> MemOp.payloadWidth,
           "is_store" -> 1,
           "is_load" -> 1
         )

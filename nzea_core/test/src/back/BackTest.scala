@@ -1,6 +1,6 @@
 package nzea_core.back
 
-import nzea_core.back.int.{AluOp, BruOp, DivOp, FuOpWidth, FuType, IntOp, MulOp, SysuOp}
+import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.Srcs
 import nzea_rtl.stdlib.*
@@ -13,53 +13,59 @@ import utest.*
   */
 object BackTest extends TestSuite:
 
-  /** What a backend reads back out of a window: the bits the decode side packed into that column. */
-  private def unpack(window: Int, column: Encoding.Column): Int =
-    (window >> column.offset) & ((1 << column.width) - 1)
+  /** What a backend reads back out of a window: the case's tag, or the payload below it.
+    *
+    * The layout these two helpers decode is the union's, so nothing here restates an offset: a change to the layout
+    * moves the unions and this test follows.
+    */
+  private def payload(window: Int, union: Encoding.UnionSet[?]): Int = window & ((1 << union.payloadWidth) - 1)
+
+  private def tag(window: Int, union: Encoding.UnionSet[?]): Int = window >> union.payloadWidth
 
   val tests = Tests:
     test("the encodings keep their field widths"):
-      assert(FuType.width == 3)
+      assert(IntOp.tagWidth == 3)
       assert(AluOp.width == 10)
       assert(BruOp.width == 8)
       assert(MulOp.width == 4)
       assert(DivOp.width == 4)
       assert(SysuOp.width == 4)
-      assert(FuOpWidth.Width == 10)
+      assert(IntOp.payloadWidth == 10)
       assert(LsuOp.width == 8)
       assert(Srcs.width == 7)
 
-    test("the int window separates its columns"):
-      assert(IntOp.width == FuOpWidth.Width + FuType.width)
-      // One encoding per unit, using the widest literal of each op set.
-      val encodings: Seq[(FuType, Encoding)] = Seq(
-        (FuType.ALU, AluOp.Sltu),
-        (FuType.BRU, BruOp.BGEU),
-        (FuType.MUL, MulOp.Mulhsu),
-        (FuType.DIV, DivOp.Remu),
-        (FuType.SYSU, SysuOp.FENCE)
+    test("the int window separates its payload from the case"):
+      assert(IntOp.width == IntOp.payloadWidth + IntOp.tagWidth)
+      // Every case puts its payload low and its ordinate above it.
+      for v <- IntOp.cases do
+        val window = IntOp.lit(v)
+        assert(payload(window, IntOp) == v.payload.lit)
+        assert(tag(window, IntOp) == v.ordinal)
+
+      // One case per unit, using the widest literal of each op set.
+      val widest: Seq[(IntOp, Encoding)] = Seq(
+        (IntOp.Alu(AluOp.Sltu), AluOp.Sltu),
+        (IntOp.Bru(BruOp.BGEU), BruOp.BGEU),
+        (IntOp.Mul(MulOp.Mulhsu), MulOp.Mulhsu),
+        (IntOp.Div(DivOp.Remu), DivOp.Remu),
+        (IntOp.Sysu(SysuOp.FENCE), SysuOp.FENCE)
       )
-      for (unit, op) <- encodings do
-        val window = IntOp.lit(unit, op)
-        assert(unpack(window, IntOp.fuOp) == op.lit)
-        assert(unpack(window, IntOp.fuType) == unit.lit)
+      for (v, op) <- widest do assert(payload(IntOp.lit(v), IntOp) == op.lit)
 
-      // And every member of every int set round-trips through its own column.
-      for op <- AluOp.values ++ BruOp.values ++ MulOp.values ++ DivOp.values ++ SysuOp.values do
-        assert(unpack(IntOp.fuOp.lit(op), IntOp.fuOp) == op.lit)
-      for unit <- FuType.values do assert(unpack(IntOp.fuType.lit(unit), IntOp.fuType) == unit.lit)
+      // And every member of every op set survives its own case's payload column.
+      for op <- AluOp.values do assert(payload(IntOp.lit(IntOp.Alu(op)), IntOp) == op.lit)
+      for op <- BruOp.values do assert(payload(IntOp.lit(IntOp.Bru(op)), IntOp) == op.lit)
+      for op <- MulOp.values do assert(payload(IntOp.lit(IntOp.Mul(op)), IntOp) == op.lit)
+      for op <- DivOp.values do assert(payload(IntOp.lit(IntOp.Div(op)), IntOp) == op.lit)
+      for op <- SysuOp.values do assert(payload(IntOp.lit(IntOp.Sysu(op)), IntOp) == op.lit)
 
-    test("the memory window separates its columns"):
+    test("the memory window carries its op and no tag"):
+      assert(MemOp.payloadWidth == LsuOp.width)
+      assert(MemOp.tagWidth == 0)
       assert(MemOp.width == LsuOp.width)
-      for op <- LsuOp.values do assert(unpack(MemOp.lit(op), MemOp.op) == op.lit)
+      for op <- LsuOp.values do assert(MemOp.lit(MemOp.Lsu(op)) == op.lit)
 
     test("the shared op field holds the longest window, low-anchored"):
       assert(OpWindow.Width == IntOp.width.max(MemOp.width))
       assert(OpWindow.Width == 13)
       for window <- Seq(IntOp.width, MemOp.width) do assert(window <= OpWindow.Width)
-
-      // Columns are contiguous from bit 0, so a window is low-anchored and its length is exactly what it declares.
-      def contiguous(columns: Seq[Encoding.Column]): Boolean =
-        columns.head.offset == 0 && columns.zip(columns.tail).forall((low, high) => high.offset == low.end)
-      assert(contiguous(Seq(IntOp.fuOp, IntOp.fuType)))
-      assert(contiguous(Seq(MemOp.op)))

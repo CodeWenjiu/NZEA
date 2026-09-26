@@ -38,8 +38,8 @@ class CoreParamsUsageTestIO(parameter: CoreParamsUsageTestParameter) extends HWB
   val dispatch = Flipped(UInt(params.dispatchWidth))
   val op = Flipped(UInt(params.opWidth))
   val is_mem = Aligned(Bool())
-  val alu_op = Aligned(UInt(IntOp.fuOp.width))
-  val mem_op = Aligned(UInt(MemOp.op.width))
+  val alu_op = Aligned(UInt(IntOp.payloadWidth))
+  val mem_op = Aligned(UInt(MemOp.payloadWidth))
 
 class CoreParamsUsageTestProbe(parameter: CoreParamsUsageTestParameter)
     extends DVBundle[CoreParamsUsageTestParameter, CoreParamsUsageTestLayers](parameter)
@@ -63,8 +63,8 @@ object CoreParamsUsageTestModule
     println(s"elaborating: ${params.report}")
 
     io.is_mem := io.dispatch === Backend.MEM.lit.U(params.dispatchWidth)
-    io.alu_op := IntOp.fuOp(io.op)
-    io.mem_op := MemOp.op(io.op)
+    io.alu_op := IntOp.payload(io.op)
+    io.mem_op := MemOp.payload(io.op)
 
 /** The usage: the resolved contract sizes the field, and each backend still unpacks its own window out of it. */
 object CoreParamsUsageTest extends TestSuite:
@@ -92,7 +92,7 @@ object CoreParamsUsageTest extends TestSuite:
           "dispatch" -> 1,
           "op" -> 13,
           "is_mem" -> 1,
-          "alu_op" -> IntOp.fuOp.width,
-          "mem_op" -> MemOp.op.width
+          "alu_op" -> IntOp.payloadWidth,
+          "mem_op" -> MemOp.payloadWidth
         )
       )
