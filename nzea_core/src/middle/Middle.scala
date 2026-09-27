@@ -12,7 +12,7 @@ import nzea_config.RtlFlow
 import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.back.{BackOut, IssueSlot, IssueUop}
 import nzea_core.front.idu.{ArfWrite, IduOut}
-import nzea_core.isa.{Backend, CsrType}
+import nzea_core.isa.{Backend, CsrType, Gpr}
 import nzea_core.stats.{CoreStats, ThroughputCounters, ThroughputCountersParameter}
 import nzea_rtl.StatsRegs
 import nzea_rtl.stdlib.*
@@ -40,15 +40,20 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
 
 class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, MiddleLayers](parameter)
 
-/** In-order middle: single-flight dispatch, the commit point, and the CSR file.
+/** In-order middle: a two-slot pipeline (execute, writeback), the commit point, and the CSR file.
   *
-  * Single-flight means the previous instruction has already committed when a new one issues, so the decode-stage
-  * register read saw post-commit values — no hazard tracking and no forwarding. The backend latches its result in an
-  * exit register and reports it a cycle later, so the middle retires one `done` pulse per instruction and holds the uop
-  * (and the instruction it came from) stable until that pulse or a flush arrives.
+  * One instruction is in execute — the uop the backend is working on — and one is in writeback, the destination the
+  * backend finished a cycle earlier. Splitting the slots is what lets the execute slot refill the cycle a result lands
+  * instead of staying busy until the commit; whether that refill is *safe* is the configuration's answer, because a
+  * read only sees the result early through a bypass link. Without one the admission window is the commit cycle (the
+  * write the commit makes is what the read sees), and with no link at all it is the cycle after.
+  *
+  * The backend latches its result in an exit register and reports it a cycle later, so the middle retires one `done`
+  * pulse per instruction and holds the uop (and the instruction it came from) stable until that pulse or a flush.
   *
   * The flush is sourced here: the backend reports the branch resolution and the middle broadcasts it, so every stage
-  * reads one net instead of asking the stage below.
+  * reads one net instead of asking the stage below. A flush empties the execute slot and silences the issue channel —
+  * the instruction behind a flush is on the path being killed.
   */
 @generator
 object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleProbe]:
@@ -63,6 +68,9 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
 
     val exValid = RegInit(false.B)
     val ex = Reg(new IduOut(parameter.config))
+    // Writeback slot: the destination the backend finished a cycle ago, which is what the commit needs from it. The
+    // rest of the commit comes from the report (value, CSR write, next pc), so this is the whole of the slot.
+    val wbRd = Reg(UInt(Gpr.indexWidth))
 
     val csr = CsrFile.instantiate(CsrFileParameter(width))
     csr.io.clock := io.clock
@@ -83,10 +91,12 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     uop.csr_rdata := csr.io.read_data
 
     val issue = io.decoded.fire
+    val complete = io.report.complete
     val done = io.report.done
     val flushing = io.report.flush
 
     when(issue) { ex :<= io.decoded.bits }
+    when(complete) { wbRd := ex.rd_index }
 
     // A commit cycle is an admission window only when the configuration lets the read see the write that commit makes
     // in the same cycle (`BypassConfig`); without the link the read waits for the write to land. A flush closes the
@@ -94,13 +104,14 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     io.decoded.ready := (if parameter.bypass.writeback then !exValid | done else !exValid & !done) & !flushing
     when(flushing) { exValid := false.B }.otherwise {
       when(issue) { exValid := true.B }
-        .otherwise { when(done) { exValid := false.B } }
+        .otherwise { when(complete) { exValid := false.B } }
     }
 
     // An instruction admitted in its predecessor's commit cycle leaves `valid` high across the boundary, so the slot
-    // carries the arrival itself: `first` marks the new uop's first cycle.
-    io.issue.valid := exValid
-    io.issue.first := regNext(issue, false.B)
+    // carries the arrival itself: `first` marks the new uop's first cycle. A flush silences the channel — the uop in
+    // execute is on the path being killed, and the units take a vanished uop as an abandoned completion.
+    io.issue.valid := exValid & !flushing
+    io.issue.first := regNext(issue, false.B) & !flushing
     io.issue.bits :<= uop
 
     io.flush := flushing
@@ -108,7 +119,7 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     io.redirect.bits := io.report.redirect_target
 
     io.arf_write.valid := done
-    io.arf_write.bits.rd_index := ex.rd_index
+    io.arf_write.bits.rd_index := wbRd
     io.arf_write.bits.data := io.report.data
 
     csr.io.write.valid := done
@@ -117,7 +128,7 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
 
     io.commit.valid := done
     io.commit.bits.next_pc := io.report.next_pc
-    io.commit.bits.rd_index := ex.rd_index
+    io.commit.bits.rd_index := wbRd
     io.commit.bits.rd_value := io.report.data
     io.commit.bits.is_mmio := io.report.is_mmio
     io.commit.bits.csr_type := io.report.csr_type

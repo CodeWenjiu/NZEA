@@ -7,12 +7,14 @@ import nzea_core.isa.CsrType
 
 /** Completion report of the backend — the single reverse channel, back to the middle.
   *
-  * `done` is a one-cycle pulse: the backend latches one completion in its exit register and reports it the cycle after.
-  * The middle commits that pulse directly (register write-back, CSR write, commit trace), so the reported fields are
-  * held stable while it arrives. `flush` is the branch resolution that kills the uop in flight, and it always carries a
-  * redirect target: a flush redirects the fetch stream, it never just cancels.
+  * Two pulses ride it. `complete` is the cycle the backend finishes the uop and loads its exit register; `done` is the
+  * cycle after, when the middle retires what that register holds. A consumer that needs the result early — the middle
+  * freeing its execute slot, a forwarding network taking the value out of execute — reads `complete`, the commit point
+  * reads `done`, and the reported fields are stable for both. `flush` is the branch resolution that kills the uop in
+  * flight, and it always carries a redirect target: a flush redirects the fetch stream, it never just cancels.
   */
 class BackOut(width: Int) extends Bundle:
+  val complete = Aligned(Bool())
   val done = Aligned(Bool())
   val data = Aligned(UInt(width))
   val next_pc = Aligned(UInt(width))

@@ -76,6 +76,7 @@ object MiddleElaborateTest extends TestSuite:
           "issue_bits_op" -> OpWindow.width(config),
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
+          "report_complete" -> 1,
           "report_done" -> 1,
           "report_data" -> width,
           "report_next_pc" -> width,

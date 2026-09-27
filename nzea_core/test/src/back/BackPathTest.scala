@@ -58,6 +58,7 @@ object BackPathTest extends TestSuite:
           "issue_bits_op" -> OpWindow.width(CoreConfig(Isa("riscv32i"), 0x80000000L)),
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
+          "report_complete" -> 1,
           "report_done" -> 1,
           "report_data" -> width,
           "report_next_pc" -> width,

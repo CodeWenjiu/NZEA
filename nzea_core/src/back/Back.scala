@@ -90,6 +90,7 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     }
 
     val donePulse = regNext(done, false.B)
+    io.report.complete := done
     io.report.done := donePulse
     io.report.data := resultReg.data
     io.report.next_pc := resultReg.next_pc
