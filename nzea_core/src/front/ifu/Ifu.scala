@@ -19,8 +19,8 @@ class FetchedInst(width: Int) extends Bundle:
   val pc = Aligned(UInt(width))
   val inst = Aligned(UInt(32))
 
-case class IfuParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class IfuParameter(isa: String, defaultPc: Long) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IfuParameter] = upickle.default.macroRW
 

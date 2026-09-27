@@ -1,5 +1,6 @@
 package nzea_cli
 
+import nzea_config.RtlFlow
 import nzea_core.stats.{BpCounters, BpCountersParameter, CoreStats, ThroughputCounters, ThroughputCountersParameter}
 import nzea_rtl.{Elaborate, StatSchema, StatsRegs}
 import nzea_top.{NzeaCore, NzeaCoreParameter}
@@ -18,20 +19,24 @@ object Main:
 
   private val usage =
     """usage: just dump [--target core] [--platform yosys] [--isa riscv32i] [--defaultPc 0x80000000]
-      |                 [--sim true] [--outDir <dir>]""".stripMargin
+      |                 [--flow <verilator|yosys>] [--outDir <dir>]""".stripMargin
 
-  /** firtool flags per dump shape. A simulation dump is only ever read by Verilator, but Yosys refuses what firtool
-    * emits by default — `always_comb` and local variables inside it — so the synthesis top is lowered without either.
+  /** firtool flags per flow. Verilator takes what firtool emits by default; Yosys refuses `always_comb` and local
+    * variables inside it, so a synthesis dump is lowered without either.
     */
-  private val dpiLowering =
+  private val verilatorLowering =
     Seq("--split-verilog", "-disable-all-randomization", "-strip-debug-info")
 
-  private val hwLowering = Seq(
+  private val yosysLowering = Seq(
     "--split-verilog",
     "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb",
     "-disable-all-randomization",
     "-strip-debug-info"
   )
+
+  private def lowering(flow: RtlFlow): Seq[String] = flow match
+    case RtlFlow.Verilator => verilatorLowering
+    case RtlFlow.Yosys     => yosysLowering
 
   def main(args: Array[String]): Unit =
     val flags = parse(args.toList)
@@ -39,16 +44,18 @@ object Main:
     val platform = flags.getOrElse("platform", "yosys")
     val isa = flags.getOrElse("isa", "riscv32i")
     val defaultPc: Long = flags.get("defaultPc").fold(0x80000000L)(java.lang.Long.decode(_))
-    val sim = flags.getOrElse("sim", "true").toBoolean
+    val flow = RtlFlow
+      .fromString(flags.getOrElse("flow", RtlFlow.Verilator.segment))
+      .fold(error => throw new IllegalArgumentException(error), identity)
     val outDir = flags
       .get("outDir")
       .filter(_.nonEmpty)
-      .fold(os.pwd / "build" / target / platform / isa / (if sim then "dpi" else "hw"))(os.Path(_, os.pwd))
+      .fold(os.pwd / "build" / target / platform / isa / flow.segment)(os.Path(_, os.pwd))
 
     require(target == "core", s"only --target core is ported, got '$target'")
     require(platform == "yosys" || platform == "fpga", s"unknown platform '$platform'")
 
-    val parameter = NzeaCoreParameter(isa, defaultPc, sim, mmioWindows)
+    val parameter = NzeaCoreParameter(isa, defaultPc, flow, mmioWindows)
     val scratch = os.temp.dir(prefix = "nzea-dump")
     try
       Elaborate.withLinked(
@@ -56,19 +63,23 @@ object Main:
         scratch,
         cfg =>
           NzeaCore.main(
-            Array("config", cfg.toString, "--isa", isa, "--defaultPc", defaultPc.toString, "--sim", sim.toString) ++
-              mmioWindows.flatMap(window => Seq("--mmioRanges", window))
+            Array(
+              "config",
+              cfg.toString,
+              "--isa",
+              isa,
+              "--defaultPc",
+              defaultPc.toString,
+              "--flow",
+              flow.segment
+            ) ++ mmioWindows.flatMap(window => Seq("--mmioRanges", window))
           ),
         cfg => NzeaCore.main(Array("design", cfg.toString))
       ): circuit =>
-        Elaborate.verilogInto(
-          circuit,
-          outDir,
-          if sim then dpiLowering else hwLowering
-        )
+        Elaborate.verilogInto(circuit, outDir, lowering(flow))
         // The counters and the schema that describes them travel with the RTL they belong to: a simulator reads the
         // counters through VPI and interprets them through the schema.
-        if sim then
+        if flow.counters then
           StatsRegs.emit(
             outDir,
             Seq(

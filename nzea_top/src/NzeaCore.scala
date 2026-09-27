@@ -8,6 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.RtlFlow
 import nzea_config.core.CoreConfig
 import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.MemPath
@@ -25,8 +26,8 @@ import nzea_top.dpi.{
 }
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class NzeaCoreParameter(isa: String, defaultPc: Long, sim: Boolean, mmioRanges: Seq[String]) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class NzeaCoreParameter(isa: String, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[NzeaCoreParameter] = upickle.default.macroRW
 
@@ -39,23 +40,24 @@ class NzeaCoreIO(parameter: NzeaCoreParameter) extends HWBundle(parameter):
   val reset = Flipped(Reset())
 
   val ibus: Option[BundleField[LiteBusRO]] =
-    Option.when(!parameter.sim)(Aligned(Ifu.busType(parameter.config)))
+    Option.when(!parameter.flow.bridges)(Aligned(Ifu.busType(parameter.config)))
 
   val dbus: Option[BundleField[LiteBusRW]] =
-    Option.when(!parameter.sim)(Aligned(MemPath.dbusType(parameter.config)))
+    Option.when(!parameter.flow.bridges)(Aligned(MemPath.dbusType(parameter.config)))
 
   val commit_msg: Option[BundleField[ValidIO[CommitMsg]]] =
-    Option.when(!parameter.sim)(Aligned(ValidIO(new CommitMsg(width))))
+    Option.when(!parameter.flow.bridges)(Aligned(ValidIO(new CommitMsg(width))))
 
 class NzeaCoreProbe(parameter: NzeaCoreParameter) extends DVBundle[NzeaCoreParameter, NzeaCoreLayers](parameter)
 
-/** The core level's top: the core, plus the shape the dump flow asked for.
+/** The core level's top: the core, plus the shape the flow asked for.
   *
-  * `sim` wires the core's interfaces straight into the bridges that call `bus_read` / `bus_write` / `commit_trace` — the
-  * module remu loads, with `clock` and `reset` named and polarised exactly as its Verilator wrapper drives them (`reset`
-  * high for the first hundred cycles, then low). Without it the core's interfaces are the top's own ports and the design
-  * is what Yosys reads. The one conversion at this boundary is the reset: every module in this tree takes an active-low
-  * `resetN`, so the active-high boundary signal is inverted here and nowhere else.
+  * A flow that reads the design through DPI gets the core's interfaces wired straight into the bridges that call
+  * `bus_read` / `bus_write` / `commit_trace` — the module remu loads, with `clock` and `reset` named and polarised
+  * exactly as its Verilator wrapper drives them (`reset` high for the first hundred cycles, then low). Every other flow
+  * reads the design as hardware, so the interfaces are the top's own ports. The one conversion at this boundary is the
+  * reset: every module in this tree takes an active-low `resetN`, so the active-high boundary signal is inverted here
+  * and nowhere else.
   */
 @generator
 object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO, NzeaCoreProbe]:
@@ -68,11 +70,11 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
     val c = parameter.config
     val resetN: Node[Reset] = (!io.reset.asBool).asReset
 
-    val core = Core.instantiate(CoreParameter(c.isa, c.defaultPc, c.sim, parameter.mmioRanges))
+    val core = Core.instantiate(CoreParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges))
     core.io.clock := io.clock
     core.io.resetN := resetN
 
-    if c.sim then
+    if parameter.flow.bridges then
       val ibus = IbusDpiBridge.instantiate(IbusDpiBridgeParameter(c.isa, c.defaultPc))
       val dbus = DbusDpiBridge.instantiate(DbusDpiBridgeParameter(c.isa, c.defaultPc))
       val commit = CommitDpiBridge.instantiate(CommitDpiBridgeParameter(c.isa, c.defaultPc))

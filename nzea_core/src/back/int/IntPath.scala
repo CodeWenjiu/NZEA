@@ -8,6 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.RtlFlow
 import nzea_config.core.CoreConfig
 import nzea_core.back.{IssueUop, PathResult}
 import nzea_core.isa.CsrType
@@ -16,8 +17,8 @@ import nzea_rtl.stdlib.*
 import nzea_core.stats.{BpCounters, BpCountersParameter}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IntPathParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class IntPathParameter(isa: String, defaultPc: Long, flow: RtlFlow) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IntPathParameter] = upickle.default.macroRW
 
@@ -209,7 +210,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     io.result.is_mmio := false.B
 
     // Simulation-only branch counters: every branch or jump that resolves here, and how the fetch stream did against it.
-    if parameter.config.sim then
+    if parameter.flow.counters then
       val stats = BpCounters.instantiate(BpCountersParameter())
       stats.io.clock := io.clock
       stats.io.resetN := io.resetN.asBool

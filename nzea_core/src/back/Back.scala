@@ -8,6 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.RtlFlow
 import nzea_config.core.CoreConfig
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
@@ -15,8 +16,8 @@ import nzea_core.isa.Backend
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class BackParameter(isa: String, defaultPc: Long, sim: Boolean, mmioRanges: Seq[String]) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class BackParameter(isa: String, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[BackParameter] = upickle.default.macroRW
 
@@ -55,8 +56,8 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     val uopValid = io.issue.valid
     val isMem = io.issue.bits.backend === Backend.MEM.lit.U(Backend.width)
 
-    val int = IntPath.instantiate(IntPathParameter(c.isa, c.defaultPc, c.sim))
-    val mem = MemPath.instantiate(MemPathParameter(c.isa, c.defaultPc, c.sim, parameter.mmioRanges))
+    val int = IntPath.instantiate(IntPathParameter(c.isa, c.defaultPc, parameter.flow))
+    val mem = MemPath.instantiate(MemPathParameter(c.isa, c.defaultPc, parameter.mmioRanges))
 
     int.io.clock := io.clock
     int.io.resetN := io.resetN

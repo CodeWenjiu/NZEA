@@ -8,6 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.RtlFlow
 import nzea_config.core.CoreConfig
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
@@ -17,8 +18,8 @@ import nzea_core.middle.{CommitMsg, Middle, MiddleParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class CoreParameter(isa: String, defaultPc: Long, sim: Boolean, mmioRanges: Seq[String]) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class CoreParameter(isa: String, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CoreParameter] = upickle.default.macroRW
 
@@ -35,8 +36,8 @@ class CoreIO(parameter: CoreParameter) extends HWBundle(parameter):
 
 class CoreProbe(parameter: CoreParameter) extends DVBundle[CoreParameter, CoreLayers](parameter)
 
-/** The core: front, middle and back, with the interfaces it actually has — an instruction bus, a data bus and the commit
-  * trace — as its own ports.
+/** The core: front, middle and back, with the interfaces it actually has — an instruction bus, a data bus and the
+  * commit trace — as its own ports.
   *
   * Nothing here knows how the core is dumped or wired upwards: turning those interfaces into a top's ports or into
   * simulation bridges belongs to the level top (`nzea_top.NzeaCore`), and a tile instantiates this module as it is.
@@ -52,9 +53,9 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val c = parameter.config
-    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc, c.sim))
-    val middle = Middle.instantiate(MiddleParameter(c.isa, c.defaultPc, c.sim))
-    val back = Back.instantiate(BackParameter(c.isa, c.defaultPc, c.sim, parameter.mmioRanges))
+    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc))
+    val middle = Middle.instantiate(MiddleParameter(c.isa, c.defaultPc, parameter.flow))
+    val back = Back.instantiate(BackParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges))
 
     front.io.clock := io.clock
     front.io.resetN := io.resetN

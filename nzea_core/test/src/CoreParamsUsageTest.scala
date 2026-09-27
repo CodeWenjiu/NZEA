@@ -12,9 +12,9 @@ import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
 
-case class CoreParamsUsageTestParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:
+case class CoreParamsUsageTestParameter(isa: String, defaultPc: Long) extends Parameter:
   /** The configuration the CLI pinned down; the resolver reads it, not the raw flags. */
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CoreParamsUsageTestParameter] = upickle.default.macroRW
 
@@ -70,14 +70,14 @@ object CoreParamsUsageTestModule
 object CoreParamsUsageTest extends TestSuite:
 
   private val module = CoreParamsUsageTestModule.moduleName(
-    CoreParamsUsageTestParameter("riscv32i", 0x80000000L, sim = false)
+    CoreParamsUsageTestParameter("riscv32i", 0x80000000L)
   )
 
   private lazy val sv = TestFlow.lower(
     module,
     cfg =>
       CoreParamsUsageTestModule.main(
-        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--sim", "false")
+        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648")
       ),
     cfg => CoreParamsUsageTestModule.main(Array("design", cfg.toString))
   )

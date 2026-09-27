@@ -21,7 +21,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * does that, and a request the fetcher abandons is answered into a slot it will simply drain.
   */
 case class IbusDpiBridgeParameter(isa: String, defaultPc: Long) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim = true)
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IbusDpiBridgeParameter] = upickle.default.macroRW
 
@@ -85,7 +85,7 @@ object IbusDpiBridge
   * the generated call takes the declared argument widths as they are.
   */
 case class DbusDpiBridgeParameter(isa: String, defaultPc: Long) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim = true)
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[DbusDpiBridgeParameter] = upickle.default.macroRW
 

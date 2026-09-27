@@ -1,5 +1,6 @@
 package nzea_core.middle
 
+import nzea_config.RtlFlow
 import nzea_core.back.OpWindow
 import nzea_core.isa.{Backend, CsrType, Gpr}
 import nzea_rtl.TestFlow
@@ -12,13 +13,13 @@ import utest.*
 object MiddleElaborateTest extends TestSuite:
 
   private val width = 32
-  private val module = Middle.moduleName(MiddleParameter("riscv32i", 0x80000000L, sim = false))
+  private val module = Middle.moduleName(MiddleParameter("riscv32i", 0x80000000L, RtlFlow.Yosys))
 
   private lazy val sv = TestFlow.lower(
     module,
     cfg =>
       Middle.main(
-        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--sim", "false")
+        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--flow", "yosys")
       ),
     cfg => Middle.main(Array("design", cfg.toString))
   )

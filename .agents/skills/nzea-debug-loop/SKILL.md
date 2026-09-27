@@ -247,7 +247,7 @@ just sta --target tile  # or --target core
 ```
 
 Read the generated `.rpt` at:
-`build/<target>/yosys/riscv32i/hw/synth/<NzeaTile|NzeaCore>.rpt`
+`build/<target>/yosys/riscv32i/yosys/synth/<NzeaTile|NzeaCore>.rpt`
 
 Compare against the pre-fix report:
 

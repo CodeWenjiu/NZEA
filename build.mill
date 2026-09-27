@@ -79,8 +79,17 @@ trait ZaoziModule extends Scala3Module {
   }
 }
 
-/** Configuration model: leaf module, no hardware dependencies. */
+/** Configuration model: no hardware dependencies. It carries the two libraries its parameters are parsed and
+  * serialized with, because a parameter field's type has to bring its own readers.
+  */
 object nzea_config extends Scala3Module {
+  override def mvnDeps = Task {
+    super.mvnDeps() ++ Seq(
+      mvn"com.lihaoyi::mainargs:$mainargsV",
+      mvn"com.lihaoyi::upickle:$upickleV"
+    )
+  }
+
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
   }

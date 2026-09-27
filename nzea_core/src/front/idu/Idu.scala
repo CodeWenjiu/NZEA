@@ -39,8 +39,8 @@ class IduOut(width: Int) extends Bundle:
   val op = Aligned(UInt(OpWindow.Width))
   val csr_addr = Aligned(UInt(12))
 
-case class IduParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class IduParameter(isa: String, defaultPc: Long) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IduParameter] = upickle.default.macroRW
 

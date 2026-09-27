@@ -12,8 +12,8 @@ import utest.*
 object IduTest extends TestSuite:
 
   private val configs = Seq(
-    CoreConfig("riscv32i", 0x80000000L, sim = false),
-    CoreConfig("riscv32im", 0x80000000L, sim = false)
+    CoreConfig("riscv32i", 0x80000000L),
+    CoreConfig("riscv32im", 0x80000000L)
   )
 
   val tests = Tests:
@@ -28,7 +28,7 @@ object IduTest extends TestSuite:
       assert(1 << Gpr.indexWidth == Gpr.depth)
 
     test("the tables are 32-bit only, and say so instead of elaborating wrong widths"):
-      assert(scala.util.Try(RiscvInsts.all(CoreConfig("riscv64i", 0x80000000L, sim = false))).isFailure)
+      assert(scala.util.Try(RiscvInsts.all(CoreConfig("riscv64i", 0x80000000L))).isFailure)
 
     test("every decoded window fits the shared op field"):
       for

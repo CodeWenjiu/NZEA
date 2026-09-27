@@ -1,5 +1,6 @@
 package nzea_core.stats
 
+import nzea_config.RtlFlow
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.middle.{Middle, MiddleParameter}
 import nzea_rtl.{StatCounter, StatsRegs, TestFlow}
@@ -10,21 +11,25 @@ import utest.*
   */
 object CountersTest extends TestSuite:
 
-  private lazy val middle = Middle.moduleName(MiddleParameter("riscv32i", 0x80000000L, sim = true))
+  private lazy val middle = Middle.moduleName(MiddleParameter("riscv32i", 0x80000000L, RtlFlow.Verilator))
 
   private lazy val middleSv = TestFlow.lower(
     middle,
     cfg =>
-      Middle.main(Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--sim", "true")),
+      Middle.main(
+        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--flow", "verilator")
+      ),
     cfg => Middle.main(Array("design", cfg.toString))
   )
 
-  private lazy val intPath = IntPath.moduleName(IntPathParameter("riscv32i", 0x80000000L, sim = true))
+  private lazy val intPath = IntPath.moduleName(IntPathParameter("riscv32i", 0x80000000L, RtlFlow.Verilator))
 
   private lazy val intPathSv = TestFlow.lower(
     intPath,
     cfg =>
-      IntPath.main(Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--sim", "true")),
+      IntPath.main(
+        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--flow", "verilator")
+      ),
     cfg => IntPath.main(Array("design", cfg.toString))
   )
 

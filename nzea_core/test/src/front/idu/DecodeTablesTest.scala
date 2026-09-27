@@ -16,8 +16,8 @@ import utest.*
   */
 object DecodeTablesTest extends TestSuite:
 
-  private val withM = CoreConfig("riscv32im", 0x80000000L, sim = false)
-  private val withoutM = CoreConfig("riscv32i", 0x80000000L, sim = false)
+  private val withM = CoreConfig("riscv32im", 0x80000000L)
+  private val withoutM = CoreConfig("riscv32i", 0x80000000L)
 
   private lazy val tables = DecodeTables.all(withM)
   private lazy val pla = Qmc(tables)

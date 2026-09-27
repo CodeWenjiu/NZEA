@@ -26,8 +26,8 @@ object MmioWindow:
       case Array(base, size) => (hex(base), hex(size))
       case _                 => throw new IllegalArgumentException(s"expected a base:size window, got '$range'")
 
-case class MemPathParameter(isa: String, defaultPc: Long, sim: Boolean, mmioRanges: Seq[String]) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class MemPathParameter(isa: String, defaultPc: Long, mmioRanges: Seq[String]) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
   val windows: Seq[(BigInt, BigInt)] = mmioRanges.map(MmioWindow.parse)
 
 given upickle.default.ReadWriter[MemPathParameter] = upickle.default.macroRW

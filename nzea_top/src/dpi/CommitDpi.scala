@@ -16,12 +16,12 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The commit trace's bridge to remu's `commit_trace`: one clocked call per committed instruction.
   *
-  * `csr_type` is a *type*, not an address, so it is mapped back to the address the reference model knows (and to a valid
-  * bit, since no CSR type means the instruction wrote no CSR). The two short fields are widened here: the ABI takes
-  * `int`s, and the widths of the generated call's arguments are the declared ones.
+  * `csr_type` is a *type*, not an address, so it is mapped back to the address the reference model knows (and to a
+  * valid bit, since no CSR type means the instruction wrote no CSR). The two short fields are widened here: the ABI
+  * takes `int`s, and the widths of the generated call's arguments are the declared ones.
   */
 case class CommitDpiBridgeParameter(isa: String, defaultPc: Long) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim = true)
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CommitDpiBridgeParameter] = upickle.default.macroRW
 

@@ -16,8 +16,8 @@ import nzea_core.front.idu.{ArfWrite, Idu, IduOut, IduParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class FrontParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class FrontParameter(isa: String, defaultPc: Long) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[FrontParameter] = upickle.default.macroRW
 
@@ -55,8 +55,8 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val c = parameter.config
-    val ifu = Ifu.instantiate(IfuParameter(c.isa, c.defaultPc, c.sim))
-    val idu = Idu.instantiate(IduParameter(c.isa, c.defaultPc, c.sim))
+    val ifu = Ifu.instantiate(IfuParameter(c.isa, c.defaultPc))
+    val idu = Idu.instantiate(IduParameter(c.isa, c.defaultPc))
 
     ifu.io.clock := io.clock
     ifu.io.resetN := io.resetN

@@ -8,6 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.RtlFlow
 import nzea_config.core.CoreConfig
 import nzea_core.back.{BackOut, IssueUop}
 import nzea_core.front.idu.{ArfWrite, IduOut}
@@ -17,8 +18,8 @@ import nzea_rtl.StatsRegs
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class MiddleParameter(isa: String, defaultPc: Long, sim: Boolean) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
+case class MiddleParameter(isa: String, defaultPc: Long, flow: RtlFlow) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[MiddleParameter] = upickle.default.macroRW
 
@@ -116,9 +117,9 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     io.commit.bits.csr_type := io.report.csr_type
     io.commit.bits.csr_data := io.report.csr_data
 
-    // Simulation-only counters: the retirement rate is counted here because this is where cycles and commits are both
-    // known. The box they live in is emitted and declared by `nzea_rtl.StatsRegs` / `nzea_core.stats.CoreStats`.
-    if parameter.config.sim then
+    // Counters the simulator reads back: the retirement rate is counted here because this is where cycles and commits
+    // are both known. The box they live in is emitted and declared by `nzea_rtl.StatsRegs` / `nzea_core.stats.CoreStats`.
+    if parameter.flow.counters then
       val stats = ThroughputCounters.instantiate(ThroughputCountersParameter())
       stats.io.clock := io.clock
       stats.io.resetN := io.resetN.asBool

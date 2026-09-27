@@ -13,13 +13,13 @@ import utest.*
 object FrontElaborateTest extends TestSuite:
 
   private val width = 32
-  private val module = Front.moduleName(FrontParameter("riscv32i", 0x80000000L, sim = false))
+  private val module = Front.moduleName(FrontParameter("riscv32i", 0x80000000L))
 
   private lazy val sv = TestFlow.lower(
     module,
     cfg =>
       Front.main(
-        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--sim", "false")
+        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648")
       ),
     cfg => Front.main(Array("design", cfg.toString))
   )
