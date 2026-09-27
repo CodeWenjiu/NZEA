@@ -1,7 +1,8 @@
 -- Fetch-stage events, relative to the fetcher's scope (TOP.NzeaCore.core.front.ifu).
 --
--- Bind them to compose with other scopes, e.g. an instruction stream against the retire events in core.pulse:
---   pulse property --event nzea_core/fetch.pulse <IFU> Fetch --event nzea_core/core.pulse <MIDDLE> Core \
+-- Bind them to compose with other scopes, e.g. an instruction stream against the retire events in the middle's file:
+--   pulse property --event nzea_core/src/front/ifu/fetch.pulse <IFU> Fetch \
+--       --event nzea_core/src/middle/retire.pulse <MIDDLE> Core \
 --       --eval 'Core.redirect --40 Fetch.i_fetch'
 
 -- A fetch request the bus accepted: this is the cycle the pc advances on.

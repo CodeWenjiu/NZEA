@@ -216,8 +216,8 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       stats.io.resetN := io.resetN.asBool
       // A combinational unit holds its uop for the whole residence, so a per-instruction event is the arrival edge —
       // counting the level would count one branch once per cycle it is held. It is a named wire on purpose: the
-      // counters and the waveform's event file (`nzea_core/branch.pulse`) both address this event by name, and a plain
-      // val would be inlined into an anonymous net.
+      // counters and the waveform's event file (`branch.pulse` beside this one) both address this event by name, and a
+      // plain val would be inlined into an anonymous net.
       val branchResolved = Wire(Bool())
       branchResolved := uopValid & isBru & !regNext(uopValid, false.B)
       stats.io.stat_bp_branch.en := branchResolved
