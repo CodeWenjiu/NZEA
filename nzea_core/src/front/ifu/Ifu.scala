@@ -61,7 +61,9 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val width = parameter.config.width
-    val pc = RegInit(BigInt(parameter.config.defaultPc & ((1L << width) - 1)).U(width))
+    // The platform's reset pc, masked to the register width: a BigInt shift, because `1L << 64` wraps around in a Long.
+    val pcReset = BigInt(parameter.config.defaultPc) & ((BigInt(1) << width) - 1)
+    val pc = RegInit(pcReset.U(width))
     val epoch = RegInit(0.U(IbusUser.epochBits))
 
     // A prefix adder, not `+`: abc maps a general add to a carry chain, and this incrementer sits on the fetch-rate path
@@ -88,4 +90,6 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     io.ibus.resp.ready := io.out.ready
     io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user, width) === epoch)
     io.out.bits.pc := IbusUser.pcOf(io.ibus.resp.bits.user, width)
-    io.out.bits.inst := io.ibus.resp.bits.data
+    // The bus answers in machine words — the DPI boundary is XLEN wide all the way across — while an instruction word is
+    // 32 bits in every base ISA this core has, so the fetch reads the low word out of the answer.
+    io.out.bits.inst := Node(io.ibus.resp.bits.data.asBits).bits(31, 0).asUInt

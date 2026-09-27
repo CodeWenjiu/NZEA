@@ -8,16 +8,18 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.core.CoreConfig
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** Operands and op of one multiply. */
-class MulInput(width: Int) extends Bundle:
-  val opA = Aligned(UInt(width))
-  val opB = Aligned(UInt(width))
-  val op = Aligned(UInt(MulOp.width))
+class MulInput(config: CoreConfig) extends Bundle:
+  val opA = Aligned(UInt(config.width))
+  val opB = Aligned(UInt(config.width))
+  val op = Aligned(UInt(MulOp.set(config.isaConfig).width))
 
-case class MulParameter(width: Int) extends Parameter
+case class MulParameter(isa: String, defaultPc: Long) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[MulParameter] = upickle.default.macroRW
 
@@ -27,9 +29,9 @@ class MulLayers(parameter: MulParameter) extends LayerInterface(parameter):
 class MulIO(parameter: MulParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new MulInput(parameter.width)))
+  val issue = Flipped(Valid(new MulInput(parameter.config)))
   val done = Aligned(Bool())
-  val data = Aligned(UInt(parameter.width))
+  val data = Aligned(UInt(parameter.config.width))
 
 class MulProbe(parameter: MulParameter) extends DVBundle[MulParameter, MulLayers](parameter)
 
@@ -51,7 +53,9 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
     given ClockScope = ClockScope.posedge(io.clock)
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    val width = parameter.width
+    val width = parameter.config.width
+    val ops = MulOp.set(parameter.config.isaConfig)
+    val hasWord = ops.contains(MulOp.Mulw)
     val productWidth = 2 * width
     val countWidth = log2Ceil(width + 1)
 
@@ -59,9 +63,10 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
     val b: Node[Bits] = Node(io.issue.bits.opB.asBits)
     val op: Referable[UInt] = io.issue.bits.op
 
-    val aSigned = (op === MulOp.Mul.lit.U(MulOp.width)) | (op === MulOp.Mulh.lit.U(MulOp.width)) |
-      (op === MulOp.Mulhsu.lit.U(MulOp.width))
-    val bSigned = (op === MulOp.Mul.lit.U(MulOp.width)) | (op === MulOp.Mulh.lit.U(MulOp.width))
+    val mulw = if hasWord then (op === MulOp.Mulw.lit.U(ops.width)) else false.B
+    val aSigned = (op === MulOp.Mul.lit.U(ops.width)) | (op === MulOp.Mulh.lit.U(ops.width)) |
+      (op === MulOp.Mulhsu.lit.U(ops.width)) | mulw
+    val bSigned = (op === MulOp.Mul.lit.U(ops.width)) | (op === MulOp.Mulh.lit.U(ops.width)) | mulw
 
     val aExt: Node[UInt] = aSigned ? ((fill(width, a.bit(width - 1)) ## a).asUInt, (0.B(width) ## a).asUInt)
     val correction: Node[UInt] =
@@ -100,6 +105,17 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
     when(!io.issue.valid) { doneReg := false.B }
 
     val product: Node[Bits] = Node(acc.asBits)
+    val low: Node[Bits] = product.bits(width - 1, 0)
     val high: Node[Bits] = product.bits(productWidth - 1, width)
+    // MULW is MUL's low word, sign-extended; the low word of a product depends on the low words of the operands, so the
+    // same multiply answers both. An ISA without the word form has no extend to build.
+    val lowWord: Node[Bits] =
+      if hasWord then (fill(width - 32, low.bit(31)) ## low.bits(31, 0)) else low
+
+    def data(v: MulOp): Referable[Bits] = v match
+      case MulOp.Mul                               => low
+      case MulOp.Mulh | MulOp.Mulhsu | MulOp.Mulhu => high
+      case MulOp.Mulw                              => lowWord
+
     io.done := doneReg
-    io.data := mux1H(op, Seq(product.bits(width - 1, 0), high, high, high), width).asUInt
+    io.data := mux1H(op, ops.variants.map(data), width).asUInt

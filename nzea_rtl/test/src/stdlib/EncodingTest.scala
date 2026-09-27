@@ -15,7 +15,6 @@ enum EncodingTestOp extends Encoding.OneHot:
 
 object EncodingTestOp extends OneHotSet[EncodingTestOp]:
   def variants: Seq[EncodingTestOp] = values.toSeq
-  val width: Int = Encoding.width(values)
 
 enum EncodingTestNarrow extends Encoding.Sequential:
   case P
@@ -24,12 +23,19 @@ enum EncodingTestNarrow extends Encoding.Sequential:
 object EncodingTestNarrow:
   val width: Int = Encoding.width(values)
 
-/** A local union over both sets: each case carries one of them, and the case's tag sits above the payload. */
-enum EncodingTestUnion(val childWidth: Int) extends Encoding.Union:
-  case Wide(payload: EncodingTestOp) extends EncodingTestUnion(EncodingTestOp.width)
-  case Narrow(payload: EncodingTestNarrow) extends EncodingTestUnion(EncodingTestNarrow.width)
+/** A local union over both sets: each case carries one of them, and the case's tag sits above the payload. Its payload
+  * width is asked with a configuration; this toy answers the same for every one, which is what `Unit` is here for.
+  */
+enum EncodingTestUnion extends Encoding.Union[Unit]:
+  case Wide(payload: EncodingTestOp) extends EncodingTestUnion
+  case Narrow(payload: EncodingTestNarrow) extends EncodingTestUnion
 
-object EncodingTestUnion extends Encoding.UnionSet[EncodingTestUnion]:
+  def childWidth(config: Unit): Int = this match
+    case Wide(_)   => EncodingTestOp.width
+    case Narrow(_) => EncodingTestNarrow.width
+
+object EncodingTestUnion extends Encoding.UnionSet[EncodingTestUnion, Unit]:
+  val config: Unit = ()
   val cases: Seq[EncodingTestUnion] = Seq(Wide(EncodingTestOp.A), Narrow(EncodingTestNarrow.P))
 
 /** A local aggregate: two fields sharing one value, the narrow one low-anchored. */

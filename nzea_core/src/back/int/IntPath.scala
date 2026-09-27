@@ -66,9 +66,10 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val isBru = selects(IntOp.bru)
     val isSysu = selects(IntOp.sysu)
 
-    // The operands are the uop's slots: decode already resolved them, so a unit reads the slot its form filled.
-    val alu = Alu.instantiate(AluParameter(width))
-    alu.io.op := Encoding.take(fuOp, AluOp.width)
+    // The operands are the uop's slots: decode already resolved them, so a unit reads the slot its form filled. The op
+    // field each unit slices is as wide as that unit's op set under this configuration.
+    val alu = Alu.instantiate(AluParameter(parameter.config.isa, parameter.config.defaultPc))
+    alu.io.op := Encoding.take(fuOp, AluOp.set(parameter.config.isaConfig).width)
     alu.io.opA := u.src_a
     alu.io.opB := u.src_b
 
@@ -95,22 +96,26 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     io.redirect.bits := bru.io.target
 
     // MUL and DIV come and go with M, and the same set that decides that here decided the window's codes above.
-    val mul = Option.when(ops.contains(IntOp.mul))(Mul.instantiate(MulParameter(width)))
-    val div = Option.when(ops.contains(IntOp.div))(Div.instantiate(DivParameter(width)))
+    val mul = Option.when(ops.contains(IntOp.mul))(
+      Mul.instantiate(MulParameter(parameter.config.isa, parameter.config.defaultPc))
+    )
+    val div = Option.when(ops.contains(IntOp.div))(
+      Div.instantiate(DivParameter(parameter.config.isa, parameter.config.defaultPc))
+    )
     for m <- mul do
       m.io.clock := io.clock
       m.io.resetN := io.resetN
       m.io.issue.valid := uopValid & selects(IntOp.mul)
       m.io.issue.bits.opA := u.src_a
       m.io.issue.bits.opB := u.src_b
-      m.io.issue.bits.op := Encoding.take(fuOp, MulOp.width)
+      m.io.issue.bits.op := Encoding.take(fuOp, MulOp.set(parameter.config.isaConfig).width)
     for d <- div do
       d.io.clock := io.clock
       d.io.resetN := io.resetN
       d.io.issue.valid := uopValid & selects(IntOp.div)
       d.io.issue.bits.opA := u.src_a
       d.io.issue.bits.opB := u.src_b
-      d.io.issue.bits.op := Encoding.take(fuOp, DivOp.width)
+      d.io.issue.bits.op := Encoding.take(fuOp, DivOp.set(parameter.config.isaConfig).width)
     val mulDone = mul.map(m => selects(IntOp.mul) & m.io.done).getOrElse(false.B)
     val divDone = div.map(d => selects(IntOp.div) & d.io.done).getOrElse(false.B)
     val mulData: Referable[UInt] = mul.map(m => m.io.data).getOrElse(0.U(width))

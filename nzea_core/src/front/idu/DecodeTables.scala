@@ -4,7 +4,7 @@ import me.jiuyang.decoder.{BitPat, BitSet, TruthTable}
 import nzea_core.back.OpWindow
 import nzea_core.back.int.IntOp
 import nzea_core.isa.{Backend, Srcs}
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, IsaConfig}
 import nzea_rtl.stdlib.Encoding
 
 import scala.collection.immutable.SortedMap
@@ -53,7 +53,7 @@ object DecodeTables:
     )
 
   /** The whole decode result of an instruction, packed by its backend against the units this configuration has. */
-  private def window(insts: Seq[RVInst], ops: Encoding.UnionSet[IntOp], width: Int): TruthTable =
+  private def window(insts: Seq[RVInst], ops: Encoding.UnionSet[IntOp, IsaConfig], width: Int): TruthTable =
     TruthTable(
       OpName,
       insts.map(i => i.pattern -> i.dispatch.name),

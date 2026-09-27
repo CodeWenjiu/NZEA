@@ -16,4 +16,6 @@ import nzea_core.back.mem.MemOp
   * the field only has to cover the windows that exist.
   */
 object OpWindow:
-  def width(config: CoreConfig): Int = Seq(IntOp.set(config.isaConfig).width, MemOp.width).max
+
+  def width(config: CoreConfig): Int =
+    Seq(IntOp.set(config.isaConfig).width, MemOp.set(config.isaConfig).width).max

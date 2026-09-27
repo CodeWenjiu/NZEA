@@ -25,7 +25,7 @@ object CoreParamsUsageTestDeclared:
 
   def declared(isa: IsaConfig): Seq[OpProducer] = Seq(
     OpProducer("int", Backend.INT.lit, IntOp.set(isa).width),
-    OpProducer("mem", Backend.MEM.lit, MemOp.width)
+    OpProducer("mem", Backend.MEM.lit, MemOp.set(isa).width)
   )
 
 /** The parameters the module and its IO agree on: the ISA decides both the contract and the windows inside it. */
@@ -44,7 +44,7 @@ class CoreParamsUsageTestIO(parameter: CoreParamsUsageTestParameter) extends HWB
   val op = Flipped(UInt(params.opWidth))
   val is_mem = Aligned(Bool())
   val alu_op = Aligned(UInt(intOps.payloadWidth))
-  val mem_op = Aligned(UInt(MemOp.payloadWidth))
+  val mem_op = Aligned(UInt(MemOp.set(parameter.config.isaConfig).payloadWidth))
 
 class CoreParamsUsageTestProbe(parameter: CoreParamsUsageTestParameter)
     extends DVBundle[CoreParamsUsageTestParameter, CoreParamsUsageTestLayers](parameter)
@@ -70,7 +70,7 @@ object CoreParamsUsageTestModule
 
     io.is_mem := io.dispatch === Backend.MEM.lit.U(params.dispatchWidth)
     io.alu_op := intOps.payload(io.op)
-    io.mem_op := MemOp.payload(io.op)
+    io.mem_op := MemOp.set(parameter.config.isaConfig).payload(io.op)
 
 /** The usage: the resolved contract sizes the field, and each backend still unpacks its own window out of it. */
 object CoreParamsUsageTest extends TestSuite:
@@ -102,6 +102,6 @@ object CoreParamsUsageTest extends TestSuite:
           "op" -> intOps.width,
           "is_mem" -> 1,
           "alu_op" -> intOps.payloadWidth,
-          "mem_op" -> MemOp.payloadWidth
+          "mem_op" -> MemOp.set(CoreConfig("riscv32i", 0x80000000L).isaConfig).payloadWidth
         )
       )

@@ -90,16 +90,21 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val rdIndex = gprWr ? (inst.bits(11, 7).asUInt, 0.U(Gpr.indexWidth))
 
     // The immediate shapes, built from the instruction's scattered fields (`[31:25]` funct7, `[24:20]` rs2,
-    // `[19:15]` rs1, `[14:12]` funct3, `[11:7]` rd).
+    // `[19:15]` rs1, `[14:12]` funct3, `[11:7]` rd). The field is 32 bits in both ISAs but the value it names is xlen
+    // wide, so every shape sign-extends bit 31 up to the register width; `Z` is the one shape that zero-extends.
     def bit(index: Int): Node[Bits] = inst.bit(index).asBits
 
-    val immI = (fill(20, inst.bit(31)) ## inst.bits(31, 20)).asUInt
-    val immS = (fill(20, inst.bit(31)) ## inst.bits(31, 25) ## inst.bits(11, 7)).asUInt
-    val immB = (fill(19, inst.bit(31)) ## bit(31) ## bit(7) ## inst.bits(30, 25) ## inst.bits(11, 8) ## 0.B(1)).asUInt
-    val immU = (inst.bits(31, 12) ## 0.B(12)).asUInt
+    val immI = (fill(width - 12, inst.bit(31)) ## inst.bits(31, 20)).asUInt
+    val immS = (fill(width - 12, inst.bit(31)) ## inst.bits(31, 25) ## inst.bits(11, 7)).asUInt
+    val immB =
+      (fill(width - 13, inst.bit(31)) ## bit(31) ## bit(7) ## inst.bits(30, 25) ## inst.bits(11, 8) ## 0.B(1)).asUInt
+    // U's immediate is 32 bits of its own (bits 31:12 and zeros), signed by bit 31 like the rest.
+    val immU =
+      if width > 32 then (fill(width - 32, inst.bit(31)) ## inst.bits(31, 12) ## 0.B(12)).asUInt
+      else (inst.bits(31, 12) ## 0.B(12)).asUInt
     val immJ =
-      (fill(11, inst.bit(31)) ## bit(31) ## inst.bits(19, 12) ## bit(20) ## inst.bits(30, 21) ## 0.B(1)).asUInt
-    val immZ = (0.B(27) ## inst.bits(19, 15)).asUInt
+      (fill(width - 21, inst.bit(31)) ## bit(31) ## inst.bits(19, 12) ## bit(20) ## inst.bits(30, 21) ## 0.B(1)).asUInt
+    val immZ = (0.B(width - 5) ## inst.bits(19, 15)).asUInt
     val imm = mux1H(immType, Seq(immI, immS, immB, immU, immJ, immZ), width)
 
     val gprs = Reg(Vec(Gpr.depth, UInt(width)))

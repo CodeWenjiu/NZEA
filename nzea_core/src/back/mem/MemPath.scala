@@ -71,26 +71,38 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     val uopValid = io.issue.valid
     val u = io.issue.bits
 
-    val op: Node[UInt] = MemOp.payload(u.op)
-    val isStore = LsuOp.isStore(op)
+    val memOps = MemOp.set(parameter.config.isaConfig)
+    val lsuOps = LsuOp.set(parameter.config.isaConfig)
+    val op: Node[UInt] = memOps.payload(u.op)
+    val isStore = LsuOp.isStore(op, lsuOps)
 
     val addr = prefixAdder(u.src_a, u.src_b, false.B, width)
     val addrBits: Node[Bits] = Node(addr.asBits)
-    val offset: Node[UInt] = addrBits.bits(1, 0).asUInt
+    // One bus word is `lanes` bytes (four at xlen 32, eight at xlen 64), and the low address bits are the offset inside
+    // it: the request carries the word address, the path selects inside the word with the offset it holds.
+    val lanes = width / 8
+    val offsetWidth = log2Ceil(lanes)
+    val offset: Node[UInt] = addrBits.bits(offsetWidth - 1, 0).asUInt
 
-    // Store data and strobe, both selected by the two offset bits: a constant shift per data position, a strobe per
-    // access size, one-hot over the op.
-    val byteStrb: Referable[UInt] = muxTree(offset, Seq(1, 2, 4, 8).map(v => BigInt(v).U(width / 8)))
-    val halfStrb: Referable[UInt] = muxTree(offset, Seq(3, 3, 12, 12).map(v => BigInt(v).U(width / 8)))
-    val zeroStrb: Referable[UInt] = BigInt(0).U(width / 8)
-    val wordStrb: Referable[UInt] = ((BigInt(1) << (width / 8)) - 1).U(width / 8)
-    val wstrb = mux1H(
-      op,
-      Seq(zeroStrb, zeroStrb, zeroStrb, zeroStrb, zeroStrb, byteStrb, halfStrb, wordStrb),
-      width / 8
-    )
+    // Store data and strobe, both selected by the offset bits: a constant shift per data position, a strobe per access
+    // size. A wider access than a lane is aligned by the ISA, so its strobe sits at the offset's own alignment.
+    val byteStrb: Referable[UInt] = muxTree(offset, (0 until lanes).map(i => (BigInt(1) << i).U(lanes)))
+    val halfStrb: Referable[UInt] = muxTree(offset, (0 until lanes).map(i => (BigInt(3) << (i & ~1)).U(lanes)))
+    val wordStrb: Referable[UInt] = muxTree(offset, (0 until lanes).map(i => (BigInt(0xf) << (i & ~3)).U(lanes)))
+    val doubleStrb: Referable[UInt] = ((BigInt(1) << lanes) - 1).U(lanes)
+    val zeroStrb: Referable[UInt] = BigInt(0).U(lanes)
+
+    /** One op's byte strobe: a store lights the lanes it writes, everything else reads. */
+    def strobe(v: LsuOp): Referable[UInt] = v match
+      case LsuOp.SB                                                                      => byteStrb
+      case LsuOp.SH                                                                      => halfStrb
+      case LsuOp.SW                                                                      => wordStrb
+      case LsuOp.SD                                                                      => doubleStrb
+      case LsuOp.LB | LsuOp.LH | LsuOp.LW | LsuOp.LBU | LsuOp.LHU | LsuOp.LWU | LsuOp.LD => zeroStrb
+
+    val wstrb = mux1H(op, lsuOps.variants.map(strobe), lanes)
     val storeData: Node[Bits] = Node(u.src_c.asBits)
-    val wdata = muxTree(offset, Seq(0, 8, 16, 24).map(shift => (storeData << shift).bits(width - 1, 0)))
+    val wdata = muxTree(offset, (0 until lanes).map(i => (storeData << (i * 8)).bits(width - 1, 0)))
 
     // One request per uop, held until the bus accepts it and dropped when the uop goes away.
     val uopEdge = uopValid & !regNext(uopValid, false.B)
@@ -107,7 +119,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     }
 
     io.dbus.req.valid := reqValid
-    io.dbus.req.bits.addr := (addrBits.bits(width - 1, 2) ## 0.B(2)).asUInt
+    io.dbus.req.bits.addr := (addrBits.bits(width - 1, offsetWidth) ## 0.B(offsetWidth)).asUInt
     io.dbus.req.bits.wdata := wdata.asUInt
     io.dbus.req.bits.wen := isStore
     io.dbus.req.bits.wstrb := wstrb
@@ -117,31 +129,32 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     io.dbus.resp.ready := true.B
     val hit = io.dbus.resp.valid & uopValid & (DbusUser.tagOf(io.dbus.resp.bits.user) === curTag)
 
-    // Load result: sign- or zero-extended from the addressed byte or half of the word.
+    // Load result: sign- or zero-extended from the addressed byte, half, word or the whole bus word.
     val rdata: Node[Bits] = Node(io.dbus.resp.bits.data.asBits)
-    val byteSel = muxTree(
-      offset,
-      Seq(rdata.bits(7, 0), rdata.bits(15, 8), rdata.bits(23, 16), rdata.bits(31, 24))
-    )
-    val halfSel = muxTree(
-      offset,
-      Seq(rdata.bits(15, 0), rdata.bits(15, 0), rdata.bits(31, 16), rdata.bits(31, 16))
-    )
+    val byteSel = muxTree(offset, (0 until lanes).map(i => rdata.bits(i * 8 + 7, i * 8)))
+    val halfSel = muxTree(offset, (0 until lanes).map(i => rdata.bits((i & ~1) * 8 + 15, (i & ~1) * 8)))
+    // A word access sits in one half of a 64-bit bus word; at xlen 32 the bus word is the word.
+    val wordSel: Node[Bits] =
+      if lanes > 4 then (Node(offset.asBits).bit(offsetWidth - 1) ? (rdata.bits(63, 32), rdata.bits(31, 0)))
+      else rdata
+    val wordSext: Node[Bits] = if lanes > 4 then (fill(width - 32, wordSel.bit(31)) ## wordSel) else wordSel
+    val wordZext: Node[Bits] = if lanes > 4 then (BigInt(0).B(width - 32) ## wordSel) else wordSel
     val zero: Referable[Bits] = BigInt(0).B(width)
-    val loadData = mux1H(
-      op,
-      Seq(
-        fill(width - 8, byteSel.bit(7)) ## byteSel,
-        fill(width - 16, halfSel.bit(15)) ## halfSel,
-        rdata,
-        BigInt(0).B(width - 8) ## byteSel,
-        BigInt(0).B(width - 16) ## halfSel,
-        zero,
-        zero,
-        zero
-      ),
-      width
-    )
+
+    /** One op's load result: sign- or zero-extended from the addressed byte, half, word or the whole bus word. The
+      * stores have nothing to answer with.
+      */
+    def load(v: LsuOp): Referable[Bits] = v match
+      case LsuOp.LB                                  => fill(width - 8, byteSel.bit(7)) ## byteSel
+      case LsuOp.LH                                  => fill(width - 16, halfSel.bit(15)) ## halfSel
+      case LsuOp.LW                                  => wordSext
+      case LsuOp.LBU                                 => BigInt(0).B(width - 8) ## byteSel
+      case LsuOp.LHU                                 => BigInt(0).B(width - 16) ## halfSel
+      case LsuOp.LWU                                 => wordZext
+      case LsuOp.LD                                  => rdata
+      case LsuOp.SB | LsuOp.SH | LsuOp.SW | LsuOp.SD => zero
+
+    val loadData = mux1H(op, lsuOps.variants.map(load), width)
 
     val isMmio: Referable[Bool] = parameter.windows.foldLeft(false.B: Referable[Bool]): (acc, window) =>
       val (base, size) = window

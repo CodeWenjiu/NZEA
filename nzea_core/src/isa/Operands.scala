@@ -33,8 +33,6 @@ enum Srcs(val a: Operand, val b: Operand, val c: Operand) extends Encoding.OneHo
 object Srcs extends OneHotSet[Srcs]:
   def variants: Seq[Srcs] = values.toSeq
 
-  val width: Int = Encoding.width(values)
-
   /** Resolve the three slot values from the architectural sources: each slot is one one-hot mux over the forms. */
   def resolve(
       field: Node[UInt],

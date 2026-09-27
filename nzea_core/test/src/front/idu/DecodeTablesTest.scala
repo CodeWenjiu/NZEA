@@ -1,10 +1,11 @@
 package nzea_core.front.idu
 
+import me.jiuyang.decoder.PLA
 import nzea_core.back.OpWindow
-import nzea_core.back.int.{AluOp, BruOp, IntOp, MulOp, SysuOp}
+import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.{Backend, Srcs}
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, IsaConfig}
 import nzea_rtl.PlaSim
 import nzea_rtl.stdlib.{Encoding, Qmc}
 import utest.*
@@ -18,16 +19,21 @@ object DecodeTablesTest extends TestSuite:
 
   private val withM = CoreConfig("riscv32im", 0x80000000L)
   private val withoutM = CoreConfig("riscv32i", 0x80000000L)
+  private val rv64i = CoreConfig("riscv64i", 0x80000000L)
+  private val rv64im = CoreConfig("riscv64im", 0x80000000L)
 
   private val intOps = IntOp.set(withM.isaConfig)
+  private val intOps64 = IntOp.set(rv64im.isaConfig)
 
   private lazy val tables = DecodeTables.all(withM)
   private lazy val pla = Qmc(tables)
+  private lazy val tables64 = DecodeTables.all(rv64im)
+  private lazy val pla64 = Qmc(tables64)
 
   /** The decode output fields, in the order they are concatenated into the PLA output. */
-  private val fields = Seq(
+  private def fields(config: CoreConfig): Seq[(String, Int)] = Seq(
     DecodeTables.BackendName -> Backend.width,
-    DecodeTables.OpName -> OpWindow.width(withM),
+    DecodeTables.OpName -> OpWindow.width(config),
     DecodeTables.SrcsName -> Srcs.width,
     DecodeTables.ImmTypeName -> ImmType.width,
     DecodeTables.GprWrName -> 1,
@@ -44,26 +50,31 @@ object DecodeTablesTest extends TestSuite:
     value | (BigInt(32, random) & ~mask)
 
   /** Evaluate the PLA the way its consumer builds it in hardware (see [[PlaSim]]), then slice the fields out. */
-  private def decode(word: BigInt): Map[String, BigInt] =
-    assert(fields.map(_._2).sum == pla.outputWidth)
+  private def decodeWith(config: CoreConfig, pla: PLA, word: BigInt): Map[String, BigInt] =
+    val fieldList = fields(config)
+    assert(fieldList.map(_._2).sum == pla.outputWidth)
     val out = PlaSim.decode(pla, word)
-    fields
+    fieldList
       .foldLeft((Map.empty[String, BigInt], pla.outputWidth)): (state, field) =>
         val (values, high) = state
         val (name, width) = field
         (values + (name -> ((out >> (high - width)) & ((BigInt(1) << width) - 1))), high - width)
       ._1
 
+  private def decode(word: BigInt): Map[String, BigInt] = decodeWith(withM, pla, word)
+
   /** What the table declares for one instruction, as the PLA must report it. */
-  private def declared(inst: RVInst): Map[String, BigInt] = Map(
+  private def declaredWith(ops: Encoding.UnionSet[IntOp, IsaConfig], inst: RVInst): Map[String, BigInt] = Map(
     DecodeTables.BackendName -> BigInt(inst.dispatch.backend.lit),
-    DecodeTables.OpName -> BigInt(inst.dispatch.window(intOps)),
+    DecodeTables.OpName -> BigInt(inst.dispatch.window(ops)),
     DecodeTables.SrcsName -> BigInt(inst.dispatch.srcs.lit),
     DecodeTables.ImmTypeName -> BigInt(inst.immType.fold(ImmType.I.lit)(_.lit)),
     DecodeTables.GprWrName -> BigInt(if inst.gprWr then 1 else 0),
     DecodeTables.Rs1RdName -> BigInt(if inst.rs1Rd then 1 else 0),
     DecodeTables.Rs2RdName -> BigInt(if inst.rs2Rd then 1 else 0)
   )
+
+  private def declared(inst: RVInst): Map[String, BigInt] = declaredWith(intOps, inst)
 
   val tests = Tests:
     test("every instruction minimizes into the PLA and decodes back to its declared fields"):
@@ -95,6 +106,34 @@ object DecodeTablesTest extends TestSuite:
       assert(!RiscvInsts.all(withoutM).exists(_.name == "MUL"))
       assert(Qmc(DecodeTables.all(withoutM)).table.nonEmpty)
 
+    test("a re-encoded row takes the base row it shares a name with"):
+      def rows(config: CoreConfig, name: String): Seq[RVInst] = RiscvInsts.all(config).filter(_.name == name)
+      // The shift immediates are one instruction name in both ISAs: without 64-bit registers the base row stands, with
+      // them the re-encoded row replaces it where it is — a row that only got appended would be a second pattern for
+      // the same name.
+      assert(rows(withoutM, "SLLI") == Seq(RiscvInsts.SLLI))
+      assert(rows(rv64i, "SLLI") == Seq(RiscvInsts.SLLI64))
+      assert(rows(withoutM, "SRAI") == Seq(RiscvInsts.SRAI))
+      assert(rows(rv64i, "SRAI") == Seq(RiscvInsts.SRAI64))
+
+    test("the 64-bit tables minimize and decode back to their declared fields too"):
+      assert(RiscvInsts.all(rv64i).size == 58)
+      assert(RiscvInsts.all(rv64im).size == 71)
+      for inst <- RiscvInsts.all(rv64im) do
+        assert(decodeWith(rv64im, pla64, sample(inst)) == declaredWith(intOps64, inst))
+
+    test("the 64-bit rows carry the word-form and 64-bit windows"):
+      def entry(name: String): RVInst = RiscvInsts.all(rv64im).find(_.name == name).get
+      def window(name: String): Int = entry(name).dispatch.window(intOps64)
+      def memWindow(op: LsuOp): Int = MemOp.set(rv64im.isaConfig).lit(MemOp.Lsu(op))
+      assert(window("ADDIW") == intOps64.lit(IntOp.Alu(AluOp.Addw)))
+      assert(window("SRAW") == intOps64.lit(IntOp.Alu(AluOp.Sraw)))
+      assert(window("MULW") == intOps64.lit(IntOp.Mul(MulOp.Mulw)))
+      assert(window("REMUW") == intOps64.lit(IntOp.Div(DivOp.Remuw)))
+      assert(window("LD") == memWindow(LsuOp.LD))
+      assert(window("SD") == memWindow(LsuOp.SD))
+      assert(window("LWU") == memWindow(LsuOp.LWU))
+
     test("representative entries match the legacy decoder field for field"):
       def entry(name: String): RVInst = RiscvInsts.all(withM).find(_.name == name).get
 
@@ -119,7 +158,7 @@ object DecodeTablesTest extends TestSuite:
         assert(inst.rs2Rd == rs2Rd)
 
       def intWindow(op: IntOp): Int = intOps.lit(op)
-      def memWindow(op: LsuOp): Int = MemOp.lit(MemOp.Lsu(op))
+      def memWindow(op: LsuOp): Int = MemOp.set(withM.isaConfig).lit(MemOp.Lsu(op))
 
       check("LUI", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.ImmZero, Some(ImmType.U), true, false, false)
       check("AUIPC", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.PcImm, Some(ImmType.U), true, false, false)

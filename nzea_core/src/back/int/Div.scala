@@ -8,16 +8,18 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.core.CoreConfig
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** Operands and op of one divide. */
-class DivInput(width: Int) extends Bundle:
-  val opA = Aligned(UInt(width))
-  val opB = Aligned(UInt(width))
-  val op = Aligned(UInt(DivOp.width))
+class DivInput(config: CoreConfig) extends Bundle:
+  val opA = Aligned(UInt(config.width))
+  val opB = Aligned(UInt(config.width))
+  val op = Aligned(UInt(DivOp.set(config.isaConfig).width))
 
-case class DivParameter(width: Int) extends Parameter
+case class DivParameter(isa: String, defaultPc: Long) extends Parameter:
+  val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[DivParameter] = upickle.default.macroRW
 
@@ -27,9 +29,9 @@ class DivLayers(parameter: DivParameter) extends LayerInterface(parameter):
 class DivIO(parameter: DivParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new DivInput(parameter.width)))
+  val issue = Flipped(Valid(new DivInput(parameter.config)))
   val done = Aligned(Bool())
-  val data = Aligned(UInt(parameter.width))
+  val data = Aligned(UInt(parameter.config.width))
 
 class DivProbe(parameter: DivParameter) extends DVBundle[DivParameter, DivLayers](parameter)
 
@@ -39,6 +41,10 @@ class DivProbe(parameter: DivParameter) extends DVBundle[DivParameter, DivLayers
   * remainder holds, which is also the quotient bit. RISC-V divides magnitudes and takes the result's sign from the
   * operands, so both are negated up front and the sign is applied to the result; the two special cases — division by
   * zero, and the signed overflow INT_MIN / -1 — are answered from the operands without running the loop.
+  *
+  * The word forms ([[DivOp]]'s block of them, only where the registers are 64 bits wide) divide the low 32 bits with
+  * that width's own sign rules; the XLEN-wide loop over operands extended the same way produces that low word, and each
+  * special case answers with the word's extension.
   *
   * The unit takes no flush: the middle holds the uop until the completion is reported, so a uop that disappears means
   * the completion was consumed (or abandoned) and the FSM returns to idle either way.
@@ -52,7 +58,9 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     given ClockScope = ClockScope.posedge(io.clock)
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    val width = parameter.width
+    val width = parameter.config.width
+    val ops = DivOp.set(parameter.config.isaConfig)
+    val hasWord = ops.contains(DivOp.Divw)
     val workingWidth = 2 * width
     val countWidth = log2Ceil(width + 1)
 
@@ -69,24 +77,33 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val a = io.issue.bits.opA
     val b = io.issue.bits.opB
 
-    val signed = (op === DivOp.Div.lit.U(DivOp.width)) | (op === DivOp.Rem.lit.U(DivOp.width))
-    val aNeg = Node(a.asBits).bit(width - 1)
-    val bNeg = Node(b.asBits).bit(width - 1)
+    def is(v: DivOp): Node[Bool] = op === v.lit.U(ops.width)
 
-    val aAbs = aNeg ? (subWrap(0.U(width), a, width), a)
-    val bAbs = bNeg ? (subWrap(0.U(width), b, width), b)
-    val divisor = signed ? (bAbs, b)
-    val dividend = signed ? (aAbs, a)
+    val wordSigned: Referable[Bool] = if hasWord then (is(DivOp.Divw) | is(DivOp.Remw)) else false.B
+    val signed: Referable[Bool] = is(DivOp.Div) | is(DivOp.Rem) | wordSigned
+    val isWord: Referable[Bool] = if hasWord then (wordSigned | is(DivOp.Divuw) | is(DivOp.Remuw)) else false.B
 
-    val divByZero = b === 0.U(width)
+    // A word form reads the low 32 bits of an operand, extended by the op's signedness.
+    def wordIn(v: Referable[UInt]): Referable[UInt] =
+      val low: Node[Bits] = v.asBits.bits(31, 0)
+      val signExtended: Node[Bits] = fill(width - 32, low.bit(31)) ## low
+      wordSigned ? (signExtended.asUInt, (BigInt(0).B(width - 32) ## low).asUInt)
+    val aIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(a), a)) else a
+    val bIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(b), b)) else b
+
+    val aNeg = Node(aIn.asBits).bit(width - 1)
+    val bNeg = Node(bIn.asBits).bit(width - 1)
+
+    val aAbs = aNeg ? (subWrap(0.U(width), aIn, width), aIn)
+    val bAbs = bNeg ? (subWrap(0.U(width), bIn, width), bIn)
+    val divisor = signed ? (bAbs, bIn)
+    val dividend = signed ? (aAbs, aIn)
+
+    val divByZero = bIn === 0.U(width)
     val overflow =
-      signed & (a === (BigInt(1) << (width - 1)).U(width)) & (b === (BigInt((1 << width) - 1)).U(width))
+      signed & (aIn === (BigInt(1) << (width - 1)).U(width)) & (bIn === (BigInt((1 << width) - 1)).U(width))
     val allOnes: Referable[UInt] = BigInt((1 << width) - 1).U(width)
     val minInt: Referable[UInt] = (BigInt(1) << (width - 1)).U(width)
-    // Division by zero answers with all ones for DIV/REM and with the dividend for the unsigned forms; the signed
-    // overflow answers with INT_MIN for DIV and zero for REM.
-    val byZero: Node[UInt] = mux1H(op, Seq(allOnes, allOnes, a, a), width)
-    val onOverflow: Node[UInt] = mux1H(op, Seq(minInt, allOnes, 0.U(width), a), width)
 
     // The last iteration's result comes from the value that iteration produces, not from the register it is held in.
     val shifted = (rq.asBits << 1).bits(workingWidth - 1, 0)
@@ -102,7 +119,28 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val remAbs = Node(newRq.asBits).bits(workingWidth - 1, width).asUInt
     val quo = (signed & (aNeg ^ bNeg)) ? (subWrap(0.U(width), quoAbs, width), quoAbs)
     val rem = (signed & aNeg) ? (subWrap(0.U(width), remAbs, width), remAbs)
-    val result = mux1H(op, Seq(quo, quoAbs, rem, remAbs), width)
+
+    /** DIV/REM answer a zero divisor with all ones and the unsigned forms with the dividend; the signed overflow
+      * answers with INT_MIN for the quotient and zero for the remainder. A word form answers with the same, extended —
+      * `aIn` is already the extended dividend — and never takes the overflow path, whose operands cannot both hold.
+      */
+    def byZero(v: DivOp): Referable[UInt] = v match
+      case DivOp.Div | DivOp.Divu | DivOp.Divw | DivOp.Divuw => allOnes
+      case DivOp.Rem | DivOp.Remu | DivOp.Remw | DivOp.Remuw => aIn
+    def onOverflow(v: DivOp): Referable[UInt] = v match
+      case DivOp.Div | DivOp.Divw   => minInt
+      case DivOp.Divu | DivOp.Divuw => allOnes
+      case DivOp.Rem | DivOp.Remw   => 0.U(width)
+      case DivOp.Remu | DivOp.Remuw => aIn
+    def result(v: DivOp): Referable[UInt] = v match
+      case DivOp.Div | DivOp.Divw   => quo
+      case DivOp.Divu | DivOp.Divuw => quoAbs
+      case DivOp.Rem | DivOp.Remw   => rem
+      case DivOp.Remu | DivOp.Remuw => remAbs
+
+    val resultValue = mux1H(op, ops.variants.map(result), width)
+    val byZeroValue = mux1H(op, ops.variants.map(byZero), width)
+    val onOverflowValue = mux1H(op, ops.variants.map(onOverflow), width)
 
     when(!io.issue.valid) {
       state := sIdle
@@ -112,8 +150,8 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
           rq := (0.B(width) ## dividend.asBits).asUInt
           count := 0.U(countWidth)
           // The two special cases are mutually exclusive (the divisor cannot be both zero and minus one).
-          when(divByZero) { resultReg := byZero; state := sDone }
-          when(overflow) { resultReg := onOverflow; state := sDone }
+          when(divByZero) { resultReg := byZeroValue; state := sDone }
+          when(overflow) { resultReg := onOverflowValue; state := sDone }
           when(!(divByZero | overflow)) { state := sCalc }
         }
       }
@@ -121,11 +159,15 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
         rq := newRq
         count := addWrap(count, 1.U(countWidth), countWidth)
         when(last) {
-          resultReg := result
+          resultReg := resultValue
           state := sDone
         }
       }
     }
 
     io.done := state === sDone
-    io.data := resultReg
+    if hasWord then
+      val resultWord: Node[UInt] =
+        (fill(width - 32, resultReg.asBits.bit(31)) ## resultReg.asBits.bits(31, 0)).asUInt
+      io.data := (isWord ? (resultWord, resultReg))
+    else io.data := resultReg

@@ -99,40 +99,49 @@ object Encoding:
     * The hardware field is the payload low-anchored with the case's ordinal above it, so reading either column back is
     * a slice (see [[UnionSet]]) — a union names a layout, it costs no logic. All children share one payload column,
     * which is sound because a value belongs to exactly one case and the case says which encoding the payload is in.
+    *
+    * How wide that column has to be is the case's own answer, asked with the configuration: a child whose members come
+    * and go with the ISA (an op set with 64-bit word forms, say) moves the payload column with it.
     */
-  trait Union:
+  trait Union[Config]:
     /** This case's payload: the child encoding whose code the payload column carries. */
     def payload: Encoding
 
-    /** The bits this case needs in the payload column: its child's own field width. */
-    def childWidth: Int
+    /** The bits this case needs in the payload column under `config`: its child's field width there. */
+    def childWidth(config: Config): Int
 
-  /** The settable side's constructor: the cases a configuration keeps, in declaration order.
+  /** The settable side's constructor: the cases a configuration keeps, in declaration order, for one configuration.
     *
     * What an absent case does is the whole point: it takes its tag code with it, the cases above it close up, and the
     * field is as wide as the configuration needs — no holes for a caller to fill with width arithmetic. The condition
-    * is asked of the variant (`exists`), which is what keeps the configuration fact where the case is declared.
+    * is asked of the variant (`exists`), which is what keeps the configuration fact where the case is declared. The
+    * configuration is carried along, because the payload column's width is a question the cases answer with it.
     */
   object UnionSet:
 
-    def of[U <: Union & scala.reflect.Enum](all: Seq[U])(exists: U => Boolean): UnionSet[U] =
-      new UnionSet[U]:
+    def of[C, U <: Union[C] & scala.reflect.Enum](config: C)(all: Seq[U])(exists: U => Boolean): UnionSet[U, C] =
+      val built = config
+      new UnionSet[U, C]:
+        val config: C = built
         val cases: Seq[U] = all.filter(exists).sortBy(_.ordinal)
 
   /** The settable side of a [[Union]]: the case list it lays out, and everything derived from it.
     *
-    * The cases are the union's declaration — one representative per case, each carrying its child's width — and they
-    * can be built per configuration: a case that is not built takes its tag code with it instead of leaving a hole
-    * ([[UnionSet.of]]). They also decide the layout: the payload column is as wide as the widest child, the tag column
-    * as wide as the case count needs, and `lit` puts a case's code where those columns say. Nothing outside this trait
-    * knows an offset.
+    * The cases are the union's declaration — one representative per case — and they can be built per configuration: a
+    * case that is not built takes its tag code with it instead of leaving a hole ([[UnionSet.of]]). They also decide
+    * the layout: the payload column is as wide as the widest child under this configuration ([[Union.childWidth]]), the
+    * tag column as wide as the case count needs, and `lit` puts a case's code where those columns say. Nothing outside
+    * this trait knows an offset.
     */
-  trait UnionSet[U <: Union & scala.reflect.Enum]:
+  trait UnionSet[U <: Union[C] & scala.reflect.Enum, C]:
     /** One case instance per variant, in tag order; the payload is a representative, only the case matters. */
     def cases: Seq[U]
 
-    /** The payload column's width: the widest child's field. */
-    final def payloadWidth: Int = cases.map(_.childWidth).max
+    /** The configuration this set was built for: what a case's payload width is asked about. */
+    def config: C
+
+    /** The payload column's width: the widest child's field under this configuration. */
+    final def payloadWidth: Int = cases.map(_.childWidth(config)).max
 
     /** The tag column's width: what the case count needs. Zero for a single-case union, which carries no tag. */
     final def tagWidth: Int = log2Ceil(cases.size)
@@ -207,7 +216,7 @@ object Encoding:
         InstanceContext
     ): Referable[T] =
       val cases = entries.map(_._1)
-      val values = entries.map((v, entry) => entry(Encoding.take(u, v.childWidth)))
+      val values = entries.map((v, entry) => entry(Encoding.take(u, v.childWidth(config))))
       muxCase(values.head, cases.tail.zip(values.tail).map((v, value) => (isCase(v, u), value)))
 
   /** A payload of several fields at once: each field owns a column, low-anchored in declaration order.
@@ -257,8 +266,18 @@ object Encoding:
   * both traits are opt-in for exactly that reason.
   */
 trait OneHotSet[E <: Encoding.OneHot & scala.reflect.Enum]:
-  /** The variants in one-hot bit order: `variants(i)` is the variant bit `i` selects. */
+  /** The variants that exist, in one-hot bit order: `variants(i)` is the variant bit `i` selects. */
   def variants: Seq[E]
+
+  /** The field width this set needs: the bits its highest code occupies. An empty set has no width — a union case that
+    * carries it must not exist in that configuration either.
+    */
+  final def width: Int = if variants.isEmpty then 0 else Encoding.width(variants)
+
+  /** Whether a member is part of this set: the question a configuration-dependent set is asked. The test is the
+    * variant, not the code it carries.
+    */
+  final def contains(v: E): Boolean = variants.exists(_.ordinal == v.ordinal)
 
   /** `Mux1H` over the set: `entry` supplies each variant's value, so no caller does bit math. */
   final def mux1H(sel: Referable[UInt], entry: E => Referable[UInt], width: Int)(using
@@ -271,3 +290,13 @@ trait OneHotSet[E <: Encoding.OneHot & scala.reflect.Enum]:
       InstanceContext
   ): Node[UInt] =
     nzea_rtl.stdlib.mux1H(sel, variants.map(entry), width)
+
+object OneHotSet:
+
+  /** The settable side's constructor: the members a configuration keeps, in declaration order. A member that is not
+    * kept keeps its code — the codes come from the declaration — so only a trailing block of members can be gated
+    * without moving the ones before it.
+    */
+  def of[E <: Encoding.OneHot & scala.reflect.Enum](all: Seq[E])(exists: E => Boolean): OneHotSet[E] =
+    new OneHotSet[E]:
+      val variants: Seq[E] = all.filter(exists)
