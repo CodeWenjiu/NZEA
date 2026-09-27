@@ -80,8 +80,25 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
       }
     }
 
+    // Fetch follows the memory path's contract: the request carries the word address and the fetch picks the 32-bit
+    // group the pc points at out of the answered word, so no slave is ever asked for a misaligned access. Instructions
+    // are 4-byte aligned, so only group starts are reachable — `i & ~3` keeps every entry of the select a valid slice
+    // (at xlen 32 there is exactly one group and the select folds away).
+    val lanes = width / 8
+    val offsetWidth = log2Ceil(lanes)
+    val pcBits: Node[Bits] = Node(pc.asBits)
+    val wordAddr: Node[UInt] = (pcBits.bits(width - 1, offsetWidth) ## 0.B(offsetWidth)).asUInt
+    // The group comes from the response's own pc: a response arrives a cycle after its request, when the register has
+    // already moved on.
+    val respPc: Node[UInt] = IbusUser.pcOf(io.ibus.resp.bits.user, width)
+    val respPcBits: Node[Bits] = Node(respPc.asBits)
+    val offset: Node[UInt] = respPcBits.bits(offsetWidth - 1, 0).asUInt
+    val rdata: Node[Bits] = Node(io.ibus.resp.bits.data.asBits)
+    val inst: Node[UInt] =
+      muxTree(offset, (0 until lanes).map(i => rdata.bits((i & ~3) * 8 + 31, (i & ~3) * 8))).asUInt
+
     io.ibus.req.valid := io.out.ready
-    io.ibus.req.bits.addr := pc
+    io.ibus.req.bits.addr := wordAddr
     io.ibus.req.bits.user := IbusUser.pack(pc, epoch)
     io.ibus.req.bits.id := 0.U(Ifu.busIdWidth)
 
@@ -89,7 +106,5 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     // (out.valid stays low) instead of being refused, so no request is left dangling on the bus.
     io.ibus.resp.ready := io.out.ready
     io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user, width) === epoch)
-    io.out.bits.pc := IbusUser.pcOf(io.ibus.resp.bits.user, width)
-    // The bus answers in machine words — the DPI boundary is XLEN wide all the way across — while an instruction word is
-    // 32 bits in every base ISA this core has, so the fetch reads the low word out of the answer.
-    io.out.bits.inst := Node(io.ibus.resp.bits.data.asBits).bits(31, 0).asUInt
+    io.out.bits.pc := respPc
+    io.out.bits.inst := inst
