@@ -12,7 +12,7 @@
 | `nzea_device/src` | 可复用设备 IP（UART、定时器等），不依赖任何业务模块 |
 | `nzea_cache/src` | Cache 实现（I-Cache、D-Cache），依赖 `nzea_rtl` |
 | `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |
-| `nzea_config/src` | 配置模型叶子模块（零依赖）：`core/`（CoreConfig（含 Isa：Xlen 与 Ext）、BpuConfig、FuConfig、PayloadSpec、CacheConfig 等）、`tile/`（TileConfig）、`fpga/`（FpgaConfig）、顶层构建流程枚举（SynthPlatform 等） |
+| `nzea_config/src` | 汇总层：把各模块自己定义的配置组装成各层 Top 的 parameter（当前只有 `NzeaCoreParameter`）。配置的定义随消费它的模块走，这里不重复定义 |
 | `nzea_tile/src` | Tile 级 SoC 封装（NzeaTile + FabricBus crossbar + 平台设备） |
 | `nzea_fpga/src` | FPGA 板级包装：板级顶层、引脚约束、综合后处理 |
 | `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |
@@ -23,32 +23,23 @@
 ### 依赖方向
 ```mermaid
 flowchart TD
-    rtl[nzea_rtl] --> device[nzea_device]
-    rtl --> cache[nzea_cache]
-    rtl --> core[nzea_core]
-    core --> config[nzea_config]
-    core --> tile[nzea_tile]
-    cache --> tile
-    config --> tile
-    rtl --> tile
-    device --> tile
-    device --> fpga[nzea_fpga]
-    tile --> fpga
-    core --> cli[nzea_cli]
-    tile --> cli
-    config --> cli
-    fpga --> cli
-    core --> sim[nzea_sim]
-    tile --> sim
-    config --> sim
-    fpga --> sim
+    rtl[nzea_rtl] --> core[nzea_core]
+    config[nzea_config] --> rtl
+    config --> core
+    top[nzea_top] --> rtl
+    top --> core
+    top --> config
+    cli[nzea_cli] --> rtl
+    cli --> core
+    cli --> config
+    cli --> top
 ```
-`nzea_cli` 依赖 `nzea_core`、`nzea_tile`、`nzea_config`、`nzea_fpga` 用于参数解析和目标分发。
-`nzea_config` 是零依赖叶子：所有硬件模块（core/tile/fpga/cli/sim）依赖它，配置定义与修改集中在单一模块。
+`nzea_cli` 依赖 `nzea_top`、`nzea_core`、`nzea_config`、`nzea_rtl` 用于参数解析和目标分发。
+`nzea_config` 是**汇总层**：配置的定义随消费它的模块走（ISA/宽度在 `nzea_core.isa`，bypass 链接在 `nzea_core`，flow 在 `nzea_rtl`），`nzea_config` 只把它们组装成各层 Top 的 parameter，因此它依赖各模块、而不被各模块依赖。后续的 `nzea_device` / `nzea_cache` / `nzea_tile` / `nzea_fpga` / `nzea_sim` 按同一形状接入：引擎待在 `nzea_rtl` 之上、`nzea_config` 之下，各层的 Top（连同它的 parameter）在 `nzea_config` 之上。
 
 ### 设计原则
-1. 配置集中在 `nzea_config` 中，避免重复的 CLI 解析逻辑。
-2. 保持作用域明确：`CoreConfig` 通过 implicit 通道传入硬件模块（`NzeaTile`/`Core`）；非核心流程选项（平台、时钟等）保留在 `TileConfig`/`FpgaConfig` 中。
+1. 配置的定义随消费它的模块走（`nzea_core.isa`、`nzea_core.Bypass`、`nzea_rtl.RtlFlow`）；`nzea_config` 只做汇总，不重复定义。
+2. 保持作用域明确：`CoreConfig`（`isa` + `defaultPc`）随 `CoreParameter` 显式传给硬件模块；非核心流程选项（平台、时钟等）留在各层自己的 parameter 里。
 3. 将 CLI 关注点与硬件生成分离，使生成过程能被测试和工具复用。
 4. 优先使用职责明确的小模块，而非多功能大文件。
 5. 版本常量（`scalaV`、`chiselV` 等）在 `build.mill` 中统一定义，各模块复用。

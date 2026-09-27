@@ -79,16 +79,12 @@ trait ZaoziModule extends Scala3Module {
   }
 }
 
-/** Configuration model: no hardware dependencies. It carries the two libraries its parameters are parsed and
-  * serialized with, because a parameter field's type has to bring its own readers.
+/** System configuration: the per-module configs, assembled into the bundle a level top is generated from. The
+  * definitions live with the modules that consume them; this module is where a level names them together, so it depends
+  * on the modules instead of the other way around.
   */
-object nzea_config extends Scala3Module {
-  override def mvnDeps = Task {
-    super.mvnDeps() ++ Seq(
-      mvn"com.lihaoyi::mainargs:$mainargsV",
-      mvn"com.lihaoyi::upickle:$upickleV"
-    )
-  }
+object nzea_config extends ZaoziModule {
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
@@ -106,9 +102,12 @@ object nzea_rtl extends ZaoziModule {
   }
 }
 
-/** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). */
+/** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). Its configuration is defined inside it
+  * (the ISA under `isa`, the bypass links beside the read network, the cross-stage numbers in `CoreParams`), so it
+  * depends on the shared RTL only; the aggregation lives above, in `nzea_config`.
+  */
 object nzea_core extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_config)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
