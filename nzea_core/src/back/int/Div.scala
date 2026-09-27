@@ -9,6 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.{CoreConfig, Isa}
+import nzea_core.back.IssueSlot
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -29,7 +30,7 @@ class DivLayers(parameter: DivParameter) extends LayerInterface(parameter):
 class DivIO(parameter: DivParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new DivInput(parameter.config)))
+  val issue = Flipped(new IssueSlot(new DivInput(parameter.config)))
   val done = Aligned(Bool())
   val data = Aligned(UInt(parameter.config.width))
 
@@ -113,7 +114,7 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val newRq = (newRem ## shifted.bits(width - 1, 1) ## ge.asBits).asUInt
 
     val last = count === (width - 1).U(countWidth)
-    val start = io.issue.valid & !regNext(io.issue.valid, false.B)
+    val start = io.issue.valid & io.issue.first
 
     val quoAbs = Node(newRq.asBits).bits(width - 1, 0).asUInt
     val remAbs = Node(newRq.asBits).bits(workingWidth - 1, width).asUInt
@@ -142,6 +143,12 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val byZeroValue = mux1H(op, ops.variants.map(byZero), width)
     val onOverflowValue = mux1H(op, ops.variants.map(onOverflow), width)
 
+    // The two special cases are mutually exclusive (the divisor cannot be both zero and minus one) and both answer
+    // without running the loop. Their tests stay on the value path: the state register's enables are only `start`,
+    // `last` and the state decode.
+    val special = divByZero | overflow
+    val specialValue: Referable[UInt] = divByZero ? (byZeroValue, onOverflowValue)
+
     when(!io.issue.valid) {
       state := sIdle
     }.otherwise {
@@ -149,10 +156,9 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
         when(start) {
           rq := (0.B(width) ## dividend.asBits).asUInt
           count := 0.U(countWidth)
-          // The two special cases are mutually exclusive (the divisor cannot be both zero and minus one).
-          when(divByZero) { resultReg := byZeroValue; state := sDone }
-          when(overflow) { resultReg := onOverflowValue; state := sDone }
-          when(!(divByZero | overflow)) { state := sCalc }
+          // Both completions write the result here; the loop overwrites it when its last iteration lands.
+          resultReg := specialValue
+          state := special ? (sDone, sCalc)
         }
       }
       when(state === sCalc) {
@@ -163,6 +169,9 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
           state := sDone
         }
       }
+      // The completion state lasts exactly one cycle — the FSM leaves it on its own — so `done` is a pulse by
+      // construction, with nothing to clear for the next divide.
+      when(state === sDone) { state := sIdle }
     }
 
     io.done := state === sDone

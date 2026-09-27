@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.{CoreConfig, Isa}
-import nzea_core.back.{IssueUop, PathResult}
+import nzea_core.back.{IssueSlot, IssueUop, PathResult}
 import nzea_core.isa.CsrType
 import nzea_rtl.LiteBusRW
 import nzea_rtl.stdlib.*
@@ -39,7 +39,7 @@ class MemPathIO(parameter: MemPathParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new IssueUop(parameter.config)))
+  val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
   val done = Aligned(Bool())
   val result = Aligned(new PathResult(width))
   val dbus = Aligned(MemPath.dbusType(parameter.config))
@@ -104,16 +104,17 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     val storeData: Node[Bits] = Node(u.src_c.asBits)
     val wdata = muxTree(offset, (0 until lanes).map(i => (storeData << (i * 8)).bits(width - 1, 0)))
 
-    // One request per uop, held until the bus accepts it and dropped when the uop goes away.
-    val uopEdge = uopValid & !regNext(uopValid, false.B)
+    // One request per uop, held until the bus accepts it and dropped when the uop goes away. The uop's first cycle is
+    // where the tag advances: with back-to-back instructions the level does not fall between them.
+    val uopFirst = io.issue.first
     val reqValid = RegInit(false.B)
-    when(uopEdge) { reqValid := true.B }
+    when(uopFirst) { reqValid := true.B }
     when(!uopValid | (reqValid & io.dbus.req.ready)) { reqValid := false.B }
 
     val tag = RegInit(0.U(DbusUser.tagWidth))
     val curTag = RegInit(0.U(DbusUser.tagWidth))
     val tagNext = (tag.asBits.asUInt + 1.U(DbusUser.tagWidth)).asBits.bits(DbusUser.tagWidth - 1, 0).asUInt
-    when(uopEdge) {
+    when(uopFirst) {
       curTag := tag
       tag := tagNext
     }

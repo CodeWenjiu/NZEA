@@ -48,6 +48,7 @@ object BackPathTest extends TestSuite:
           "clock" -> 1,
           "resetN" -> 1,
           "issue_valid" -> 1,
+          "issue_first" -> 1,
           "issue_bits_pc" -> width,
           "issue_bits_imm" -> width,
           "issue_bits_src_a" -> width,

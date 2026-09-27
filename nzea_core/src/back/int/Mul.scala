@@ -9,6 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.{CoreConfig, Isa}
+import nzea_core.back.IssueSlot
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -29,7 +30,7 @@ class MulLayers(parameter: MulParameter) extends LayerInterface(parameter):
 class MulIO(parameter: MulParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new MulInput(parameter.config)))
+  val issue = Flipped(new IssueSlot(new MulInput(parameter.config)))
   val done = Aligned(Bool())
   val data = Aligned(UInt(parameter.config.width))
 
@@ -80,17 +81,16 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
     val mp = Reg(UInt(width))
     val count = Reg(UInt(countWidth))
     val busy = RegInit(false.B)
-    val doneReg = RegInit(false.B)
 
-    val start = io.issue.valid & !regNext(io.issue.valid, false.B)
+    val start = io.issue.valid & io.issue.first
     val last = count === (width - 1).U(countWidth)
+    val completing = busy & io.issue.valid & last
 
     when(busy & io.issue.valid) {
       acc := addWrap(acc, Node(mp.asBits).bit(0) ? (mcand, 0.U(productWidth)), productWidth)
       mcand := (mcand.asBits << 1).bits(productWidth - 1, 0).asUInt
       mp := (mp.asBits >> 1).pad(width).asUInt
       count := addWrap(count, 1.U(countWidth), countWidth)
-      when(last) { doneReg := true.B }
     }
     when(!busy & start) {
       acc := correction
@@ -102,7 +102,6 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
 
     // A uop that is gone leaves nothing to complete; the same rule ends a finished multiply.
     when(!io.issue.valid | (busy & last)) { busy := false.B }
-    when(!io.issue.valid) { doneReg := false.B }
 
     val product: Node[Bits] = Node(acc.asBits)
     val low: Node[Bits] = product.bits(width - 1, 0)
@@ -117,5 +116,7 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
       case MulOp.Mulh | MulOp.Mulhsu | MulOp.Mulhu => high
       case MulOp.Mulw                              => lowWord
 
-    io.done := doneReg
+    // One pulse per instruction, in the cycle after the last accumulate: a held level would still be high when the
+    // next multiply arrives, since the middle admits it in the cycle this one commits.
+    io.done := regNext(completing, false.B)
     io.data := mux1H(op, ops.variants.map(data), width).asUInt

@@ -10,7 +10,7 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
 import nzea_config.core.{CoreConfig, Isa}
-import nzea_core.back.{BackOut, IssueUop}
+import nzea_core.back.{BackOut, IssueSlot, IssueUop}
 import nzea_core.front.idu.{ArfWrite, IduOut}
 import nzea_core.isa.{Backend, CsrType}
 import nzea_core.stats.{CoreStats, ThroughputCounters, ThroughputCountersParameter}
@@ -33,7 +33,7 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
   val decoded = Flipped(Decoupled(new IduOut(parameter.config)))
   val redirect = Aligned(Valid(UInt(width)))
   val arf_write = Aligned(ValidIO(new ArfWrite(width)))
-  val issue = Aligned(ValidIO(new IssueUop(parameter.config)))
+  val issue = Aligned(new IssueSlot(new IssueUop(parameter.config)))
   val report = Flipped(new BackOut(width))
   val commit = Aligned(ValidIO(new CommitMsg(width)))
   val flush = Aligned(Bool())
@@ -82,20 +82,26 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     uop.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), CsrType.fromAddr(ex.csr_addr))
     uop.csr_rdata := csr.io.read_data
 
-    io.issue.valid := exValid
-    io.issue.bits :<= uop
-
     val issue = io.decoded.fire
     val done = io.report.done
     val flushing = io.report.flush
 
     when(issue) { ex :<= io.decoded.bits }
 
-    // One instruction in flight: nothing new is admitted until the previous one commits or is flushed.
-    io.decoded.ready := !exValid & !done & !flushing
-    when(flushing | done) { exValid := false.B }.otherwise {
+    // The commit cycle is an admission window as well: the register file is write-first, so the operands read in that
+    // cycle see the commit's own write. A flush closes the window — the instruction the front would offer is on the
+    // path being killed.
+    io.decoded.ready := (!exValid | done) & !flushing
+    when(flushing) { exValid := false.B }.otherwise {
       when(issue) { exValid := true.B }
+        .otherwise { when(done) { exValid := false.B } }
     }
+
+    // An instruction admitted in its predecessor's commit cycle leaves `valid` high across the boundary, so the slot
+    // carries the arrival itself: `first` marks the new uop's first cycle.
+    io.issue.valid := exValid
+    io.issue.first := regNext(issue, false.B)
+    io.issue.bits :<= uop
 
     io.flush := flushing
     io.redirect.valid := flushing

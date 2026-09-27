@@ -10,7 +10,7 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
 import nzea_config.core.{CoreConfig, Isa}
-import nzea_core.back.{IssueUop, PathResult}
+import nzea_core.back.{IssueSlot, IssueUop, PathResult}
 import nzea_core.isa.CsrType
 import nzea_rtl.StatsRegs
 import nzea_rtl.stdlib.*
@@ -29,7 +29,7 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new IssueUop(parameter.config)))
+  val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
   val done = Aligned(Bool())
   val result = Aligned(new PathResult(width))
   val redirect = Aligned(Valid(UInt(width)))
@@ -55,6 +55,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
     val width = parameter.config.width
     val uopValid = io.issue.valid
+    val uopFirst = io.issue.first
     val u = io.issue.bits
 
     val ops = IntOp.set(parameter.config.isa)
@@ -106,6 +107,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       m.io.clock := io.clock
       m.io.resetN := io.resetN
       m.io.issue.valid := uopValid & selects(IntOp.mul)
+      m.io.issue.first := uopFirst
       m.io.issue.bits.opA := u.src_a
       m.io.issue.bits.opB := u.src_b
       m.io.issue.bits.op := Encoding.take(fuOp, MulOp.set(parameter.config.isa).width)
@@ -113,6 +115,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       d.io.clock := io.clock
       d.io.resetN := io.resetN
       d.io.issue.valid := uopValid & selects(IntOp.div)
+      d.io.issue.first := uopFirst
       d.io.issue.bits.opA := u.src_a
       d.io.issue.bits.opB := u.src_b
       d.io.issue.bits.op := Encoding.take(fuOp, DivOp.set(parameter.config.isa).width)
@@ -133,7 +136,10 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val data: Referable[UInt] = ops.dispatch(op)(ops.cases.map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
 
     val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
-    io.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone)
+    // One completion pulse per instruction: the combinational units report in the uop's first cycle, the serial ones
+    // when they finish. A level would still be high when the next uop arrives — the middle admits it in the cycle this
+    // one commits.
+    io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)
     io.result.data := data
     io.result.next_pc := isBru ? (bru.io.nextPc, pcPlus4)
     io.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
@@ -146,12 +152,13 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       val stats = BpCounters.instantiate(BpCountersParameter())
       stats.io.clock := io.clock
       stats.io.resetN := io.resetN.asBool
-      // A combinational unit holds its uop for the whole residence, so a per-instruction event is the arrival edge —
-      // counting the level would count one branch once per cycle it is held. It is a named wire on purpose: the
-      // counters and the waveform's event file (`branch.pulse` beside this one) both address this event by name, and a
-      // plain val would be inlined into an anonymous net.
+      // A per-instruction event is the slot's first cycle: a combinational unit holds its uop for the whole residence,
+      // so counting the level would count one branch once per cycle it is held — and with back-to-back instructions the
+      // level does not fall between them. It is a named wire on purpose: the counters and the waveform's event file
+      // (`branch.pulse` beside this one) both address this event by name, and a plain val would be inlined into an
+      // anonymous net.
       val branchResolved = Wire(Bool())
-      branchResolved := uopValid & isBru & !regNext(uopValid, false.B)
+      branchResolved := uopFirst & isBru
       stats.io.stat_bp_branch.en := branchResolved
       stats.io.stat_bp_branch.data :=
         addWrap(stats.io.stat_bp_branch.value, 1.U(StatsRegs.Width), StatsRegs.Width)

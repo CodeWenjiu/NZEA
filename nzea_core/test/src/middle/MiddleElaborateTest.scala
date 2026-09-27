@@ -53,6 +53,7 @@ object MiddleElaborateTest extends TestSuite:
           "arf_write_bits_rd_index" -> Gpr.indexWidth,
           "arf_write_bits_data" -> width,
           "issue_valid" -> 1,
+          "issue_first" -> 1,
           "issue_bits_pc" -> width,
           "issue_bits_imm" -> width,
           "issue_bits_src_a" -> width,

@@ -28,7 +28,7 @@ class BackIO(parameter: BackParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new IssueUop(parameter.config)))
+  val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
   val report = Aligned(new BackOut(width))
   val dbus = Aligned(MemPath.dbusType(parameter.config))
 
@@ -37,10 +37,9 @@ class BackProbe(parameter: BackParameter) extends DVBundle[BackParameter, BackLa
 /** Backend: routes the issue uop to its execution path and merges the single completion back to the middle.
   *
   * The routing test is the whole job here — which path owns a uop is decode's `Backend`, so a path grows its own
-  * scheduler without this file noticing. The paths report a completion level, and the edge is taken exactly once, here:
-  * the exit register latches the result and the pulse the middle retires arrives with it, one cycle later. A flush is
-  * latched with the same edge, so it reaches the middle in the cycle the branch commits and carries the target the
-  * front restarts from.
+  * scheduler without this file noticing. The paths report a completion as a one-cycle pulse, and the exit register
+  * latches the result with it; the pulse the middle retires arrives one cycle later. A flush is latched with the same
+  * pulse, so it reaches the middle in the cycle the branch commits and carries the target the front restarts from.
   */
 @generator
 object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
@@ -54,6 +53,7 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     val width = parameter.config.width
     val c = parameter.config
     val uopValid = io.issue.valid
+    val uopFirst = io.issue.first
     val isMem = io.issue.bits.backend === Backend.MEM.lit.U(Backend.width)
 
     val int = IntPath.instantiate(IntPathParameter(c.isa, c.defaultPc, parameter.flow))
@@ -66,8 +66,10 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     io.dbus :<>= mem.io.dbus
 
     int.io.issue.valid := uopValid & !isMem
+    int.io.issue.first := uopFirst & !isMem
     int.io.issue.bits :<= io.issue.bits
     mem.io.issue.valid := uopValid & isMem
+    mem.io.issue.first := uopFirst & isMem
     mem.io.issue.bits :<= io.issue.bits
 
     val flush = int.io.redirect.valid
@@ -76,18 +78,18 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     val result = Wire(new PathResult(width))
     when(isMem) { result :<= mem.io.result }.otherwise { result :<= int.io.result }
 
-    // The completion edge, taken once: the result the pulse belongs to is the one latched with the edge.
-    val doneEdge = done & !regNext(done)
+    // The paths report a completion as a one-cycle pulse, so that pulse is the latch enable: a level would still be
+    // high when the next uop arrives, one cycle later in the steady state.
     val resultReg = Reg(new PathResult(width))
     val flushReg = RegInit(false.B)
     val redirectReg = Reg(UInt(width))
-    when(doneEdge) {
+    when(done) {
       resultReg :<= result
       flushReg := flush
       redirectReg := int.io.redirect.bits
     }
 
-    val donePulse = regNext(doneEdge, false.B)
+    val donePulse = regNext(done, false.B)
     io.report.done := donePulse
     io.report.data := resultReg.data
     io.report.next_pc := resultReg.next_pc
