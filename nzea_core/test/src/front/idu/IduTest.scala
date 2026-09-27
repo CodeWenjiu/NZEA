@@ -2,6 +2,7 @@ package nzea_core.front.idu
 
 import nzea_config.core.CoreConfig
 import nzea_core.back.OpWindow
+import nzea_core.back.int.IntOp
 import nzea_core.isa.{Backend, Gpr}
 import nzea_rtl.stdlib.*
 import utest.*
@@ -35,6 +36,7 @@ object IduTest extends TestSuite:
         config <- configs
         inst <- RiscvInsts.all(config)
       do
-        assert(inst.dispatch.window > 0)
-        assert(inst.dispatch.window < (1 << OpWindow.Width))
+        val ops = IntOp.set(config.isaConfig)
+        assert(inst.dispatch.window(ops) > 0)
+        assert(inst.dispatch.window(ops) < (1 << OpWindow.width(config)))
         assert(inst.dispatch.backend.lit < (1 << Backend.width))

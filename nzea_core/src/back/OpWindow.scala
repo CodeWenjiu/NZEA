@@ -1,5 +1,6 @@
 package nzea_core.back
 
+import nzea_config.core.CoreConfig
 import nzea_core.back.int.IntOp
 import nzea_core.back.mem.MemOp
 
@@ -10,6 +11,9 @@ import nzea_core.back.mem.MemOp
   * because an instruction carries exactly one backend, and they are all low-anchored, so a wider field only ever adds
   * bits above the ones a backend already uses. Operands are not part of any window: they travel resolved in the uop's
   * slots.
+  *
+  * The width follows the configuration: a backend that is not built (the M units without M) drops its tag codes, and
+  * the field only has to cover the windows that exist.
   */
 object OpWindow:
-  val Width: Int = Seq(IntOp.width, MemOp.width).max
+  def width(config: CoreConfig): Int = Seq(IntOp.set(config.isaConfig).width, MemOp.width).max

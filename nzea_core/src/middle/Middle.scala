@@ -30,10 +30,10 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val decoded = Flipped(Decoupled(new IduOut(width)))
+  val decoded = Flipped(Decoupled(new IduOut(parameter.config)))
   val redirect = Aligned(Valid(UInt(width)))
   val arf_write = Aligned(ValidIO(new ArfWrite(width)))
-  val issue = Aligned(ValidIO(new IssueUop(width)))
+  val issue = Aligned(ValidIO(new IssueUop(parameter.config)))
   val report = Flipped(new BackOut(width))
   val commit = Aligned(ValidIO(new CommitMsg(width)))
   val flush = Aligned(Bool())
@@ -62,14 +62,14 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     val width = parameter.config.width
 
     val exValid = RegInit(false.B)
-    val ex = Reg(new IduOut(width))
+    val ex = Reg(new IduOut(parameter.config))
 
     val csr = CsrFile.instantiate(CsrFileParameter(width))
     csr.io.clock := io.clock
     csr.io.resetN := io.resetN
     csr.io.read_addr := ex.csr_addr
 
-    val uop = Wire(new IssueUop(width))
+    val uop = Wire(new IssueUop(parameter.config))
     uop.pc := ex.pc
     uop.imm := ex.imm
     uop.src_a := ex.src_a

@@ -32,7 +32,7 @@ class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
   val ibus = Aligned(Ifu.busType(parameter.config))
   val redirect = Flipped(Valid(UInt(width)))
   val arf_write = Flipped(ValidIO(new ArfWrite(width)))
-  val out = Aligned(Decoupled(new IduOut(width)))
+  val out = Aligned(Decoupled(new IduOut(parameter.config)))
 
 class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, FrontLayers](parameter)
 

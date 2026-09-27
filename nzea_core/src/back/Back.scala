@@ -28,7 +28,7 @@ class BackIO(parameter: BackParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new IssueUop(width)))
+  val issue = Flipped(Valid(new IssueUop(parameter.config)))
   val report = Aligned(new BackOut(width))
   val dbus = Aligned(MemPath.dbusType(parameter.config))
 

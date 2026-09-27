@@ -4,7 +4,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.{CoreConfig, CoreParams, OpProducer}
+import nzea_config.core.{CoreConfig, CoreParams, IsaConfig, OpProducer}
 import nzea_core.back.int.IntOp
 import nzea_core.back.mem.MemOp
 import nzea_core.isa.Backend
@@ -19,26 +19,31 @@ case class CoreParamsUsageTestParameter(isa: String, defaultPc: Long) extends Pa
 given upickle.default.ReadWriter[CoreParamsUsageTestParameter] = upickle.default.macroRW
 
 /** Where the backends are known, their declarations are stated once; nothing here is a width, only what each side says
-  * it needs.
+  * it needs. The int window is the configuration's, since the units it carries are.
   */
 object CoreParamsUsageTestDeclared:
 
-  val declared: Seq[OpProducer] = Seq(
-    OpProducer("int", Backend.INT.lit, IntOp.width),
+  def declared(isa: IsaConfig): Seq[OpProducer] = Seq(
+    OpProducer("int", Backend.INT.lit, IntOp.set(isa).width),
     OpProducer("mem", Backend.MEM.lit, MemOp.width)
   )
+
+/** The parameters the module and its IO agree on: the ISA decides both the contract and the windows inside it. */
+private def testParams(parameter: CoreParamsUsageTestParameter): CoreParams =
+  CoreParams(parameter.config, Backend.width, CoreParamsUsageTestDeclared.declared(parameter.config.isaConfig))
 
 class CoreParamsUsageTestLayers(parameter: CoreParamsUsageTestParameter) extends LayerInterface(parameter):
   def layers = Seq.empty
 
 /** The ports are as wide as the contract says, and nothing in this class picks a width by hand. */
 class CoreParamsUsageTestIO(parameter: CoreParamsUsageTestParameter) extends HWBundle(parameter):
-  private val params = CoreParams(parameter.config, Backend.width, CoreParamsUsageTestDeclared.declared)
+  private val params = testParams(parameter)
+  private val intOps = IntOp.set(parameter.config.isaConfig)
 
   val dispatch = Flipped(UInt(params.dispatchWidth))
   val op = Flipped(UInt(params.opWidth))
   val is_mem = Aligned(Bool())
-  val alu_op = Aligned(UInt(IntOp.payloadWidth))
+  val alu_op = Aligned(UInt(intOps.payloadWidth))
   val mem_op = Aligned(UInt(MemOp.payloadWidth))
 
 class CoreParamsUsageTestProbe(parameter: CoreParamsUsageTestParameter)
@@ -59,11 +64,12 @@ object CoreParamsUsageTestModule
 
   def architecture(parameter: CoreParamsUsageTestParameter) =
     val io = summon[Interface[CoreParamsUsageTestIO]]
-    val params = CoreParams(parameter.config, Backend.width, CoreParamsUsageTestDeclared.declared)
+    val params = testParams(parameter)
+    val intOps = IntOp.set(parameter.config.isaConfig)
     println(s"elaborating: ${params.report}")
 
     io.is_mem := io.dispatch === Backend.MEM.lit.U(params.dispatchWidth)
-    io.alu_op := IntOp.payload(io.op)
+    io.alu_op := intOps.payload(io.op)
     io.mem_op := MemOp.payload(io.op)
 
 /** The usage: the resolved contract sizes the field, and each backend still unpacks its own window out of it. */
@@ -84,15 +90,18 @@ object CoreParamsUsageTest extends TestSuite:
 
   private lazy val ports = TestFlow.ports(sv, module)
 
+  /** riscv32i: no M units, so the int window is a payload column plus a two-bit tag for the three units that exist. */
+  private val intOps = IntOp.set(CoreConfig("riscv32i", 0x80000000L).isaConfig)
+
   val tests = Tests:
     test("the resolved contract is what reaches the hardware"):
       assert(sv.contains(s"module $module("))
       assert(
         ports == Map(
           "dispatch" -> 1,
-          "op" -> 13,
+          "op" -> intOps.width,
           "is_mem" -> 1,
-          "alu_op" -> IntOp.payloadWidth,
+          "alu_op" -> intOps.payloadWidth,
           "mem_op" -> MemOp.payloadWidth
         )
       )

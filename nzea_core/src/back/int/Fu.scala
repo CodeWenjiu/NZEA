@@ -1,13 +1,15 @@
 package nzea_core.back.int
 
+import nzea_config.core.IsaConfig
 import nzea_rtl.stdlib.*
 
-/** The int path's window in the issue uop's shared `op` field: which FU takes the uop, and that FU's own op.
+/** The int path's window in the issue uop's shared `op` field: which unit takes the uop, and that unit's own op.
   *
-  * One case per unit, each carrying that unit's op encoding. The layout below the cases — the payload column and the
-  * case (tag) column above it — is the union's own business (`Encoding.UnionSet`), so this backend states neither an
-  * offset nor a width. Operands are not part of this window: the uop's slots carry them already resolved, and which
-  * slot a unit reads is this backend's own wiring.
+  * One case per unit, each carrying that unit's op encoding; which of them the window actually carries is the
+  * configuration's ([set]), since a unit that is not built takes its tag code with it. The layout below the cases — the
+  * payload column and the case (tag) column above it — is the union's own business (`Encoding.UnionSet`), so this
+  * backend states neither an offset nor a width. Operands are not part of this window: the uop's slots carry them
+  * already resolved, and which slot a unit reads is this backend's own wiring.
   */
 enum IntOp(val childWidth: Int) extends Encoding.Union:
   case Alu(payload: AluOp) extends IntOp(AluOp.width)
@@ -16,7 +18,7 @@ enum IntOp(val childWidth: Int) extends Encoding.Union:
   case Div(payload: DivOp) extends IntOp(DivOp.width)
   case Sysu(payload: SysuOp) extends IntOp(SysuOp.width)
 
-object IntOp extends Encoding.UnionSet[IntOp]:
+object IntOp:
 
   /** One representative per case, for the tag tests: they read the case, never its payload. */
   val alu = Alu(AluOp.Add)
@@ -25,4 +27,10 @@ object IntOp extends Encoding.UnionSet[IntOp]:
   val div = Div(DivOp.Div)
   val sysu = Sysu(SysuOp.ECALL)
 
-  val cases: Seq[IntOp] = Seq(alu, bru, mul, div, sysu)
+  /** The units this configuration has, in tag order: without M the multiplier and divider are never built, so their
+    * codes go with them instead of leaving holes in the tag column.
+    */
+  def set(isa: IsaConfig): Encoding.UnionSet[IntOp] =
+    val units = Seq(alu, bru, sysu) ++ Option.when(isa.hasM)(Seq(mul, div)).toSeq.flatten
+    new Encoding.UnionSet[IntOp]:
+      val cases: Seq[IntOp] = units

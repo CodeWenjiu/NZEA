@@ -2,8 +2,10 @@ package nzea_core.front.idu
 
 import me.jiuyang.decoder.{BitPat, BitSet, TruthTable}
 import nzea_core.back.OpWindow
+import nzea_core.back.int.IntOp
 import nzea_core.isa.{Backend, Srcs}
 import nzea_config.core.CoreConfig
+import nzea_rtl.stdlib.Encoding
 
 import scala.collection.immutable.SortedMap
 
@@ -30,8 +32,17 @@ object DecodeTables:
   private val NoWindowKey = "zero"
 
   def all(config: CoreConfig): Seq[TruthTable] =
+    val ops = IntOp.set(config.isaConfig)
     val insts = RiscvInsts.all(config)
-    Seq(backend(insts), window(insts), srcs(insts), immType(insts), gprWr(insts), rs1Rd(insts), rs2Rd(insts))
+    Seq(
+      backend(insts),
+      window(insts, ops, OpWindow.width(config)),
+      srcs(insts),
+      immType(insts),
+      gprWr(insts),
+      rs1Rd(insts),
+      rs2Rd(insts)
+    )
 
   private def backend(insts: Seq[RVInst]): TruthTable =
     TruthTable(
@@ -41,13 +52,13 @@ object DecodeTables:
       encode(Backend.values.toSeq.map(b => b.toString -> b.lit), Backend.width)
     )
 
-  /** The whole decode result of an instruction, packed by its backend (`Dispatch` owns the layout). */
-  private def window(insts: Seq[RVInst]): TruthTable =
+  /** The whole decode result of an instruction, packed by its backend against the units this configuration has. */
+  private def window(insts: Seq[RVInst], ops: Encoding.UnionSet[IntOp], width: Int): TruthTable =
     TruthTable(
       OpName,
       insts.map(i => i.pattern -> i.dispatch.name),
       NoWindowKey,
-      encode(insts.map(i => i.dispatch.name -> i.dispatch.window) :+ (NoWindowKey -> 0), OpWindow.Width)
+      encode(insts.map(i => i.dispatch.name -> i.dispatch.window(ops)) :+ (NoWindowKey -> 0), width)
     )
 
   /** The operand form: which source feeds each of the uop's three operand slots. */

@@ -3,6 +3,7 @@ package nzea_core.back
 import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_config.core.CoreConfig
 import nzea_core.isa.{Backend, CsrType}
 
 /** Ready-operand uop: every operand sits in one of three slots ([[src_a]], [[src_b]], [[src_c]]) that decode already
@@ -13,15 +14,17 @@ import nzea_core.isa.{Backend, CsrType}
   * middle until done/flush, which is what lets the units take a level instead of a handshake.
   *
   * `op` is the decoded instruction whole, in the window its backend owns (`nzea_core.back.int.IntOp`,
-  * `nzea_core.back.mem.MemOp`), so this contract does not change when a backend adds a unit or an operation.
+  * `nzea_core.back.mem.MemOp`), so this contract does not change when a backend adds a unit or an operation. Its width
+  * is the configuration's (`nzea_core.back.OpWindow`) and is derived here like every other field's, so a caller hands
+  * over the configuration rather than numbers it worked out.
   */
-class IssueUop(width: Int) extends Bundle:
-  val pc = Aligned(UInt(width))
-  val imm = Aligned(UInt(width))
-  val src_a = Aligned(UInt(width))
-  val src_b = Aligned(UInt(width))
-  val src_c = Aligned(UInt(width))
+class IssueUop(config: CoreConfig) extends Bundle:
+  val pc = Aligned(UInt(config.width))
+  val imm = Aligned(UInt(config.width))
+  val src_a = Aligned(UInt(config.width))
+  val src_b = Aligned(UInt(config.width))
+  val src_c = Aligned(UInt(config.width))
   val backend = Aligned(UInt(Backend.width))
-  val op = Aligned(UInt(OpWindow.Width))
+  val op = Aligned(UInt(OpWindow.width(config)))
   val csr_type = Aligned(UInt(CsrType.width))
-  val csr_rdata = Aligned(UInt(width))
+  val csr_rdata = Aligned(UInt(config.width))

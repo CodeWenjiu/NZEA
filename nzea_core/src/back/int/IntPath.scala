@@ -29,7 +29,7 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
-  val issue = Flipped(Valid(new IssueUop(width)))
+  val issue = Flipped(Valid(new IssueUop(parameter.config)))
   val done = Aligned(Bool())
   val result = Aligned(new PathResult(width))
   val redirect = Aligned(Valid(UInt(width)))
@@ -57,10 +57,11 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val uopValid = io.issue.valid
     val u = io.issue.bits
 
+    val ops = IntOp.set(parameter.config.isaConfig)
     val op: Referable[UInt] = u.op
-    val fuOp: Node[UInt] = IntOp.payload(op)
+    val fuOp: Node[UInt] = ops.payload(op)
 
-    def selects(caseOf: IntOp): Node[Bool] = IntOp.isCase(caseOf, op)
+    def selects(caseOf: IntOp): Node[Bool] = ops.isCase(caseOf, op)
     val isAlu = selects(IntOp.alu)
     val isBru = selects(IntOp.bru)
     val isSysu = selects(IntOp.sysu)
@@ -115,15 +116,16 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val mulData: Referable[UInt] = mul.map(m => m.io.data).getOrElse(0.U(width))
     val divData: Referable[UInt] = div.map(d => d.io.data).getOrElse(0.U(width))
 
-    // Every case's value is built and the tag picks between them: the union owns that mux, in the order this path
-    // wants its tests.
-    val data: Referable[UInt] = IntOp.dispatch(op)(
-      IntOp.alu -> (_ => alu.io.data),
-      IntOp.bru -> (_ => pcPlus4),
-      IntOp.sysu -> (_ => u.csr_rdata),
-      IntOp.mul -> (_ => mulData),
-      IntOp.div -> (_ => divData)
-    )
+    // Every unit's value is built and the tag picks between them: the union owns that mux, and its entries are the
+    // configured cases in tag order, so the two cannot drift apart.
+    val unitData: IntOp => Referable[UInt] =
+      case IntOp.Alu(_)  => alu.io.data
+      case IntOp.Bru(_)  => pcPlus4
+      case IntOp.Sysu(_) => u.csr_rdata
+      case IntOp.Mul(_)  => mulData
+      case IntOp.Div(_)  => divData
+
+    val data: Referable[UInt] = ops.dispatch(op)(ops.cases.map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
 
     val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
     io.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone)

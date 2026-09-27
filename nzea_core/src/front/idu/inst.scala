@@ -21,13 +21,25 @@ enum ImmType extends Encoding.OneHot:
 object ImmType:
   val width: Int = Encoding.width(values)
 
+/** The op a decode result writes into the shared `op` field: an int unit's case, or the memory path's single one. It is
+  * kept symbolic — the value is packed against the units the configuration has when the decode tables are built.
+  */
+enum DispatchOp:
+  case Int(op: IntOp)
+  case Mem(op: LsuOp)
+
 /** What decode answers for one instruction: the backend it goes to, the window that backend's columns were packed into,
   * the operand form its slots are resolved from, and a name for reports and decode-table encoding keys.
   *
   * Only the combinators below can build one, so a table entry never spells out a window layout and the name always
   * agrees with what is packed.
   */
-case class Dispatch private (backend: Backend, window: Int, srcs: Srcs, name: String)
+case class Dispatch private (backend: Backend, op: DispatchOp, srcs: Srcs, name: String):
+
+  /** This instruction's window value, packed against the units the configuration has. */
+  def window(ops: Encoding.UnionSet[IntOp]): Int = op match
+    case DispatchOp.Int(intOp) => ops.lit(intOp)
+    case DispatchOp.Mem(lsuOp) => MemOp.lit(MemOp.Lsu(lsuOp))
 
 object Dispatch:
   def alu(op: AluOp, srcs: Srcs): Dispatch = int(IntOp.Alu(op), srcs)
@@ -40,10 +52,10 @@ object Dispatch:
   def sysu(op: SysuOp, srcs: Srcs): Dispatch = int(IntOp.Sysu(op), srcs)
 
   def mem(op: LsuOp, srcs: Srcs): Dispatch =
-    Dispatch(Backend.MEM, MemOp.lit(MemOp.Lsu(op)), srcs, s"mem_${op}_$srcs")
+    Dispatch(Backend.MEM, DispatchOp.Mem(op), srcs, s"mem_${op}_$srcs")
 
   private def int(op: IntOp, srcs: Srcs): Dispatch =
-    Dispatch(Backend.INT, IntOp.lit(op), srcs, s"int_${op}_$srcs")
+    Dispatch(Backend.INT, DispatchOp.Int(op), srcs, s"int_${op}_$srcs")
 
 /** One RISC-V instruction pattern: the immediate shape it needs (`None` = it has no immediate, so the decode table
   * leaves that field to its default) and what decode hands the backend.

@@ -28,15 +28,15 @@ class ArfWrite(width: Int) extends Bundle:
   * guarantees the read happens after the previous commit's write-back. Adding renaming moves both into a middle stage,
   * and this payload reverts to index form.
   */
-class IduOut(width: Int) extends Bundle:
-  val pc = Aligned(UInt(width))
-  val imm = Aligned(UInt(width))
+class IduOut(config: CoreConfig) extends Bundle:
+  val pc = Aligned(UInt(config.width))
+  val imm = Aligned(UInt(config.width))
   val rd_index = Aligned(UInt(Gpr.indexWidth))
-  val src_a = Aligned(UInt(width))
-  val src_b = Aligned(UInt(width))
-  val src_c = Aligned(UInt(width))
+  val src_a = Aligned(UInt(config.width))
+  val src_b = Aligned(UInt(config.width))
+  val src_c = Aligned(UInt(config.width))
   val backend = Aligned(UInt(Backend.width))
-  val op = Aligned(UInt(OpWindow.Width))
+  val op = Aligned(UInt(OpWindow.width(config)))
   val csr_addr = Aligned(UInt(12))
 
 case class IduParameter(isa: String, defaultPc: Long) extends Parameter:
@@ -51,7 +51,7 @@ class IduIO(parameter: IduParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
   val in = Flipped(Decoupled(new FetchedInst(parameter.config.width)))
-  val out = Aligned(Decoupled(new IduOut(parameter.config.width)))
+  val out = Aligned(Decoupled(new IduOut(parameter.config)))
   val arf_write = Flipped(ValidIO(new ArfWrite(parameter.config.width)))
 
 class IduProbe(parameter: IduParameter) extends DVBundle[IduParameter, IduLayers](parameter)

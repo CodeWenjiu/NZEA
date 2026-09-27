@@ -19,13 +19,15 @@ object DecodeTablesTest extends TestSuite:
   private val withM = CoreConfig("riscv32im", 0x80000000L)
   private val withoutM = CoreConfig("riscv32i", 0x80000000L)
 
+  private val intOps = IntOp.set(withM.isaConfig)
+
   private lazy val tables = DecodeTables.all(withM)
   private lazy val pla = Qmc(tables)
 
   /** The decode output fields, in the order they are concatenated into the PLA output. */
   private val fields = Seq(
     DecodeTables.BackendName -> Backend.width,
-    DecodeTables.OpName -> OpWindow.Width,
+    DecodeTables.OpName -> OpWindow.width(withM),
     DecodeTables.SrcsName -> Srcs.width,
     DecodeTables.ImmTypeName -> ImmType.width,
     DecodeTables.GprWrName -> 1,
@@ -55,7 +57,7 @@ object DecodeTablesTest extends TestSuite:
   /** What the table declares for one instruction, as the PLA must report it. */
   private def declared(inst: RVInst): Map[String, BigInt] = Map(
     DecodeTables.BackendName -> BigInt(inst.dispatch.backend.lit),
-    DecodeTables.OpName -> BigInt(inst.dispatch.window),
+    DecodeTables.OpName -> BigInt(inst.dispatch.window(intOps)),
     DecodeTables.SrcsName -> BigInt(inst.dispatch.srcs.lit),
     DecodeTables.ImmTypeName -> BigInt(inst.immType.fold(ImmType.I.lit)(_.lit)),
     DecodeTables.GprWrName -> BigInt(if inst.gprWr then 1 else 0),
@@ -77,7 +79,7 @@ object DecodeTablesTest extends TestSuite:
 
     test("no instruction aliases the no-op an unknown instruction decodes to"):
       // The zero window and the zero flags are the defaults, so a real instruction must differ from them.
-      for inst <- RiscvInsts.all(withM) do assert(inst.dispatch.window != 0)
+      for inst <- RiscvInsts.all(withM) do assert(inst.dispatch.window(intOps) != 0)
       val noop = decode(BigInt(0))
       assert(noop(DecodeTables.BackendName) == BigInt(Backend.INT.lit))
       assert(noop(DecodeTables.OpName) == 0)
@@ -109,14 +111,14 @@ object DecodeTablesTest extends TestSuite:
       ): Unit =
         val inst = entry(name)
         assert(inst.dispatch.backend == backend)
-        assert(inst.dispatch.window == window)
+        assert(inst.dispatch.window(intOps) == window)
         assert(inst.dispatch.srcs == srcs)
         assert(inst.immType == immType)
         assert(inst.gprWr == gprWr)
         assert(inst.rs1Rd == rs1Rd)
         assert(inst.rs2Rd == rs2Rd)
 
-      def intWindow(op: IntOp): Int = IntOp.lit(op)
+      def intWindow(op: IntOp): Int = intOps.lit(op)
       def memWindow(op: LsuOp): Int = MemOp.lit(MemOp.Lsu(op))
 
       check("LUI", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.ImmZero, Some(ImmType.U), true, false, false)
@@ -132,23 +134,23 @@ object DecodeTablesTest extends TestSuite:
       check(
         "ECALL",
         Backend.INT,
-        IntOp.lit(IntOp.Sysu(SysuOp.ECALL)),
+        intOps.lit(IntOp.Sysu(SysuOp.ECALL)),
         Srcs.NoOperand,
         Some(ImmType.I),
         false,
         false,
         false
       )
-      check("CSRRW", Backend.INT, IntOp.lit(IntOp.Sysu(SysuOp.CSRRW)), Srcs.Rs1, Some(ImmType.I), true, true, true)
+      check("CSRRW", Backend.INT, intOps.lit(IntOp.Sysu(SysuOp.CSRRW)), Srcs.Rs1, Some(ImmType.I), true, true, true)
       check(
         "CSRRWI",
         Backend.INT,
-        IntOp.lit(IntOp.Sysu(SysuOp.CSRRWI)),
+        intOps.lit(IntOp.Sysu(SysuOp.CSRRWI)),
         Srcs.ImmZero,
         Some(ImmType.Z),
         true,
         false,
         false
       )
-      check("FENCE", Backend.INT, IntOp.lit(IntOp.Sysu(SysuOp.FENCE)), Srcs.NoOperand, None, false, false, false)
-      check("MUL", Backend.INT, IntOp.lit(IntOp.Mul(MulOp.Mul)), Srcs.Rs1Rs2, None, true, true, true)
+      check("FENCE", Backend.INT, intOps.lit(IntOp.Sysu(SysuOp.FENCE)), Srcs.NoOperand, None, false, false, false)
+      check("MUL", Backend.INT, intOps.lit(IntOp.Mul(MulOp.Mul)), Srcs.Rs1Rs2, None, true, true, true)
