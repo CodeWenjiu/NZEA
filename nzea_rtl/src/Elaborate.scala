@@ -10,20 +10,25 @@ package nzea_rtl
   */
 object Elaborate:
 
-  /** Elaborate and link `moduleName`, hand the linked circuit to `lower`, then remove the intermediates. */
+  /** Elaborate and link `moduleName`, hand the linked circuit to `lower`, then remove the intermediates.
+    *
+    * The removal covers every `.mlirbc` the run produced, including one left behind by an elaboration that failed
+    * partway: that file would be counted as pre-existing by the next run, and its module would be dropped from the
+    * linked design — a dump that instantiates a module it never defines.
+    */
   def withLinked[T](moduleName: String, scratch: os.Path, writeConfig: os.Path => Unit, design: os.Path => Unit)(
       lower: os.Path => T
   ): T =
     val config = scratch / "config.json"
     val before = intermediates
-    writeConfig(config)
-    design(config)
-    val produced = intermediates -- before
-    require(
-      produced.exists(_.baseName == moduleName),
-      s"no $moduleName.mlirbc among ${produced.map(_.baseName).toSeq.sorted.mkString(", ")}"
-    )
     try
+      writeConfig(config)
+      design(config)
+      val produced = intermediates -- before
+      require(
+        produced.exists(_.baseName == moduleName),
+        s"no $moduleName.mlirbc among ${produced.map(_.baseName).toSeq.sorted.mkString(", ")}"
+      )
       val circuit =
         // A design of one module is its own circuit; firdl would only copy it.
         if produced.sizeIs == 1 then produced.head
@@ -40,7 +45,7 @@ object Elaborate:
           ).call()
           linked
       lower(circuit)
-    finally produced.foreach(os.remove(_))
+    finally (intermediates -- before).foreach(os.remove(_))
 
   /** Lower `mlir` to Verilog on standard output. */
   def verilog(mlir: os.Path, params: Seq[String]): String = os.proc("firtool", mlir.toString, params).call().out.text()
