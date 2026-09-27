@@ -107,12 +107,25 @@ object Encoding:
     /** The bits this case needs in the payload column: its child's own field width. */
     def childWidth: Int
 
+  /** The settable side's constructor: the cases a configuration keeps, in declaration order.
+    *
+    * What an absent case does is the whole point: it takes its tag code with it, the cases above it close up, and the
+    * field is as wide as the configuration needs — no holes for a caller to fill with width arithmetic. The condition
+    * is asked of the variant (`exists`), which is what keeps the configuration fact where the case is declared.
+    */
+  object UnionSet:
+
+    def of[U <: Union & scala.reflect.Enum](all: Seq[U])(exists: U => Boolean): UnionSet[U] =
+      new UnionSet[U]:
+        val cases: Seq[U] = all.filter(exists).sortBy(_.ordinal)
+
   /** The settable side of a [[Union]]: the case list it lays out, and everything derived from it.
     *
     * The cases are the union's declaration — one representative per case, each carrying its child's width — and they
-    * can be built per configuration: a unit that is not built takes its tag code with it instead of leaving a hole.
-    * They also decide the layout: the payload column is as wide as the widest child, the tag column as wide as the case
-    * count needs, and `lit` puts a case's code where those columns say. Nothing outside this trait knows an offset.
+    * can be built per configuration: a case that is not built takes its tag code with it instead of leaving a hole
+    * ([[UnionSet.of]]). They also decide the layout: the payload column is as wide as the widest child, the tag column
+    * as wide as the case count needs, and `lit` puts a case's code where those columns say. Nothing outside this trait
+    * knows an offset.
     */
   trait UnionSet[U <: Union & scala.reflect.Enum]:
     /** One case instance per variant, in tag order; the payload is a representative, only the case matters. */
@@ -129,6 +142,11 @@ object Encoding:
 
     /** A case's code: its payload in the low column, its tag above. */
     final def lit(v: U): Int = v.payload.lit | (tagOf(v) << payloadWidth)
+
+    /** Whether a case is part of this set: the question a configuration-dependent set is asked, instead of a caller
+      * restating the configuration fact that decided it. The test is the variant, not the payload it carries.
+      */
+    final def contains(v: U): Boolean = cases.exists(_.ordinal == v.ordinal)
 
     /** A case's tag code: where the case sits in [[cases]], so a case that is not in the list has no code and says so.
       * The test is the variant's ordinal — the case, not the payload it happens to carry.
