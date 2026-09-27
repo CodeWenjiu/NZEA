@@ -1,0 +1,38 @@
+-- Memory-path events, relative to the load/store path's scope (TOP.NzeaCore.core.back.mem).
+--
+-- What the retire and branch events cannot answer: how long a load or store asks, and whether it left the core at all.
+-- One request is outstanding at a time, so a response lands the cycle after the fire unless the level below holds it —
+-- `wait` is exactly those held cycles, and every one of them blocks the whole core (single-flight middle).
+-- Bind them with --event, e.g. a load and the cycles it took before its data came back:
+--   pulse property --event nzea_core/src/back/mem/mem.pulse <MEM> Mem \
+--       --eval 'Mem.load --4 Mem.complete' --count
+--
+-- Two of the events are anomaly detectors rather than traffic: `wait` counts the cycles a request was held while the bus
+-- refused it, and `drain` counts responses nobody was waiting for. Both read zero on this baseline's traces (the path is
+-- one request deep and the levels below always answer it), so a nonzero one marks the cycle something downstream
+-- changed — a bridge that stalls, or a flush that abandoned a request in flight.
+
+-- The bus took one request: the cycle the access leaves the path.
+req_fire = dbus_req_valid && dbus_req_ready
+
+-- The bus answered, whatever the response turns out to complete.
+resp = dbus_resp_valid
+
+-- The response completed the held uop, its tag matching: the cycle the middle can retire it from. (`done` is the same
+-- port under its waveform name; the event is the matched completion, not every response.)
+complete = done
+
+-- A read / a write the bus took.
+load  = req_fire && !dbus_req_bits_wen
+store = req_fire &&  dbus_req_bits_wen
+
+-- The uop is asking and the bus is not ready. A stalled accelerator or a one-slot bridge under a response shows up here.
+wait = dbus_req_valid && !dbus_req_ready
+
+-- The access that completed was a platform device rather than memory: the commit trace marks it, and in a simulation
+-- dump it is the access that crosses the DPI bridge instead of being answered from the memory array.
+mmio = complete && result_is_mmio
+
+-- A response that completed nothing, because the uop that asked for it is gone: a flush in the middle of a request
+-- shows up here. Every response is consumed, so this is a drain, not a stall.
+drain = resp && !complete
