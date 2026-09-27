@@ -1,7 +1,7 @@
 package nzea_cli
 
 import nzea_config.RtlFlow
-import nzea_config.core.Isa
+import nzea_config.core.{BypassConfig, Isa}
 import nzea_core.stats.{BpCounters, BpCountersParameter, CoreStats, ThroughputCounters, ThroughputCountersParameter}
 import nzea_rtl.{Elaborate, StatSchema, StatsRegs}
 import nzea_top.{NzeaCore, NzeaCoreParameter}
@@ -20,7 +20,7 @@ object Main:
 
   private val usage =
     """usage: just dump [--target core] [--platform yosys] [--isa riscv32i] [--defaultPc 0x80000000]
-      |                 [--flow <verilator|yosys>] [--outDir <dir>]""".stripMargin
+      |                 [--flow <verilator|yosys>] [--bypass <none|writeback>] [--outDir <dir>]""".stripMargin
 
   /** firtool flags per flow. Verilator takes what firtool emits by default; Yosys refuses `always_comb` and local
     * variables inside it, so a synthesis dump is lowered without either.
@@ -48,6 +48,7 @@ object Main:
     val flow = RtlFlow
       .fromString(flags.getOrElse("flow", RtlFlow.Verilator.segment))
       .fold(error => throw new IllegalArgumentException(error), identity)
+    val bypass = BypassConfig.parseOrThrow(flags.getOrElse("bypass", BypassConfig.writeback.name))
     val outDir = flags
       .get("outDir")
       .filter(_.nonEmpty)
@@ -56,7 +57,7 @@ object Main:
     require(target == "core", s"only --target core is ported, got '$target'")
     require(platform == "yosys" || platform == "fpga", s"unknown platform '$platform'")
 
-    val parameter = NzeaCoreParameter(isa, defaultPc, flow, mmioWindows)
+    val parameter = NzeaCoreParameter(isa, defaultPc, flow, mmioWindows, bypass)
     val scratch = os.temp.dir(prefix = "nzea-dump")
     try
       Elaborate.withLinked(
@@ -72,7 +73,9 @@ object Main:
               "--defaultPc",
               defaultPc.toString,
               "--flow",
-              flow.segment
+              flow.segment,
+              "--bypass",
+              bypass.name
             ) ++ mmioWindows.flatMap(window => Seq("--mmioRanges", window))
           ),
         cfg => NzeaCore.main(Array("design", cfg.toString))

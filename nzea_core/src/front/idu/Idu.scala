@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.FetchedInst
 import nzea_core.isa.{Backend, Gpr, Srcs}
@@ -39,7 +39,7 @@ class IduOut(config: CoreConfig) extends Bundle:
   val op = Aligned(UInt(OpWindow.width(config)))
   val csr_addr = Aligned(UInt(12))
 
-case class IduParameter(isa: Isa, defaultPc: Long) extends Parameter:
+case class IduParameter(isa: Isa, defaultPc: Long, bypass: BypassConfig) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IduParameter] = upickle.default.macroRW
@@ -73,6 +73,7 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val width = parameter.config.width
     val inst: Node[Bits] = Node(io.in.bits.inst.asBits)
 
+    println(s"elaborating: bypass: ${parameter.bypass.report}")
     val decode = PlaPlan(DecodeTables.all(parameter.config))
     println(s"elaborating: ${decode.report}")
     val decoded = decode.decode(inst)
@@ -122,13 +123,22 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
         when(io.arf_write.bits.rd_index === (index + 1).U(Gpr.indexWidth)) { xregs(index) := io.arf_write.bits.data }
     }
 
-    // Write-first read: the middle admits the next instruction in the cycle it commits, so the read has to see the
-    // write the commit port makes in that same cycle. Slot 0 keeps the array's constant (the write port never names
-    // it), and a read of any other register goes through untouched.
+    // The read network: which producers may supply a value early is the configuration's declaration (`BypassConfig`),
+    // and the fallback is what the register file itself holds. Slot 0 keeps the array's constant — the commit port
+    // never names it.
     val commitWrites = io.arf_write.valid & (io.arf_write.bits.rd_index =/= 0.U(Gpr.indexWidth))
-    def readReg(index: Node[UInt]): Node[UInt] =
-      val value = gprs.ref(index)
-      (commitWrites & (io.arf_write.bits.rd_index === index)) ? (io.arf_write.bits.data, value)
+    val forwardSources: Seq[ForwardSource] =
+      if parameter.bypass.writeback then
+        Seq(
+          ForwardSource(
+            armed = commitWrites,
+            index = io.arf_write.bits.rd_index,
+            data = io.arf_write.bits.data
+          )
+        )
+      else Seq.empty
+
+    def readReg(index: Node[UInt]): Referable[UInt] = forwardRead(index, gprs.ref(index), forwardSources)
 
     val rs1Val = readReg(rs1Index)
     val rs2Val = readReg(rs2Index)

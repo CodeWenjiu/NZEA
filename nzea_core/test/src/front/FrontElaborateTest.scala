@@ -3,7 +3,7 @@ package nzea_core.front
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{Backend, Gpr}
 import nzea_core.back.OpWindow
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
@@ -14,13 +14,22 @@ import utest.*
 object FrontElaborateTest extends TestSuite:
 
   private val width = 32
-  private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L))
+  private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L, BypassConfig.writeback))
 
   private lazy val sv = TestFlow.lower(
     module,
     cfg =>
       Front.main(
-        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648")
+        Array(
+          "config",
+          cfg.toString,
+          "--isa",
+          "riscv32i",
+          "--defaultPc",
+          "2147483648",
+          "--bypass",
+          "writeback"
+        )
       ),
     cfg => Front.main(Array("design", cfg.toString))
   )

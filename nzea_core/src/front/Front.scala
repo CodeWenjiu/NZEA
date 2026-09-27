@@ -10,13 +10,13 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.front.ifu.{FetchedInst, Ifu, IfuParameter}
 import nzea_core.front.idu.{ArfWrite, Idu, IduOut, IduParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class FrontParameter(isa: Isa, defaultPc: Long) extends Parameter:
+case class FrontParameter(isa: Isa, defaultPc: Long, bypass: BypassConfig) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[FrontParameter] = upickle.default.macroRW
@@ -56,7 +56,7 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
 
     val c = parameter.config
     val ifu = Ifu.instantiate(IfuParameter(c.isa, c.defaultPc))
-    val idu = Idu.instantiate(IduParameter(c.isa, c.defaultPc))
+    val idu = Idu.instantiate(IduParameter(c.isa, c.defaultPc, parameter.bypass))
 
     ifu.io.clock := io.clock
     ifu.io.resetN := io.resetN

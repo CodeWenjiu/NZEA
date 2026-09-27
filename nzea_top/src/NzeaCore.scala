@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.ifu.Ifu
@@ -26,7 +26,8 @@ import nzea_top.dpi.{
 }
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class NzeaCoreParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
+case class NzeaCoreParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String], bypass: BypassConfig)
+    extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[NzeaCoreParameter] = upickle.default.macroRW
@@ -70,7 +71,8 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
     val c = parameter.config
     val resetN: Node[Reset] = (!io.reset.asBool).asReset
 
-    val core = Core.instantiate(CoreParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges))
+    val core =
+      Core.instantiate(CoreParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges, parameter.bypass))
     core.io.clock := io.clock
     core.io.resetN := resetN
 

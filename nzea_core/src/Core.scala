@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.{Front, FrontParameter}
@@ -18,7 +18,8 @@ import nzea_core.middle.{CommitMsg, Middle, MiddleParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class CoreParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
+case class CoreParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String], bypass: BypassConfig)
+    extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CoreParameter] = upickle.default.macroRW
@@ -53,8 +54,8 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val c = parameter.config
-    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc))
-    val middle = Middle.instantiate(MiddleParameter(c.isa, c.defaultPc, parameter.flow))
+    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc, parameter.bypass))
+    val middle = Middle.instantiate(MiddleParameter(c.isa, c.defaultPc, parameter.flow, parameter.bypass))
     val back = Back.instantiate(BackParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges))
 
     front.io.clock := io.clock

@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.back.{BackOut, IssueSlot, IssueUop}
 import nzea_core.front.idu.{ArfWrite, IduOut}
 import nzea_core.isa.{Backend, CsrType}
@@ -18,7 +18,7 @@ import nzea_rtl.StatsRegs
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class MiddleParameter(isa: Isa, defaultPc: Long, flow: RtlFlow) extends Parameter:
+case class MiddleParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, bypass: BypassConfig) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[MiddleParameter] = upickle.default.macroRW
@@ -88,10 +88,10 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
 
     when(issue) { ex :<= io.decoded.bits }
 
-    // The commit cycle is an admission window as well: the register file is write-first, so the operands read in that
-    // cycle see the commit's own write. A flush closes the window — the instruction the front would offer is on the
-    // path being killed.
-    io.decoded.ready := (!exValid | done) & !flushing
+    // A commit cycle is an admission window only when the configuration lets the read see the write that commit makes
+    // in the same cycle (`BypassConfig`); without the link the read waits for the write to land. A flush closes the
+    // window either way — the instruction the front would offer is on the path being killed.
+    io.decoded.ready := (if parameter.bypass.writeback then !exValid | done else !exValid & !done) & !flushing
     when(flushing) { exValid := false.B }.otherwise {
       when(issue) { exValid := true.B }
         .otherwise { when(done) { exValid := false.B } }
