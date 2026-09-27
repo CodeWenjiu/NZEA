@@ -122,8 +122,16 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
         when(io.arf_write.bits.rd_index === (index + 1).U(Gpr.indexWidth)) { xregs(index) := io.arf_write.bits.data }
     }
 
-    val rs1Val = gprs.ref(rs1Index)
-    val rs2Val = gprs.ref(rs2Index)
+    // Write-first read: the middle admits the next instruction in the cycle it commits, so the read has to see the
+    // write the commit port makes in that same cycle. Slot 0 keeps the array's constant (the write port never names
+    // it), and a read of any other register goes through untouched.
+    val commitWrites = io.arf_write.valid & (io.arf_write.bits.rd_index =/= 0.U(Gpr.indexWidth))
+    def readReg(index: Node[UInt]): Node[UInt] =
+      val value = gprs.ref(index)
+      (commitWrites & (io.arf_write.bits.rd_index === index)) ? (io.arf_write.bits.data, value)
+
+    val rs1Val = readReg(rs1Index)
+    val rs2Val = readReg(rs2Index)
 
     // The operand form says which architectural source feeds each uop slot; resolving it here is what keeps the source
     // selection out of the backend's execute cycle.
