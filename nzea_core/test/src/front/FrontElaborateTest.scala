@@ -1,9 +1,9 @@
 package nzea_core.front
 
-import nzea_core.front.ifu.{IbusUser, Ifu}
-import nzea_core.isa.{Backend, Gpr}
+import nzea_core.{BypassConfig, CoreConfig}
 import nzea_core.back.OpWindow
-import nzea_config.core.{BypassConfig, CoreConfig, Isa}
+import nzea_core.front.ifu.{IbusUser, Ifu}
+import nzea_core.isa.{Backend, Gpr, Isa}
 import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*

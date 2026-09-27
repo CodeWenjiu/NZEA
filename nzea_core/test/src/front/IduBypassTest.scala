@@ -1,7 +1,8 @@
 package nzea_core.front
 
-import nzea_config.core.{BypassConfig, Isa}
+import nzea_core.BypassConfig
 import nzea_core.front.idu.{Idu, IduParameter}
+import nzea_core.isa.Isa
 import nzea_rtl.TestFlow
 import utest.*
 

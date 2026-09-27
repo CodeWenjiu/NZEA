@@ -1,10 +1,9 @@
 package nzea_core.back
 
-import nzea_config.RtlFlow
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_core.CoreConfig
 import nzea_core.back.mem.{DbusUser, MemPath, MmioWindow}
-import nzea_core.isa.{Backend, CsrType}
-import nzea_rtl.TestFlow
+import nzea_core.isa.{Backend, CsrType, Isa}
+import nzea_rtl.{RtlFlow, TestFlow}
 import nzea_rtl.stdlib.*
 import utest.*
 

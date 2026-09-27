@@ -3,7 +3,7 @@ package nzea_core.back
 import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_core.CoreConfig
 import nzea_core.isa.{Backend, CsrType}
 
 /** Ready-operand uop: every operand sits in one of three slots ([[src_a]], [[src_b]], [[src_c]]) that decode already

@@ -1,10 +1,10 @@
 package nzea_core.stats
 
-import nzea_config.RtlFlow
-import nzea_config.core.{BypassConfig, Isa}
+import nzea_core.BypassConfig
 import nzea_core.back.int.{IntPath, IntPathParameter}
+import nzea_core.isa.Isa
 import nzea_core.middle.{Middle, MiddleParameter}
-import nzea_rtl.{StatCounter, StatsRegs, TestFlow}
+import nzea_rtl.{RtlFlow, StatCounter, StatsRegs, TestFlow}
 import utest.*
 
 /** The contract between a counter declaration, the black box text it produces and the wrapper that instantiates it: all

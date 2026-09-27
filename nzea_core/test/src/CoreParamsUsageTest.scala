@@ -4,10 +4,10 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.{CoreConfig, CoreParams, Isa, OpProducer}
+import nzea_core.{CoreConfig, CoreParams, OpProducer}
 import nzea_core.back.int.IntOp
 import nzea_core.back.mem.MemOp
-import nzea_core.isa.Backend
+import nzea_core.isa.{Backend, Isa}
 import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*

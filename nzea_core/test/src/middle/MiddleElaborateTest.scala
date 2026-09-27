@@ -1,10 +1,9 @@
 package nzea_core.middle
 
-import nzea_config.RtlFlow
-import nzea_config.core.{BypassConfig, CoreConfig, Isa}
+import nzea_core.{BypassConfig, CoreConfig}
 import nzea_core.back.OpWindow
-import nzea_core.isa.{Backend, CsrType, Gpr}
-import nzea_rtl.TestFlow
+import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
+import nzea_rtl.{RtlFlow, TestFlow}
 import nzea_rtl.stdlib.*
 import utest.*
 

@@ -8,8 +8,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.{CoreConfig, Isa}
-import nzea_core.isa.CsrType
+import nzea_core.CoreConfig
+import nzea_core.isa.{CsrType, Isa}
 import nzea_core.middle.CommitMsg
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}

@@ -1,4 +1,4 @@
-package nzea_config
+package nzea_rtl
 
 import mainargs.TokensReader
 import utest.*

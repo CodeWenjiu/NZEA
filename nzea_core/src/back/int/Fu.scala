@@ -1,6 +1,6 @@
 package nzea_core.back.int
 
-import nzea_config.core.Isa
+import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 
 /** The int path's window in the issue uop's shared `op` field: which unit takes the uop, and that unit's own op.

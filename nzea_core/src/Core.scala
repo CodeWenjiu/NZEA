@@ -8,13 +8,14 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.RtlFlow
-import nzea_config.core.{BypassConfig, CoreConfig, Isa}
+import nzea_core.{BypassConfig, CoreConfig}
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.{Front, FrontParameter}
 import nzea_core.front.ifu.Ifu
+import nzea_core.isa.Isa
 import nzea_core.middle.{CommitMsg, Middle, MiddleParameter}
+import nzea_rtl.RtlFlow
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 

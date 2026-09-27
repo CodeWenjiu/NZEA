@@ -1,9 +1,9 @@
 package nzea_core.front.idu
 
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_core.CoreConfig
 import nzea_core.back.OpWindow
 import nzea_core.back.int.IntOp
-import nzea_core.isa.{Backend, Gpr}
+import nzea_core.isa.{Backend, Gpr, Isa}
 import nzea_rtl.stdlib.*
 import utest.*
 

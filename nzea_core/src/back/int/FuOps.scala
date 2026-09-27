@@ -1,6 +1,6 @@
 package nzea_core.back.int
 
-import nzea_config.core.{Isa, Xlen}
+import nzea_core.isa.{Isa, Xlen}
 import nzea_rtl.stdlib.*
 
 /** Op encodings of the integer path's FUs. Decode places one of them in the uop's shared `op` field, the backend slices

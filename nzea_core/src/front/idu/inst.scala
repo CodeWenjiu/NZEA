@@ -1,10 +1,10 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.BitSet
-import nzea_config.core.{CoreConfig, Isa, Xlen}
+import nzea_core.CoreConfig
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
-import nzea_core.isa.{Backend, Srcs}
+import nzea_core.isa.{Backend, Isa, Srcs, Xlen}
 import nzea_rtl.stdlib.*
 
 /** Immediate shape, one-hot so the decode stage picks an immediate with `mux1H` and gets the better timing of a one-hot

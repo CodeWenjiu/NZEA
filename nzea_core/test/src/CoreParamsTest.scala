@@ -1,4 +1,6 @@
-package nzea_config.core
+package nzea_core
+
+import nzea_core.isa.Isa
 
 import utest.*
 

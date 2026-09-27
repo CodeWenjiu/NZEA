@@ -1,4 +1,4 @@
-package nzea_config.core
+package nzea_core.isa
 
 import mainargs.TokensReader
 import upickle.default.{macroRW, readwriter, ReadWriter}

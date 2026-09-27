@@ -8,13 +8,12 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.RtlFlow
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_core.CoreConfig
 import nzea_core.back.{IssueSlot, IssueUop, PathResult}
-import nzea_core.isa.CsrType
-import nzea_rtl.StatsRegs
-import nzea_rtl.stdlib.*
+import nzea_core.isa.{CsrType, Isa}
 import nzea_core.stats.{BpCounters, BpCountersParameter}
+import nzea_rtl.{RtlFlow, StatsRegs}
+import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow) extends Parameter:

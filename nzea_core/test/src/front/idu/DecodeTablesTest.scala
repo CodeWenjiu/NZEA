@@ -1,11 +1,11 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.PLA
+import nzea_core.CoreConfig
 import nzea_core.back.OpWindow
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
-import nzea_core.isa.{Backend, Srcs}
-import nzea_config.core.{CoreConfig, Isa}
+import nzea_core.isa.{Backend, Isa, Srcs}
 import nzea_rtl.PlaSim
 import nzea_rtl.stdlib.{Encoding, Qmc}
 import utest.*

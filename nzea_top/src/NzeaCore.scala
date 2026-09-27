@@ -8,13 +8,12 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.RtlFlow
-import nzea_config.core.{BypassConfig, CoreConfig, Isa}
-import nzea_core.{Core, CoreParameter}
+import nzea_core.{BypassConfig, Core, CoreConfig, CoreParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.ifu.Ifu
+import nzea_core.isa.Isa
 import nzea_core.middle.CommitMsg
-import nzea_rtl.{LiteBusRO, LiteBusRW}
+import nzea_rtl.{LiteBusRO, LiteBusRW, RtlFlow}
 import nzea_rtl.stdlib.*
 import nzea_top.dpi.{
   CommitDpiBridge,

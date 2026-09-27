@@ -1,9 +1,9 @@
 package nzea_cli
 
-import nzea_config.RtlFlow
-import nzea_config.core.{BypassConfig, Isa}
+import nzea_core.BypassConfig
+import nzea_core.isa.Isa
 import nzea_core.stats.{BpCounters, BpCountersParameter, CoreStats, ThroughputCounters, ThroughputCountersParameter}
-import nzea_rtl.{Elaborate, StatSchema, StatsRegs}
+import nzea_rtl.{Elaborate, RtlFlow, StatSchema, StatsRegs}
 import nzea_top.{NzeaCore, NzeaCoreParameter}
 
 /** Elaborate one design to Verilog.

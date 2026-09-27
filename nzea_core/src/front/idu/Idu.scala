@@ -9,10 +9,10 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.{BypassConfig, CoreConfig, Isa}
+import nzea_core.{BypassConfig, CoreConfig}
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.FetchedInst
-import nzea_core.isa.{Backend, Gpr, Srcs}
+import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
