@@ -104,13 +104,10 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     val storeData: Node[Bits] = Node(u.src_c.asBits)
     val wdata = muxTree(offset, (0 until lanes).map(i => (storeData << (i * 8)).bits(width - 1, 0)))
 
-    // One request per uop, held until the bus accepts it and dropped when the uop goes away. The uop's first cycle is
-    // where the tag advances: with back-to-back instructions the level does not fall between them.
+    // One request per uop, presented in the uop's first cycle — address, data and strobe are combinational from the held
+    // uop and already valid then — and held until the bus accepts it. The tag advances on that same first cycle, so the
+    // request carries its own tag and `curTag` keeps it for the response match.
     val uopFirst = io.issue.first
-    val reqValid = RegInit(false.B)
-    when(uopFirst) { reqValid := true.B }
-    when(!uopValid | (reqValid & io.dbus.req.ready)) { reqValid := false.B }
-
     val tag = RegInit(0.U(DbusUser.tagWidth))
     val curTag = RegInit(0.U(DbusUser.tagWidth))
     val tagNext = (tag.asBits.asUInt + 1.U(DbusUser.tagWidth)).asBits.bits(DbusUser.tagWidth - 1, 0).asUInt
@@ -119,16 +116,22 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
       tag := tagNext
     }
 
-    io.dbus.req.valid := reqValid
+    val held = RegInit(false.B)
+    val asking = uopValid & (uopFirst | held)
+    when(asking & !io.dbus.req.ready) { held := true.B }
+    when(!uopValid | io.dbus.req.ready) { held := false.B }
+    val reqTag: Node[UInt] = uopFirst ? (tag, curTag)
+
+    io.dbus.req.valid := asking
     io.dbus.req.bits.addr := (addrBits.bits(width - 1, offsetWidth) ## 0.B(offsetWidth)).asUInt
     io.dbus.req.bits.wdata := wdata.asUInt
     io.dbus.req.bits.wen := isStore
     io.dbus.req.bits.wstrb := wstrb
-    io.dbus.req.bits.user := DbusUser.pack(curTag)
+    io.dbus.req.bits.user := DbusUser.pack(reqTag)
     io.dbus.req.bits.id := 0.U(busIdWidth)
 
     io.dbus.resp.ready := true.B
-    val hit = io.dbus.resp.valid & uopValid & (DbusUser.tagOf(io.dbus.resp.bits.user) === curTag)
+    val hit = io.dbus.resp.valid & uopValid & (DbusUser.tagOf(io.dbus.resp.bits.user) === reqTag)
 
     // Load result: sign- or zero-extended from the addressed byte, half, word or the whole bus word.
     val rdata: Node[Bits] = Node(io.dbus.resp.bits.data.asBits)
