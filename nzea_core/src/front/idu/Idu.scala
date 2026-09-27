@@ -21,6 +21,13 @@ class ArfWrite(width: Int) extends Bundle:
   val rd_index = Aligned(UInt(Gpr.indexWidth))
   val data = Aligned(UInt(width))
 
+/** The execute stage's value, for a read that takes it early: `valid` marks the cycle the backend finishes the
+  * instruction in execute, and the pair names what it is writing and what the value is.
+  */
+class ExecForward(width: Int) extends Bundle:
+  val rd_index = Aligned(UInt(Gpr.indexWidth))
+  val data = Aligned(UInt(width))
+
 /** What decode hands the middle: the decode result plus the operands, already read from the register file and already
   * selected into the three slots the issue uop carries.
   *
@@ -53,6 +60,7 @@ class IduIO(parameter: IduParameter) extends HWBundle(parameter):
   val in = Flipped(Decoupled(new FetchedInst(parameter.config.width)))
   val out = Aligned(Decoupled(new IduOut(parameter.config)))
   val arf_write = Flipped(ValidIO(new ArfWrite(parameter.config.width)))
+  val forward = Flipped(ValidIO(new ExecForward(parameter.config.width)))
 
 class IduProbe(parameter: IduParameter) extends DVBundle[IduParameter, IduLayers](parameter)
 
@@ -124,19 +132,30 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     }
 
     // The read network: which producers may supply a value early is the configuration's declaration (`BypassConfig`),
-    // and the fallback is what the register file itself holds. Slot 0 keeps the array's constant — the commit port
-    // never names it.
+    // and the fallback is what the register file itself holds. Slot 0 keeps the array's constant — no producer names it.
+    // Newest first: the instruction in execute is ahead of the one committing this cycle, so a read of one register that
+    // both write takes the newer value.
     val commitWrites = io.arf_write.valid & (io.arf_write.bits.rd_index =/= 0.U(Gpr.indexWidth))
+    val executeWrites = io.forward.valid & (io.forward.bits.rd_index =/= 0.U(Gpr.indexWidth))
     val forwardSources: Seq[ForwardSource] =
-      if parameter.bypass.writeback then
-        Seq(
-          ForwardSource(
-            armed = commitWrites,
-            index = io.arf_write.bits.rd_index,
-            data = io.arf_write.bits.data
-          )
-        )
-      else Seq.empty
+      (if parameter.bypass.execute then
+         Seq(
+           ForwardSource(
+             armed = executeWrites,
+             index = io.forward.bits.rd_index,
+             data = io.forward.bits.data
+           )
+         )
+       else Seq.empty)
+        ++ (if parameter.bypass.writeback then
+              Seq(
+                ForwardSource(
+                  armed = commitWrites,
+                  index = io.arf_write.bits.rd_index,
+                  data = io.arf_write.bits.data
+                )
+              )
+            else Seq.empty)
 
     def readReg(index: Node[UInt]): Referable[UInt] = forwardRead(index, gprs.ref(index), forwardSources)
 

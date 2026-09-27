@@ -11,7 +11,7 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
 import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.back.{BackOut, IssueSlot, IssueUop}
-import nzea_core.front.idu.{ArfWrite, IduOut}
+import nzea_core.front.idu.{ArfWrite, ExecForward, IduOut}
 import nzea_core.isa.{Backend, CsrType, Gpr}
 import nzea_core.stats.{CoreStats, ThroughputCounters, ThroughputCountersParameter}
 import nzea_rtl.StatsRegs
@@ -33,6 +33,7 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
   val decoded = Flipped(Decoupled(new IduOut(parameter.config)))
   val redirect = Aligned(Valid(UInt(width)))
   val arf_write = Aligned(ValidIO(new ArfWrite(width)))
+  val forward = Aligned(ValidIO(new ExecForward(width)))
   val issue = Aligned(new IssueSlot(new IssueUop(parameter.config)))
   val report = Flipped(new BackOut(width))
   val commit = Aligned(ValidIO(new CommitMsg(width)))
@@ -45,8 +46,9 @@ class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, 
   * One instruction is in execute — the uop the backend is working on — and one is in writeback, the destination the
   * backend finished a cycle earlier. Splitting the slots is what lets the execute slot refill the cycle a result lands
   * instead of staying busy until the commit; whether that refill is *safe* is the configuration's answer, because a
-  * read only sees the result early through a bypass link. Without one the admission window is the commit cycle (the
-  * write the commit makes is what the read sees), and with no link at all it is the cycle after.
+  * read only sees the result early through a bypass link. With an execute link the window is the cycle the backend
+  * produces the result, without one it is the commit cycle (the write the commit makes is what the read sees), and with
+  * no link at all it is the cycle after.
   *
   * The backend latches its result in an exit register and reports it a cycle later, so the middle retires one `done`
   * pulse per instruction and holds the uop (and the instruction it came from) stable until that pulse or a flush.
@@ -99,9 +101,14 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     when(complete) { wbRd := ex.rd_index }
 
     // A commit cycle is an admission window only when the configuration lets the read see the write that commit makes
-    // in the same cycle (`BypassConfig`); without the link the read waits for the write to land. A flush closes the
-    // window either way — the instruction the front would offer is on the path being killed.
-    io.decoded.ready := (if parameter.bypass.writeback then !exValid | done else !exValid & !done) & !flushing
+    // in the same cycle (`BypassConfig`); without the link the read waits for the write to land. An execute link opens
+    // the window one cycle earlier, in the cycle the backend produces the result, and hands it to the read directly. A
+    // flush closes the window either way — the instruction the front would offer is on the path being killed.
+    val admit =
+      if parameter.bypass.execute then !exValid | complete
+      else if parameter.bypass.writeback then !exValid | done
+      else !exValid & !done
+    io.decoded.ready := admit & !flushing
     when(flushing) { exValid := false.B }.otherwise {
       when(issue) { exValid := true.B }
         .otherwise { when(complete) { exValid := false.B } }
@@ -113,6 +120,13 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     io.issue.valid := exValid & !flushing
     io.issue.first := regNext(issue, false.B) & !flushing
     io.issue.bits :<= uop
+
+    // The execute stage's value on its way to a read that takes it early: `complete` marks the cycle it is there, and
+    // the slot names what it is — the index is the one the instruction in execute writes, 0 when it writes nothing,
+    // which no read matches.
+    io.forward.valid := complete
+    io.forward.bits.rd_index := ex.rd_index
+    io.forward.bits.data := io.report.exec_data
 
     io.flush := flushing
     io.redirect.valid := flushing

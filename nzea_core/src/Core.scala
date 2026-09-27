@@ -68,6 +68,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     middle.io.decoded :<>= front.io.out
     front.io.redirect :<= middle.io.redirect
     front.io.arf_write :<= middle.io.arf_write
+    front.io.forward :<= middle.io.forward
     front.io.flush := middle.io.flush
 
     back.io.issue :<= middle.io.issue

@@ -93,6 +93,9 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     io.report.complete := done
     io.report.done := donePulse
     io.report.data := resultReg.data
+    // The same value before the exit register: the paths hold it for the whole completion cycle, which is what a
+    // forwarding network reading it in that cycle needs.
+    io.report.exec_data := result.data
     io.report.next_pc := resultReg.next_pc
     io.report.csr_type := resultReg.csr_type
     io.report.csr_data := resultReg.csr_data

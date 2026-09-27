@@ -61,6 +61,7 @@ object BackPathTest extends TestSuite:
           "report_complete" -> 1,
           "report_done" -> 1,
           "report_data" -> width,
+          "report_exec_data" -> width,
           "report_next_pc" -> width,
           "report_csr_type" -> CsrType.width,
           "report_csr_data" -> width,

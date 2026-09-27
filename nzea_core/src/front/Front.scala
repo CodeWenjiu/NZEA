@@ -12,7 +12,7 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.{BypassConfig, CoreConfig, Isa}
 import nzea_core.front.ifu.{FetchedInst, Ifu, IfuParameter}
-import nzea_core.front.idu.{ArfWrite, Idu, IduOut, IduParameter}
+import nzea_core.front.idu.{ArfWrite, ExecForward, Idu, IduOut, IduParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -32,6 +32,7 @@ class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
   val ibus = Aligned(Ifu.busType(parameter.config))
   val redirect = Flipped(Valid(UInt(width)))
   val arf_write = Flipped(ValidIO(new ArfWrite(width)))
+  val forward = Flipped(ValidIO(new ExecForward(width)))
   val out = Aligned(Decoupled(new IduOut(parameter.config)))
 
 class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, FrontLayers](parameter)
@@ -69,4 +70,5 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
     pipelineConnect(ifu.io.out, idu.io.in, io.flush)
 
     idu.io.arf_write :<>= io.arf_write
+    idu.io.forward :<>= io.forward
     io.out :<>= idu.io.out

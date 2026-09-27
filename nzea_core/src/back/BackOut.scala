@@ -8,15 +8,18 @@ import nzea_core.isa.CsrType
 /** Completion report of the backend — the single reverse channel, back to the middle.
   *
   * Two pulses ride it. `complete` is the cycle the backend finishes the uop and loads its exit register; `done` is the
-  * cycle after, when the middle retires what that register holds. A consumer that needs the result early — the middle
-  * freeing its execute slot, a forwarding network taking the value out of execute — reads `complete`, the commit point
-  * reads `done`, and the reported fields are stable for both. `flush` is the branch resolution that kills the uop in
-  * flight, and it always carries a redirect target: a flush redirects the fetch stream, it never just cancels.
+  * cycle after, when the middle retires what that register holds. `data` is that register's content, so it is only
+  * meaningful from `done` on, while `exec_data` is the same value before it is registered — the path drives it
+  * combinationally, and it is only meaningful in the `complete` cycle. A consumer that needs the result early — a
+  * forwarding network taking the value out of execute — reads `complete` with `exec_data`; the commit point reads
+  * `done` with `data`. `flush` is the branch resolution that kills the uop in flight, and it always carries a redirect
+  * target: a flush redirects the fetch stream, it never just cancels.
   */
 class BackOut(width: Int) extends Bundle:
   val complete = Aligned(Bool())
   val done = Aligned(Bool())
   val data = Aligned(UInt(width))
+  val exec_data = Aligned(UInt(width))
   val next_pc = Aligned(UInt(width))
   val csr_type = Aligned(UInt(CsrType.width))
   val csr_data = Aligned(UInt(width))
