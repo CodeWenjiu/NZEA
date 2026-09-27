@@ -12,7 +12,7 @@
 | `nzea_device/src` | 可复用设备 IP（UART、定时器等），不依赖任何业务模块 |
 | `nzea_cache/src` | Cache 实现（I-Cache、D-Cache），依赖 `nzea_rtl` |
 | `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |
-| `nzea_config/src` | 配置模型叶子模块（零依赖）：`core/`（CoreConfig、BpuConfig、IsaConfig、FuConfig、PayloadSpec、CacheConfig 等）、`tile/`（TileConfig）、`fpga/`（FpgaConfig）、顶层构建流程枚举（SynthPlatform 等） |
+| `nzea_config/src` | 配置模型叶子模块（零依赖）：`core/`（CoreConfig（含 Isa：Xlen 与 Ext）、BpuConfig、FuConfig、PayloadSpec、CacheConfig 等）、`tile/`（TileConfig）、`fpga/`（FpgaConfig）、顶层构建流程枚举（SynthPlatform 等） |
 | `nzea_tile/src` | Tile 级 SoC 封装（NzeaTile + FabricBus crossbar + 平台设备） |
 | `nzea_fpga/src` | FPGA 板级包装：板级顶层、引脚约束、综合后处理 |
 | `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |

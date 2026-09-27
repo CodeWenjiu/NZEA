@@ -1,7 +1,7 @@
 package nzea_core.back
 
 import nzea_config.RtlFlow
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.back.mem.{DbusUser, MemPath, MmioWindow}
 import nzea_core.isa.{Backend, CsrType}
 import nzea_rtl.TestFlow
@@ -15,7 +15,7 @@ object BackPathTest extends TestSuite:
 
   private val width = 32
   private val window = "0x10000000:0x1000"
-  private val module = Back.moduleName(BackParameter("riscv32i", 0x80000000L, RtlFlow.Yosys, Seq(window)))
+  private val module = Back.moduleName(BackParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, Seq(window)))
 
   private def elaborate(isa: String): String =
     TestFlow.lower(
@@ -54,7 +54,7 @@ object BackPathTest extends TestSuite:
           "issue_bits_src_b" -> width,
           "issue_bits_src_c" -> width,
           "issue_bits_backend" -> Backend.width,
-          "issue_bits_op" -> OpWindow.width(CoreConfig("riscv32i", 0x80000000L)),
+          "issue_bits_op" -> OpWindow.width(CoreConfig(Isa("riscv32i"), 0x80000000L)),
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
           "report_done" -> 1,

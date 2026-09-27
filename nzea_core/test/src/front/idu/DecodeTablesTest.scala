@@ -5,7 +5,7 @@ import nzea_core.back.OpWindow
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.{Backend, Srcs}
-import nzea_config.core.{CoreConfig, IsaConfig}
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_rtl.PlaSim
 import nzea_rtl.stdlib.{Encoding, Qmc}
 import utest.*
@@ -17,13 +17,13 @@ import utest.*
   */
 object DecodeTablesTest extends TestSuite:
 
-  private val withM = CoreConfig("riscv32im", 0x80000000L)
-  private val withoutM = CoreConfig("riscv32i", 0x80000000L)
-  private val rv64i = CoreConfig("riscv64i", 0x80000000L)
-  private val rv64im = CoreConfig("riscv64im", 0x80000000L)
+  private val withM = CoreConfig(Isa("riscv32im"), 0x80000000L)
+  private val withoutM = CoreConfig(Isa("riscv32i"), 0x80000000L)
+  private val rv64i = CoreConfig(Isa("riscv64i"), 0x80000000L)
+  private val rv64im = CoreConfig(Isa("riscv64im"), 0x80000000L)
 
-  private val intOps = IntOp.set(withM.isaConfig)
-  private val intOps64 = IntOp.set(rv64im.isaConfig)
+  private val intOps = IntOp.set(withM.isa)
+  private val intOps64 = IntOp.set(rv64im.isa)
 
   private lazy val tables = DecodeTables.all(withM)
   private lazy val pla = Qmc(tables)
@@ -62,7 +62,7 @@ object DecodeTablesTest extends TestSuite:
   private def decode(word: BigInt): Map[String, BigInt] = decodeWith(withM, pla, word)
 
   /** What the table declares for one instruction, as the PLA must report it. */
-  private def declaredWith(ops: Encoding.UnionSet[IntOp, IsaConfig], inst: RVInst): Map[String, BigInt] = Map(
+  private def declaredWith(ops: Encoding.UnionSet[IntOp, Isa], inst: RVInst): Map[String, BigInt] = Map(
     DecodeTables.BackendName -> BigInt(inst.dispatch.backend.lit),
     DecodeTables.OpName -> BigInt(inst.dispatch.window(ops)),
     DecodeTables.SrcsName -> BigInt(inst.dispatch.srcs.lit),
@@ -119,7 +119,7 @@ object DecodeTablesTest extends TestSuite:
     test("the 64-bit rows carry the word-form and 64-bit windows"):
       def entry(name: String): RVInst = RiscvInsts.all(rv64im).find(_.name == name).get
       def window(name: String): Int = entry(name).dispatch.window(intOps64)
-      def memWindow(op: LsuOp): Int = MemOp.set(rv64im.isaConfig).lit(MemOp.Lsu(op))
+      def memWindow(op: LsuOp): Int = MemOp.set(rv64im.isa).lit(MemOp.Lsu(op))
       assert(window("ADDIW") == intOps64.lit(IntOp.Alu(AluOp.Addw)))
       assert(window("SRAW") == intOps64.lit(IntOp.Alu(AluOp.Sraw)))
       assert(window("MULW") == intOps64.lit(IntOp.Mul(MulOp.Mulw)))
@@ -148,7 +148,7 @@ object DecodeTablesTest extends TestSuite:
         assert(inst.gprWr == gprWr)
 
       def intWindow(op: IntOp): Int = intOps.lit(op)
-      def memWindow(op: LsuOp): Int = MemOp.set(withM.isaConfig).lit(MemOp.Lsu(op))
+      def memWindow(op: LsuOp): Int = MemOp.set(withM.isa).lit(MemOp.Lsu(op))
 
       check("LUI", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.ImmZero, Some(ImmType.U), true)
       check("AUIPC", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.PcImm, Some(ImmType.U), true)

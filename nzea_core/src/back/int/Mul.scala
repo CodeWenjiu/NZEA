@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -16,9 +16,9 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 class MulInput(config: CoreConfig) extends Bundle:
   val opA = Aligned(UInt(config.width))
   val opB = Aligned(UInt(config.width))
-  val op = Aligned(UInt(MulOp.set(config.isaConfig).width))
+  val op = Aligned(UInt(MulOp.set(config.isa).width))
 
-case class MulParameter(isa: String, defaultPc: Long) extends Parameter:
+case class MulParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[MulParameter] = upickle.default.macroRW
@@ -54,7 +54,7 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val width = parameter.config.width
-    val ops = MulOp.set(parameter.config.isaConfig)
+    val ops = MulOp.set(parameter.config.isa)
     val hasWord = ops.contains(MulOp.Mulw)
     val productWidth = 2 * width
     val countWidth = log2Ceil(width + 1)

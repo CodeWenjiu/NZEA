@@ -3,7 +3,7 @@ package nzea_core.back
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.Srcs
-import nzea_config.core.{CoreConfig, IsaConfig}
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_rtl.stdlib.*
 import utest.*
 
@@ -26,18 +26,18 @@ object BackTest extends TestSuite:
   /** The int window in each shape it takes: three units without M, five with it, and a payload column that is as wide
     * as the ALU's op set — which is where the 64-bit windows grow, by the word forms.
     */
-  private val rv32iConfig = CoreConfig("riscv32i", 0x80000000L)
-  private val rv32imConfig = CoreConfig("riscv32im", 0x80000000L)
-  private val rv64iConfig = CoreConfig("riscv64i", 0x80000000L)
-  private val rv64imConfig = CoreConfig("riscv64im", 0x80000000L)
+  private val rv32iConfig = CoreConfig(Isa("riscv32i"), 0x80000000L)
+  private val rv32imConfig = CoreConfig(Isa("riscv32im"), 0x80000000L)
+  private val rv64iConfig = CoreConfig(Isa("riscv64i"), 0x80000000L)
+  private val rv64imConfig = CoreConfig(Isa("riscv64im"), 0x80000000L)
 
-  private val isa32: IsaConfig = rv32iConfig.isaConfig
-  private val isa64: IsaConfig = rv64iConfig.isaConfig
-  private val isa32im: IsaConfig = rv32imConfig.isaConfig
-  private val isa64im: IsaConfig = rv64imConfig.isaConfig
+  private val isa32: Isa = rv32iConfig.isa
+  private val isa64: Isa = rv64iConfig.isa
+  private val isa32im: Isa = rv32imConfig.isa
+  private val isa64im: Isa = rv64imConfig.isa
 
   private val withoutM = IntOp.set(isa32)
-  private val withM = IntOp.set(rv32imConfig.isaConfig)
+  private val withM = IntOp.set(rv32imConfig.isa)
 
   val tests = Tests:
     test("the encodings keep their field widths"):
@@ -85,7 +85,7 @@ object BackTest extends TestSuite:
         assert(tag(window, withM) == withM.tagOf(v))
 
       // One case per unit, using the widest literal of each op set the 64-bit configuration has.
-      val rv64im = IntOp.set(rv64imConfig.isaConfig)
+      val rv64im = IntOp.set(rv64imConfig.isa)
       val widest: Seq[(IntOp, Encoding)] = Seq(
         (IntOp.Alu(AluOp.Sraw), AluOp.Sraw),
         (IntOp.Bru(BruOp.BGEU), BruOp.BGEU),

@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.back.{IssueUop, PathResult}
 import nzea_core.isa.CsrType
 import nzea_rtl.StatsRegs
@@ -17,7 +17,7 @@ import nzea_rtl.stdlib.*
 import nzea_core.stats.{BpCounters, BpCountersParameter}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IntPathParameter(isa: String, defaultPc: Long, flow: RtlFlow) extends Parameter:
+case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IntPathParameter] = upickle.default.macroRW
@@ -57,7 +57,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val uopValid = io.issue.valid
     val u = io.issue.bits
 
-    val ops = IntOp.set(parameter.config.isaConfig)
+    val ops = IntOp.set(parameter.config.isa)
     val op: Referable[UInt] = u.op
     val fuOp: Node[UInt] = ops.payload(op)
 
@@ -69,7 +69,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     // The operands are the uop's slots: decode already resolved them, so a unit reads the slot its form filled. The op
     // field each unit slices is as wide as that unit's op set under this configuration.
     val alu = Alu.instantiate(AluParameter(parameter.config.isa, parameter.config.defaultPc))
-    alu.io.op := Encoding.take(fuOp, AluOp.set(parameter.config.isaConfig).width)
+    alu.io.op := Encoding.take(fuOp, AluOp.set(parameter.config.isa).width)
     alu.io.opA := u.src_a
     alu.io.opB := u.src_b
 
@@ -108,14 +108,14 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       m.io.issue.valid := uopValid & selects(IntOp.mul)
       m.io.issue.bits.opA := u.src_a
       m.io.issue.bits.opB := u.src_b
-      m.io.issue.bits.op := Encoding.take(fuOp, MulOp.set(parameter.config.isaConfig).width)
+      m.io.issue.bits.op := Encoding.take(fuOp, MulOp.set(parameter.config.isa).width)
     for d <- div do
       d.io.clock := io.clock
       d.io.resetN := io.resetN
       d.io.issue.valid := uopValid & selects(IntOp.div)
       d.io.issue.bits.opA := u.src_a
       d.io.issue.bits.opB := u.src_b
-      d.io.issue.bits.op := Encoding.take(fuOp, DivOp.set(parameter.config.isaConfig).width)
+      d.io.issue.bits.op := Encoding.take(fuOp, DivOp.set(parameter.config.isa).width)
     val mulDone = mul.map(m => selects(IntOp.mul) & m.io.done).getOrElse(false.B)
     val divDone = div.map(d => selects(IntOp.div) & d.io.done).getOrElse(false.B)
     val mulData: Referable[UInt] = mul.map(m => m.io.data).getOrElse(0.U(width))

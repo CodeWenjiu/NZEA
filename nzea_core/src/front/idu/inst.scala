@@ -1,7 +1,7 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.BitSet
-import nzea_config.core.{CoreConfig, IsaConfig}
+import nzea_config.core.{CoreConfig, Isa, Xlen}
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.{Backend, Srcs}
@@ -31,7 +31,7 @@ enum DispatchOp:
   /** Whether this dispatch is one the configuration can issue: the union must build the case, and the case must carry a
     * member its own set has — a case whose members come and go with the ISA is only as present as its payload.
     */
-  def exists(isa: IsaConfig): Boolean = this match
+  def exists(isa: Isa): Boolean = this match
     case Int(op) => IntOp.set(isa).contains(op) && op.exists(isa)
     case Mem(op) => LsuOp.set(isa).contains(op)
 
@@ -46,14 +46,14 @@ case class Dispatch private (backend: Backend, op: DispatchOp, srcs: Srcs, name:
   /** This instruction's window value, packed against the units the configuration has. Both windows come from the same
     * configuration, which the int set carries; the mem window's code is its own op's, its single case carrying no tag.
     */
-  def window(ops: Encoding.UnionSet[IntOp, IsaConfig]): Int = op match
+  def window(ops: Encoding.UnionSet[IntOp, Isa]): Int = op match
     case DispatchOp.Int(intOp) => ops.lit(intOp)
     case DispatchOp.Mem(lsuOp) => MemOp.set(ops.config).lit(MemOp.Lsu(lsuOp))
 
   /** Whether this instruction can be issued under `isa` — the row's own question, asked of the dispatch, so a row whose
     * unit (or whose unit's member) the configuration does not have never reaches the decode tables.
     */
-  def encodable(isa: IsaConfig): Boolean = op.exists(isa)
+  def encodable(isa: Isa): Boolean = op.exists(isa)
 
 object Dispatch:
   def alu(op: AluOp, srcs: Srcs): Dispatch = int(IntOp.Alu(op), srcs)
@@ -87,7 +87,7 @@ case class RVInst(
     immType: Option[ImmType],
     dispatch: Dispatch,
     gprWr: Boolean = true,
-    exists: IsaConfig => Boolean = _ => true
+    exists: Isa => Boolean = _ => true
 ):
 
   /** The instruction pattern, without the Verilog-style `b` prefix the source carries to stay diffable with the legacy
@@ -504,7 +504,7 @@ object RiscvInsts:
     "b000000" + n(6) + n(5) + "001" + n(5) + "0010011",
     Some(ImmType.I),
     Dispatch.alu(AluOp.Sll, Srcs.Rs1Imm),
-    exists = _.xlen == 64
+    exists = _.xlen == Xlen.Rv64
   )
 
   val SRLI64 = RVInst(
@@ -512,7 +512,7 @@ object RiscvInsts:
     "b000000" + n(6) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
     Dispatch.alu(AluOp.Srl, Srcs.Rs1Imm),
-    exists = _.xlen == 64
+    exists = _.xlen == Xlen.Rv64
   )
 
   val SRAI64 = RVInst(
@@ -520,7 +520,7 @@ object RiscvInsts:
     "b010000" + n(6) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
     Dispatch.alu(AluOp.Sra, Srcs.Rs1Imm),
-    exists = _.xlen == 64
+    exists = _.xlen == Xlen.Rv64
   )
 
   private val base: Seq[RVInst] = Seq(
@@ -600,6 +600,6 @@ object RiscvInsts:
     * configuration fact twice and nothing here branches on the register width.
     */
   def all(config: CoreConfig): Seq[RVInst] =
-    val isa = config.isaConfig
+    val isa = config.isa
     val rows = over(base, rv64.filter(_.exists(isa))) ++ m ++ mw
     rows.filter(inst => inst.exists(isa) && inst.dispatch.encodable(isa))

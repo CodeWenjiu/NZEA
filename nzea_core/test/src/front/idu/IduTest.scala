@@ -1,6 +1,6 @@
 package nzea_core.front.idu
 
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.back.OpWindow
 import nzea_core.back.int.IntOp
 import nzea_core.isa.{Backend, Gpr}
@@ -13,10 +13,10 @@ import utest.*
 object IduTest extends TestSuite:
 
   private val configs = Seq(
-    CoreConfig("riscv32i", 0x80000000L),
-    CoreConfig("riscv32im", 0x80000000L),
-    CoreConfig("riscv64i", 0x80000000L),
-    CoreConfig("riscv64im", 0x80000000L)
+    CoreConfig(Isa("riscv32i"), 0x80000000L),
+    CoreConfig(Isa("riscv32im"), 0x80000000L),
+    CoreConfig(Isa("riscv64i"), 0x80000000L),
+    CoreConfig(Isa("riscv64im"), 0x80000000L)
   )
 
   val tests = Tests:
@@ -31,16 +31,16 @@ object IduTest extends TestSuite:
       assert(1 << Gpr.indexWidth == Gpr.depth)
 
     test("the tables follow the register width: the 64-bit rows and the shift-immediate encodings"):
-      val rv32i = CoreConfig("riscv32i", 0x80000000L)
-      val rv64i = CoreConfig("riscv64i", 0x80000000L)
-      val rv64im = CoreConfig("riscv64im", 0x80000000L)
+      val rv32i = CoreConfig(Isa("riscv32i"), 0x80000000L)
+      val rv64i = CoreConfig(Isa("riscv64i"), 0x80000000L)
+      val rv64im = CoreConfig(Isa("riscv64im"), 0x80000000L)
       def names(config: CoreConfig): Set[String] = RiscvInsts.all(config).map(_.name).toSet
 
       assert(names(rv64i).contains("LD") && names(rv64i).contains("ADDIW") && names(rv64i).contains("SRAW"))
       assert(!names(rv32i).contains("LD") && !names(rv32i).contains("ADDIW"))
       // MULW is a word form: it needs M and 64-bit registers, so the riscv32im table has no row for it.
       assert(names(rv64im).contains("MULW") && names(rv64im).contains("REMUW"))
-      assert(!names(CoreConfig("riscv32im", 0x80000000L)).contains("MULW"))
+      assert(!names(CoreConfig(Isa("riscv32im"), 0x80000000L)).contains("MULW"))
       // SLLI's shift amount is six bits at xlen 64 (bit 25 is part of it) and five at xlen 32 (bit 25 is pinned).
       def pattern(config: CoreConfig, name: String): String = RiscvInsts.all(config).find(_.name == name).get.bitPatStr
       assert(pattern(rv64i, "SLLI") != pattern(rv32i, "SLLI"))
@@ -54,7 +54,7 @@ object IduTest extends TestSuite:
         config <- configs
         inst <- RiscvInsts.all(config)
       do
-        val ops = IntOp.set(config.isaConfig)
+        val ops = IntOp.set(config.isa)
         assert(inst.dispatch.window(ops) > 0)
         assert(inst.dispatch.window(ops) < (1 << OpWindow.width(config)))
         assert(inst.dispatch.backend.lit < (1 << Backend.width))

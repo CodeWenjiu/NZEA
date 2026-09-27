@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -16,9 +16,9 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 class DivInput(config: CoreConfig) extends Bundle:
   val opA = Aligned(UInt(config.width))
   val opB = Aligned(UInt(config.width))
-  val op = Aligned(UInt(DivOp.set(config.isaConfig).width))
+  val op = Aligned(UInt(DivOp.set(config.isa).width))
 
-case class DivParameter(isa: String, defaultPc: Long) extends Parameter:
+case class DivParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[DivParameter] = upickle.default.macroRW
@@ -59,7 +59,7 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val width = parameter.config.width
-    val ops = DivOp.set(parameter.config.isaConfig)
+    val ops = DivOp.set(parameter.config.isa)
     val hasWord = ops.contains(DivOp.Divw)
     val workingWidth = 2 * width
     val countWidth = log2Ceil(width + 1)

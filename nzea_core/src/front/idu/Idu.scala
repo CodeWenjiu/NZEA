@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.FetchedInst
 import nzea_core.isa.{Backend, Gpr, Srcs}
@@ -39,7 +39,7 @@ class IduOut(config: CoreConfig) extends Bundle:
   val op = Aligned(UInt(OpWindow.width(config)))
   val csr_addr = Aligned(UInt(12))
 
-case class IduParameter(isa: String, defaultPc: Long) extends Parameter:
+case class IduParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IduParameter] = upickle.default.macroRW

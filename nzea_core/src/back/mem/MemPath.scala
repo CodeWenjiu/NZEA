@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.back.{IssueUop, PathResult}
 import nzea_core.isa.CsrType
 import nzea_rtl.LiteBusRW
@@ -26,7 +26,7 @@ object MmioWindow:
       case Array(base, size) => (hex(base), hex(size))
       case _                 => throw new IllegalArgumentException(s"expected a base:size window, got '$range'")
 
-case class MemPathParameter(isa: String, defaultPc: Long, mmioRanges: Seq[String]) extends Parameter:
+case class MemPathParameter(isa: Isa, defaultPc: Long, mmioRanges: Seq[String]) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
   val windows: Seq[(BigInt, BigInt)] = mmioRanges.map(MmioWindow.parse)
 
@@ -71,8 +71,8 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     val uopValid = io.issue.valid
     val u = io.issue.bits
 
-    val memOps = MemOp.set(parameter.config.isaConfig)
-    val lsuOps = LsuOp.set(parameter.config.isaConfig)
+    val memOps = MemOp.set(parameter.config.isa)
+    val lsuOps = LsuOp.set(parameter.config.isa)
     val op: Node[UInt] = memOps.payload(u.op)
     val isStore = LsuOp.isStore(op, lsuOps)
 

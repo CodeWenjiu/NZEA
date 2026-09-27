@@ -6,11 +6,11 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class AluParameter(isa: String, defaultPc: Long) extends Parameter:
+case class AluParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[AluParameter] = upickle.default.macroRW
@@ -19,7 +19,7 @@ class AluLayers(parameter: AluParameter) extends LayerInterface(parameter):
   def layers = Seq.empty
 
 class AluIO(parameter: AluParameter) extends HWBundle(parameter):
-  private val ops = AluOp.set(parameter.config.isaConfig)
+  private val ops = AluOp.set(parameter.config.isa)
   val op = Flipped(UInt(ops.width))
   val opA = Flipped(UInt(parameter.config.width))
   val opB = Flipped(UInt(parameter.config.width))
@@ -48,7 +48,7 @@ object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
     val io = summon[Interface[AluIO]]
 
     val width = parameter.config.width
-    val ops = AluOp.set(parameter.config.isaConfig)
+    val ops = AluOp.set(parameter.config.isa)
     val hasWord = ops.contains(AluOp.Addw)
     val opBits: Node[Bits] = Node(io.op.asBits)
     val aBitsFull: Node[Bits] = Node(io.opA.asBits)

@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.isa.CsrType
 import nzea_core.middle.CommitMsg
 import nzea_rtl.stdlib.*
@@ -20,7 +20,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * valid bit, since no CSR type means the instruction wrote no CSR). The two short fields are widened here: the ABI
   * takes `int`s, and the widths of the generated call's arguments are the declared ones.
   */
-case class CommitDpiBridgeParameter(isa: String, defaultPc: Long) extends Parameter:
+case class CommitDpiBridgeParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CommitDpiBridgeParameter] = upickle.default.macroRW

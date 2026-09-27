@@ -1,6 +1,6 @@
 package nzea_core.back.int
 
-import nzea_config.core.IsaConfig
+import nzea_config.core.{Isa, Xlen}
 import nzea_rtl.stdlib.*
 
 /** Op encodings of the integer path's FUs. Decode places one of them in the uop's shared `op` field, the backend slices
@@ -31,9 +31,9 @@ enum AluOp extends Encoding.OneHot:
   case Srlw
   case Sraw
 
-  def exists(isa: IsaConfig): Boolean = this match
+  def exists(isa: Isa): Boolean = this match
     case Add | Sub | And | Or | Xor | Sll | Srl | Sra | Slt | Sltu => true
-    case Addw | Subw | Sllw | Srlw | Sraw                          => isa.xlen == 64
+    case Addw | Subw | Sllw | Srlw | Sraw                          => isa.xlen == Xlen.Rv64
 
 object AluOp:
   /** The base ops, then the word block: the ALU decodes its groups by position, and the word block mirrors the
@@ -45,7 +45,7 @@ object AluOp:
   /** Where the word block starts: the bits the base ops occupy, and the distance from a base group to its word twin. */
   val baseWidth: Int = Encoding.width(base)
 
-  def set(isa: IsaConfig): OneHotSet[AluOp] = OneHotSet.of(base ++ word)(_.exists(isa))
+  def set(isa: Isa): OneHotSet[AluOp] = OneHotSet.of(base ++ word)(_.exists(isa))
 
 /** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
 enum BruOp extends Encoding.OneHot:
@@ -73,12 +73,12 @@ enum MulOp extends Encoding.OneHot:
   case Mulhu
   case Mulw
 
-  def exists(isa: IsaConfig): Boolean = this match
+  def exists(isa: Isa): Boolean = this match
     case Mul | Mulh | Mulhsu | Mulhu => isa.hasM
-    case Mulw                        => isa.hasM && isa.xlen == 64
+    case Mulw                        => isa.hasM && isa.xlen == Xlen.Rv64
 
 object MulOp:
-  def set(isa: IsaConfig): OneHotSet[MulOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
+  def set(isa: Isa): OneHotSet[MulOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
 
 /** DIV FU op: DIV, DIVU, REM, REMU, then RV64's four word forms, which divide the low word and sign-extend the result.
   * Gated like [[MulOp]]'s: no M, no set.
@@ -93,12 +93,12 @@ enum DivOp extends Encoding.OneHot:
   case Remw
   case Remuw
 
-  def exists(isa: IsaConfig): Boolean = this match
+  def exists(isa: Isa): Boolean = this match
     case Div | Divu | Rem | Remu     => isa.hasM
-    case Divw | Divuw | Remw | Remuw => isa.hasM && isa.xlen == 64
+    case Divw | Divuw | Remw | Remuw => isa.hasM && isa.xlen == Xlen.Rv64
 
 object DivOp:
-  def set(isa: IsaConfig): OneHotSet[DivOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
+  def set(isa: Isa): OneHotSet[DivOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
 
 /** SYSU op: CSR ops + ECALL/EBREAK/FENCE. Encoded from funct3 at decode time, not the funct3 value itself. */
 enum SysuOp extends Encoding.Sequential:

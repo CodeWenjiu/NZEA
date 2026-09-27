@@ -7,7 +7,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.back.mem.{DbusUser, MemPath}
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_rtl.stdlib.*
@@ -20,7 +20,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * reset refuses traffic like any other slave in this design. The bridge never cancels anything — the fetcher's epoch
   * does that, and a request the fetcher abandons is answered into a slot it will simply drain.
   */
-case class IbusDpiBridgeParameter(isa: String, defaultPc: Long) extends Parameter:
+case class IbusDpiBridgeParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IbusDpiBridgeParameter] = upickle.default.macroRW
@@ -84,7 +84,7 @@ object IbusDpiBridge
   * response acknowledges the bus request rather than carrying data. `wstrb` is widened to the ABI's `int` here, because
   * the generated call takes the declared argument widths as they are.
   */
-case class DbusDpiBridgeParameter(isa: String, defaultPc: Long) extends Parameter:
+case class DbusDpiBridgeParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[DbusDpiBridgeParameter] = upickle.default.macroRW

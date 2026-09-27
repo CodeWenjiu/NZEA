@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import me.jiuyang.stdlib.Decoupled
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_rtl.LiteBusRO
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -19,7 +19,7 @@ class FetchedInst(width: Int) extends Bundle:
   val pc = Aligned(UInt(width))
   val inst = Aligned(UInt(32))
 
-case class IfuParameter(isa: String, defaultPc: Long) extends Parameter:
+case class IfuParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IfuParameter] = upickle.default.macroRW

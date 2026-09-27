@@ -1,6 +1,7 @@
 package nzea_cli
 
 import nzea_config.RtlFlow
+import nzea_config.core.Isa
 import nzea_core.stats.{BpCounters, BpCountersParameter, CoreStats, ThroughputCounters, ThroughputCountersParameter}
 import nzea_rtl.{Elaborate, StatSchema, StatsRegs}
 import nzea_top.{NzeaCore, NzeaCoreParameter}
@@ -42,7 +43,7 @@ object Main:
     val flags = parse(args.toList)
     val target = flags.getOrElse("target", "core")
     val platform = flags.getOrElse("platform", "yosys")
-    val isa = flags.getOrElse("isa", "riscv32i")
+    val isa = Isa.parseOrThrow(flags.getOrElse("isa", "riscv32i"))
     val defaultPc: Long = flags.get("defaultPc").fold(0x80000000L)(java.lang.Long.decode(_))
     val flow = RtlFlow
       .fromString(flags.getOrElse("flow", RtlFlow.Verilator.segment))
@@ -50,7 +51,7 @@ object Main:
     val outDir = flags
       .get("outDir")
       .filter(_.nonEmpty)
-      .fold(os.pwd / "build" / target / platform / isa / flow.segment)(os.Path(_, os.pwd))
+      .fold(os.pwd / "build" / target / platform / isa.name / flow.segment)(os.Path(_, os.pwd))
 
     require(target == "core", s"only --target core is ported, got '$target'")
     require(platform == "yosys" || platform == "fpga", s"unknown platform '$platform'")
@@ -67,7 +68,7 @@ object Main:
               "config",
               cfg.toString,
               "--isa",
-              isa,
+              isa.name,
               "--defaultPc",
               defaultPc.toString,
               "--flow",
@@ -90,7 +91,7 @@ object Main:
           StatSchema.emit(outDir.toString, NzeaCore.moduleName(parameter), CoreStats.schema)
     finally os.remove.all(scratch)
 
-    println(s"elaborated $target:$isa for $platform into $outDir")
+    println(s"elaborated $target:${isa.name} for $platform into $outDir")
 
   /** `--flag value` pairs; every flag takes a value, so a missing one is an error rather than a silent default. */
   private def parse(args: List[String]): Map[String, String] = args match

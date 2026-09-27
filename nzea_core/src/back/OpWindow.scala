@@ -18,4 +18,4 @@ import nzea_core.back.mem.MemOp
 object OpWindow:
 
   def width(config: CoreConfig): Int =
-    Seq(IntOp.set(config.isaConfig).width, MemOp.set(config.isaConfig).width).max
+    Seq(IntOp.set(config.isa).width, MemOp.set(config.isa).width).max

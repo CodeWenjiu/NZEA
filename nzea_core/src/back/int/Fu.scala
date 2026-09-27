@@ -1,6 +1,6 @@
 package nzea_core.back.int
 
-import nzea_config.core.IsaConfig
+import nzea_config.core.Isa
 import nzea_rtl.stdlib.*
 
 /** The int path's window in the issue uop's shared `op` field: which unit takes the uop, and that unit's own op.
@@ -13,7 +13,7 @@ import nzea_rtl.stdlib.*
   * part of this window: the uop's slots carry them already resolved, and which slot a unit reads is this backend's own
   * wiring.
   */
-enum IntOp extends Encoding.Union[IsaConfig]:
+enum IntOp extends Encoding.Union[Isa]:
   case Alu(payload: AluOp) extends IntOp
   case Bru(payload: BruOp) extends IntOp
   case Mul(payload: MulOp) extends IntOp
@@ -25,7 +25,7 @@ enum IntOp extends Encoding.Union[IsaConfig]:
     * added without an answer does not go unnoticed either, since the compiler names the pattern the match would fail
     * on, and [set] asks every declared case.
     */
-  def exists(isa: IsaConfig): Boolean = this match
+  def exists(isa: Isa): Boolean = this match
     case Alu(op) => AluOp.set(isa).contains(op)
     case Bru(_)  => true
     case Mul(op) => MulOp.set(isa).contains(op)
@@ -33,7 +33,7 @@ enum IntOp extends Encoding.Union[IsaConfig]:
     case Sysu(_) => true
 
   /** The bits this case needs in the payload column: its unit's op set under the configuration. */
-  def childWidth(isa: IsaConfig): Int = this match
+  def childWidth(isa: Isa): Int = this match
     case Alu(_)  => AluOp.set(isa).width
     case Bru(_)  => BruOp.width
     case Mul(_)  => MulOp.set(isa).width
@@ -54,5 +54,5 @@ object IntOp:
   /** The units this configuration has, in declaration order: without M the multiplier and divider are never built, so
     * their codes go with them instead of leaving holes in the tag column.
     */
-  def set(isa: IsaConfig): Encoding.UnionSet[IntOp, IsaConfig] =
+  def set(isa: Isa): Encoding.UnionSet[IntOp, Isa] =
     Encoding.UnionSet.of(isa)(Seq(alu, bru, mul, div, sysu))(_.exists(isa))

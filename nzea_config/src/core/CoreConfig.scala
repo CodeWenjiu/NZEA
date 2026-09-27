@@ -8,10 +8,7 @@ package nzea_config.core
   * design is generated *for* is not configuration — it is a [[nzea_config.RtlFlow]], and only the modules whose RTL
   * changes with it take one.
   */
-case class CoreConfig(isa: String, defaultPc: Long):
-
-  /** Parsed ISA config, used to match extensions (e.g. `isaConfig.hasM`). */
-  val isaConfig: IsaConfig = IsaConfig.parseOrThrow(isa)
+case class CoreConfig(isa: Isa, defaultPc: Long):
 
   /** Data/address width derived from ISA (e.g. riscv32 -> 32, riscv64 -> 64). */
-  val width: Int = isaConfig.xlen
+  val width: Int = isa.xlen.bits

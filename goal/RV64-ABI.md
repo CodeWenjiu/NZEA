@@ -109,7 +109,7 @@ convention.
 
 **R5 — confirm the ISA strings and layout.** remu passes `riscv64i` / `riscv64im` to `just dump --isa`
 (`NzeaIsa::NZEA_ISA_STR`), and expects the dump directory to stay `<outDir>/<target>/<isa>/` with
-`NzeaCore.stats.toml` beside `filelist.f`. `IsaConfig.parse` already accepts `riscv64*`; the request is to
+`NzeaCore.stats.toml` beside `filelist.f`. `Isa.parse` already accepts `riscv64*`; the request is to
 keep it that way (and to say so if the string gains a suffix).
 
 **R6 — tell remu when an RV64 dump exists** (which target first: `core`), so §8 can run.

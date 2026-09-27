@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.RtlFlow
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.{Front, FrontParameter}
@@ -18,7 +18,7 @@ import nzea_core.middle.{CommitMsg, Middle, MiddleParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class CoreParameter(isa: String, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
+case class CoreParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CoreParameter] = upickle.default.macroRW

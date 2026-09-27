@@ -6,7 +6,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.IsaConfig
+import nzea_config.core.{Isa, Xlen}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -28,13 +28,13 @@ enum LsuOp extends Encoding.OneHot:
   case SD
   case LWU
 
-  def exists(isa: IsaConfig): Boolean = this match
+  def exists(isa: Isa): Boolean = this match
     case LB | LH | LW | LBU | LHU | SB | SH | SW => true
-    case LD | SD | LWU                           => isa.xlen == 64
+    case LD | SD | LWU                           => isa.xlen == Xlen.Rv64
 
 object LsuOp:
   /** The ops this configuration has: the word-wide forms need 64-bit registers. */
-  def set(isa: IsaConfig): OneHotSet[LsuOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
+  def set(isa: Isa): OneHotSet[LsuOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
 
   /** True for the store ops; a field that selects no store is treated as a load, like the legacy decoder. */
   def isStore(v: LsuOp): Boolean = v match
@@ -59,12 +59,12 @@ object LsuOp:
   * column is the whole window, which is the load/store op's own field. The address base, the offset and the store data
   * arrive in the uop's operand slots.
   */
-enum MemOp extends Encoding.Union[IsaConfig]:
+enum MemOp extends Encoding.Union[Isa]:
   case Lsu(payload: LsuOp) extends MemOp
 
-  def childWidth(isa: IsaConfig): Int = LsuOp.set(isa).width
+  def childWidth(isa: Isa): Int = LsuOp.set(isa).width
 
 object MemOp:
   val lsu = Lsu(LsuOp.LB)
 
-  def set(isa: IsaConfig): Encoding.UnionSet[MemOp, IsaConfig] = Encoding.UnionSet.of(isa)(Seq(lsu))(_ => true)
+  def set(isa: Isa): Encoding.UnionSet[MemOp, Isa] = Encoding.UnionSet.of(isa)(Seq(lsu))(_ => true)

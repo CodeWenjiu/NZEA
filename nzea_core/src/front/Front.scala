@@ -10,13 +10,13 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_core.front.ifu.{FetchedInst, Ifu, IfuParameter}
 import nzea_core.front.idu.{ArfWrite, Idu, IduOut, IduParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class FrontParameter(isa: String, defaultPc: Long) extends Parameter:
+case class FrontParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[FrontParameter] = upickle.default.macroRW

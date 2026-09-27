@@ -74,7 +74,7 @@ Also needed along the way:
 ## 4. What nzea provides today (no change on our side)
 
 - `just dump --target core --isa riscv64i --flow verilator` elaborates cleanly (17-bit shared op
-  window, 81-term PLA before minimization), and `IsaConfig.parse` accepts `riscv64i`;
+  window, 81-term PLA before minimization), and `Isa.parse` accepts `riscv64i`;
 - the DUT's decode maps an unknown instruction to a no-op, so an M instruction reaching this core is
   a **difftest mismatch, not a trap** — the acceptance run below doubles as the M-free check;
 - verified against the current RTL: `microbench riscv64im --app-args test` → 10/10 PASS, `ipc 0.2346`;

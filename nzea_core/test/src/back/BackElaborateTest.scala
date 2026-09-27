@@ -7,12 +7,12 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.back.int.{AluOp, BruOp, IntOp, MulOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.Backend
-import nzea_config.core.CoreConfig
+import nzea_config.core.{CoreConfig, Isa}
 import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
 
-case class BackElaborateTestParameter(isa: String) extends Parameter:
+case class BackElaborateTestParameter(isa: Isa) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, 0x80000000L)
 
 given upickle.default.ReadWriter[BackElaborateTestParameter] = upickle.default.macroRW
@@ -22,8 +22,8 @@ class BackElaborateTestLayers(parameter: BackElaborateTestParameter) extends Lay
 
 /** The decode result the middle hands to a backend, read the way the backends read it. */
 class BackElaborateTestIO(parameter: BackElaborateTestParameter) extends HWBundle(parameter):
-  private val intOps = IntOp.set(parameter.config.isaConfig)
-  private val isa = parameter.config.isaConfig
+  private val intOps = IntOp.set(parameter.config.isa)
+  private val isa = parameter.config.isa
 
   val backend = Flipped(UInt(Backend.width))
   val op = Flipped(UInt(OpWindow.width(parameter.config)))
@@ -52,8 +52,8 @@ object BackElaborateTestModule
   def architecture(parameter: BackElaborateTestParameter) =
     val io = summon[Interface[BackElaborateTestIO]]
 
-    val intOps = IntOp.set(parameter.config.isaConfig)
-    val isa = parameter.config.isaConfig
+    val intOps = IntOp.set(parameter.config.isa)
+    val isa = parameter.config.isa
     val lsuOps = LsuOp.set(isa)
     val isMem = io.backend === Backend.MEM.lit.U(Backend.width)
 
@@ -72,14 +72,14 @@ object BackElaborateTestModule
 /** Structural checks: one shared field sized by the longest window, and each backend's own column widths. */
 object BackElaborateTest extends TestSuite:
 
-  private val isa = "riscv32i"
+  private val isa = Isa("riscv32i")
   private val config = CoreConfig(isa, 0x80000000L)
-  private val intOps = IntOp.set(config.isaConfig)
+  private val intOps = IntOp.set(config.isa)
   private val module = BackElaborateTestModule.moduleName(BackElaborateTestParameter(isa))
 
   private lazy val sv = TestFlow.lower(
     module,
-    cfg => BackElaborateTestModule.main(Array("config", cfg.toString, "--isa", isa)),
+    cfg => BackElaborateTestModule.main(Array("config", cfg.toString, "--isa", isa.name)),
     cfg => BackElaborateTestModule.main(Array("design", cfg.toString))
   )
 
@@ -95,18 +95,18 @@ object BackElaborateTest extends TestSuite:
           "int_fu_type" -> intOps.tagWidth,
           "alu_op" -> intOps.payloadWidth,
           "bru_op" -> BruOp.width,
-          "mem_op" -> MemOp.set(config.isaConfig).payloadWidth,
+          "mem_op" -> MemOp.set(config.isa).payloadWidth,
           "is_store" -> 1,
           "is_load" -> 1
         )
       )
       // Without M there is no multiplier, and so no multiplier op column either.
-      assert(!ports.contains("mul_op") && !config.isaConfig.hasM)
+      assert(!ports.contains("mul_op") && !config.isa.hasM)
 
     test("the int window follows the configuration, in both directions"):
-      val withM = IntOp.set(CoreConfig("riscv32im", 0x80000000L).isaConfig)
-      val rv64i = IntOp.set(CoreConfig("riscv64i", 0x80000000L).isaConfig)
-      val rv64im = IntOp.set(CoreConfig("riscv64im", 0x80000000L).isaConfig)
+      val withM = IntOp.set(CoreConfig(Isa("riscv32im"), 0x80000000L).isa)
+      val rv64i = IntOp.set(CoreConfig(Isa("riscv64i"), 0x80000000L).isa)
+      val rv64im = IntOp.set(CoreConfig(Isa("riscv64im"), 0x80000000L).isa)
       // The units come and go with M...
       assert(intOps.cases.size == 3 && intOps.tagWidth == 2)
       assert(withM.cases.size == 5 && withM.tagWidth == 3)

@@ -7,7 +7,7 @@ import utest.*
   */
 object CoreParamsTest extends TestSuite:
 
-  private val config = CoreConfig("riscv32i", 0x80000000L)
+  private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
   private val declared = Seq(OpProducer("int", 0, 17), OpProducer("mem", 1, 9))
 
   val tests = Tests:
