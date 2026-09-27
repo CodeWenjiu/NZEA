@@ -14,4 +14,4 @@ import me.jiuyang.zaozi.valuetpe.*
 class IssueSlot[T <: Data](_bits: T) extends Bundle:
   val valid: BundleField[Bool] = Aligned(Bool())
   val first: BundleField[Bool] = Aligned(Bool())
-  val bits:  BundleField[T]    = Aligned(_bits)
+  val bits: BundleField[T] = Aligned(_bits)

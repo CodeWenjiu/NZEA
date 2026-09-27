@@ -1,7 +1,7 @@
 package nzea_config.core
 
 import mainargs.TokensReader
-import upickle.default.{ReadWriter, macroRW, readwriter}
+import upickle.default.{macroRW, readwriter, ReadWriter}
 
 /** The register width a configuration is built for.
   *
@@ -16,6 +16,7 @@ enum Xlen(val bits: Int):
   val lanes: Int = bits / 8
 
 object Xlen:
+
   given ReadWriter[Xlen] =
     readwriter[Int].bimap(
       _.bits,
@@ -76,8 +77,9 @@ object Isa:
   /** The flag's spelling for the generator framework: the same token [[parse]] takes, so `--isa riscv32im` reaches a
     * module as an [[Isa]] and nothing downstream parses a string.
     */
-  given TokensReader.Simple[Isa]:
+  given TokensReader.Simple[Isa] with
     def shortName = "riscv<32|64>[imafd...]"
+
     def read(strs: Seq[String]): Either[String, Isa] =
       strs.lastOption.map(parse).getOrElse(Left("isa requires a value"))
 
@@ -104,7 +106,7 @@ object Isa:
     else
       trimmed.toLowerCase match
         case BaseRegex(bits, extStr) =>
-          val xlen   = Xlen.values.find(_.bits == bits.toInt).get
+          val xlen = Xlen.values.find(_.bits == bits.toInt).get
           val rawExt = Option(extStr).filter(_.nonEmpty).map(_.toSet).getOrElse(Set('i'))
           val rawSet = if rawExt.isEmpty then Set('i') else rawExt
 
