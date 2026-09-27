@@ -107,17 +107,19 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val immZ = (0.B(width - 5) ## inst.bits(19, 15)).asUInt
     val imm = mux1H(immType, Seq(immI, immS, immB, immU, immJ, immZ), width)
 
-    val gprs = Reg(Vec(Gpr.depth, UInt(width)))
+    // x0 is the hardwired zero: the file holds x1..x31 and the slot 0 the read sees is a constant, so no flop is
+    // allocated for a register the decoder cannot name (a 32nd entry would only be dropped again at synthesis). Every
+    // slot starts defined so the four-state sim sees the same reset state as the reference model.
+    val xregs = Reg(Vec(Gpr.depth - 1, UInt(width)))
+    val gprs = (0.U(width) +: (0 until Gpr.depth - 1).map(index => xregs.ref(index))).toVec
 
-    // x0 is never written and reads as zero; every other register starts defined so the four-state sim sees the same
-    // reset state as the reference model.
     when(!io.resetN.asBool) {
-      for index <- 0 until Gpr.depth do gprs(index) := 0.U(width)
+      for index <- 0 until Gpr.depth - 1 do xregs(index) := 0.U(width)
     }
 
     when(io.arf_write.valid & (io.arf_write.bits.rd_index =/= 0.U(Gpr.indexWidth))) {
-      for index <- 0 until Gpr.depth do
-        when(io.arf_write.bits.rd_index === index.U(Gpr.indexWidth)) { gprs(index) := io.arf_write.bits.data }
+      for index <- 0 until Gpr.depth - 1 do
+        when(io.arf_write.bits.rd_index === (index + 1).U(Gpr.indexWidth)) { xregs(index) := io.arf_write.bits.data }
     }
 
     val rs1Val = gprs.ref(rs1Index)

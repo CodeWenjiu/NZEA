@@ -25,8 +25,6 @@ object DecodeTables:
   val SrcsName = "srcs"
   val ImmTypeName = "imm_type"
   val GprWrName = "gpr_wr"
-  val Rs1RdName = "rs1_rd"
-  val Rs2RdName = "rs2_rd"
 
   /** The default window: no unit selected (op 0), no source, int path — the no-op an unknown instruction decodes to. */
   private val NoWindowKey = "zero"
@@ -39,9 +37,7 @@ object DecodeTables:
       window(insts, ops, OpWindow.width(config)),
       srcs(insts),
       immType(insts),
-      gprWr(insts),
-      rs1Rd(insts),
-      rs2Rd(insts)
+      gprWr(insts)
     )
 
   private def backend(insts: Seq[RVInst]): TruthTable =
@@ -79,8 +75,6 @@ object DecodeTables:
     )
 
   private def gprWr(insts: Seq[RVInst]): TruthTable = boolean(GprWrName, insts.filter(_.gprWr).map(_.pattern))
-  private def rs1Rd(insts: Seq[RVInst]): TruthTable = boolean(Rs1RdName, insts.filter(_.rs1Rd).map(_.pattern))
-  private def rs2Rd(insts: Seq[RVInst]): TruthTable = boolean(Rs2RdName, insts.filter(_.rs2Rd).map(_.pattern))
 
   /** A field that is true for the listed patterns and false otherwise: only the true side needs an entry. */
   private def boolean(name: String, patterns: Seq[BitSet]): TruthTable =

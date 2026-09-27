@@ -87,8 +87,6 @@ case class RVInst(
     immType: Option[ImmType],
     dispatch: Dispatch,
     gprWr: Boolean = true,
-    rs1Rd: Boolean = true,
-    rs2Rd: Boolean = true,
     exists: IsaConfig => Boolean = _ => true
 ):
 
@@ -106,18 +104,14 @@ object RiscvInsts:
     "LUI",
     "b" + n(25) + "0110111",
     Some(ImmType.U),
-    Dispatch.alu(AluOp.Add, Srcs.ImmZero),
-    rs1Rd = false,
-    rs2Rd = false
+    Dispatch.alu(AluOp.Add, Srcs.ImmZero)
   )
 
   val AUIPC = RVInst(
     "AUIPC",
     "b" + n(25) + "0010111",
     Some(ImmType.U),
-    Dispatch.alu(AluOp.Add, Srcs.PcImm),
-    rs1Rd = false,
-    rs2Rd = false
+    Dispatch.alu(AluOp.Add, Srcs.PcImm)
   )
 
   // J-type: JAL=1101111
@@ -125,9 +119,7 @@ object RiscvInsts:
     "JAL",
     "b" + n(25) + "1101111",
     Some(ImmType.J),
-    Dispatch.bru(BruOp.JAL, Srcs.NoOperand),
-    rs1Rd = false,
-    rs2Rd = false
+    Dispatch.bru(BruOp.JAL, Srcs.NoOperand)
   )
 
   // I-type
@@ -135,96 +127,84 @@ object RiscvInsts:
     "JALR",
     "b" + n(12) + n(5) + "000" + n(5) + "1100111",
     Some(ImmType.I),
-    Dispatch.bru(BruOp.JALR, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.bru(BruOp.JALR, Srcs.Rs1Imm)
   )
 
   val LB = RVInst(
     "LB",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LB, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.mem(LsuOp.LB, Srcs.Rs1Imm)
   )
 
   val LH = RVInst(
     "LH",
     "b" + n(7) + n(5) + n(5) + "001" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LH, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.mem(LsuOp.LH, Srcs.Rs1Imm)
   )
 
   val LW = RVInst(
     "LW",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LW, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.mem(LsuOp.LW, Srcs.Rs1Imm)
   )
 
   val LBU = RVInst(
     "LBU",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LBU, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.mem(LsuOp.LBU, Srcs.Rs1Imm)
   )
 
   val LHU = RVInst(
     "LHU",
     "b" + n(7) + n(5) + n(5) + "101" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LHU, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.mem(LsuOp.LHU, Srcs.Rs1Imm)
   )
 
   val ADDI = RVInst(
     "ADDI",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Add, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Add, Srcs.Rs1Imm)
   )
 
   val SLTI = RVInst(
     "SLTI",
     "b" + n(7) + n(5) + n(5) + "010" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Slt, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Slt, Srcs.Rs1Imm)
   )
 
   val SLTIU = RVInst(
     "SLTIU",
     "b" + n(7) + n(5) + n(5) + "011" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sltu, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Sltu, Srcs.Rs1Imm)
   )
 
   val XORI = RVInst(
     "XORI",
     "b" + n(7) + n(5) + n(5) + "100" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Xor, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Xor, Srcs.Rs1Imm)
   )
 
   val ORI = RVInst(
     "ORI",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Or, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Or, Srcs.Rs1Imm)
   )
 
   val ANDI = RVInst(
     "ANDI",
     "b" + n(7) + n(5) + n(5) + "111" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.And, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.And, Srcs.Rs1Imm)
   )
 
   // The shift immediates: a five-bit shift amount under funct7, bit 25 pinned to zero. RV64 re-encodes these three, which
@@ -233,24 +213,21 @@ object RiscvInsts:
     "SLLI",
     "b0000000" + n(5) + n(5) + "001" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sll, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Sll, Srcs.Rs1Imm)
   )
 
   val SRLI = RVInst(
     "SRLI",
     "b0000000" + n(5) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Srl, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Srl, Srcs.Rs1Imm)
   )
 
   val SRAI = RVInst(
     "SRAI",
     "b0100000" + n(5) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sra, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Sra, Srcs.Rs1Imm)
   )
 
   val ECALL = RVInst(
@@ -258,9 +235,7 @@ object RiscvInsts:
     "b00000000000000000000000001110011",
     Some(ImmType.I),
     Dispatch.sysu(SysuOp.ECALL, Srcs.NoOperand),
-    gprWr = false,
-    rs1Rd = false,
-    rs2Rd = false
+    gprWr = false
   )
 
   val EBREAK = RVInst(
@@ -268,9 +243,7 @@ object RiscvInsts:
     "b00000000000100000000000001110011",
     Some(ImmType.I),
     Dispatch.sysu(SysuOp.EBREAK, Srcs.NoOperand),
-    gprWr = false,
-    rs1Rd = false,
-    rs2Rd = false
+    gprWr = false
   )
 
   val CSRRW = RVInst(
@@ -298,27 +271,21 @@ object RiscvInsts:
     "CSRRWI",
     "b" + n(12) + n(5) + "101" + n(5) + "1110011",
     Some(ImmType.Z),
-    Dispatch.sysu(SysuOp.CSRRWI, Srcs.ImmZero),
-    rs1Rd = false,
-    rs2Rd = false
+    Dispatch.sysu(SysuOp.CSRRWI, Srcs.ImmZero)
   )
 
   val CSRRSI = RVInst(
     "CSRRSI",
     "b" + n(12) + n(5) + "110" + n(5) + "1110011",
     Some(ImmType.Z),
-    Dispatch.sysu(SysuOp.CSRRSI, Srcs.ImmZero),
-    rs1Rd = false,
-    rs2Rd = false
+    Dispatch.sysu(SysuOp.CSRRSI, Srcs.ImmZero)
   )
 
   val CSRRCI = RVInst(
     "CSRRCI",
     "b" + n(12) + n(5) + "111" + n(5) + "1110011",
     Some(ImmType.Z),
-    Dispatch.sysu(SysuOp.CSRRCI, Srcs.ImmZero),
-    rs1Rd = false,
-    rs2Rd = false
+    Dispatch.sysu(SysuOp.CSRRCI, Srcs.ImmZero)
   )
 
   // S-type: rs1=base, rs2=data; no rd
@@ -431,9 +398,7 @@ object RiscvInsts:
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0001111",
     None,
     Dispatch.sysu(SysuOp.FENCE, Srcs.NoOperand),
-    gprWr = false,
-    rs1Rd = false,
-    rs2Rd = false
+    gprWr = false
   )
 
   // M extension: funct7=0000001
@@ -460,16 +425,14 @@ object RiscvInsts:
     "LD",
     "b" + n(7) + n(5) + n(5) + "011" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LD, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.mem(LsuOp.LD, Srcs.Rs1Imm)
   )
 
   val LWU = RVInst(
     "LWU",
     "b" + n(7) + n(5) + n(5) + "110" + n(5) + "0000011",
     Some(ImmType.I),
-    Dispatch.mem(LsuOp.LWU, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.mem(LsuOp.LWU, Srcs.Rs1Imm)
   )
 
   val SD = RVInst(
@@ -484,32 +447,28 @@ object RiscvInsts:
     "ADDIW",
     "b" + n(7) + n(5) + n(5) + "000" + n(5) + "0011011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Addw, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Addw, Srcs.Rs1Imm)
   )
 
   val SLLIW = RVInst(
     "SLLIW",
     "b0000000" + n(5) + n(5) + "001" + n(5) + "0011011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sllw, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Sllw, Srcs.Rs1Imm)
   )
 
   val SRLIW = RVInst(
     "SRLIW",
     "b0000000" + n(5) + n(5) + "101" + n(5) + "0011011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Srlw, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Srlw, Srcs.Rs1Imm)
   )
 
   val SRAIW = RVInst(
     "SRAIW",
     "b0100000" + n(5) + n(5) + "101" + n(5) + "0011011",
     Some(ImmType.I),
-    Dispatch.alu(AluOp.Sraw, Srcs.Rs1Imm),
-    rs2Rd = false
+    Dispatch.alu(AluOp.Sraw, Srcs.Rs1Imm)
   )
 
   val ADDW =
@@ -545,7 +504,6 @@ object RiscvInsts:
     "b000000" + n(6) + n(5) + "001" + n(5) + "0010011",
     Some(ImmType.I),
     Dispatch.alu(AluOp.Sll, Srcs.Rs1Imm),
-    rs2Rd = false,
     exists = _.xlen == 64
   )
 
@@ -554,7 +512,6 @@ object RiscvInsts:
     "b000000" + n(6) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
     Dispatch.alu(AluOp.Srl, Srcs.Rs1Imm),
-    rs2Rd = false,
     exists = _.xlen == 64
   )
 
@@ -563,7 +520,6 @@ object RiscvInsts:
     "b010000" + n(6) + n(5) + "101" + n(5) + "0010011",
     Some(ImmType.I),
     Dispatch.alu(AluOp.Sra, Srcs.Rs1Imm),
-    rs2Rd = false,
     exists = _.xlen == 64
   )
 
