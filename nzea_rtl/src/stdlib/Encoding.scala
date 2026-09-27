@@ -110,8 +110,9 @@ object Encoding:
   /** The settable side of a [[Union]]: the case list it lays out, and everything derived from it.
     *
     * The cases are the union's declaration — one representative per case, each carrying its child's width — and they
-    * decide the layout: the payload column is as wide as the widest child, the tag column as wide as the case count
-    * needs, and `lit` puts a case's code where those columns say. Nothing outside this trait knows an offset.
+    * can be built per configuration: a unit that is not built takes its tag code with it instead of leaving a hole.
+    * They also decide the layout: the payload column is as wide as the widest child, the tag column as wide as the case
+    * count needs, and `lit` puts a case's code where those columns say. Nothing outside this trait knows an offset.
     */
   trait UnionSet[U <: Union & scala.reflect.Enum]:
     /** One case instance per variant, in tag order; the payload is a representative, only the case matters. */
@@ -126,11 +127,16 @@ object Encoding:
     /** The union's field width: payload and tag together. */
     final def width: Int = payloadWidth + tagWidth
 
-    /** A case's code: its payload in the low column, its ordinal above. */
-    final def lit(v: U): Int = v.payload.lit | (v.ordinal << payloadWidth)
+    /** A case's code: its payload in the low column, its tag above. */
+    final def lit(v: U): Int = v.payload.lit | (tagOf(v) << payloadWidth)
 
-    /** A case's tag code, for callers that compare tags themselves. */
-    final def tagOf(v: U): Int = v.ordinal
+    /** A case's tag code: where the case sits in [[cases]], so a case that is not in the list has no code and says so.
+      * The test is the variant's ordinal — the case, not the payload it happens to carry.
+      */
+    final def tagOf(v: U): Int =
+      val index = cases.indexWhere(_.ordinal == v.ordinal)
+      require(index >= 0, s"$v is not one of this union's cases (${cases.mkString(", ")})")
+      index
 
     /** The payload column: every case's child code lives here, low-anchored. */
     final def payload[LHS <: Referable[UInt]](u: LHS)(using
