@@ -1,4 +1,4 @@
--- Fetch-stage events, relative to the fetcher's scope (TOP.NzeaCore.engine.front.ifu).
+-- Fetch-stage events, relative to the fetcher's scope (TOP.NzeaCore.core.front.ifu).
 --
 -- Bind them to compose with other scopes, e.g. an instruction stream against the retire events in core.pulse:
 --   pulse property --event nzea_core/fetch.pulse <IFU> Fetch --event nzea_core/core.pulse <MIDDLE> Core \

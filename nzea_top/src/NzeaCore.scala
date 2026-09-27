@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_config.core.CoreConfig
-import nzea_core.{CoreEngine, CoreEngineParameter}
+import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.ifu.Ifu
 import nzea_core.middle.CommitMsg
@@ -49,13 +49,13 @@ class NzeaCoreIO(parameter: NzeaCoreParameter) extends HWBundle(parameter):
 
 class NzeaCoreProbe(parameter: NzeaCoreParameter) extends DVBundle[NzeaCoreParameter, NzeaCoreLayers](parameter)
 
-/** The core level's top: the engine, plus the shape the dump flow asked for.
+/** The core level's top: the core, plus the shape the dump flow asked for.
   *
-  * `sim` wires the engine's interfaces straight into the bridges that call `bus_read` / `bus_write` / `commit_trace` —
-  * the module remu loads, with `clock` and `reset` named and polarised exactly as its Verilator wrapper drives them
-  * (`reset` high for the first hundred cycles, then low). Without it the engine's interfaces are the top's own ports
-  * and the design is what Yosys reads. The one conversion at this boundary is the reset: every module in this tree
-  * takes an active-low `resetN`, so the active-high boundary signal is inverted here and nowhere else.
+  * `sim` wires the core's interfaces straight into the bridges that call `bus_read` / `bus_write` / `commit_trace` — the
+  * module remu loads, with `clock` and `reset` named and polarised exactly as its Verilator wrapper drives them (`reset`
+  * high for the first hundred cycles, then low). Without it the core's interfaces are the top's own ports and the design
+  * is what Yosys reads. The one conversion at this boundary is the reset: every module in this tree takes an active-low
+  * `resetN`, so the active-high boundary signal is inverted here and nowhere else.
   */
 @generator
 object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO, NzeaCoreProbe]:
@@ -68,9 +68,9 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
     val c = parameter.config
     val resetN: Node[Reset] = (!io.reset.asBool).asReset
 
-    val engine = CoreEngine.instantiate(CoreEngineParameter(c.isa, c.defaultPc, c.sim, parameter.mmioRanges))
-    engine.io.clock := io.clock
-    engine.io.resetN := resetN
+    val core = Core.instantiate(CoreParameter(c.isa, c.defaultPc, c.sim, parameter.mmioRanges))
+    core.io.clock := io.clock
+    core.io.resetN := resetN
 
     if c.sim then
       val ibus = IbusDpiBridge.instantiate(IbusDpiBridgeParameter(c.isa, c.defaultPc))
@@ -84,10 +84,10 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
       commit.io.clock := io.clock
       commit.io.resetN := resetN
 
-      ibus.io.bus :<>= engine.io.ibus
-      dbus.io.bus :<>= engine.io.dbus
-      commit.io.commit_msg :<= engine.io.commit_msg
+      ibus.io.bus :<>= core.io.ibus
+      dbus.io.bus :<>= core.io.dbus
+      commit.io.commit_msg :<= core.io.commit_msg
     else
-      io.ibus.get :<>= engine.io.ibus
-      io.dbus.get :<>= engine.io.dbus
-      io.commit_msg.get :<= engine.io.commit_msg
+      io.ibus.get :<>= core.io.ibus
+      io.dbus.get :<>= core.io.dbus
+      io.commit_msg.get :<= core.io.commit_msg

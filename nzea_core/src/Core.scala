@@ -17,15 +17,15 @@ import nzea_core.middle.{CommitMsg, Middle, MiddleParameter}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class CoreEngineParameter(isa: String, defaultPc: Long, sim: Boolean, mmioRanges: Seq[String]) extends Parameter:
+case class CoreParameter(isa: String, defaultPc: Long, sim: Boolean, mmioRanges: Seq[String]) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc, sim)
 
-given upickle.default.ReadWriter[CoreEngineParameter] = upickle.default.macroRW
+given upickle.default.ReadWriter[CoreParameter] = upickle.default.macroRW
 
-class CoreEngineLayers(parameter: CoreEngineParameter) extends LayerInterface(parameter):
+class CoreLayers(parameter: CoreParameter) extends LayerInterface(parameter):
   def layers = Seq.empty
 
-class CoreEngineIO(parameter: CoreEngineParameter) extends HWBundle(parameter):
+class CoreIO(parameter: CoreParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
@@ -33,21 +33,21 @@ class CoreEngineIO(parameter: CoreEngineParameter) extends HWBundle(parameter):
   val dbus = Aligned(MemPath.dbusType(parameter.config))
   val commit_msg = Aligned(ValidIO(new CommitMsg(width)))
 
-class CoreEngineProbe(parameter: CoreEngineParameter) extends DVBundle[CoreEngineParameter, CoreEngineLayers](parameter)
+class CoreProbe(parameter: CoreParameter) extends DVBundle[CoreParameter, CoreLayers](parameter)
 
-/** The core: front, middle and back, with the interfaces it actually has — an instruction bus, a data bus and the
-  * commit trace — as its own ports.
+/** The core: front, middle and back, with the interfaces it actually has — an instruction bus, a data bus and the commit
+  * trace — as its own ports.
   *
   * Nothing here knows how the core is dumped or wired upwards: turning those interfaces into a top's ports or into
   * simulation bridges belongs to the level top (`nzea_top.NzeaCore`), and a tile instantiates this module as it is.
   * `sim` only decides whether the per-stage counters are built — instrumentation, not an interface.
   */
 @generator
-object CoreEngine extends Generator[CoreEngineParameter, CoreEngineLayers, CoreEngineIO, CoreEngineProbe]:
-  override def moduleName(parameter: CoreEngineParameter): String = "CoreEngine"
+object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
+  override def moduleName(parameter: CoreParameter): String = "Core"
 
-  def architecture(parameter: CoreEngineParameter) =
-    val io = summon[Interface[CoreEngineIO]]
+  def architecture(parameter: CoreParameter) =
+    val io = summon[Interface[CoreIO]]
     given ClockScope = ClockScope.posedge(io.clock)
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 

@@ -1,4 +1,4 @@
--- Core retire and dispatch events, relative to the middle's scope (TOP.NzeaCore.engine.middle).
+-- Core retire and dispatch events, relative to the middle's scope (TOP.NzeaCore.core.middle).
 --
 -- These are the events the retire counters cannot answer: the counters say how many, these say when and in what order.
 -- Bind them with --event, e.g. the commit log with its redirects marked:

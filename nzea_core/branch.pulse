@@ -1,4 +1,4 @@
--- Branch-resolution events, relative to the int path's scope (TOP.NzeaCore.engine.back.int_0).
+-- Branch-resolution events, relative to the int path's scope (TOP.NzeaCore.core.back.int_0).
 --
 -- The counters in the same scope count these events; cross-checking one against the other is how a counter wired to a
 -- level instead of an event shows up. Bind them with --event, e.g. the resolution of each branch against its refetch:
