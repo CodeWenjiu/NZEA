@@ -41,6 +41,13 @@ case class Dispatch private (backend: Backend, op: DispatchOp, srcs: Srcs, name:
     case DispatchOp.Int(intOp) => ops.lit(intOp)
     case DispatchOp.Mem(lsuOp) => MemOp.lit(MemOp.Lsu(lsuOp))
 
+  /** Whether this instruction's window has a code under `ops`: a row whose unit the configuration does not build is not
+    * one it can issue, so the decode tables leave it out.
+    */
+  def encodable(ops: Encoding.UnionSet[IntOp]): Boolean = op match
+    case DispatchOp.Int(intOp) => ops.contains(intOp)
+    case DispatchOp.Mem(_)     => true
+
 object Dispatch:
   def alu(op: AluOp, srcs: Srcs): Dispatch = int(IntOp.Alu(op), srcs)
   def bru(op: BruOp, srcs: Srcs): Dispatch = int(IntOp.Bru(op), srcs)
@@ -482,10 +489,14 @@ object RiscvInsts:
 
   private val m: Seq[RVInst] = Seq(MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU)
 
-  /** All instructions for decode; M is gated like every other optional extension. */
+  /** All instructions for decode, in table order: the declared rows minus the ones whose unit this configuration does
+    * not build (the M extension's, without M). The row list is whole — the filter asks each row the same question the
+    * window's tag column answered, so nothing restates the configuration fact.
+    */
   def all(config: CoreConfig): Seq[RVInst] =
     require(
       config.width == 32,
       s"the decode tables describe a 32-bit instruction word, but the ISA config is ${config.width} bits"
     )
-    base ++ (if config.isaConfig.hasM then m else Seq.empty)
+    val ops = IntOp.set(config.isaConfig)
+    (base ++ m).filter(inst => inst.dispatch.encodable(ops))

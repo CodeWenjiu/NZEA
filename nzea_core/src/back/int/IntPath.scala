@@ -94,9 +94,9 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     // The target, not `nextPc`: the middle reads the redirect target only when it flushes, which means taken.
     io.redirect.bits := bru.io.target
 
-    // MUL and DIV only exist when the ISA has M, so an ISA without it pays nothing for them.
-    val mul = Option.when(parameter.config.isaConfig.hasM)(Mul.instantiate(MulParameter(width)))
-    val div = Option.when(parameter.config.isaConfig.hasM)(Div.instantiate(DivParameter(width)))
+    // MUL and DIV come and go with M, and the same set that decides that here decided the window's codes above.
+    val mul = Option.when(ops.contains(IntOp.mul))(Mul.instantiate(MulParameter(width)))
+    val div = Option.when(ops.contains(IntOp.div))(Div.instantiate(DivParameter(width)))
     for m <- mul do
       m.io.clock := io.clock
       m.io.resetN := io.resetN
