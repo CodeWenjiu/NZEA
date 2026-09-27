@@ -22,12 +22,16 @@ When working with remu as an AI agent, **always** apply these rules:
    Format: `MxN` where M = consecutive misses (default 3), N = check interval in seconds.
    The watchdog is fed by *commits*: it trips when the core retires no instruction
    for `M × N` seconds, prints the last commit cycle, and the run fails as
-   `stalled: no architectural progress` (distinct from the Ctrl+C `interrupted`).
-   Use `watchdog=10` for programs whose steps are expected to take long (e.g. a slow
-   access) between commits.
+   `stalled: no architectural progress` (not the Ctrl+C `interrupted`). It only
+   exists once the simulation runs, so it covers neither the dump/Verilator build
+   that precedes a run nor anything the backend does before the first commit.
+   Use `watchdog=10` for programs whose steps are expected to take long (e.g. a
+   slow access) between commits.
 
-3. **Check the exit code** — `GOOD EXIT` means success, `BAD EXIT` means the
-   program terminated abnormally. Any other output on stderr is an error.
+3. **Check the exit code** — in `--batch` mode the process status is the signal:
+   0 means the run finished, non-zero means failure (a startup command failed, or
+   the program reported a failing exit); the reason is on stderr. At the
+   interactive prompt the same outcomes print as `GOOD EXIT` / `BAD EXIT`.
 
 4. **`--batch` runs `--startup` then `quit`s, no implicit `continue`** — the
    startup script must end with `continue` or `step N` to drive program
@@ -65,6 +69,7 @@ just run-app hello_world riscv32im
 just run-app microbench riscv32im --platform host --app-args ref
 
 # Full difftest (release build, remu backend):
+# Software-platform tier; RTL (nzea) runs must use --app-args test instead of ref.
 just run-app microbench riscv32im --platform remu --app-args ref -- --batch --startup '{' continue '}' --difftest remu
 
 # QEMU:
@@ -78,7 +83,7 @@ just run-app microbench riscv32im --platform spike
 |-----|---------|-------------|
 | `APP` | required | App name: hello_world, collection, mnist, microbench |
 | `target` | `riscv32i` | ISA target: riscv32i, riscv32im, riscv32imac |
-| `--platform` | `remu` | Runtime: remu, qemu, spike, host |
+| `--platform` | `remu` | Runtime: remu, qemu, spike, host, rcore |
 | `--dev` | false | Debug build (faster compile, slower run) |
 | `--app-args ARGS` | none | Arguments passed to the embedded app |
 | `-- …` | — | All remaining args forwarded to `remu_cli` after `--` |
@@ -91,22 +96,15 @@ only accepts remu/qemu/spike/host):
 
 ```sh
 just run-app microbench riscv32im --platform remu --app-args test -- \
-  --platform nzea --sim-opt target=tile --sim-opt watchdog=10 \
-  --batch --startup '{' continue '}' and '{' stat print '}'
+  --platform nzea --sim-opt target=core --sim-opt watchdog=3x30 \
+  --batch --startup '{' continue '}' --difftest remu
 ```
 
-Notes:
-- `--app-args` is baked into the ELF at build time (`REMU_APP_ARGS` env) —
-  always rebuild via `just run-app` after changing it; invoking `remu_cli`
-  directly reuses the stale ELF.
-- RTL simulation is ~40-50x slower than the built-in simulator: microbench
-  `ref` takes about an hour on RTL; use `test` (~10s) for RTL runs.
-- The nzea watchdog (`--sim-opt watchdog=N`, `3×N` s by default) trips when the
-  core commits nothing for `misses × interval` — it is fed per committed
-  instruction, not per cycle. On a trip it prints the last commit cycle and the
-  run fails as `stalled: no architectural progress`; a workload that can go
-  longer between commits (e.g. a slow access) needs a larger window
-  (`--sim-opt watchdog=3x30`), not `watchdog=off`.
+- `--app-args` is baked into the ELF at build time (`REMU_APP_ARGS` env) — always
+  rebuild via `just run-app` after changing it; invoking `remu_cli` directly
+  reuses the stale ELF.
+- Benchmark sizing and watchdog behaviour: see the blockquote under the `nzea`
+  sim-options below.
 
 #### `build-app APP [target]`
 
@@ -150,6 +148,8 @@ cargo run -p remu_cli --release -- \
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--elf PATH` | required | ELF file to load (alias: `--bin`) |
+| `--firmware PATH` | none | Extra M-mode firmware image; its entry becomes the reset PC |
+| `--app PATH` | none | Extra user image; its entry is published in the boot info (`app_entry`) |
 | `--isa SPEC` | `riscv32i` | ISA spec: riscv32i, riscv32im, etc. |
 | `--platform PLATFORM` | `remu` | Simulator backend: remu, spike, nzea |
 | `--difftest REF` | none | Difftest reference: remu, spike |
@@ -176,10 +176,21 @@ or pass multiple pairs space-separated.
 --sim-opt target=core --sim-opt watchdog=5  # or repeat --sim-opt
 ```
 
-The watchdog measures architectural progress, not cycles: it is fed per committed
-instruction. `test` = 1 miss × 0 s (trips as soon as it is not fed; for tests).
-A legitimately long gap between commits needs a larger `M`/`N`
-(`--sim-opt watchdog=3x30`) rather than `off`.
+> **RTL (nzea) runs: benchmark sizing & watchdog**
+>
+> The nzea backend is ~40-50x slower than the built-in simulators. For
+> `microbench` (or any sized app) use the smallest tier on RTL —
+> `--app-args test` (~10 s) — and keep `train` / `ref` / `huge` for the
+> software platforms (`remu` / `qemu` / `spike` / `host`): `ref` takes
+> about an hour on RTL.
+>
+> The watchdog trips when the core commits nothing for `misses × interval`
+> (it is fed per committed instruction, not per cycle), and it is what turns a
+> deadlocked DUT into a diagnosable failure: it prints the last commit cycle and
+> the run fails as `stalled: no architectural progress` instead of `interrupted`
+> (Ctrl+C). If a legitimate workload can go that long without committing —
+> e.g. a memory access that takes ages — raise `misses`/`interval`
+> (`--sim-opt watchdog=3x30`) rather than disabling it.
 
 ### Automation
 
@@ -234,8 +245,10 @@ value prints `n/a (reason)` instead of a fabricated number.
 
 ### Exit Codes
 
-- `GOOD EXIT`: program terminated via sifive_test_finisher with code 0x5555
-- `BAD EXIT`: program terminated with other finisher code
+- `GOOD EXIT` / `BAD EXIT`: printed at the interactive prompt when the program
+  terminates (finisher code 0x5555 vs anything else). `--batch` prints neither and
+  signals through the process status instead
 - Error output: difftest mismatches, state access errors, deadlock detection
-  (`stalled: no architectural progress`; the watchdog prints the last commit cycle)
-- exit code 0: success; non-zero: failure (check stderr for details)
+- exit code 0: success; non-zero: failure (check stderr for details) —
+  `startup failed` for a failing startup command, `program exited with failure`
+  for a program that reported `BAD EXIT`

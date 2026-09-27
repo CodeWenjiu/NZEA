@@ -19,8 +19,8 @@ before moving to the next.
 statistics and a waveform dump.
 
 ### Entry
-Any of: `GOOD EXIT` with low IPC, difftest mismatch, panic / bus error, or
-noticed regression in cycle-count reports.
+Any of: a clean run (exit code 0) with low IPC, difftest mismatch, panic / bus
+error, or noticed regression in cycle-count reports.
 
 ### Execution
 
@@ -301,7 +301,8 @@ Step 5 missed.
 
 ### Exit gating
 - [ ] Full test suite completes without difftest mismatch
-- [ ] `GOOD EXIT` (not `BAD EXIT`, not watchdog timeout)
+- [ ] Exit code 0 (a failing exit or a failed startup command reports non-zero;
+  the watchdog fails the run as `stalled: no architectural progress`)
 - [ ] If any sub-test fails: **return to Step 2** with the new failure as the
   root symptom
 
