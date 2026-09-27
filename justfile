@@ -62,10 +62,30 @@ sta *ARGS:
     @just synth {{ ARGS }}
     @nu synth/flow/sta.nu {{ ARGS }}
 
-# Run a module's test suite (e.g. `just test nzea_rtl`)
+# Assemble a module's test suite (e.g. `just test nzea_rtl`)
 [group('test')]
 test module='nzea_rtl':
     @mill --no-server {{ module }}.test
+
+# Assemble a core-level difftest program (`nzea_core/test/asm/<name>.S`) for one ISA into an ELF under `build/asm/`.
+# The run belongs to remu's own shell — the program's header carries the command.
+[group('test')]
+asm-elf name target='riscv32im':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src="nzea_core/test/asm/{{ name }}.S"
+    dir="build/asm"
+    mkdir -p "$dir"
+    out="$dir/{{ name }}-{{ target }}"
+    case "{{ target }}" in
+    riscv32*) triple=riscv32-unknown-none-elf; march=rv32im; abi=ilp32 ;;
+    riscv64*) triple=riscv64-unknown-none-elf; march=rv64im; abi=lp64  ;;
+    *) echo "asm-elf: unknown target '{{ target }}' (want riscv32* or riscv64*)" >&2; exit 1 ;;
+    esac
+    clang -target "$triple" -march="$march" -mabi="$abi" -mno-relax -c "$src" -o "$out.o"
+    printf 'OUTPUT_ARCH(riscv)\nENTRY(_start)\nSECTIONS {\n  . = 0x80000000;\n  .text : { *(.text*) }\n  .rodata : { *(.rodata*) }\n}\n' > "$out.ld"
+    rust-lld -flavor gnu -T "$out.ld" -o "$out.elf" "$out.o"
+    echo "built $out.elf"
 
 # Run tests matching a class name pattern (e.g., "PrefixAdderTest")
 [group('test')]
