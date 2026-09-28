@@ -2,51 +2,38 @@ package nzea_core.front.idu
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.ValidIO
 import me.jiuyang.stdlib.{Decoupled, DecoupledIO}
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassConfig, CoreConfig}
+import nzea_core.CoreConfig
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.FetchedInst
 import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** Write port of the decode-stage register file: the middle commits one register per instruction. */
-class ArfWrite(width: Int) extends Bundle:
-  val rd_index = Aligned(UInt(Gpr.indexWidth))
-  val data = Aligned(UInt(width))
-
-/** The execute stage's value, for a read that takes it early: `valid` marks the cycle the backend finishes the
-  * instruction in execute, and the pair names what it is writing and what the value is.
-  */
-class ExecForward(width: Int) extends Bundle:
-  val rd_index = Aligned(UInt(Gpr.indexWidth))
-  val data = Aligned(UInt(width))
-
-/** What decode hands the middle: the decode result plus the operands, already read from the register file and already
-  * selected into the three slots the issue uop carries.
+/** What decode hands the middle: the decoded instruction — where it is, its immediate, the register it writes, the two
+  * registers it can read, and the operand form that says which source fills each issue slot.
   *
-  * The read and the selection sit in decode because nothing renames registers yet and the middle's idle gate already
-  * guarantees the read happens after the previous commit's write-back. Adding renaming moves both into a middle stage,
-  * and this payload reverts to index form.
+  * The values are not here. Decode stays a decode and the read happens in the middle, in the cycle the uop is issued:
+  * that is the first cycle the register file holds every write the instruction must see, so the read never needs the
+  * fix-up a read a cycle earlier would.
   */
 class IduOut(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
   val imm = Aligned(UInt(config.width))
   val rd_index = Aligned(UInt(Gpr.indexWidth))
-  val src_a = Aligned(UInt(config.width))
-  val src_b = Aligned(UInt(config.width))
-  val src_c = Aligned(UInt(config.width))
+  val rs1_index = Aligned(UInt(Gpr.indexWidth))
+  val rs2_index = Aligned(UInt(Gpr.indexWidth))
+  val srcs = Aligned(UInt(Srcs.width))
   val backend = Aligned(UInt(Backend.width))
   val op = Aligned(UInt(OpWindow.width(config)))
   val csr_addr = Aligned(UInt(12))
 
-case class IduParameter(isa: Isa, defaultPc: Long, bypass: BypassConfig) extends Parameter:
+case class IduParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IduParameter] = upickle.default.macroRW
@@ -59,14 +46,12 @@ class IduIO(parameter: IduParameter) extends HWBundle(parameter):
   val resetN = Flipped(Reset())
   val in = Flipped(Decoupled(new FetchedInst(parameter.config.width)))
   val out = Aligned(Decoupled(new IduOut(parameter.config)))
-  val arf_write = Flipped(ValidIO(new ArfWrite(parameter.config.width)))
-  val forward = Flipped(ValidIO(new ExecForward(parameter.config.width)))
 
 class IduProbe(parameter: IduParameter) extends DVBundle[IduParameter, IduLayers](parameter)
 
-/** Decode: one minimized PLA over the instruction word (`DecodeTables`) plus the architectural register file.
+/** Decode: one minimized PLA over the instruction word (`DecodeTables`) and the immediate shapes.
   *
-  * Combinational stage: decode and the register read produce `IduOut` in the same cycle, and the pipeline registers
+  * Combinational stage: decode produces `IduOut` in the same cycle the instruction arrives, and the pipeline registers
   * around it are owned by the front-end.
   */
 @generator
@@ -81,7 +66,6 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val width = parameter.config.width
     val inst: Node[Bits] = Node(io.in.bits.inst.asBits)
 
-    println(s"elaborating: bypass: ${parameter.bypass.report}")
     val decode = PlaPlan(DecodeTables.all(parameter.config))
     println(s"elaborating: ${decode.report}")
     val decoded = decode.decode(inst)
@@ -91,8 +75,8 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val immType = decode.field(DecodeTables.ImmTypeName, decoded)
     val gprWr = decode.flag(DecodeTables.GprWrName, decoded)
 
-    // Both source indexes come straight from the instruction word, so the read does not wait on the PLA: which slot a
-    // value lands in is the operand form's business, and the form resolves it below. The destination index stays gated
+    // Both source indexes come straight from the instruction word, so nothing here waits on the PLA: which slot a value
+    // lands in is the operand form's business, and the form travels beside them. The destination index stays gated
     // because it is a write address: an instruction without a destination must not name one.
     val rs1Index: Node[UInt] = inst.bits(19, 15).asUInt
     val rs2Index: Node[UInt] = inst.bits(24, 20).asUInt
@@ -116,64 +100,14 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     val immZ = (0.B(width - 5) ## inst.bits(19, 15)).asUInt
     val imm = mux1H(immType, Seq(immI, immS, immB, immU, immJ, immZ), width)
 
-    // x0 is the hardwired zero: the file holds x1..x31 and the slot 0 the read sees is a constant, so no flop is
-    // allocated for a register the decoder cannot name (a 32nd entry would only be dropped again at synthesis). Every
-    // slot starts defined so the four-state sim sees the same reset state as the reference model.
-    val xregs = Reg(Vec(Gpr.depth - 1, UInt(width)))
-    val gprs = (0.U(width) +: (0 until Gpr.depth - 1).map(index => xregs.ref(index))).toVec
-
-    when(!io.resetN.asBool) {
-      for index <- 0 until Gpr.depth - 1 do xregs(index) := 0.U(width)
-    }
-
-    when(io.arf_write.valid & (io.arf_write.bits.rd_index =/= 0.U(Gpr.indexWidth))) {
-      for index <- 0 until Gpr.depth - 1 do
-        when(io.arf_write.bits.rd_index === (index + 1).U(Gpr.indexWidth)) { xregs(index) := io.arf_write.bits.data }
-    }
-
-    // The read network: which producers may supply a value early is the configuration's declaration (`BypassConfig`),
-    // and the fallback is what the register file itself holds. Slot 0 keeps the array's constant — no producer names it.
-    // Newest first: the instruction in execute is ahead of the one committing this cycle, so a read of one register that
-    // both write takes the newer value.
-    val commitWrites = io.arf_write.valid & (io.arf_write.bits.rd_index =/= 0.U(Gpr.indexWidth))
-    val executeWrites = io.forward.valid & (io.forward.bits.rd_index =/= 0.U(Gpr.indexWidth))
-    val forwardSources: Seq[ForwardSource] =
-      (if parameter.bypass.execute then
-         Seq(
-           ForwardSource(
-             armed = executeWrites,
-             index = io.forward.bits.rd_index,
-             data = io.forward.bits.data
-           )
-         )
-       else Seq.empty)
-        ++ (if parameter.bypass.writeback then
-              Seq(
-                ForwardSource(
-                  armed = commitWrites,
-                  index = io.arf_write.bits.rd_index,
-                  data = io.arf_write.bits.data
-                )
-              )
-            else Seq.empty)
-
-    def readReg(index: Node[UInt]): Referable[UInt] = forwardRead(index, gprs.ref(index), forwardSources)
-
-    val rs1Val = readReg(rs1Index)
-    val rs2Val = readReg(rs2Index)
-
-    // The operand form says which architectural source feeds each uop slot; resolving it here is what keeps the source
-    // selection out of the backend's execute cycle.
-    val (srcA, srcB, srcC) = Srcs.resolve(srcs, rs1Val, rs2Val, imm, io.in.bits.pc, width)
-
     io.in.ready := io.out.ready
     io.out.valid := io.in.valid
     io.out.bits.pc := io.in.bits.pc
     io.out.bits.imm := imm
     io.out.bits.rd_index := rdIndex
-    io.out.bits.src_a := srcA
-    io.out.bits.src_b := srcB
-    io.out.bits.src_c := srcC
+    io.out.bits.rs1_index := rs1Index
+    io.out.bits.rs2_index := rs2Index
+    io.out.bits.srcs := srcs
     io.out.bits.backend := backend
     io.out.bits.op := op
     io.out.bits.csr_addr := inst.bits(31, 20).asUInt

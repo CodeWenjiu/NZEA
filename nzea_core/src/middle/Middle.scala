@@ -10,8 +10,8 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.{BypassConfig, CoreConfig}
 import nzea_core.back.{BackOut, IssueSlot, IssueUop}
-import nzea_core.front.idu.{ArfWrite, ExecForward, IduOut}
-import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
+import nzea_core.front.idu.IduOut
+import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Operand, Srcs}
 import nzea_core.stats.{CoreStats, ThroughputCounters, ThroughputCountersParameter}
 import nzea_rtl.{RtlFlow, StatsRegs}
 import nzea_rtl.stdlib.*
@@ -31,8 +31,6 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
   val resetN = Flipped(Reset())
   val decoded = Flipped(Decoupled(new IduOut(parameter.config)))
   val redirect = Aligned(Valid(UInt(width)))
-  val arf_write = Aligned(ValidIO(new ArfWrite(width)))
-  val forward = Aligned(ValidIO(new ExecForward(width)))
   val issue = Aligned(new IssueSlot(new IssueUop(parameter.config)))
   val report = Flipped(new BackOut(width))
   val commit = Aligned(ValidIO(new CommitMsg(width)))
@@ -40,21 +38,22 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
 
 class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, MiddleLayers](parameter)
 
-/** In-order middle: a two-slot pipeline (execute, writeback), the commit point, and the CSR file.
+/** In-order middle: the register read, the slot the backend works on, the commit point and the CSR file.
   *
-  * One instruction is in execute — the uop the backend is working on — and one is in writeback, the destination the
-  * backend finished a cycle earlier. Splitting the slots is what lets the execute slot refill the cycle a result lands
-  * instead of staying busy until the commit; whether that refill is *safe* is the configuration's answer, because a
-  * read only sees the result early through a bypass link. With an execute link the window is the cycle the backend
-  * produces the result, without one it is the commit cycle (the write the commit makes is what the read sees), and with
-  * no link at all it is the cycle after.
+  * An instruction crosses two slots here. Decode's payload lands in the first one and waits — it carries no operand
+  * values — and the second one is the uop the backend works on, operands resolved. The read happens between them, in
+  * the cycle the payload moves: that is the cycle the instruction below it completes, when its result is on the way to
+  * the file, so a slot that names that instruction's register is answered by the file's own write and never needs a
+  * fix-up. A payload whose operands are already settled moves in the cycle that instruction completes, which keeps the
+  * pipeline at an instruction per cycle; one that reads what it writes moves a cycle later, which is the price of the
+  * read being correct at the first attempt.
   *
   * The backend latches its result in an exit register and reports it a cycle later, so the middle retires one `done`
-  * pulse per instruction and holds the uop (and the instruction it came from) stable until that pulse or a flush.
+  * pulse per instruction and holds the uop stable until that pulse or a flush.
   *
   * The flush is sourced here: the backend reports the branch resolution and the middle broadcasts it, so every stage
-  * reads one net instead of asking the stage below. A flush empties the execute slot and silences the issue channel —
-  * the instruction behind a flush is on the path being killed.
+  * reads one net instead of asking the stage below. A flush empties both slots and silences the issue channel — the
+  * instruction behind a flush is on the path being killed.
   */
 @generator
 object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleProbe]:
@@ -66,18 +65,108 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val width = parameter.config.width
+    val indexWidth = Gpr.indexWidth
 
+    // The decode slot: the instruction the front handed over, waiting for its operands. The execute slot: the uop the
+    // backend works on. Its destination and CSR address ride beside it — the backend's uop carries neither.
+    val decValid = RegInit(false.B)
+    val dec = Reg(new IduOut(parameter.config))
     val exValid = RegInit(false.B)
-    val ex = Reg(new IduOut(parameter.config))
-    // Writeback slot: the destination the backend finished a cycle ago, which is what the commit needs from it. The
-    // rest of the commit comes from the report (value, CSR write, next pc), so this is the whole of the slot.
-    val wbRd = Reg(UInt(Gpr.indexWidth))
+    val ex = Reg(new IssueUop(parameter.config))
+    val exRd = Reg(UInt(indexWidth))
+    val exCsrAddr = Reg(UInt(12))
+    // The destination the last `complete` retired: what the commit is about to write, and what the file is written with.
+    val wbRd = Reg(UInt(indexWidth))
 
     val csr = CsrFile.instantiate(CsrFileParameter(width))
     csr.io.clock := io.clock
     csr.io.resetN := io.resetN
-    csr.io.read_addr := ex.csr_addr
 
+    val arf = Arf.instantiate(ArfParameter(width, parameter.bypass.writeback))
+    arf.io.clock := io.clock
+    arf.io.resetN := io.resetN
+    arf.io.rs1.index := dec.rs1_index
+    arf.io.rs2.index := dec.rs2_index
+
+    // The read: the file answers both ports, and the operand form places those answers — with the immediate, the pc and
+    // zero — into the three slots the backend reads.
+    val (srcA, srcB, srcC) = Srcs.resolve(
+      dec.srcs,
+      Seq[(Operand, Referable[UInt])](
+        Operand.Rs1 -> arf.io.rs1.data,
+        Operand.Rs2 -> arf.io.rs2.data,
+        Operand.Imm -> dec.imm,
+        Operand.Pc -> dec.pc,
+        Operand.Zero -> 0.U(width)
+      ),
+      width
+    )
+    // The same form once more, for the registers each slot was read from: 0 for the slots no register feeds, which is
+    // also the index no instruction writes.
+    val (idxA, idxB, idxC) = Srcs.resolve(
+      dec.srcs,
+      Seq[(Operand, Referable[UInt])](
+        Operand.Rs1 -> dec.rs1_index,
+        Operand.Rs2 -> dec.rs2_index,
+        Operand.Imm -> 0.U(indexWidth),
+        Operand.Pc -> 0.U(indexWidth),
+        Operand.Zero -> 0.U(indexWidth)
+      ),
+      indexWidth
+    )
+    def reads(rd: Referable[UInt]): Referable[Bool] =
+      (rd =/= 0.U(indexWidth)) & ((idxA === rd) | (idxB === rd) | (idxC === rd))
+
+    val complete = io.report.complete
+    val done = io.report.done
+    val flushing = io.report.flush
+
+    // The payload leaves when the execute slot frees up (its uop completes, or the slot is empty) and its operands are
+    // settled. The instruction in execute is the producer a read cannot see yet — it writes its register in the cycle it
+    // commits — so a payload naming that register waits for the completion, and without the writeback link one more
+    // cycle for the file to hold the value.
+    val waitsForExecute = exValid & reads(exRd)
+    val waitsForCommit = done & reads(wbRd)
+    val operandsReady =
+      if parameter.bypass.writeback then !waitsForExecute
+      else !waitsForExecute & !waitsForCommit
+    val move = decValid & (!exValid | complete) & operandsReady & !flushing
+
+    // The front's handover: the decode slot takes the instruction whenever its own contents are leaving (or it is
+    // empty), so the payload behind a moving one lands in the same cycle — the read only ever waits for a producer.
+    val take = io.decoded.fire
+    io.decoded.ready := (!decValid | move) & !flushing
+    when(take) { dec :<= io.decoded.bits }
+    when(flushing) { decValid := false.B }.otherwise {
+      when(move) { decValid := false.B }
+      when(take) { decValid := true.B }
+    }
+
+    val moved = Wire(new IssueUop(parameter.config))
+    moved.pc := dec.pc
+    moved.imm := dec.imm
+    moved.src_a := srcA
+    moved.src_b := srcB
+    moved.src_c := srcC
+    moved.backend := dec.backend
+    moved.op := dec.op
+    // Both CSR fields are answered on the issue port, from the address riding beside the uop, so the register holds none
+    // of them.
+    moved.csr_type := 0.U(CsrType.width)
+    moved.csr_rdata := 0.U(width)
+
+    when(move) {
+      ex :<= moved
+      exRd := dec.rd_index
+      exCsrAddr := dec.csr_addr
+    }
+    when(complete) { wbRd := exRd }
+    when(flushing | (complete & !move)) { exValid := false.B }
+    when(move) { exValid := true.B }
+
+    // The uop the backend works on. It holds for as long as its instruction does, and `first` marks the cycle its
+    // operands became valid, so a unit can take the level and still see where the uop began. A flush silences the
+    // channel — the uop in the slot is on the path being killed, and the units take a vanished uop as abandoned.
     val uop = Wire(new IssueUop(parameter.config))
     uop.pc := ex.pc
     uop.imm := ex.imm
@@ -88,52 +177,21 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     uop.op := ex.op
     // A memory instruction's `inst[31:20]` is an address offset, not a CSR address, so it maps to none.
     val isMem = ex.backend === Backend.MEM.lit.U(Backend.width)
-    uop.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), CsrType.fromAddr(ex.csr_addr))
+    uop.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), CsrType.fromAddr(exCsrAddr))
     uop.csr_rdata := csr.io.read_data
 
-    val issue = io.decoded.fire
-    val complete = io.report.complete
-    val done = io.report.done
-    val flushing = io.report.flush
-
-    when(issue) { ex :<= io.decoded.bits }
-    when(complete) { wbRd := ex.rd_index }
-
-    // A commit cycle is an admission window only when the configuration lets the read see the write that commit makes
-    // in the same cycle (`BypassConfig`); without the link the read waits for the write to land. An execute link opens
-    // the window one cycle earlier, in the cycle the backend produces the result, and hands it to the read directly. A
-    // flush closes the window either way — the instruction the front would offer is on the path being killed.
-    val admit =
-      if parameter.bypass.execute then !exValid | complete
-      else if parameter.bypass.writeback then !exValid | done
-      else !exValid & !done
-    io.decoded.ready := admit & !flushing
-    when(flushing) { exValid := false.B }.otherwise {
-      when(issue) { exValid := true.B }
-        .otherwise { when(complete) { exValid := false.B } }
-    }
-
-    // An instruction admitted in its predecessor's commit cycle leaves `valid` high across the boundary, so the slot
-    // carries the arrival itself: `first` marks the new uop's first cycle. A flush silences the channel — the uop in
-    // execute is on the path being killed, and the units take a vanished uop as an abandoned completion.
+    csr.io.read_addr := exCsrAddr
     io.issue.valid := exValid & !flushing
-    io.issue.first := regNext(issue, false.B) & !flushing
+    io.issue.first := regNext(move, false.B) & !flushing
     io.issue.bits :<= uop
-
-    // The execute stage's value on its way to a read that takes it early: `complete` marks the cycle it is there, and
-    // the slot names what it is — the index is the one the instruction in execute writes, 0 when it writes nothing,
-    // which no read matches.
-    io.forward.valid := complete
-    io.forward.bits.rd_index := ex.rd_index
-    io.forward.bits.data := io.report.exec_data
 
     io.flush := flushing
     io.redirect.valid := flushing
     io.redirect.bits := io.report.redirect_target
 
-    io.arf_write.valid := done
-    io.arf_write.bits.rd_index := wbRd
-    io.arf_write.bits.data := io.report.data
+    arf.io.write.valid := done
+    arf.io.write.bits.index := wbRd
+    arf.io.write.bits.data := io.report.data
 
     csr.io.write.valid := done
     csr.io.write.bits.csr_type := io.report.csr_type

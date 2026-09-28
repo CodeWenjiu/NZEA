@@ -12,5 +12,13 @@ commit_fire = commit_valid
 -- predicts not-taken, so a taken branch is also a mispredict.
 redirect = report_flush
 
--- There is a uop in flight, held stable by the single-flight lock until it commits or is flushed.
-inflight = exValid
+-- There is an instruction in the middle: the uop in the execute slot, or a payload still waiting for its operands.
+inflight = exValid | decValid
+
+-- A uop enters the execute slot. That is the cycle the read resolved its operands, and the cycle before the backend
+-- first sees it.
+uop_issue = move
+
+-- The payload could move and does not: the execute slot is free, so what holds it is its own operands — it reads the
+-- very instruction that is finishing below it, and the write it waits for lands a cycle later.
+operand_wait = decValid & !move & (!exValid | report_complete) & !report_flush

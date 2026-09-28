@@ -55,7 +55,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val c = parameter.config
-    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc, parameter.bypass))
+    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc))
     val middle = Middle.instantiate(MiddleParameter(c.isa, c.defaultPc, parameter.flow, parameter.bypass))
     val back = Back.instantiate(BackParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges))
 
@@ -68,8 +68,6 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
 
     middle.io.decoded :<>= front.io.out
     front.io.redirect :<= middle.io.redirect
-    front.io.arf_write :<= middle.io.arf_write
-    front.io.forward :<= middle.io.forward
     front.io.flush := middle.io.flush
 
     back.io.issue :<= middle.io.issue

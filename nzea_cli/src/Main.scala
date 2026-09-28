@@ -21,7 +21,7 @@ object Main:
 
   private val usage =
     """usage: just dump [--target core] [--platform yosys] [--isa riscv32i] [--defaultPc 0x80000000]
-      |                 [--flow <verilator|yosys>] [--bypass <none|writeback|execute>] [--outDir <dir>]""".stripMargin
+      |                 [--flow <verilator|yosys>] [--bypass <none|writeback>] [--outDir <dir>]""".stripMargin
 
   /** firtool flags per flow. Verilator takes what firtool emits by default; Yosys refuses `always_comb` and local
     * variables inside it, so a synthesis dump is lowered without either.
@@ -49,7 +49,7 @@ object Main:
     val flow = RtlFlow
       .fromString(flags.getOrElse("flow", RtlFlow.Verilator.segment))
       .fold(error => throw new IllegalArgumentException(error), identity)
-    val bypass = BypassConfig.parseOrThrow(flags.getOrElse("bypass", BypassConfig.execute.name))
+    val bypass = BypassConfig.parseOrThrow(flags.getOrElse("bypass", BypassConfig.writeback.name))
     val outDir = flags
       .get("outDir")
       .filter(_.nonEmpty)

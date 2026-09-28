@@ -8,15 +8,15 @@ import upickle.default.{macroRW, readwriter, ReadWriter}
   * Only stages a consumer can take a value from exist here: a stage arrives with the hardware that produces it, so a
   * configuration cannot name a link the design does not have. `link` is what reports print — where the value comes from
   * and where it goes.
+  *
+  * The read happens at the instruction's own issue, so what it can reach is exactly what the file's write port holds
+  * that cycle: the instruction retiring there. A producer further up the pipeline is not a stage the read can name —
+  * its result is still in flight, and the read waits for it to land instead. Adding a later read (a renaming stage, a
+  * scheduler) is what would make another stage reachable.
   */
 enum ForwardStage(val link: String):
   /** The commit port: the instruction retiring this cycle writes the register file in the cycle the read happens. */
   case Writeback extends ForwardStage("commit -> register read")
-
-  /** The instruction in execute, in the cycle the backend finishes it: the read takes the unit's value directly, one
-    * cycle before that value reaches the commit port and the register file.
-    */
-  case Execute extends ForwardStage("execute -> register read")
 
 object ForwardStage:
 
@@ -29,29 +29,20 @@ object ForwardStage:
           .getOrElse(throw new IllegalArgumentException(s"unknown forward stage '$name'"))
     )
 
-/** Which producers may supply a register read early: the declaration a consumer asks.
+/** Which producers may supply a register read early: the declaration the reader asks.
   *
   * A read names a register the file has not been written with yet whenever the instruction producing it is still in
-  * flight — with a link on this list the read takes the producer's value, without one it waits, and [[ForwardStage]]
-  * says which producer. The empty set is the strictest configuration: every read happens after the write has landed,
-  * which costs the middle the cycle it could otherwise admit in.
+  * flight — with a link on this list the read takes the producer's value, without one it waits for the write to land,
+  * and [[ForwardStage]] says which producer. The empty set is the strictest configuration and costs the reader the
+  * cycle the link would have covered.
   *
   * This is a declaration, not hardware: consumers ask [[writeback]] (or a later stage's predicate) and build their own
   * logic from the answer, so a configuration that removes a link removes the logic with it.
   */
 case class BypassConfig(stages: Set[ForwardStage]):
 
-  /** The links the design has: the declared stages, plus every stage a later one needs to be correct along the way. An
-    * execute link implies the commit port's — the instruction one behind execute commits in the cycle the read happens,
-    * and a read that skipped the commit port would take the register file's stale value.
-    */
-  private def links: Set[ForwardStage] =
-    if stages(ForwardStage.Execute) then stages + ForwardStage.Writeback else stages
-
-  def writeback: Boolean = links(ForwardStage.Writeback)
-
-  /** A read may take the value the backend is producing for the instruction in execute, in the cycle it finishes it. */
-  def execute: Boolean = links(ForwardStage.Execute)
+  /** The write the commit makes this cycle is visible to the same cycle's read. */
+  def writeback: Boolean = stages(ForwardStage.Writeback)
 
   /** The flag's spelling: a comma-separated list of stages, `none` for the empty set. */
   def name: String =
@@ -59,7 +50,7 @@ case class BypassConfig(stages: Set[ForwardStage]):
 
   /** One line for elaboration output: the links that exist, `none` when nothing forwards. */
   def report: String =
-    val names = ForwardStage.values.filter(links).map(_.link)
+    val names = ForwardStage.values.filter(stages).map(_.link)
     if names.isEmpty then "none" else names.mkString(", ")
 
 object BypassConfig:
@@ -70,9 +61,6 @@ object BypassConfig:
 
   /** The commit port's write is visible to the same cycle's read. */
   val writeback: BypassConfig = BypassConfig(Set(ForwardStage.Writeback))
-
-  /** The value of the instruction in execute is visible to the same cycle's read, and with it the commit port's. */
-  val execute: BypassConfig = BypassConfig(Set(ForwardStage.Execute))
 
   def parse(token: String): Either[String, BypassConfig] =
     val names = token.split(",").map(_.trim).filter(_.nonEmpty).filterNot(_ == "none")
@@ -91,7 +79,7 @@ object BypassConfig:
 
   /** The flag's spelling for the generator framework: the same token [[parse]] takes. */
   given TokensReader.Simple[BypassConfig] with
-    def shortName = "none|writeback|execute"
+    def shortName = "none|writeback"
 
     def read(strs: Seq[String]): Either[String, BypassConfig] =
       strs.lastOption.map(parse).getOrElse(Left("bypass requires a value"))

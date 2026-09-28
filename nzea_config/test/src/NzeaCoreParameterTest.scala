@@ -11,13 +11,13 @@ import utest.*
 object NzeaCoreParameterTest extends TestSuite:
 
   private val parameter =
-    NzeaCoreParameter(Isa("riscv32im"), 0x80000000L, RtlFlow.Yosys, Seq("0x10000000:8"), BypassConfig.execute)
+    NzeaCoreParameter(Isa("riscv32im"), 0x80000000L, RtlFlow.Yosys, Seq("0x10000000:8"), BypassConfig.writeback)
 
   val tests = Tests:
     test("the aggregate derives the core config and keeps the modules' own"):
       assert(parameter.config.width == 32)
       assert(parameter.config.defaultPc == 0x80000000L)
-      assert(parameter.bypass.execute)
+      assert(parameter.bypass.writeback)
       assert(!parameter.flow.bridges)
 
     test("it round-trips through the config file"):

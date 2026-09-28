@@ -33,13 +33,13 @@ enum Srcs(val a: Operand, val b: Operand, val c: Operand) extends Encoding.OneHo
 object Srcs extends OneHotSet[Srcs]:
   def variants: Seq[Srcs] = values.toSeq
 
-  /** Resolve the three slot values from the architectural sources: each slot is one one-hot mux over the forms. */
+  /** Resolve the three slot values from a per-source table: each slot is one one-hot mux over the forms, picking what
+    * the form names for that slot. Callers pass the table once for the values and once for the register indexes the
+    * slots were read from — the middle uses the second to tell which slot a bypassed value belongs in.
+    */
   def resolve(
-      field: Node[UInt],
-      rs1: Referable[UInt],
-      rs2: Referable[UInt],
-      imm: Referable[UInt],
-      pc: Referable[UInt],
+      field: Referable[UInt],
+      sources: Seq[(Operand, Referable[UInt])],
       width: Int
   )(using
       Arena,
@@ -50,11 +50,8 @@ object Srcs extends OneHotSet[Srcs]:
       sourcecode.Name.Machine,
       InstanceContext
   ): (Node[UInt], Node[UInt], Node[UInt]) =
-    def value(source: Operand): Referable[UInt] = source match
-      case Operand.Rs1  => rs1
-      case Operand.Rs2  => rs2
-      case Operand.Imm  => imm
-      case Operand.Pc   => pc
-      case Operand.Zero => 0.U(width)
+    val table = sources.toMap
+    def value(source: Operand): Referable[UInt] =
+      table.getOrElse(source, throw new IllegalArgumentException(s"no source declared for $source"))
     def slot(pick: Srcs => Operand): Node[UInt] = mux1H(field, form => value(pick(form)), width)
     (slot(_.a), slot(_.b), slot(_.c))
