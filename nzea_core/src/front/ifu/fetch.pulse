@@ -11,9 +11,9 @@ i_fetch = ibus_req_valid && ibus_req_ready
 -- The bus answered, whatever the response's epoch: a killed stream is digested, not refused.
 i_resp = ibus_resp_valid
 
--- A request is waiting for the bus. Stuck high is a fetch deadlock (the ready side never comes); on this bus it is
--- also the signature of the one-slot bridge, which refuses a new request exactly in the cycle it presents the previous
--- response, so `i_stall` counts the same cycles as `i_resp`.
+-- A request is waiting for the bus. Stuck high is a fetch deadlock (the ready side never comes). The bridge answers
+-- from an elastic slot, so steady state barely holds it: a request is refused only while a response waits to be taken
+-- (`i_stall` counting the same cycles as `i_resp` was the refusing slot's signature, before the elastic one).
 i_stall = ibus_req_valid && !ibus_req_ready
 
 -- A fetched word the register between fetch and decode took, which is what carries the stream forward.

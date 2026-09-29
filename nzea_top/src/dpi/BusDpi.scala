@@ -14,10 +14,13 @@ import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** The instruction bus's bridge to remu's `bus_read`: one outstanding request, answered from a one-slot register.
+/** The instruction bus's bridge to remu's `bus_read`: one outstanding request, answered from an elastic one-slot
+  * register.
   *
-  * `bus_read` is side-effect free, so it is called combinationally on the request fire and its result captured. Ready
-  * falls while the slot is occupied, which is what keeps a response from being overwritten before the core takes it;
+  * `bus_read` is side-effect free, so it is called combinationally on the request fire and its result captured. The
+  * slot answers one request per cycle at steady state: a request is accepted while the slot is free and also in the
+  * cycle the presented response is taken — the same cycle that fills the slot again (the fill wins the handover), so
+  * the rounding is a per-cycle flow, not a two-cycle alternation. Ready falls only while a response waits to be taken;
   * reset refuses traffic like any other slave in this design. The bridge never cancels anything — the fetcher's epoch
   * does that, and a request the fetcher abandons is answered into a slot it will simply drain.
   */
@@ -55,23 +58,26 @@ object IbusDpiBridge
     val respUser = Reg(UInt(userWidth))
     val respId = Reg(UInt(Ifu.busIdWidth))
 
-    // `resetN` is active low, so ready is gated on it *high*: a slave refuses traffic while it is being reset.
-    io.bus.req.ready := !respValid & io.resetN.asBool
+    // `resetN` is active low, so ready is gated on it *high*: a slave refuses traffic while it is being reset. The
+    // slot is elastic — taken-and-refilled in the same cycle is a handover, which is what keeps the round trip at one
+    // request per cycle.
+    io.bus.req.ready := (!respValid | io.bus.resp.ready) & io.resetN.asBool
     val fire = io.bus.req.valid & io.bus.req.ready
     val rdata = dpiUnclockedCall("bus_read", UInt(width), Some(Seq("addr")), Some("rdata"))(
       fire,
       io.bus.req.bits.addr
     )
 
+    // A fill wins a same-cycle handover: the taken response leaves with the core, the accepted one takes its place.
     when(fire) {
       respValid := true.B
       respData := rdata
       respUser := io.bus.req.bits.user
       respId := io.bus.req.bits.id
-    }
-    // Never at the same time as a fire: a request is only accepted while the slot is free.
-    when(respValid & io.bus.resp.ready) {
-      respValid := false.B
+    }.otherwise {
+      when(respValid & io.bus.resp.ready) {
+        respValid := false.B
+      }
     }
 
     io.bus.resp.valid := respValid
@@ -79,7 +85,7 @@ object IbusDpiBridge
     io.bus.resp.bits.user := respUser
     io.bus.resp.bits.id := respId
 
-/** The data bus's bridge to remu's `bus_read` / `bus_write`, with the same one-slot response register.
+/** The data bus's bridge to remu's `bus_read` / `bus_write`, with the same elastic one-slot response register.
   *
   * A load answers from `bus_read` and a store from `bus_write`, called on the clock edge next to the fire — a store's
   * response acknowledges the bus request rather than carrying data. `wstrb` is widened to the ABI's `int` here, because
@@ -118,8 +124,9 @@ object DbusDpiBridge
     val respUser = Reg(UInt(DbusUser.userWidth))
     val respId = Reg(UInt(MemPath.busIdWidth))
 
-    // `resetN` is active low, so ready is gated on it *high*: a slave refuses traffic while it is being reset.
-    io.bus.req.ready := !respValid & io.resetN.asBool
+    // `resetN` is active low, so ready is gated on it *high*: a slave refuses traffic while it is being reset. The
+    // slot is elastic, exactly as the instruction bridge's: one request per cycle at steady state.
+    io.bus.req.ready := (!respValid | io.bus.resp.ready) & io.resetN.asBool
     val fire = io.bus.req.valid & io.bus.req.ready
     val isRead = !io.bus.req.bits.wen
     val rdata = dpiUnclockedCall("bus_read", UInt(width), Some(Seq("addr")), Some("rdata"))(
@@ -134,15 +141,16 @@ object DbusDpiBridge
       io.bus.req.bits.wstrb.asBits.pad(32)
     )
 
+    // A fill wins a same-cycle handover: the taken response leaves with the core, the accepted one takes its place.
     when(fire) {
       respValid := true.B
       respData := isRead ? (rdata, 0.U(width))
       respUser := io.bus.req.bits.user
       respId := io.bus.req.bits.id
-    }
-    // Never at the same time as a fire: a request is only accepted while the slot is free.
-    when(respValid & io.bus.resp.ready) {
-      respValid := false.B
+    }.otherwise {
+      when(respValid & io.bus.resp.ready) {
+        respValid := false.B
+      }
     }
 
     io.bus.resp.valid := respValid
