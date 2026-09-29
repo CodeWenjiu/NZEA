@@ -16,7 +16,7 @@ import nzea_core.isa.{Backend, Gpr}
   */
 class ExecSlot(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
-  val pc_plus4 = Aligned(UInt(config.width))
+  val next_pc = Aligned(UInt(config.width))
   val imm = Aligned(UInt(config.width))
   val src_a = Aligned(UInt(config.width))
   val src_b = Aligned(UInt(config.width))

@@ -15,10 +15,13 @@ import nzea_rtl.LiteBusRO
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** One fetch result: the pc the word was read from, and the word itself. */
+/** One fetch result: the pc the word was read from, the word itself, and the pc the fetch stream goes on with after it
+  * — the prediction, made here and carried on the response rather than reconstructed later.
+  */
 class FetchedInst(width: Int) extends Bundle:
   val pc = Aligned(UInt(width))
   val inst = Aligned(UInt(32))
+  val next_pc = Aligned(UInt(width))
 
 case class IfuParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -37,12 +40,17 @@ class IfuIO(parameter: IfuParameter) extends HWBundle(parameter):
 
 class IfuProbe(parameter: IfuParameter) extends DVBundle[IfuParameter, IfuLayers](parameter)
 
-/** In-order fetcher: `pc`, `pc+4`, one request at a time, no prediction (always-not-taken).
+/** In-order fetcher: `pc`, `pc+4`, one request at a time, the fall-through as its prediction.
   *
   * Redirect is the only event in this module's world: it steers pc and starts a new epoch, which is also how the fetch
   * stream is cancelled — a response of a killed stream is consumed and digested, never refused. The fetcher never gates
   * on reset: it asks and lets the slave refuse (a slave that is not ready does not accept), so the pc only moves on a
   * real transfer.
+  *
+  * The prediction is the fetcher's and it lives here, once: `pc + 4` is both the pc register's next value and the next
+  * pc of the instruction being fetched, so it needs no second adder — it rides the request's user field and comes back
+  * on the response with the instruction, and every stage below reads it off the instruction instead of recomputing it.
+  * A predictor that lands later replaces this one value, and the response contract already carries whatever it says.
   */
 @generator
 object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
@@ -72,13 +80,15 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     val pcNext = prefixAdder(pc, 4.U(width), false.B, width)
     val epochNext = (epoch.asBits.asUInt + 1.U(IbusUser.epochBits)).asBits.bits(IbusUser.epochBits - 1, 0).asUInt
 
+    pc := muxCase(
+      pc,
+      Seq[(Referable[Bool], Referable[UInt])](
+        io.redirect.valid -> io.redirect.bits,
+        io.ibus.req.fire -> pcNext
+      )
+    )
     when(io.redirect.valid) {
-      pc := io.redirect.bits
       epoch := epochNext
-    }.otherwise {
-      when(io.ibus.req.fire) {
-        pc := pcNext
-      }
     }
 
     // Fetch follows the memory path's contract: the request carries the word address and the fetch picks the 32-bit
@@ -92,6 +102,7 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     // The group comes from the response's own pc: a response arrives a cycle after its request, when the register has
     // already moved on.
     val respPc: Node[UInt] = IbusUser.pcOf(io.ibus.resp.bits.user, width)
+    val respNextPc: Node[UInt] = IbusUser.nextPcOf(io.ibus.resp.bits.user, width)
     val respPcBits: Node[Bits] = Node(respPc.asBits)
     val offset: Node[UInt] = respPcBits.bits(offsetWidth - 1, 0).asUInt
     val rdata: Node[Bits] = Node(io.ibus.resp.bits.data.asBits)
@@ -100,7 +111,9 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
 
     io.ibus.req.valid := io.out.ready
     io.ibus.req.bits.addr := wordAddr
-    io.ibus.req.bits.user := IbusUser.pack(pc, epoch)
+    // The request carries the fetch's whole context: which pc it is, the pc the stream goes on with (the prediction),
+    // and the epoch that says whether it is still wanted.
+    io.ibus.req.bits.user := IbusUser.pack(pc, pcNext, epoch)
     io.ibus.req.bits.id := 0.U(Ifu.busIdWidth)
 
     // `out.ready` is the only condition on accepting a response: a fetch from a killed stream is consumed and digested
@@ -109,3 +122,4 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     io.out.valid := io.ibus.resp.valid & (IbusUser.epochOf(io.ibus.resp.bits.user, width) === epoch)
     io.out.bits.pc := respPc
     io.out.bits.inst := inst
+    io.out.bits.next_pc := respNextPc

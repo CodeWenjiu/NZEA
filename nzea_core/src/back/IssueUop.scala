@@ -21,13 +21,15 @@ import nzea_core.isa.{Backend, CsrType, Gpr}
   * is the configuration's (`nzea_core.back.OpWindow`) and is derived here like every other field's, so a caller hands
   * over the configuration rather than numbers it worked out.
   *
-  * `pc_plus4` is the fall-through, resolved by the middle where the pc is already a held value. The execute cycle is
-  * the busiest one in the core, and `pc + 4` does not depend on anything computed there: carrying the value costs a
-  * field and takes one adder and its select out of the branch-resolution cone.
+  * `next_pc` is the pc the fetch stream goes on with after this instruction — the fetcher's prediction for it, carried
+  * since the fetch. The baseline predicts the fall-through, so on this configuration the field is the core's one `pc +
+  * 4`, made where it already sits on the fetch-rate path; a predictor that lands later changes that value and nothing
+  * else about the carrying. The branch unit resolves against it (taken ? target : next_pc is the actual stream), and a
+  * consumer that needs the fall-through of an instruction on the predicted path reads it here.
   */
 class IssueUop(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
-  val pc_plus4 = Aligned(UInt(config.width))
+  val next_pc = Aligned(UInt(config.width))
   val imm = Aligned(UInt(config.width))
   val src_a = Aligned(UInt(config.width))
   val src_b = Aligned(UInt(config.width))

@@ -81,10 +81,9 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       val bru = Bru.instantiate(BruParameter(width))
       bru.io.op := Encoding.take(fuOp, BruOp.width)
       bru.io.pc := u.pc
-      // The prediction is data: the baseline predicts the fall-through, and a predictor that lands later replaces
-      // this line rather than the unit. The fall-through itself is a uop field — the middle resolved it where the pc
-      // is a held value, which keeps this cycle's adder count at one.
-      bru.io.predNextPc := u.pc_plus4
+      // The prediction is data, and it has been since the fetch: the uop carries the next pc the fetcher predicted
+      // when it read this instruction. A predictor that lands later replaces the fetcher's one value, not this unit.
+      bru.io.predNextPc := u.next_pc
       bru.io.offset := u.imm
       bru.io.rs1 := u.src_a
       bru.io.rs2 := u.src_b
@@ -153,7 +152,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       // configured cases in tag order, so the two cannot drift apart.
       val unitData: IntOp => Referable[UInt] =
         case IntOp.Alu(_)  => alu.io.data
-        case IntOp.Bru(_)  => u.pc_plus4
+        case IntOp.Bru(_)  => u.next_pc
         case IntOp.Sysu(_) => u.csr_rdata
         case IntOp.Mul(_)  => mulData
         case IntOp.Div(_)  => divData
@@ -162,7 +161,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
       io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)
       io.result.data := data
-      io.result.next_pc := isBru ? (bru.io.nextPc, u.pc_plus4)
+      io.result.next_pc := isBru ? (bru.io.nextPc, u.next_pc)
       io.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
       io.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
       io.result.is_mmio := false.B

@@ -8,14 +8,16 @@ import utest.*
 object IbusUserTest extends TestSuite:
 
   val tests = Tests:
-    test("the user field is the epoch column plus the pc column"):
+    test("the user field is the epoch column plus the next-pc and pc columns"):
       for addrWidth <- Seq(32, 64) do
         val user = IbusUser.layout(addrWidth)
         assert(user.offset("epoch") == 0)
         assert(user.fieldWidth("epoch") == IbusUser.epochBits)
-        assert(user.offset("pc") == IbusUser.epochBits)
+        assert(user.offset("next_pc") == IbusUser.epochBits)
+        assert(user.fieldWidth("next_pc") == addrWidth)
+        assert(user.offset("pc") == IbusUser.epochBits + addrWidth)
         assert(user.fieldWidth("pc") == addrWidth)
-        assert(user.width == addrWidth + IbusUser.epochBits)
+        assert(user.width == 2 * addrWidth + IbusUser.epochBits)
         assert(IbusUser.userWidth(addrWidth) == user.width)
 
     test("the epoch is a generation counter, not a single bit"):

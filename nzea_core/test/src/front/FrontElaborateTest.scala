@@ -57,6 +57,7 @@ object FrontElaborateTest extends TestSuite:
           "out_valid" -> 1,
           "out_ready" -> 1,
           "out_bits_pc" -> width,
+          "out_bits_next_pc" -> width,
           "out_bits_imm" -> width,
           "out_bits_rd_index" -> Gpr.indexWidth,
           "out_bits_rs1_index" -> Gpr.indexWidth,

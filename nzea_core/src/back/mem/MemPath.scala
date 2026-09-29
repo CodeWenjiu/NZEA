@@ -184,7 +184,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
     def result(): Unit =
       io.done := hit
       io.result.data := (isStore ? (0.U(width), loadData.asUInt))
-      io.result.next_pc := u.pc_plus4
+      io.result.next_pc := u.next_pc
       io.result.csr_type := CsrType.None.lit.U(CsrType.width)
       io.result.csr_data := 0.U(width)
       io.result.is_mmio := isMmio

@@ -67,10 +67,9 @@ class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers
   * Combinational: the ID/IS and IS/EX registers are the middle's (`Isu` neither owns nor instantiates one), and this
   * unit is what sits between them — the same rule the front-end follows around [[nzea_core.front.idu.Idu]]. The
   * operands arrive already placed from [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility; this
-  * unit resolves the fall-through here, where the pc is a held value, assembles the `moved` payload, and presents the
-  * uop to the backend, silencing it when the slot is empty or the flush is killing the cycle. The slot holds the uop
-  * for the unit's whole residence — the units take a level, not a handshake — and `slot_first` marks the cycle it
-  * arrived.
+  * unit assembles the `moved` payload, carrying the fetch's predicted next pc through untouched, and presents the uop
+  * to the backend, silencing it when the slot is empty or the flush is killing the cycle. The slot holds the uop for
+  * the unit's whole residence — the units take a level, not a handshake — and `slot_first` marks the cycle it arrived.
   */
 @generator
 object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
@@ -80,8 +79,6 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
     val io = summon[Interface[IsuIO]]
     given ClockScope = ClockScope.posedge(io.clock)
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
-
-    val width = parameter.config.width
 
     /** ID/IS is consumed when the read has placed the payload's operands — the read owns that test, including the
       * in-flight writers it had to wait for — and the execute stage is about to free up: its uop completes, or the slot
@@ -96,7 +93,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
     def moveUop(): Unit =
       val dec = io.decoded
       io.moved.pc := dec.pc
-      io.moved.pc_plus4 := prefixAdder(dec.pc, 4.U(width), false.B, width)
+      io.moved.next_pc := dec.next_pc
       io.moved.imm := dec.imm
       io.moved.src_a := io.src_a
       io.moved.src_b := io.src_b
@@ -114,7 +111,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       val slot = io.slot
       val uop = Wire(new IssueUop(parameter.config))
       uop.pc := slot.pc
-      uop.pc_plus4 := slot.pc_plus4
+      uop.next_pc := slot.next_pc
       uop.imm := slot.imm
       uop.src_a := slot.src_a
       uop.src_b := slot.src_b

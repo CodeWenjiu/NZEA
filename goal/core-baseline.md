@@ -19,7 +19,7 @@ Status: **基线已落地（已重写到 Scala 3 + zaozi）** — 三段式 in-o
 nzea_core/src/
   NzeaCore.scala        顶层：sim 时三个总线接 DPI 桥；--sim false 时把 ibus/dbus/commit 暴露为端口（综合顶层）
   front/                Front（取指 + 译码，两段之间的流水寄存器由它 own，受 flush 控制）
-    ifu/                Ifu（pc/epoch，一次一个请求）/ IbusUser（user = {pc, epoch}）
+    ifu/                Ifu（pc/epoch，一次一个请求，预测随取指）/ IbusUser（user = {pc, next_pc, epoch}）
     idu/                Idu（PLA 译码 + 立即数成形 + 源寄存器号）/ inst/（Insts 类型与模式形状 ｜ InstI、InstM 指令行，各自 rows(xlen) 选行）/ DecodeTables（真值表 → PLA）
   middle/               Middle（共享文件 Arf/CsrFile + 两级流水寄存器 idis/isex + 写回寄存器（提交与 flush 的源头），多态点）/ CommitMsg / ExecSlot / issue.pulse / retire.pulse
     isu/                Isu（寄存器读 + 操作数槽位解析 + 发射，纯组合；两级寄存器与 pipelineConnect 由 Middle own）
@@ -37,11 +37,12 @@ nzea_core/src/
 
 ## 合同（跨模块）
 
-- 前端→中端 `IduOut`（**架构级**）：`pc / imm / rd_index / rs1_index / rs2_index / srcs（操作数形态）/ backend / op 窗口 / csr_addr`。
+- 前端→中端 `IduOut`（**架构级**）：`pc / next_pc / imm / rd_index / rs1_index / rs2_index / srcs（操作数形态）/ backend / op 窗口 / csr_addr`。
   译码只出"指令是什么"；ARF 读与操作数槽位解析在中端发射拍完成（`Srcs.resolve`），读到的就是文件当时的内容。
-- 中端→后端 `IssueUop`（**就绪操作数**）：三个槽位 + `pc`/`pc_plus4`/`imm`（结构用途）+ `backend` + `op` 窗口
-  + `csr_type`/`csr_rdata`。`pc_plus4`（顺延值）由中端在发射拍解出并随 uop 携带：执行拍是全核最忙的一拍，
-  而 `pc+4` 不依赖那一拍任何东西，带过来就少一个加法器和它后面的选择。后端不做源选择，只按自己的 op 读槽位：
+- 中端→后端 `IssueUop`（**就绪操作数**）：三个槽位 + `pc`/`next_pc`/`imm`（结构用途）+ `backend` + `op` 窗口
+  + `csr_type`/`csr_rdata`。`next_pc` 是取指预测的下一 pc（基线 = 顺延），随取指携带：全核唯一的 `pc+4` 在
+  `Ifu`（它既是 pc 寄存器的下一值，又是该指令的预测），经请求 user 字段随响应回送，一路带到 BRU；`Isu` 不再
+  自己解 `pc+4`。后端不做源选择，只按自己的 op 读槽位：
   ALU 读 a/b；BRU 比较 a/b、JALR 用 a 当目标基址；SYSU 的写数据与"零源不写"判定读 a；MUL/DIV 读 a/b；
   LSU 地址 = a+b、store 数据 = c。
 - 后端→中端 `PathResult`（完成通道，Valid）：`data / next_pc / csr_type / csr_data / is_mmio / redirect_valid /
@@ -57,7 +58,7 @@ nzea_core/src/
 
   | 级 | 寄存器 | 在哪 | 级内组合 |
   |---|---|---|---|
-  | IF | `ifu.pc` + 总线往返 | Ifu | 请求/响应、epoch 甄别 |
+  | IF | `ifu.pc` + 总线往返 | Ifu | 请求/响应、epoch 甄别、预测（`pc+4`）随请求携带 |
   | ID | `ifid`（指令字） | Front | `Idu` 的 PLA + 立即数 |
   | ID/IS | `idis`（译码载荷） | Middle | 寄存器读（`Arf` 组合读 + `Srcs.resolve`，即 `Isu`） |
   | IS/EX | `isex`（`ExecSlot`） | Middle | 执行（IntPath/MemPath 组合） |
@@ -67,7 +68,9 @@ nzea_core/src/
 - `pipelineConnect` 的 flush 策略显式化（`FlushHandover`）：前端 IF/ID 取 `Consume`——它的生产者是总线响应，
   响应被拒会挂在总线上堵住下一拍；中端两个寄存器取 `Refuse`——它们的生产者是同级流水，拒收让取指不在被杀的路上
   白取一个词。（实测：若把中端也改成 `Consume`，每次 flush 多花≈1 拍；若把前端改成 `Refuse`，每次 flush 也多花≈1 拍。）
-- 顺序单发射；取指永远 `pc+4`（always-not-taken），分支在 BRU 解析后 flush + redirect；无 BPU。
+- 顺序单发射；取指预测 = 顺延（always-not-taken）。预测随取指走完全程（`FetchedInst`→`IduOut`→`ExecSlot`→
+  `IssueUop.next_pc`），BRU 用它与解析结果对照（基线下该对照折叠成 `offset =/= 4`，目标加法器不进 redirect 的
+  valid 锥）；分支在 BRU 解析后 flush + redirect；无 BPU。BP 落地时替换 `Ifu` 里那一个预测值，管道其余不动。
 - 中端两槽：`idis`（译码载荷，还没有操作数）与 `isex`（`ExecSlot`：就绪 uop + `rd_index`/`csr_addr`；后端只看到
   它反推出的 `IssueUop`）。两个寄存器与 `pipelineConnect` 都在 `Middle`，夹在中间的是两个组合单元：
   `OperandRead`（操作数读取：请求 index、合流文件/网络、按形式置换，及在飞写者的等待）与 `Isu`（uop 组装；与前端
@@ -109,6 +112,13 @@ nzea_core/src/
   `Isu` 的读与等待拆到 `OperandRead` 单元（`Isu` 只剩 uop 组装）。`Commit` 档 32i 1.134 ns（~851 MHz）/ 64i 1.336 ns
   （~724 MHz），面积 21044.52 / 41833.96（较上一步 -0.3%）；`Execute` 档微基准 IPC 0.3429，difftest 全过；
   `branch_loop` 与基线逐拍一致（463/167/0.3607）。
+- 预测随取指（2026-09-30，同日）：`pc_plus4` 退役，改由取指产出 `next_pc`（`IbusUser` = {pc, next_pc, epoch}，请求携带、
+  响应回送；`Isu` 的 `pc+4` 加法器下线）。行为逐拍不变：`dep_chain` 138/133（Execute + 弹性桥基线的同值）、
+  `branch_loop` 391/167 与改动前网表逐拍一致（用旧网表 .so 复跑核对；此前记录的 463 是弹性取指桥落地之前的值），
+  microbench `test` 32im 0.4142 / 64im 0.4100，difftest 全过。STA：32i 最差 1.181 ns（取指回路 `pc → +4 → mux → pc`，
+  别名到 `ibus_req_bits_addr` 端口寄存器；上一步的最差键是 IS 拍 `pc+4` 1.156，已随加法器消失），面积 21535.08（+0.57%）；
+  64i 最差 1.359 ns（`src_b/c` 1.415 → 1.359），面积 43078.28（+1.54%）；flop 32i 1732 → 1796（+64，均为 ifid/idis
+  携带 `next_pc`）。
 
 ## 挂载顺序（每步正交、独立验证）
 
@@ -123,3 +133,6 @@ nzea_core/src/
 - store 完成语义：基线等 resp 才提交（保证 MMIO store 完成）。未来 OoO 的提交/访存顺序不同，"store 完成"如何在合同上统一表达？
 - 标签位宽：`DbusUser.tagWidth`、`IbusUser.epochBits` 现为常量；重命名/多发射时这些宽度定义在哪（是否随 `CoreParams` 协商）？
 - 操作数槽位是三个（store 刚好用满）；V 扩展 / FMA 这类三源以上的操作是加第 4 槽，还是让该后端自带私有槽位？
+- 预测经请求 user 字段随响应回送（无状态、handover 安全），代价是 ibus user 宽度 36→68（32i）且取指回路的 `pc+4`
+  现在也驱动该端口（1.181 ns 的最差键）。另一种做法是 IFU 持一个"未决预测"侧寄存器（总线不变，+32 flop，但正确性
+  要论证单未决 + 同拍 handover 的边界）；BP 落地时再评估。

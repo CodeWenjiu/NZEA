@@ -33,8 +33,9 @@ class BruProbe(parameter: BruParameter) extends DVBundle[BruParameter, BruLayers
 /** Branch unit: resolves a jump or branch into a taken flag, a target and the pc to continue from.
   *
   * The prediction is an input, not this unit's knowledge: the pc to continue from when the branch is not taken is
-  * whatever the fetch stream predicted, so a branch predictor replaces the caller's one line rather than this
-  * interface. On this baseline that prediction is the fall-through, which is what the mispredict test below folds away.
+  * whatever the fetch stream predicted, so the fetcher's prediction reaches this unit as data and a predictor that
+  * lands later changes where the value comes from, not this interface. On this baseline that prediction is the
+  * fall-through, which is what the mispredict test below folds away.
   *
   * Combinational, and it carries no valid: the path gates the redirect with the tag it issued.
   */
@@ -72,8 +73,8 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
     io.nextPc := taken ? (target, io.predNextPc)
 
     // The mispredict is the fetch stream's prediction check, `predNextPc =/= target`. The baseline predicts the
-    // fall-through, so both sides of that test are instruction-static for the pc-relative forms and it reduces to the
-    // offset not being 4 — which keeps the target adder, the one slow cone in this cycle, out of the redirect's valid
-    // path. JALR bases its target on a register, so it always redirects: one that lands on its own fall-through
-    // refetches instead of continuing.
+    // fall-through, so for the pc-relative forms the check reduces to the offset not being 4 — instruction-static,
+    // which keeps the target adder, the one slow cone in this cycle, out of the redirect's valid path. JALR bases its
+    // target on a register, so it always redirects: one that lands on its own fall-through refetches instead of
+    // continuing.
     io.mispredict := taken & (isJalr | (io.offset =/= 4.U(width)))
