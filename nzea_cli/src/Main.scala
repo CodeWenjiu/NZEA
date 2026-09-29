@@ -50,7 +50,7 @@ object Main:
       .fold(error => throw new IllegalArgumentException(error), identity)
     // Fixed for now: the commit level is the baseline's only forwarding choice, and it is not a user knob yet. Edit
     // this line to build the design without it.
-    val bypass = BypassLevel.Commit
+    val bypass = BypassLevel.Execute
     val outDir = flags
       .get("outDir")
       .filter(_.nonEmpty)

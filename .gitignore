@@ -7,6 +7,7 @@
 .sccache
 .scala-build
 .vscode
+**/target
 
 # Build outputs (Mill `out`, elaboration/synthesis RTL and reports under `build`)
 out
