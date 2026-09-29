@@ -8,7 +8,7 @@ import nzea_rtl.stdlib.*
 import utest.*
 
 /** Structural checks: the middle's boundary is the decoded stream it consumes, the three things it hands the front and
-  * the top (flush, redirect, commit), the uop it issues, and the report it retires.
+  * the top (flush, redirect, commit), the uop it issues, and the completion it latches into write-back.
   */
 object MiddleElaborateTest extends TestSuite:
 
@@ -70,6 +70,7 @@ object MiddleElaborateTest extends TestSuite:
           "issue_valid" -> 1,
           "issue_first" -> 1,
           "issue_bits_pc" -> width,
+          "issue_bits_pc_plus4" -> width,
           "issue_bits_imm" -> width,
           "issue_bits_src_a" -> width,
           "issue_bits_src_b" -> width,
@@ -78,15 +79,14 @@ object MiddleElaborateTest extends TestSuite:
           "issue_bits_op" -> OpWindow.width(config),
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
-          "report_complete" -> 1,
-          "report_done" -> 1,
-          "report_data" -> width,
-          "report_next_pc" -> width,
-          "report_csr_type" -> CsrType.width,
-          "report_csr_data" -> width,
-          "report_is_mmio" -> 1,
-          "report_flush" -> 1,
-          "report_redirect_target" -> width,
+          "complete_valid" -> 1,
+          "complete_bits_data" -> width,
+          "complete_bits_next_pc" -> width,
+          "complete_bits_csr_type" -> CsrType.width,
+          "complete_bits_csr_data" -> width,
+          "complete_bits_is_mmio" -> 1,
+          "complete_bits_redirect_valid" -> 1,
+          "complete_bits_redirect_target" -> width,
           "commit_valid" -> 1,
           "commit_bits_next_pc" -> width,
           "commit_bits_rd_index" -> Gpr.indexWidth,

@@ -38,19 +38,36 @@ nzea_core/src/
 
 - 前端→中端 `IduOut`（**架构级**）：`pc / imm / rd_index / rs1_index / rs2_index / srcs（操作数形态）/ backend / op 窗口 / csr_addr`。
   译码只出"指令是什么"；ARF 读与操作数槽位解析在中端发射拍完成（`Srcs.resolve`），读到的就是文件当时的内容。
-- 中端→后端 `IssueUop`（**就绪操作数**）：三个槽位 + `pc`/`imm`（结构用途：`pc+4`、分支偏移、BRU 目标基址）
-  + `backend` + `op` 窗口 + `csr_type`/`csr_rdata`。后端不做源选择，只按自己的 op 读槽位：
+- 中端→后端 `IssueUop`（**就绪操作数**）：三个槽位 + `pc`/`pc_plus4`/`imm`（结构用途）+ `backend` + `op` 窗口
+  + `csr_type`/`csr_rdata`。`pc_plus4`（顺延值）由中端在发射拍解出并随 uop 携带：执行拍是全核最忙的一拍，
+  而 `pc+4` 不依赖那一拍任何东西，带过来就少一个加法器和它后面的选择。后端不做源选择，只按自己的 op 读槽位：
   ALU 读 a/b；BRU 比较 a/b、JALR 用 a 当目标基址；SYSU 的写数据与"零源不写"判定读 a；MUL/DIV 读 a/b；
   LSU 地址 = a+b、store 数据 = c。
-- 后端→中端 `BackOut`（完成报告）：`complete / done / data / next_pc / csr_type / csr_data / is_mmio / flush / redirect_target`。
+- 后端→中端 `PathResult`（完成通道，Valid）：`data / next_pc / csr_type / csr_data / is_mmio / redirect_valid /
+  redirect_target`。后端**没有流水状态**：uop 由中端的 IS/EX 寄存器按住，完成载荷由中端的写回寄存器采样。
 - 中端→前端：`redirect`（Valid，显式事件，同时是唯一让 `Ifu` 自增 epoch 的原因）+ `flush`（广播，给流水寄存器）。
 - 后端窗口：`IntOp` = `fuOp | fuType`，`MemOp` = `LsuOp`；二者低锚定、互相别名，共享 `op` 字段的宽度 = `OpWindow.Width`。
 - 中端→顶层 `commit`（`CommitMsg`）：架构状态变化的轨迹（`next_pc`/`rd_index`/`rd_value`/`is_mmio`/`csr_*`）。
 
 ## 基线行为
 
+- **流水线：IF / ID / IS / EX / WB，五级四个寄存器**（`pipelineConnect` 拥有 IF/ID、ID/IS、IS/EX 三个，均为
+  `name` 显式的弹性寄存器；WB 是朴素 `Reg`，因为它的条目是“取消别人的那一条”，不被取消也无反压）：
+
+  | 级 | 寄存器 | 在哪 | 级内组合 |
+  |---|---|---|---|
+  | IF | `ifu.pc` + 总线往返 | Ifu | 请求/响应、epoch 甄别 |
+  | ID | `ifid`（指令字） | Front | `Idu` 的 PLA + 立即数 |
+  | ID/IS | `idis`（译码载荷） | Middle | 寄存器读（`Arf` 组合读 + `Srcs.resolve`） |
+  | IS/EX | `isex`（就绪 uop） | Middle | 执行（IntPath/MemPath 组合） |
+  | EX/WB | `wb`（结果） | Middle | 写回：`arf`/`csr` 写 + commit + flush/redirect 广播 |
+
+  后端的“级数”完全由单元自己声明（ALU/BRU/SYSU 组合、MUL 3 拍、DIV 多拍、LSU 变长）。
+- `pipelineConnect` 的 flush 策略显式化（`FlushHandover`）：前端 IF/ID 取 `Consume`——它的生产者是总线响应，
+  响应被拒会挂在总线上堵住下一拍；中端两个寄存器取 `Refuse`——它们的生产者是同级流水，拒收让取指不在被杀的路上
+  白取一个词。（实测：若把中端也改成 `Consume`，每次 flush 多花≈1 拍；若把前端改成 `Refuse`，每次 flush 也多花≈1 拍。）
 - 顺序单发射；取指永远 `pc+4`（always-not-taken），分支在 BRU 解析后 flush + redirect；无 BPU。
-- 中端两槽：`dec`（译码载荷，还没有操作数）与 `ex`（后端正在执行的 uop）。载荷在后端 uop 完成的那拍搬入 `ex`
+- 中端两槽：`idis`（译码载荷，还没有操作数）与 `isex`（后端正在执行的 uop）。载荷在后端 uop 完成的那拍搬入 `isex`
   并在同一拍读寄存器：此时写口上正是那条在途指令的写，读一次就是对的。载荷读的正是这条指令写的寄存器时，
   搬运晚一拍（写口下一拍才到），即 "读永远正确" 的代价。
 - 写回链接（`BypassConfig.writeback`）就是 ARF 自己的同拍写穿透：有它读口答案取自写口，没有它读口给文件现值。
@@ -63,9 +80,15 @@ nzea_core/src/
 
 ## 基线测量（2026-09-29）
 
-- riscv32i / icsprout55 H7CL tt / 2 ns 约束：面积 20878.76，最差路径 1.190 ns（提交 `next_pc` 一端的锥：
-  op 译码 → BRU 目标基址 mux → 分支目标加法器），等价 812.9 MHz；riscv64i：面积 41520.92，最差路径 1.285 ns（752.0 MHz）。
+- riscv32i / icsprout55 H7CL tt / 2 ns 约束：面积 21053.76，最差路径 **1.137 ns**（`pc+4` 移出执行拍后，提交
+  `next_pc` 一端的锥只剩 op 译码 → BRU 目标基址 mux → 分支目标加法器），等价 ~850 MHz，slack 0.818 ns；
+  riscv64i：面积 42104.16，最差路径 1.410 ns（~690 MHz 等价，slack 0.550 ns）。
+- 逐点对照（同一流程复测，riscv32i 最差路径 / 路径上单元数）：1.190 ns / 78（重构前）→ 1.205 / 86（流水级显式化）
+  → **1.137 / 60**（+`pc_plus4`）。riscv64i 同一轮：1.285 / 92 → 1.427 / 104 → 1.410 / 92——64i 走的是 BRU
+  目标加法器锥（逻辑与重构前相同），单元数与基线持平，差异来自 yosys-sta 的映射/驱动选择，属流噪声量级。
 - IPC（microbench `test`）：riscv32im 0.3412 / riscv32i 0.3711 / riscv64im 0.3332（差异来自相邻依赖对多等一拍）。
+  确定性探针 `nzea_core/test/asm/branch_loop.S`（32 迭代的 taken 回边 + 一次 load/store）：463 拍 / 167 条 /
+  ipc 0.3607，改动前后逐拍一致。
 - difftest：remu `--platform nzea --sim-opt target=core`，microbench `test` 10/10（32i / 32im / 64im），
   CSR 读写汇编回归 32im / 64im 通过。
 

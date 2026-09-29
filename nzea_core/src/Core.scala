@@ -86,7 +86,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     front.io.flush := middle.io.flush
 
     back.io.issue :<= middle.io.issue
-    middle.io.report :<= back.io.report
+    middle.io.complete :<= back.io.complete
 
     io.ibus :<>= front.io.ibus
     io.dbus :<>= back.io.dbus

@@ -65,6 +65,6 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
     io.ibus :<>= ifu.io.ibus
     ifu.io.redirect :<>= io.redirect
 
-    pipelineConnect(ifu.io.out, idu.io.in, io.flush)
+    pipelineConnect(ifu.io.out, idu.io.in, io.flush, "ifid", FlushHandover.Consume)
 
     io.out :<>= idu.io.out

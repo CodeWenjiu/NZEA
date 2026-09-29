@@ -2,7 +2,7 @@
 --
 -- The counters in the same scope count these events; cross-checking one against the other is how a counter wired to a
 -- level instead of an event shows up. Bind them with --event, e.g. the resolution of each branch against its refetch
--- (a window, not a fixed distance: the redirect follows the resolution by way of the middle's exit register):
+-- (a window, not a fixed distance: the redirect follows the resolution by way of the middle's write-back register):
 --   pulse property --event nzea_core/src/back/int/branch.pulse <INT> Branch \
 --       --event nzea_core/src/middle/retire.pulse <MIDDLE> Core \
 --       --eval 'Branch.branch_mispred --3 Core.redirect'
@@ -11,12 +11,7 @@
 -- until the completion is taken, so a per-instruction event has to come from the edge.
 branch = branchResolved
 
--- The resolved branch was taken. The baseline predicts not-taken, so a taken branch is also a mispredict and the same
--- event as the redirect the middle broadcasts.
-branch_taken = branchResolved && taken
-
--- The prediction was wrong: the same set as branch_taken on this baseline.
-branch_mispred = branchResolved && mispredict
-
--- Note: branch_taken is a superset of the middle's redirect, by the taken branches whose target is simply the
--- fall-through (a zero-offset jump is taken but nothing moves, so the front is not redirected).
+-- The prediction was wrong: the branch resolved here is one the fetch stream did not predict, which on this baseline
+-- (the fall-through is the prediction) means it was taken. This is the set the middle redirects on, one write-back
+-- cycle later; when a predictor lands, the taken condition gets its own named net here and the two sets part ways.
+branch_mispred = branchResolved && branchMispred

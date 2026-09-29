@@ -166,7 +166,9 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
 
     io.done := hit
     io.result.data := (isStore ? (0.U(width), loadData.asUInt))
-    io.result.next_pc := prefixAdder(u.pc, 4.U(width), false.B, width)
+    io.result.next_pc := u.pc_plus4
     io.result.csr_type := CsrType.None.lit.U(CsrType.width)
     io.result.csr_data := 0.U(width)
     io.result.is_mmio := isMmio
+    io.result.redirect_valid := false.B
+    io.result.redirect_target := 0.U(width)

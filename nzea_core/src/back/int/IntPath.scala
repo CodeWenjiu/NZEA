@@ -2,7 +2,6 @@ package nzea_core.back.int
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.Valid
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -31,12 +30,11 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
   val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
   val done = Aligned(Bool())
   val result = Aligned(new PathResult(width))
-  val redirect = Aligned(Valid(UInt(width)))
 
 class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParameter, IntPathLayers](parameter)
 
-/** Integer execution path: every int unit driven from the held uop, plus the branch redirect the middle forwards to the
-  * front.
+/** Integer execution path: every int unit driven from the held uop, with the resolved branch riding the result (the
+  * middle forwards the redirect to the front).
   *
   * This is where the unit select and the op mean something — decode only packed them into [[IntOp]]'s columns. Each
   * unit owns its own op encoding and its own operand use, so all this path does is slice the shared field per unit,
@@ -76,14 +74,13 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     alu.io.opA := u.src_a
     alu.io.opB := u.src_b
 
-    val pcPlus4 = prefixAdder(u.pc, 4.U(width), false.B, width)
-
     val bru = Bru.instantiate(BruParameter(width))
     bru.io.op := Encoding.take(fuOp, BruOp.width)
     bru.io.pc := u.pc
     // The prediction is data: the baseline predicts the fall-through, and a predictor that lands later replaces this
-    // line rather than the unit.
-    bru.io.predNextPc := pcPlus4
+    // line rather than the unit. The fall-through itself is a uop field — the middle resolved it where the pc is a held
+    // value, which keeps this cycle's adder count at one.
+    bru.io.predNextPc := u.pc_plus4
     bru.io.offset := u.imm
     bru.io.rs1 := u.src_a
     bru.io.rs2 := u.src_b
@@ -94,9 +91,14 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     sysu.io.csrRdata := u.csr_rdata
     sysu.io.csrType := u.csr_type
 
-    io.redirect.valid := uopValid & isBru & bru.io.mispredict
-    // The target, not `nextPc`: the middle reads the redirect target only when it flushes, which means taken.
-    io.redirect.bits := bru.io.target
+    // The resolved branch rides the result: `redirect_valid` is the mispredict, and the target — not `nextPc` — is
+    // where the fetch stream restarts (the middle latches both with the completion and broadcasts them in write-back).
+    // The condition is a named wire on purpose (like `branchResolved` below): the redirect and the waveform's event
+    // file (`branch.pulse` beside this one) both address it by name, and a plain alias would fold into the unit's port.
+    val branchMispred = Wire(Bool())
+    branchMispred := uopValid & isBru & bru.io.mispredict
+    io.result.redirect_valid := branchMispred
+    io.result.redirect_target := bru.io.target
 
     // MUL and DIV come and go with M, and the same set that decides that here decided the window's codes above.
     val mul = Option.when(ops.contains(IntOp.mul))(
@@ -130,7 +132,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     // configured cases in tag order, so the two cannot drift apart.
     val unitData: IntOp => Referable[UInt] =
       case IntOp.Alu(_)  => alu.io.data
-      case IntOp.Bru(_)  => pcPlus4
+      case IntOp.Bru(_)  => u.pc_plus4
       case IntOp.Sysu(_) => u.csr_rdata
       case IntOp.Mul(_)  => mulData
       case IntOp.Div(_)  => divData
@@ -143,7 +145,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     // one commits.
     io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)
     io.result.data := data
-    io.result.next_pc := isBru ? (bru.io.nextPc, pcPlus4)
+    io.result.next_pc := isBru ? (bru.io.nextPc, u.pc_plus4)
     io.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
     io.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
     io.result.is_mmio := false.B
@@ -161,7 +163,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       val branchResolved = Wire(Bool())
       branchResolved := uopFirst & isBru
       branch.inc(branchResolved)
-      mispred.inc(branchResolved & bru.io.mispredict)
+      mispred.inc(branchResolved & branchMispred)
       // No taken counter: the fetch stream predicts the fall-through, so a taken branch *is* a misprediction here and a
       // second counter would report the same number twice. The taken bias is what a predictor turns into a prediction —
       // it becomes a statistic of its own when one lands.

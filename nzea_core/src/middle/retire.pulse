@@ -8,17 +8,17 @@
 -- One instruction retired: register write-back, CSR write and the commit trace all ride this pulse.
 commit_fire = commit_valid
 
--- A taken branch: the backend resolved a redirect and the front restarts from report_redirect_target. The baseline
--- predicts not-taken, so a taken branch is also a mispredict.
-redirect = report_flush
+-- A taken branch: the write-back register holds a mispredicted branch, so the middle flushes the younger stages and the
+-- front restarts from `wb_redirect_target`. The baseline predicts not-taken, so a taken branch is also a mispredict.
+redirect = flushing
 
--- There is an instruction in the middle: the uop in the execute slot, or a payload still waiting for its operands.
-inflight = exValid | decValid
+-- There is an instruction in the middle: the uop the units work on, or a payload waiting for its operands.
+inflight = isexValid || idisValid
 
--- A uop enters the execute slot. That is the cycle the read resolved its operands, and the cycle before the backend
--- first sees it.
-uop_issue = move
+-- A uop's first cycle in the execute slot: the cycle after the read placed its operands, and the one the units take as
+-- the uop's beginning.
+uop_issue = first
 
--- The payload could move and does not: the execute slot is free, so what holds it is its own operands — it reads the
--- very instruction that is finishing below it, and the write it waits for lands a cycle later.
-operand_wait = decValid & !move & (!exValid | report_complete) & !report_flush
+-- The payload holds although the execute slot is free: what stops it is its own operands — it reads the very
+-- instruction that is finishing below it, and the write it waits for lands a cycle later.
+operand_wait = idisValid && !idis_ready && (!isexValid || complete_valid) && !flushing

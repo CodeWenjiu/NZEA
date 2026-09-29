@@ -2,7 +2,7 @@ package nzea_core.back
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.Valid
+import me.jiuyang.stdlib.ValidIO
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -30,17 +30,18 @@ class BackIO(parameter: BackParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
   val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
-  val report = Aligned(new BackOut(width))
+  val complete = Aligned(ValidIO(new PathResult(width)))
   val dbus = Aligned(MemPath.dbusType(parameter.config))
 
 class BackProbe(parameter: BackParameter) extends DVBundle[BackParameter, BackLayers](parameter)
 
-/** Backend: routes the issue uop to its execution path and merges the single completion back to the middle.
+/** Backend: the execute stage's units — it routes the issued uop to its path and merges the single completion back to
+  * the middle.
   *
-  * The routing test is the whole job here — which path owns a uop is decode's `Backend`, so a path grows its own
-  * scheduler without this file noticing. The paths report a completion as a one-cycle pulse, and the exit register
-  * latches the result with it; the pulse the middle retires arrives one cycle later. A flush is latched with the same
-  * pulse, so it reaches the middle in the cycle the branch commits and carries the target the front restarts from.
+  * No pipeline state lives here: the middle holds the uop (its IS/EX register) and latches what completes (its
+  * write-back register), so this module is the merge plus each path's own latency — the multiplier's stages, the
+  * divider's loop, the memory's response. The routing test is the whole job at this level: which path owns a uop is
+  * decode's `Backend`, so a path grows its own scheduler without this file noticing.
   */
 @generator
 object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
@@ -77,30 +78,12 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     mem.io.issue.first := uopFirst & isMem
     mem.io.issue.bits :<= io.issue.bits
 
-    val flush = int.io.redirect.valid
     val done = (int.io.done & !isMem) | (mem.io.done & isMem)
 
     val result = Wire(new PathResult(width))
     when(isMem) { result :<= mem.io.result }.otherwise { result :<= int.io.result }
 
-    // The paths report a completion as a one-cycle pulse, so that pulse is the latch enable: a level would still be
-    // high when the next uop arrives, one cycle later in the steady state.
-    val resultReg = Reg(new PathResult(width))
-    val flushReg = RegInit(false.B)
-    val redirectReg = Reg(UInt(width))
-    when(done) {
-      resultReg :<= result
-      flushReg := flush
-      redirectReg := int.io.redirect.bits
-    }
-
-    val donePulse = regNext(done, false.B)
-    io.report.complete := done
-    io.report.done := donePulse
-    io.report.data := resultReg.data
-    io.report.next_pc := resultReg.next_pc
-    io.report.csr_type := resultReg.csr_type
-    io.report.csr_data := resultReg.csr_data
-    io.report.is_mmio := resultReg.is_mmio
-    io.report.flush := donePulse & flushReg
-    io.report.redirect_target := redirectReg
+    // The completion: a level for as long as the held uop is finished, carrying what the middle's write-back register
+    // samples on that level's edge.
+    io.complete.valid := done
+    io.complete.bits :<= result

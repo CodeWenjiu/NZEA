@@ -18,9 +18,14 @@ import nzea_core.isa.{Backend, CsrType}
   * `nzea_core.back.mem.MemOp`), so this contract does not change when a backend adds a unit or an operation. Its width
   * is the configuration's (`nzea_core.back.OpWindow`) and is derived here like every other field's, so a caller hands
   * over the configuration rather than numbers it worked out.
+  *
+  * `pc_plus4` is the fall-through, resolved by the middle where the pc is already a held value. The execute cycle is
+  * the busiest one in the core, and `pc + 4` does not depend on anything computed there: carrying the value costs a
+  * field and takes one adder and its select out of the branch-resolution cone.
   */
 class IssueUop(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
+  val pc_plus4 = Aligned(UInt(config.width))
   val imm = Aligned(UInt(config.width))
   val src_a = Aligned(UInt(config.width))
   val src_b = Aligned(UInt(config.width))

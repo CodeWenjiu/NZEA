@@ -37,7 +37,7 @@ object BusPipeTestModule extends Generator[BusPipeTestParameter, BusPipeTestLaye
     given ClockScope = ClockScope.posedge(io.clock)
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    pipelineConnect(io.in, io.out, io.flush)
+    pipelineConnect(io.in, io.out, io.flush, "pipe", FlushHandover.Consume)
 
     // Loopback slave: every request field is consumed and every response field is driven, so the flattened port list is
     // checked in both directions and a dropped field cannot slip through unnoticed.
