@@ -1,6 +1,6 @@
 package nzea_config
 
-import nzea_core.BypassConfig
+import nzea_core.BypassLevel
 import nzea_core.isa.Isa
 import nzea_rtl.{RtlFlow, StatScope}
 import utest.*
@@ -16,7 +16,7 @@ object NzeaCoreParameterTest extends TestSuite:
       0x80000000L,
       RtlFlow.Yosys,
       Seq("0x10000000:8"),
-      BypassConfig.writeback,
+      BypassLevel.Commit,
       StatScope.root
     )
 
@@ -24,7 +24,7 @@ object NzeaCoreParameterTest extends TestSuite:
     test("the aggregate derives the core config and keeps the modules' own"):
       assert(parameter.config.width == 32)
       assert(parameter.config.defaultPc == 0x80000000L)
-      assert(parameter.bypass.writeback)
+      assert(parameter.bypass.commit)
       assert(!parameter.flow.bridges)
 
     test("it round-trips through the config file"):

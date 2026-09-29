@@ -9,7 +9,6 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.isa.Gpr
-import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The file's write port: one register per instruction, retired by the commit. */
@@ -22,7 +21,7 @@ class ArfReadPort(width: Int) extends Bundle:
   val index = Flipped(UInt(Gpr.indexWidth))
   val data = Aligned(UInt(width))
 
-case class ArfParameter(width: Int, forward: Boolean) extends Parameter
+case class ArfParameter(width: Int) extends Parameter
 
 given upickle.default.ReadWriter[ArfParameter] = upickle.default.macroRW
 
@@ -42,10 +41,9 @@ class ArfProbe(parameter: ArfParameter) extends DVBundle[ArfParameter, ArfLayers
 /** Architectural register file: the two read ports a decode's operand form needs and the one write port the commit
   * drives.
   *
-  * `forward` is the writeback link as the file itself sees it: with it a read that names the register being written
-  * this cycle answers the write's own data, without it the read answers what the file holds — the write lands at the
-  * end of the cycle, so a consumer that needs the value takes it a cycle later. The link is a declaration
-  * (`nzea_core.BypassConfig`), and a file without it carries no mux.
+  * Storage only: a read answers what the file holds, and the write lands at the end of its cycle. Anything younger than
+  * the file — the write port's own cycle, the instruction still completing — is the forwarding network's to offer, not
+  * this file's; a consumer selects between the network's answer and the file's read.
   */
 @generator
 object Arf extends Generator[ArfParameter, ArfLayers, ArfIO, ArfProbe]:
@@ -72,12 +70,5 @@ object Arf extends Generator[ArfParameter, ArfLayers, ArfIO, ArfProbe]:
         when(io.write.bits.index === (index + 1).U(Gpr.indexWidth)) { xregs(index) := io.write.bits.data }
     }
 
-    // The writeback link: a read that names the register being written this cycle answers the write's own data.
-    val commitWrites = io.write.valid & (io.write.bits.index =/= 0.U(Gpr.indexWidth))
-    val forwardSources: Seq[ForwardSource] =
-      if parameter.forward then
-        Seq(ForwardSource(armed = commitWrites, index = io.write.bits.index, data = io.write.bits.data))
-      else Seq.empty
-
-    io.rs1.data := forwardRead(io.rs1.index, gprs.ref(io.rs1.index), forwardSources)
-    io.rs2.data := forwardRead(io.rs2.index, gprs.ref(io.rs2.index), forwardSources)
+    io.rs1.data := gprs.ref(io.rs1.index)
+    io.rs2.data := gprs.ref(io.rs2.index)

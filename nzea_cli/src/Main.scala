@@ -1,7 +1,7 @@
 package nzea_cli
 
 import nzea_config.NzeaCoreParameter
-import nzea_core.BypassConfig
+import nzea_core.BypassLevel
 import nzea_core.isa.Isa
 import nzea_rtl.{Elaborate, RtlFlow, StatRegistry, StatSchema, StatScope}
 import nzea_top.NzeaCore
@@ -20,8 +20,7 @@ object Main:
 
   private val usage =
     """usage: just dump [--target core] [--platform yosys] [--isa riscv32i] [--defaultPc 0x80000000]
-      |                 [--flow <verilator|yosys>] [--bypass <none|writeback>] [--stats <root|a.b>]
-      |                 [--outDir <dir>]""".stripMargin
+      |                 [--flow <verilator|yosys>] [--stats <root|a.b>] [--outDir <dir>]""".stripMargin
 
   /** firtool flags per flow. Verilator takes what firtool emits by default; Yosys refuses `always_comb` and local
     * variables inside it, so a synthesis dump is lowered without either.
@@ -49,7 +48,9 @@ object Main:
     val flow = RtlFlow
       .fromString(flags.getOrElse("flow", RtlFlow.Verilator.segment))
       .fold(error => throw new IllegalArgumentException(error), identity)
-    val bypass = BypassConfig.parseOrThrow(flags.getOrElse("bypass", BypassConfig.writeback.name))
+    // Fixed for now: the commit level is the baseline's only forwarding choice, and it is not a user knob yet. Edit
+    // this line to build the design without it.
+    val bypass = BypassLevel.Commit
     val outDir = flags
       .get("outDir")
       .filter(_.nonEmpty)

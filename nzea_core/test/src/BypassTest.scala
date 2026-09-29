@@ -3,33 +3,35 @@ package nzea_core
 import mainargs.TokensReader
 import utest.*
 
-/** The bypass declaration's contracts: the flag token, the config file's spelling of it, and what each configuration
-  * says about the design. The token and the file agree on purpose — one spelling everywhere — and the predicates are
-  * what a consumer asks, so a configuration that names no stage has to answer `false` to all of them.
+/** The bypass declaration's contracts: the level token — one spelling for the config file and the generator's flag —
+  * and the predicates a consumer asks, so the level that names no link answers `false` to all of them.
   */
 object BypassTest extends TestSuite:
 
   val tests = Tests:
-    test("a configuration round-trips through the flag and the config file"):
-      for config <- Seq(BypassConfig.none, BypassConfig.writeback) do
-        assert(BypassConfig.parseOrThrow(config.name) == config)
-        assert(upickle.default.read[BypassConfig](upickle.default.write(config)) == config)
+    test("every level round-trips through the file and the token"):
+      for level <- BypassLevel.values do
+        assert(BypassLevel.parseOrThrow(level.name) == level)
+        assert(upickle.default.read[BypassLevel](upickle.default.write(level)) == level)
 
     test("the flag reader takes the same token"):
-      val reader = summon[TokensReader[BypassConfig]]
-      for config <- Seq(BypassConfig.none, BypassConfig.writeback) do
-        assert(reader.read(Seq("--bypass", config.name)) == Right(config))
+      val reader = summon[TokensReader[BypassLevel]]
+      for level <- BypassLevel.values do assert(reader.read(Seq("--bypass", level.name)) == Right(level))
 
-    test("only the stages a configuration names answer yes"):
-      assert(!BypassConfig.none.writeback)
-      assert(BypassConfig.writeback.writeback)
+    test("a deeper level implies the shallower link"):
+      assert(!BypassLevel.None.commit)
+      assert(!BypassLevel.Commit.execute)
+      assert(BypassLevel.Commit.commit)
+      assert(BypassLevel.Execute.commit && BypassLevel.Execute.execute)
 
-    test("unknown stages are rejected, none is the empty set"):
-      assert(BypassConfig.parse("wb").isLeft)
-      assert(BypassConfig.parse("execute").isLeft)
-      assert(BypassConfig.parse("none") == Right(BypassConfig.none))
-      assert(BypassConfig.parse("WRITEBACK") == Right(BypassConfig.writeback))
+    test("unknown levels are rejected, and the old spellings with them"):
+      assert(BypassLevel.parse("wb").isLeft)
+      assert(BypassLevel.parse("writeback").isLeft)
+      assert(BypassLevel.parse("none") == Right(BypassLevel.None))
+      assert(BypassLevel.parse("COMMIT") == Right(BypassLevel.Commit))
+      assert(BypassLevel.parse("execute") == Right(BypassLevel.Execute))
 
-    test("the report names every link the design has"):
-      assert(BypassConfig.none.report == "none")
-      assert(BypassConfig.writeback.report == ForwardStage.Writeback.link)
+    test("the report names the links that reach the read"):
+      assert(BypassLevel.None.report == "none")
+      assert(BypassLevel.Commit.report == "commit -> register read")
+      assert(BypassLevel.Execute.report == "execute -> register read")

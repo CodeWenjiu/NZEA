@@ -2,12 +2,13 @@ package nzea_core.middle.isu
 
 import java.lang.foreign.Arena
 
+import me.jiuyang.stdlib.ValidIO
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassConfig, CoreConfig}
+import nzea_core.{BypassLevel, CoreConfig}
 import nzea_core.back.{IssueSlot, IssueUop}
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Operand, Srcs}
@@ -15,7 +16,7 @@ import nzea_core.middle.ExecSlot
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IsuParameter(isa: Isa, defaultPc: Long, bypass: BypassConfig) extends Parameter:
+case class IsuParameter(isa: Isa, defaultPc: Long, bypass: BypassLevel) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IsuParameter] = upickle.default.macroRW
@@ -48,6 +49,10 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
   val wb_rd = Flipped(UInt(Gpr.indexWidth))
   val complete = Flipped(Bool())
   val flush = Flipped(Bool())
+
+  /** The bypass network's answers: the completing instruction's result, when it names the asked register. */
+  val bypass_rs1 = Flipped(ValidIO(UInt(width)))
+  val bypass_rs2 = Flipped(ValidIO(UInt(width)))
 
   /** The execute slot as the middle's IS/EX register presents it: the payload the units work on, its validity, and the
     * pulse marking the cycle it arrived.
@@ -91,18 +96,21 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
     val width = parameter.config.width
     val indexWidth = Gpr.indexWidth
 
-    /** The read: the file answers the two indexes the payload names, and the operand form places those answers — with
-      * the immediate, the pc and zero — into the three slots the units read.
+    /** The read: the file answers the two indexes the payload names, the bypass network's answer wins where it is valid
+      * (it is the younger producer), and the operand form places the result — with the immediate, the pc and zero —
+      * into the three slots the units read.
       */
     def readOperands(): (Referable[UInt], Referable[UInt], Referable[UInt]) =
       val dec = io.decoded
       io.rs1_index := dec.rs1_index
       io.rs2_index := dec.rs2_index
+      val rs1 = io.bypass_rs1.valid ? (io.bypass_rs1.bits, io.rs1_data)
+      val rs2 = io.bypass_rs2.valid ? (io.bypass_rs2.bits, io.rs2_data)
       Srcs.resolve(
         dec.srcs,
         Seq[(Operand, Referable[UInt])](
-          Operand.Rs1 -> io.rs1_data,
-          Operand.Rs2 -> io.rs2_data,
+          Operand.Rs1 -> rs1,
+          Operand.Rs2 -> rs2,
           Operand.Imm -> dec.imm,
           Operand.Pc -> dec.pc,
           Operand.Zero -> 0.U(width)
@@ -111,10 +119,11 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       )
 
     /** ID/IS is consumed when this cycle's read can place the payload's operands: the execute stage is about to free up
-      * (its uop completes, or the slot is empty) and the operands are settled. The instruction in execute is the
-      * producer a read cannot see yet — it writes its register in the cycle it commits — so a payload naming that
-      * register waits for the completion, and without the writeback link one more cycle for the file to hold the value.
-      * A flush moves nothing: what waits in the stages is on the path being killed.
+      * (its uop completes, or the slot is empty) and the operands are settled. What a read cannot see is a value still
+      * in flight, and how long it waits for one is the bypass level's answer: at `Execute` the bypass network answers
+      * with the completing instruction's result (the move happens in its completion cycle, so its wait term would be
+      * vacuous), at `Commit` the retiring instruction's write is in the file's own read, and a level that reaches
+      * neither waits for the file. A flush moves nothing: what waits in the stages is on the path being killed.
       */
     def canPlaceOperands(): Referable[Bool] =
       // The operand form once more, for the registers each slot was read from: 0 for the slots no register feeds,
@@ -132,11 +141,11 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       )
       def reads(rd: Referable[UInt]): Referable[Bool] =
         (rd =/= 0.U(indexWidth)) & ((idxA === rd) | (idxB === rd) | (idxC === rd))
-      val waitsForExecute = io.slot_valid & reads(io.slot.rd_index)
-      val waitsForCommit = io.wb_valid & reads(io.wb_rd)
-      val operandsReady =
-        if parameter.bypass.writeback then !waitsForExecute
-        else !waitsForExecute & !waitsForCommit
+      val waitsForExecute =
+        if parameter.bypass.execute then false.B else io.slot_valid & reads(io.slot.rd_index)
+      val waitesForCommit =
+        if parameter.bypass.commit then false.B else io.wb_valid & reads(io.wb_rd)
+      val operandsReady = !waitsForExecute & !waitesForCommit
       (!io.slot_valid | io.complete) & operandsReady & !io.flush
 
     /** What moves into IS/EX: the read's uop, with the destination and the CSR address riding in it. The fall-through
@@ -171,6 +180,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       uop.src_c := slot.src_c
       uop.backend := slot.backend
       uop.op := slot.op
+      uop.rd_index := slot.rd_index
       val isMem = slot.backend === Backend.MEM.lit.U(Backend.width)
       uop.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), CsrType.fromAddr(slot.csr_addr))
       uop.csr_rdata := io.csr_rdata

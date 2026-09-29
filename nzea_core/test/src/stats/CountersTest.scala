@@ -1,6 +1,6 @@
 package nzea_core.stats
 
-import nzea_core.BypassConfig
+import nzea_core.BypassLevel
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.isa.Isa
 import nzea_core.middle.{Middle, MiddleParameter}
@@ -36,7 +36,7 @@ object CountersTest extends TestSuite:
             "--flow",
             "verilator",
             "--bypass",
-            "writeback",
+            "commit",
             "--stats",
             "middle"
           )
@@ -69,7 +69,7 @@ object CountersTest extends TestSuite:
 
   private lazy val middle =
     Middle.moduleName(
-      MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, BypassConfig.writeback, StatScope(Seq("middle")))
+      MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, BypassLevel.Commit, StatScope(Seq("middle")))
     )
 
   private lazy val intPath =

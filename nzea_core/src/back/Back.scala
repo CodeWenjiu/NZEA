@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.CoreConfig
+import nzea_core.{BypassLevel, CoreConfig}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
 import nzea_core.isa.{Backend, Isa}
@@ -16,8 +16,14 @@ import nzea_rtl.{RtlFlow, StatScope}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class BackParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String], stats: StatScope)
-    extends Parameter:
+case class BackParameter(
+    isa: Isa,
+    defaultPc: Long,
+    flow: RtlFlow,
+    mmioRanges: Seq[String],
+    bypass: BypassLevel,
+    stats: StatScope
+) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[BackParameter] = upickle.default.macroRW
@@ -31,6 +37,7 @@ class BackIO(parameter: BackParameter) extends HWBundle(parameter):
   val resetN = Flipped(Reset())
   val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
   val complete = Aligned(ValidIO(new PathResult(width)))
+  val bypass = Flipped(new BypassBus(width))
   val dbus = Aligned(MemPath.dbusType(parameter.config))
 
 class BackProbe(parameter: BackParameter) extends DVBundle[BackParameter, BackLayers](parameter)
@@ -64,11 +71,14 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     val int =
       IntPath.instantiate(IntPathParameter(c.isa, c.defaultPc, parameter.flow, parameter.stats.child(IntPath.Source)))
     val mem = MemPath.instantiate(MemPathParameter(c.isa, c.defaultPc, parameter.mmioRanges))
+    val bypass = Bypass.instantiate(BypassParameter(c.isa, c.defaultPc, parameter.bypass))
 
     int.io.clock := io.clock
     int.io.resetN := io.resetN
     mem.io.clock := io.clock
     mem.io.resetN := io.resetN
+    bypass.io.clock := io.clock
+    bypass.io.resetN := io.resetN
     io.dbus :<>= mem.io.dbus
 
     int.io.issue.valid := uopValid & !isMem
@@ -87,3 +97,15 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     // samples on that level's edge.
     io.complete.valid := done
     io.complete.bits :<= result
+
+    // The bypass network's raw producers: the completing instruction's result, with the destination it will write, born
+    // here — and the retiring instruction's write, carried over the bus from the middle. The request side comes from the
+    // middle's read too, and the answers go back over the same bus.
+    bypass.io.exec.valid := io.complete.valid
+    bypass.io.exec.bits.rd_index := io.issue.bits.rd_index
+    bypass.io.exec.bits.data := io.complete.bits.data
+    bypass.io.commit :<= io.bypass.commit
+    bypass.io.rs1_index := io.bypass.rs1_index
+    bypass.io.rs2_index := io.bypass.rs2_index
+    io.bypass.rs1 :<= bypass.io.rs1
+    io.bypass.rs2 :<= bypass.io.rs2

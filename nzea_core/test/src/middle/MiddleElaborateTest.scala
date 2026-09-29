@@ -1,6 +1,6 @@
 package nzea_core.middle
 
-import nzea_core.{BypassConfig, CoreConfig}
+import nzea_core.{BypassLevel, CoreConfig}
 import nzea_core.back.OpWindow
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Srcs}
 import nzea_rtl.{RtlFlow, StatScope, TestFlow}
@@ -16,10 +16,10 @@ object MiddleElaborateTest extends TestSuite:
   private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
 
   private val module = Middle.moduleName(
-    MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, BypassConfig.writeback, StatScope.root)
+    MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, BypassLevel.Commit, StatScope.root)
   )
 
-  private def lower(bypass: BypassConfig): String =
+  private def lower(bypass: BypassLevel): String =
     TestFlow.lower(
       module,
       cfg =>
@@ -42,7 +42,7 @@ object MiddleElaborateTest extends TestSuite:
       cfg => Middle.main(Array("design", cfg.toString))
     )
 
-  private lazy val sv = lower(BypassConfig.writeback)
+  private lazy val sv = lower(BypassLevel.Commit)
 
   private lazy val ports = TestFlow.ports(sv, module)
 
@@ -79,6 +79,7 @@ object MiddleElaborateTest extends TestSuite:
           "issue_bits_op" -> OpWindow.width(config),
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
+          "issue_bits_rd_index" -> Gpr.indexWidth,
           "complete_valid" -> 1,
           "complete_bits_data" -> width,
           "complete_bits_next_pc" -> width,
@@ -87,6 +88,15 @@ object MiddleElaborateTest extends TestSuite:
           "complete_bits_is_mmio" -> 1,
           "complete_bits_redirect_valid" -> 1,
           "complete_bits_redirect_target" -> width,
+          "bypass_rs1_index" -> Gpr.indexWidth,
+          "bypass_rs2_index" -> Gpr.indexWidth,
+          "bypass_commit_valid" -> 1,
+          "bypass_commit_bits_rd_index" -> Gpr.indexWidth,
+          "bypass_commit_bits_data" -> width,
+          "bypass_rs1_valid" -> 1,
+          "bypass_rs1_bits" -> width,
+          "bypass_rs2_valid" -> 1,
+          "bypass_rs2_bits" -> width,
           "commit_valid" -> 1,
           "commit_bits_next_pc" -> width,
           "commit_bits_rd_index" -> Gpr.indexWidth,
@@ -112,6 +122,11 @@ object MiddleElaborateTest extends TestSuite:
     // files address are in the middle's scope.
     test("the middle carries the stage registers"):
       assert(sv.contains("idisValid") && sv.contains("isexValid"))
+
+    // The bypass network's answer is the issue unit's to select: the middle carries the bus to the read, and the read
+    // takes the network's value where it is valid.
+    test("the bypass bus reaches the issue unit's reads"):
+      assert(sv.contains("bypass_rs1_valid") && sv.contains("bypass_rs2_valid"))
 
     // The unit itself owns no state: the `Isu` module in the same lowering has no flop and no stage register.
     test("the issue unit is purely combinational"):

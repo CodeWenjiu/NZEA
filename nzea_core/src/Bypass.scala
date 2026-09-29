@@ -1,85 +1,61 @@
 package nzea_core
 
 import mainargs.TokensReader
-import upickle.default.{macroRW, readwriter, ReadWriter}
+import upickle.default.{readwriter, ReadWriter}
 
-/** A producer that can supply a register read before its value reaches the register file.
+/** How deep the read's forwarding reaches: the level names the youngest producer the read may take a value from.
   *
-  * Only stages a consumer can take a value from exist here: a stage arrives with the hardware that produces it, so a
-  * configuration cannot name a link the design does not have. `link` is what reports print — where the value comes from
-  * and where it goes.
+  * Producers come back in flight in one order — the completing instruction, then the committing one, then the file — so
+  * a level is a prefix of that ladder: the shallower links come with it by construction, and the ladder's end is as far
+  * as a read can reach. [[Commit]] is where the file reads as write-first; [[Execute]] takes the completing
+  * instruction's result through the completion channel, before it reaches the commit port.
   *
-  * The read happens at the instruction's own issue, so what it can reach is exactly what the file's write port holds
-  * that cycle: the instruction retiring there. A producer further up the pipeline is not a stage the read can name —
-  * its result is still in flight, and the read waits for it to land instead. Adding a later read (a renaming stage, a
-  * scheduler) is what would make another stage reachable.
+  * What each level buys, in cycles a payload is held for a read that names an in-flight write: at [[Execute]] none, at
+  * [[Commit]] one while the producer is in execute and none while it commits; one level down, one more in either case.
+  *
+  * This is a declaration, not hardware: consumers ask a predicate and build their own logic from the answer, so a level
+  * that removes a link removes the logic with it.
   */
-enum ForwardStage(val link: String):
-  /** The commit port: the instruction retiring this cycle writes the register file in the cycle the read happens. */
-  case Writeback extends ForwardStage("commit -> register read")
+enum BypassLevel(val report: String):
+  /** The file only: a read sees what the file has already been written with. */
+  case None extends BypassLevel("none")
 
-object ForwardStage:
+  /** The commit port: the write the committing instruction makes this cycle is visible to the same cycle's read. */
+  case Commit extends BypassLevel("commit -> register read")
 
-  given ReadWriter[ForwardStage] =
-    readwriter[String].bimap(
-      _.toString.toLowerCase,
-      name =>
-        ForwardStage.values
-          .find(_.toString.equalsIgnoreCase(name))
-          .getOrElse(throw new IllegalArgumentException(s"unknown forward stage '$name'"))
-    )
-
-/** Which producers may supply a register read early: the declaration the reader asks.
-  *
-  * A read names a register the file has not been written with yet whenever the instruction producing it is still in
-  * flight — with a link on this list the read takes the producer's value, without one it waits for the write to land,
-  * and [[ForwardStage]] says which producer. The empty set is the strictest configuration and costs the reader the
-  * cycle the link would have covered.
-  *
-  * This is a declaration, not hardware: consumers ask [[writeback]] (or a later stage's predicate) and build their own
-  * logic from the answer, so a configuration that removes a link removes the logic with it.
-  */
-case class BypassConfig(stages: Set[ForwardStage]):
+  /** The completion channel: the completing instruction's result is visible to the same cycle's read, before it reaches
+    * the commit port.
+    */
+  case Execute extends BypassLevel("execute -> register read")
 
   /** The write the commit makes this cycle is visible to the same cycle's read. */
-  def writeback: Boolean = stages(ForwardStage.Writeback)
+  def commit: Boolean = ordinal >= BypassLevel.Commit.ordinal
 
-  /** The flag's spelling: a comma-separated list of stages, `none` for the empty set. */
-  def name: String =
-    if stages.isEmpty then "none" else ForwardStage.values.filter(stages).map(_.toString.toLowerCase).mkString(",")
+  /** The completing instruction's result is visible to the same cycle's read. */
+  def execute: Boolean = ordinal >= BypassLevel.Execute.ordinal
 
-  /** One line for elaboration output: the links that exist, `none` when nothing forwards. */
-  def report: String =
-    val names = ForwardStage.values.filter(stages).map(_.link)
-    if names.isEmpty then "none" else names.mkString(", ")
+  /** The level's spelling: one token for the config file and the generator's flag. */
+  def name: String = toString.toLowerCase
 
-object BypassConfig:
-  given ReadWriter[BypassConfig] = macroRW
+object BypassLevel:
 
-  /** No link: a read sees only what the register file has already written. */
-  val none: BypassConfig = BypassConfig(Set.empty)
+  given ReadWriter[BypassLevel] =
+    readwriter[String].bimap(
+      _.name,
+      name => parseOrThrow(name)
+    )
 
-  /** The commit port's write is visible to the same cycle's read. */
-  val writeback: BypassConfig = BypassConfig(Set(ForwardStage.Writeback))
+  def parse(token: String): Either[String, BypassLevel] =
+    values
+      .find(_.name.equalsIgnoreCase(token.trim))
+      .toRight(s"unknown bypass level '$token'; known: ${values.map(_.name).mkString(", ")}")
 
-  def parse(token: String): Either[String, BypassConfig] =
-    val names = token.split(",").map(_.trim).filter(_.nonEmpty).filterNot(_ == "none")
-    val unknown = names.filterNot(n => ForwardStage.values.exists(_.toString.equalsIgnoreCase(n)))
-    if unknown.nonEmpty then
-      Left(
-        s"unknown bypass stage(s): ${unknown.mkString(", ")}; known: none, ${ForwardStage.values.map(_.toString.toLowerCase).mkString(", ")}"
-      )
-    else
-      Right(
-        BypassConfig(names.flatMap(n => ForwardStage.values.find(_.toString.equalsIgnoreCase(n))).toSet)
-      )
-
-  def parseOrThrow(token: String): BypassConfig =
+  def parseOrThrow(token: String): BypassLevel =
     parse(token).fold(error => throw new IllegalArgumentException(error), identity)
 
-  /** The flag's spelling for the generator framework: the same token [[parse]] takes. */
-  given TokensReader.Simple[BypassConfig] with
-    def shortName = "none|writeback"
+  /** The generator framework's reader: the flag takes the same token [[parse]] takes. */
+  given TokensReader.Simple[BypassLevel] with
+    def shortName = values.map(_.name).mkString("|")
 
-    def read(strs: Seq[String]): Either[String, BypassConfig] =
+    def read(strs: Seq[String]): Either[String, BypassLevel] =
       strs.lastOption.map(parse).getOrElse(Left("bypass requires a value"))

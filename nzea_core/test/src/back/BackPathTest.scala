@@ -1,8 +1,8 @@
 package nzea_core.back
 
-import nzea_core.CoreConfig
+import nzea_core.{BypassLevel, CoreConfig}
 import nzea_core.back.mem.{DbusUser, MemPath, MmioWindow}
-import nzea_core.isa.{Backend, CsrType, Isa}
+import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
 import nzea_rtl.{RtlFlow, StatScope, TestFlow}
 import nzea_rtl.stdlib.*
 import utest.*
@@ -16,9 +16,11 @@ object BackPathTest extends TestSuite:
   private val window = "0x10000000:0x1000"
 
   private val module =
-    Back.moduleName(BackParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, Seq(window), StatScope.root))
+    Back.moduleName(
+      BackParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, Seq(window), BypassLevel.Commit, StatScope.root)
+    )
 
-  private def elaborate(isa: String): String =
+  private def elaborate(isa: String, level: BypassLevel = BypassLevel.Commit): String =
     TestFlow.lower(
       module,
       cfg =>
@@ -34,6 +36,8 @@ object BackPathTest extends TestSuite:
             "yosys",
             "--mmioRanges",
             window,
+            "--bypass",
+            level.name,
             "--stats",
             "root"
           )
@@ -62,6 +66,7 @@ object BackPathTest extends TestSuite:
           "issue_bits_op" -> OpWindow.width(CoreConfig(Isa("riscv32i"), 0x80000000L)),
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
+          "issue_bits_rd_index" -> Gpr.indexWidth,
           "complete_valid" -> 1,
           "complete_bits_data" -> width,
           "complete_bits_next_pc" -> width,
@@ -82,7 +87,16 @@ object BackPathTest extends TestSuite:
           "dbus_resp_ready" -> 1,
           "dbus_resp_bits_data" -> width,
           "dbus_resp_bits_user" -> DbusUser.userWidth,
-          "dbus_resp_bits_id" -> MemPath.busIdWidth
+          "dbus_resp_bits_id" -> MemPath.busIdWidth,
+          "bypass_rs1_index" -> Gpr.indexWidth,
+          "bypass_rs2_index" -> Gpr.indexWidth,
+          "bypass_commit_valid" -> 1,
+          "bypass_commit_bits_rd_index" -> Gpr.indexWidth,
+          "bypass_commit_bits_data" -> width,
+          "bypass_rs1_valid" -> 1,
+          "bypass_rs1_bits" -> width,
+          "bypass_rs2_valid" -> 1,
+          "bypass_rs2_bits" -> width
         )
       )
 
@@ -91,6 +105,19 @@ object BackPathTest extends TestSuite:
       for unit <- Seq("Mul", "Div") do
         assert(!rv32i.contains(s"module $unit("))
         assert(rv32im.contains(s"module $unit("))
+
+    // The network's sources are the level's prefix of the forwarding ladder: the retiring write answers at commit,
+    // the completing result joins it at execute, and a level below both keeps no matching logic at all.
+    test("the bypass network's sources are cut to the level"):
+      val executed = elaborate("riscv32i", BypassLevel.Execute)
+      val none = elaborate("riscv32i", BypassLevel.None)
+      assert(rv32i.contains("module Bypass("))
+      assert(rv32i.contains("commit_bits_rd_index == rs1_index"))
+      assert(!rv32i.contains("exec_bits_rd_index == rs1_index"))
+      assert(executed.contains("exec_bits_rd_index == rs1_index"))
+      assert(executed.contains("commit_bits_rd_index == rs1_index"))
+      assert(!none.contains("commit_bits_rd_index == rs1_index"))
+      assert(!none.contains("exec_bits_rd_index == rs1_index"))
 
     test("mmio windows parse as hex base:size pairs"):
       assert(MmioWindow.parse("0x10000000:0x1000") == (BigInt("10000000", 16), BigInt("1000", 16)))

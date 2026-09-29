@@ -8,8 +8,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassConfig, CoreConfig}
-import nzea_core.back.{IssueSlot, IssueUop, PathResult}
+import nzea_core.{BypassLevel, CoreConfig}
+import nzea_core.back.{BypassBus, IssueSlot, IssueUop, PathResult}
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Gpr, Isa}
 import nzea_core.middle.isu.{Isu, IsuParameter}
@@ -18,7 +18,7 @@ import nzea_rtl.{RtlFlow, StatScope}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class MiddleParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, bypass: BypassConfig, stats: StatScope)
+case class MiddleParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, bypass: BypassLevel, stats: StatScope)
     extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
@@ -35,6 +35,7 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
   val redirect = Aligned(Valid(UInt(width)))
   val issue = Aligned(new IssueSlot(new IssueUop(parameter.config)))
   val complete = Flipped(ValidIO(new PathResult(width)))
+  val bypass = Aligned(new BypassBus(width))
   val commit = Aligned(ValidIO(new CommitMsg(width)))
   val flush = Aligned(Bool())
 
@@ -47,8 +48,8 @@ class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, 
   * — the same rule the front-end follows around its decode. The register and CSR files stay here too — their reads
   * belong to issue and their writes to write-back, so both sides touch them and this is where they live — as does
   * EX/WB, which is neither elastic nor cancellable: the completion lands in it, the register write, the CSR write and
-  * the commit ride it, and a mispredicted branch in it is what cancels the younger stages. The flush is sourced here,
-  * from that register, so every stage reads one net instead of asking the stage below.
+  * write and the commit ride it, and a mispredicted branch in it is what cancels the younger stages. The flush is
+  * sourced here, from that register, so every stage reads one net instead of asking the stage below.
   */
 @generator
 object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleProbe]:
@@ -79,7 +80,7 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     csr.io.clock := io.clock
     csr.io.resetN := io.resetN
 
-    val arf = Arf.instantiate(ArfParameter(width, parameter.bypass.writeback))
+    val arf = Arf.instantiate(ArfParameter(width))
     arf.io.clock := io.clock
     arf.io.resetN := io.resetN
 
@@ -118,6 +119,13 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
       csr.io.read_addr := isex.bits.csr_addr
       io.issue :<= isu.io.issue
 
+      // The bypass bus: the read's indexes out to the network, its answers back into the read's select, and the
+      // retiring write over the same bus (driven in the write-back stage, where it exists).
+      io.bypass.rs1_index := isu.io.rs1_index
+      io.bypass.rs2_index := isu.io.rs2_index
+      isu.io.bypass_rs1 :<= io.bypass.rs1
+      isu.io.bypass_rs2 :<= io.bypass.rs2
+
       // The read's uop into IS/EX: handed over in the cycle ID/IS is consumed, taken when the units are done with the
       // previous one — the cycle they report it complete.
       feed.valid := idis.fire
@@ -143,6 +151,11 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
       arf.io.write.bits.index := wbRd
       arf.io.write.bits.data := wb.data
 
+      // The retiring write rides the bus back to the network as its older raw producer.
+      io.bypass.commit.valid := retire
+      io.bypass.commit.bits.rd_index := wbRd
+      io.bypass.commit.bits.data := wb.data
+
       csr.io.write.valid := retire
       csr.io.write.bits.csr_type := wb.csr_type
       csr.io.write.bits.data := wb.csr_data
@@ -159,20 +172,19 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
       * from this one call — a dump reads the registered set back out after elaboration.
       */
     def counters(): Unit =
-      if parameter.flow.counters then
-        val cycle = parameter.stats.stat("cycle", Regions.Throughput, "core clock cycles")
-        val commit = parameter.stats.stat("inst_commit", Regions.Throughput, "retired instructions")
-        cycle.inc(true.B)
-        commit.inc(retire)
-        parameter.stats.rule(
-          "ipc",
-          s"${commit.name} / ${cycle.name}",
-          Regions.Throughput,
-          "",
-          4,
-          "instructions per cycle"
-        )
+      val cycle = parameter.stats.stat("cycle", Regions.Throughput, "core clock cycles")
+      val commit = parameter.stats.stat("inst_commit", Regions.Throughput, "retired instructions")
+      cycle.inc(true.B)
+      commit.inc(retire)
+      parameter.stats.rule(
+        "ipc",
+        s"${commit.name} / ${cycle.name}",
+        Regions.Throughput,
+        "",
+        4,
+        "instructions per cycle"
+      )
 
     issueStage()
     retireStage()
-    counters()
+    if parameter.flow.counters then counters()

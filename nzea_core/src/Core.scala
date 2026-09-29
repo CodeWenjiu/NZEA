@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassConfig, CoreConfig}
+import nzea_core.{BypassLevel, CoreConfig}
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.{Front, FrontParameter}
@@ -24,7 +24,7 @@ case class CoreParameter(
     defaultPc: Long,
     flow: RtlFlow,
     mmioRanges: Seq[String],
-    bypass: BypassConfig,
+    bypass: BypassLevel,
     stats: StatScope
 ) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -71,7 +71,14 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
       )
     val back =
       Back.instantiate(
-        BackParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges, parameter.stats.child(Back.Source))
+        BackParameter(
+          c.isa,
+          c.defaultPc,
+          parameter.flow,
+          parameter.mmioRanges,
+          parameter.bypass,
+          parameter.stats.child(Back.Source)
+        )
       )
 
     front.io.clock := io.clock
@@ -87,6 +94,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
 
     back.io.issue :<= middle.io.issue
     middle.io.complete :<= back.io.complete
+    back.io.bypass :<>= middle.io.bypass
 
     io.ibus :<>= front.io.ibus
     io.dbus :<>= back.io.dbus
