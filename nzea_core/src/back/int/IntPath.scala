@@ -11,12 +11,12 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.CoreConfig
 import nzea_core.back.{IssueSlot, IssueUop, PathResult}
 import nzea_core.isa.{CsrType, Isa}
-import nzea_core.stats.{BpCounters, BpCountersParameter}
-import nzea_rtl.{RtlFlow, StatsRegs}
+import nzea_core.stats.Regions
+import nzea_rtl.{RtlFlow, StatScope}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow) extends Parameter:
+case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, stats: StatScope) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IntPathParameter] = upickle.default.macroRW
@@ -46,6 +46,9 @@ class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParamete
 @generator
 object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, IntPathProbe]:
   override def moduleName(parameter: IntPathParameter): String = "IntPath"
+
+  /** The block name the int path's statistics are attributed to; the parent's scope takes it as a segment. */
+  val Source: String = "int"
 
   def architecture(parameter: IntPathParameter) =
     val io = summon[Interface[IntPathIO]]
@@ -146,11 +149,10 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     io.result.is_mmio := false.B
 
     // Counters the simulator reads back: every branch or jump that resolves here, and how the fetch stream did against
-    // it.
+    // it. Declared here, and emitted from these declarations after elaboration.
     if parameter.flow.counters then
-      val stats = BpCounters.instantiate(BpCountersParameter())
-      stats.io.clock := io.clock
-      stats.io.resetN := io.resetN.asBool
+      val branch = parameter.stats.stat("bp_branch", Regions.Bp, "resolved branches")
+      val mispred = parameter.stats.stat("bp_mispred", Regions.Bp, "branches whose prediction was wrong")
       // A per-instruction event is the slot's first cycle: a combinational unit holds its uop for the whole residence,
       // so counting the level would count one branch once per cycle it is held — and with back-to-back instructions the
       // level does not fall between them. It is a named wire on purpose: the counters and the waveform's event file
@@ -158,12 +160,16 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       // anonymous net.
       val branchResolved = Wire(Bool())
       branchResolved := uopFirst & isBru
-      stats.io.stat_bp_branch.en := branchResolved
-      stats.io.stat_bp_branch.data :=
-        addWrap(stats.io.stat_bp_branch.value, 1.U(StatsRegs.Width), StatsRegs.Width)
-      stats.io.stat_bp_mispred.en := branchResolved & bru.io.mispredict
-      stats.io.stat_bp_mispred.data :=
-        addWrap(stats.io.stat_bp_mispred.value, 1.U(StatsRegs.Width), StatsRegs.Width)
-      stats.io.stat_bp_actual_taken.en := branchResolved & bru.io.taken
-      stats.io.stat_bp_actual_taken.data :=
-        addWrap(stats.io.stat_bp_actual_taken.value, 1.U(StatsRegs.Width), StatsRegs.Width)
+      branch.inc(branchResolved)
+      mispred.inc(branchResolved & bru.io.mispredict)
+      // No taken counter: the fetch stream predicts the fall-through, so a taken branch *is* a misprediction here and a
+      // second counter would report the same number twice. The taken bias is what a predictor turns into a prediction —
+      // it becomes a statistic of its own when one lands.
+      parameter.stats.rule(
+        "mispredict_rate",
+        s"${mispred.name} / ${branch.name} * 100",
+        Regions.Bp,
+        "%",
+        2,
+        "share of resolved branches predicted wrongly"
+      )

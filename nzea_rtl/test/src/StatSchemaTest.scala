@@ -8,13 +8,13 @@ import utest.*
 object StatSchemaTest extends TestSuite:
 
   private val Region = StatRegion("g", "group")
-  private val a = StatCounter("stat_a", 8, Region, "counter a")
-  private val b = StatCounter("stat_b", 8, Region, "counter b")
+  private val a = StatCounter("stat_a", 8, "core", Region, "counter a")
+  private val b = StatCounter("stat_b", 8, "core", Region, "counter b")
 
   private def schema(derived: Seq[StatDerived], counters: Seq[StatCounter] = Seq(a, b)) =
     StatSchema(Seq(Region), counters, derived)
 
-  private def derive(name: String, expr: String) = StatDerived(name, expr, Region, "", 4, "")
+  private def derive(name: String, expr: String) = StatDerived(name, expr, "core", Region, "", 4, "")
 
   private val values = Map("stat_a" -> 5L, "stat_b" -> 2L)
 
@@ -71,22 +71,32 @@ object StatSchemaTest extends TestSuite:
     test("schema validation: rejects duplicates, unknown regions and shadowing"):
       intercept[IllegalArgumentException] { schema(Seq(derive("r", "1")), Seq(a, a)).validate() }
       intercept[IllegalArgumentException] {
-        schema(Seq(StatDerived("r", "1", StatRegion("nope", ""), "", 4, ""))).validate()
+        schema(Seq(StatDerived("r", "1", "core", StatRegion("nope", ""), "", 4, ""))).validate()
       }
       intercept[IllegalArgumentException] { schema(Seq(derive("stat_a", "1"))).validate() }
       intercept[IllegalArgumentException] { schema(Seq(derive("r", "stat_a +"), derive("r", "1"))).validate() }
       intercept[IllegalArgumentException] {
-        StatSchema(Seq(Region), Seq(StatCounter("cycle", 8, Region, "")), Seq.empty).validate()
+        StatSchema(Seq(Region), Seq(StatCounter("cycle", 8, "core", Region, "")), Seq.empty).validate()
       }
 
-    test("schema validation: enforces the consumer limits of schema v1"):
-      val wide = StatCounter("stat_w", StatSchema.MaxCounterWidth, Region, "")
-      val tooWide = StatCounter("stat_w", StatSchema.MaxCounterWidth + 1, Region, "")
+    test("schema validation: rejects a source that is not a lowercase block identifier"):
+      for bad <- Seq("Core", "1core", "_core", "co-re", "") do
+        intercept[IllegalArgumentException] {
+          schema(Seq.empty, Seq(StatCounter("stat_a", 8, bad, Region, ""))).validate()
+        }
+        intercept[IllegalArgumentException] {
+          schema(Seq(StatDerived("r", "1", bad, Region, "", 4, ""))).validate()
+        }
+      schema(Seq(StatDerived("r", "1", "core_int", Region, "", 4, ""))).validate()
+
+    test("schema validation: enforces the consumer limits of the schema"):
+      val wide = StatCounter("stat_w", StatSchema.MaxCounterWidth, "core", Region, "")
+      val tooWide = StatCounter("stat_w", StatSchema.MaxCounterWidth + 1, "core", Region, "")
       schema(Seq.empty, Seq(wide)).validate()
-      schema(Seq(StatDerived("r", "1", Region, "", StatSchema.MaxDigits, ""))).validate()
+      schema(Seq(StatDerived("r", "1", "core", Region, "", StatSchema.MaxDigits, ""))).validate()
       intercept[IllegalArgumentException] { schema(Seq.empty, Seq(tooWide)).validate() }
       intercept[IllegalArgumentException] {
-        schema(Seq(StatDerived("r", "1", Region, "", StatSchema.MaxDigits + 1, ""))).validate()
+        schema(Seq(StatDerived("r", "1", "core", Region, "", StatSchema.MaxDigits + 1, ""))).validate()
       }
 
     test("evaluation: derives in file order and propagates unavailability"):
@@ -99,13 +109,15 @@ object StatSchemaTest extends TestSuite:
       assert(divZero("ipc").isEmpty)
       assert(divZero("cpi").isEmpty)
 
-    test("toml emission: contains every declaration with its region"):
+    test("toml emission: contains every declaration with its region and source"):
       val toml = schema(Seq(derive("ratio", "stat_a / stat_b"))).toToml("NzeaCore")
-      assert(toml.startsWith("schema = 1\n"))
+      assert(toml.startsWith("schema = 2\n"))
       assert(toml.contains("""design = "NzeaCore""""))
       assert(toml.contains("[[region]]\nname = \"g\"\ndoc = \"group\"\n"))
-      assert(toml.contains("[[counter]]\nname = \"stat_a\"\nwidth = 8\nregion = \"g\"\n"))
-      assert(toml.contains("[[derived]]\nname = \"ratio\"\nexpr = \"stat_a / stat_b\"\nregion = \"g\"\n"))
+      assert(toml.contains("[[counter]]\nname = \"stat_a\"\nwidth = 8\nsource = \"core\"\nregion = \"g\"\n"))
+      assert(
+        toml.contains("[[derived]]\nname = \"ratio\"\nexpr = \"stat_a / stat_b\"\nsource = \"core\"\nregion = \"g\"\n")
+      )
       assert(toml.contains("digits = 4\n"))
 
     test("toml emission: escapes quotes and backslashes"):

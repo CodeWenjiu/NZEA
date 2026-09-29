@@ -2,7 +2,7 @@ package nzea_config
 
 import nzea_core.BypassConfig
 import nzea_core.isa.Isa
-import nzea_rtl.RtlFlow
+import nzea_rtl.{RtlFlow, StatScope}
 import utest.*
 
 /** The aggregate's contract: it carries each module's own config unchanged, derives the one thing it owns (the core
@@ -11,7 +11,14 @@ import utest.*
 object NzeaCoreParameterTest extends TestSuite:
 
   private val parameter =
-    NzeaCoreParameter(Isa("riscv32im"), 0x80000000L, RtlFlow.Yosys, Seq("0x10000000:8"), BypassConfig.writeback)
+    NzeaCoreParameter(
+      Isa("riscv32im"),
+      0x80000000L,
+      RtlFlow.Yosys,
+      Seq("0x10000000:8"),
+      BypassConfig.writeback,
+      StatScope.root
+    )
 
   val tests = Tests:
     test("the aggregate derives the core config and keeps the modules' own"):

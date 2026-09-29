@@ -3,8 +3,7 @@ package nzea_cli
 import nzea_config.NzeaCoreParameter
 import nzea_core.BypassConfig
 import nzea_core.isa.Isa
-import nzea_core.stats.{BpCounters, BpCountersParameter, CoreStats, ThroughputCounters, ThroughputCountersParameter}
-import nzea_rtl.{Elaborate, RtlFlow, StatSchema, StatsRegs}
+import nzea_rtl.{Elaborate, RtlFlow, StatRegistry, StatSchema, StatScope}
 import nzea_top.NzeaCore
 
 /** Elaborate one design to Verilog.
@@ -21,7 +20,8 @@ object Main:
 
   private val usage =
     """usage: just dump [--target core] [--platform yosys] [--isa riscv32i] [--defaultPc 0x80000000]
-      |                 [--flow <verilator|yosys>] [--bypass <none|writeback>] [--outDir <dir>]""".stripMargin
+      |                 [--flow <verilator|yosys>] [--bypass <none|writeback>] [--stats <root|a.b>]
+      |                 [--outDir <dir>]""".stripMargin
 
   /** firtool flags per flow. Verilator takes what firtool emits by default; Yosys refuses `always_comb` and local
     * variables inside it, so a synthesis dump is lowered without either.
@@ -58,7 +58,7 @@ object Main:
     require(target == "core", s"only --target core is ported, got '$target'")
     require(platform == "yosys" || platform == "fpga", s"unknown platform '$platform'")
 
-    val parameter = NzeaCoreParameter(isa, defaultPc, flow, mmioWindows, bypass)
+    val parameter = NzeaCoreParameter(isa, defaultPc, flow, mmioWindows, bypass, StatScope.root)
     val scratch = os.temp.dir(prefix = "nzea-dump")
     try
       Elaborate.withLinked(
@@ -76,7 +76,10 @@ object Main:
               "--flow",
               flow.segment,
               "--bypass",
-              bypass.name
+              bypass.name,
+              // The scope the design's own counters hang under; a dump nests them by the blocks that declare them.
+              "--stats",
+              "root"
             ) ++ mmioWindows.flatMap(window => Seq("--mmioRanges", window))
           ),
         cfg => NzeaCore.main(Array("design", cfg.toString))
@@ -85,14 +88,8 @@ object Main:
         // The counters and the schema that describes them travel with the RTL they belong to: a simulator reads the
         // counters through VPI and interprets them through the schema.
         if flow.counters then
-          StatsRegs.emit(
-            outDir,
-            Seq(
-              (ThroughputCounters.verilogModuleName(ThroughputCountersParameter()), CoreStats.throughputCounters),
-              (BpCounters.verilogModuleName(BpCountersParameter()), CoreStats.bpCounters)
-            )
-          )
-          StatSchema.emit(outDir.toString, NzeaCore.moduleName(parameter), CoreStats.schema)
+          StatRegistry.emitBoxes(outDir)
+          StatSchema.emit(outDir.toString, NzeaCore.moduleName(parameter), StatRegistry.schema)
     finally os.remove.all(scratch)
 
     println(s"elaborated $target:${isa.name} for $platform into $outDir")

@@ -4,82 +4,100 @@ import nzea_core.BypassConfig
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.isa.Isa
 import nzea_core.middle.{Middle, MiddleParameter}
-import nzea_rtl.{RtlFlow, StatCounter, StatsRegs, TestFlow}
+import nzea_rtl.{RtlFlow, StatBox, StatSchema, StatScope, TestFlow}
 import utest.*
 
-/** The contract between a counter declaration, the black box text it produces and the wrapper that instantiates it: all
-  * three name the same ports, and a simulator addresses the same registers the schema declares.
+/** The contract between a counter declared at its call site and what a dump emits from it: the registered set is the
+  * schema, and every counter's box is instantiated by the module that declared it.
+  *
+  * The registration is process-global and a lowering resets it, so each run is captured into a [[Run]] the moment it
+  * finishes.
   */
 object CountersTest extends TestSuite:
 
+  private final case class Run(sv: String, schema: StatSchema)
+
+  private def run(lower: => String): Run =
+    val sv = lower
+    Run(sv, nzea_rtl.StatRegistry.schema)
+
+  private lazy val middleRun = run(
+    TestFlow.lower(
+      middle,
+      cfg =>
+        Middle.main(
+          Array(
+            "config",
+            cfg.toString,
+            "--isa",
+            "riscv32i",
+            "--defaultPc",
+            "2147483648",
+            "--flow",
+            "verilator",
+            "--bypass",
+            "writeback",
+            "--stats",
+            "middle"
+          )
+        ),
+      cfg => Middle.main(Array("design", cfg.toString))
+    )
+  )
+
+  private lazy val intRun = run(
+    TestFlow.lower(
+      intPath,
+      cfg =>
+        IntPath.main(
+          Array(
+            "config",
+            cfg.toString,
+            "--isa",
+            "riscv32i",
+            "--defaultPc",
+            "2147483648",
+            "--flow",
+            "verilator",
+            "--stats",
+            "int"
+          )
+        ),
+      cfg => IntPath.main(Array("design", cfg.toString))
+    )
+  )
+
   private lazy val middle =
-    Middle.moduleName(MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, BypassConfig.writeback))
+    Middle.moduleName(
+      MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, BypassConfig.writeback, StatScope(Seq("middle")))
+    )
 
-  private lazy val middleSv = TestFlow.lower(
-    middle,
-    cfg =>
-      Middle.main(
-        Array(
-          "config",
-          cfg.toString,
-          "--isa",
-          "riscv32i",
-          "--defaultPc",
-          "2147483648",
-          "--flow",
-          "verilator",
-          "--bypass",
-          "writeback"
-        )
-      ),
-    cfg => Middle.main(Array("design", cfg.toString))
-  )
-
-  private lazy val intPath = IntPath.moduleName(IntPathParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator))
-
-  private lazy val intPathSv = TestFlow.lower(
-    intPath,
-    cfg =>
-      IntPath.main(
-        Array("config", cfg.toString, "--isa", "riscv32i", "--defaultPc", "2147483648", "--flow", "verilator")
-      ),
-    cfg => IntPath.main(Array("design", cfg.toString))
-  )
-
-  /** Port names the instance connects. */
-  private def connectedPorts(sv: String, moduleName: String): Set[String] =
-    val start = sv.indexOf(s"$moduleName stats (")
-    require(start >= 0, s"no $moduleName instance in the Verilog")
-    val block = sv.substring(start, sv.indexOf(");", start))
-    """\.(\w+)\s*\(""".r.findAllMatchIn(block).map(_.group(1)).toSet
-
-  /** Port names the black box declares. */
-  private def declaredPorts(moduleName: String, counters: Seq[StatCounter]): Set[String] =
-    val text = StatsRegs.verilog(moduleName, counters)
-    val start = text.indexOf(s"module $moduleName(")
-    val block = text.substring(start, text.indexOf(");", start))
-    """(?:input|output)\s*(?:\[\d+:\d+\]\s*)?(\w+)""".r.findAllMatchIn(block).map(_.group(1)).toSet
+  private lazy val intPath =
+    IntPath.moduleName(IntPathParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, StatScope(Seq("int"))))
 
   val tests = Tests:
-    test("the schema is valid and every counter is as wide as the wrappers' ports"):
-      CoreStats.schema.validate()
-      for c <- CoreStats.schema.counters do
-        require(
-          c.width == StatsRegs.Width,
-          s"${c.name} is ${c.width} bits wide, but the wrapper's ports are ${StatsRegs.Width}"
-        )
-
-    test("the middle's throughput counters connect exactly the ports the black box declares"):
+    test("the middle declares its throughput counters and the rule over them"):
       assert(
-        connectedPorts(middleSv, "ThroughputCounters") ==
-          declaredPorts(
-            ThroughputCounters.verilogModuleName(ThroughputCountersParameter()),
-            CoreStats.throughputCounters
-          )
+        middleRun.schema.counters.map(c => (c.name, c.source)) ==
+          Seq("stat_middle_cycle" -> "middle", "stat_middle_inst_commit" -> "middle")
       )
-
-    test("the int path's branch counters connect exactly the ports the black box declares"):
+      assert(middleRun.schema.derived.map(_.name) == Seq("ipc"))
       assert(
-        connectedPorts(intPathSv, "BpCounters") ==
-          declaredPorts(BpCounters.verilogModuleName(BpCountersParameter()), CoreStats.bpCounters)
+        middleRun.schema.derived.map(_.expr) == Seq("stat_middle_inst_commit / stat_middle_cycle")
       )
+      assert(middleRun.schema.regions.map(_.name) == Seq("throughput"))
+      middleRun.schema.validate()
+
+    test("the int path declares its branch counters and the rule over them"):
+      assert(intRun.schema.counters.map(_.name) == Seq("stat_int_bp_branch", "stat_int_bp_mispred"))
+      assert(intRun.schema.counters.map(_.source).distinct == Seq("int"))
+      assert(intRun.schema.derived.map(_.name) == Seq("mispredict_rate"))
+      assert(intRun.schema.regions.map(_.name) == Seq("bp"))
+      intRun.schema.validate()
+
+    test("every counter is box-width, and its box is instantiated by the module that declared it"):
+      for r <- Seq(middleRun, intRun) do
+        for c <- r.schema.counters do
+          require(c.width == StatBox.Width, s"${c.name} is ${c.width} bits wide, not ${StatBox.Width}")
+          val instance = raw"(?m)^\s*${c.name}\s+\w+\s*\(".r
+          require(instance.findFirstIn(r.sv).isDefined, s"${c.name}'s box is not instantiated")

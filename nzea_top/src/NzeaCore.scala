@@ -65,7 +65,16 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
     val resetN: Node[Reset] = (!io.reset.asBool).asReset
 
     val core =
-      Core.instantiate(CoreParameter(c.isa, c.defaultPc, parameter.flow, parameter.mmioRanges, parameter.bypass))
+      Core.instantiate(
+        CoreParameter(
+          c.isa,
+          c.defaultPc,
+          parameter.flow,
+          parameter.mmioRanges,
+          parameter.bypass,
+          parameter.stats.child(Core.Source)
+        )
+      )
     core.io.clock := io.clock
     core.io.resetN := resetN
 

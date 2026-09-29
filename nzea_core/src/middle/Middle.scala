@@ -12,12 +12,13 @@ import nzea_core.{BypassConfig, CoreConfig}
 import nzea_core.back.{BackOut, IssueSlot, IssueUop}
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Operand, Srcs}
-import nzea_core.stats.{CoreStats, ThroughputCounters, ThroughputCountersParameter}
-import nzea_rtl.{RtlFlow, StatsRegs}
+import nzea_core.stats.Regions
+import nzea_rtl.{RtlFlow, StatScope}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class MiddleParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, bypass: BypassConfig) extends Parameter:
+case class MiddleParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, bypass: BypassConfig, stats: StatScope)
+    extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[MiddleParameter] = upickle.default.macroRW
@@ -58,6 +59,9 @@ class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, 
 @generator
 object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleProbe]:
   override def moduleName(parameter: MiddleParameter): String = "Middle"
+
+  /** The block name the middle's statistics are attributed to; the parent's scope takes it as a segment. */
+  val Source: String = "middle"
 
   def architecture(parameter: MiddleParameter) =
     val io = summon[Interface[MiddleIO]]
@@ -205,15 +209,18 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     io.commit.bits.csr_type := io.report.csr_type
     io.commit.bits.csr_data := io.report.csr_data
 
-    // Counters the simulator reads back: the retirement rate is counted here because this is where cycles and commits
-    // are both known. The box they live in is emitted and declared by `nzea_rtl.StatsRegs` / `nzea_core.stats.CoreStats`.
+    // Counters the simulator reads back: declared here, where the commit and the cycle are both known, and emitted
+    // from this one call — a dump reads the registered set back out after elaboration.
     if parameter.flow.counters then
-      val stats = ThroughputCounters.instantiate(ThroughputCountersParameter())
-      stats.io.clock := io.clock
-      stats.io.resetN := io.resetN.asBool
-      stats.io.stat_cycle.en := true.B
-      stats.io.stat_cycle.data :=
-        addWrap(stats.io.stat_cycle.value, 1.U(StatsRegs.Width), StatsRegs.Width)
-      stats.io.stat_inst_commit.en := done
-      stats.io.stat_inst_commit.data :=
-        addWrap(stats.io.stat_inst_commit.value, 1.U(StatsRegs.Width), StatsRegs.Width)
+      val cycle = parameter.stats.stat("cycle", Regions.Throughput, "core clock cycles")
+      val commit = parameter.stats.stat("inst_commit", Regions.Throughput, "retired instructions")
+      cycle.inc(true.B)
+      commit.inc(done)
+      parameter.stats.rule(
+        "ipc",
+        s"${commit.name} / ${cycle.name}",
+        Regions.Throughput,
+        "",
+        4,
+        "instructions per cycle"
+      )

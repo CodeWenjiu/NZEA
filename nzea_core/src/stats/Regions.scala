@@ -1,0 +1,13 @@
+package nzea_core.stats
+
+import nzea_rtl.StatRegion
+
+/** The subjects statistics are classified by: what a number measures, as opposed to which block declares it.
+  *
+  * A region spans blocks (a rule may read counters from more than one), so the regions live here, shared, while the
+  * counters themselves are declared beside the modules that observe them.
+  */
+object Regions:
+
+  val Throughput = StatRegion("throughput", "Retire throughput")
+  val Bp = StatRegion("bp", "Branch prediction")

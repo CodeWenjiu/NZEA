@@ -21,6 +21,8 @@ object Elaborate:
   ): T =
     val config = scratch / "config.json"
     val before = intermediates
+    // The stats a lowering declares are read back after it: start from an empty set so each run reports its own.
+    StatRegistry.reset()
     try
       writeConfig(config)
       design(config)

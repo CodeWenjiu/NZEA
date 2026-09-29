@@ -3,7 +3,7 @@ package nzea_core.middle
 import nzea_core.{BypassConfig, CoreConfig}
 import nzea_core.back.OpWindow
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Srcs}
-import nzea_rtl.{RtlFlow, TestFlow}
+import nzea_rtl.{RtlFlow, StatScope, TestFlow}
 import nzea_rtl.stdlib.*
 import utest.*
 
@@ -15,8 +15,9 @@ object MiddleElaborateTest extends TestSuite:
   private val width = 32
   private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
 
-  private val module =
-    Middle.moduleName(MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, BypassConfig.writeback))
+  private val module = Middle.moduleName(
+    MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, BypassConfig.writeback, StatScope.root)
+  )
 
   private def lower(bypass: BypassConfig): String =
     TestFlow.lower(
@@ -33,7 +34,9 @@ object MiddleElaborateTest extends TestSuite:
             "--flow",
             "yosys",
             "--bypass",
-            bypass.name
+            bypass.name,
+            "--stats",
+            "root"
           )
         ),
       cfg => Middle.main(Array("design", cfg.toString))

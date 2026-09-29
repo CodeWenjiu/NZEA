@@ -6,16 +6,29 @@ import java.nio.file.{Files, Paths}
 /** Classification assigned by the RTL design to counters and derived entries (`bp`, `throughput`, ...). */
 final case class StatRegion(name: String, doc: String)
 
-/** One counter exposed by the RTL: `name` is the VPI leaf name of the register, `width` its bit width. */
-final case class StatCounter(name: String, width: Int, region: StatRegion, doc: String)
+/** One counter exposed by the RTL: `name` is the VPI leaf name of the register, `width` its bit width, `source` the
+  * block that declares it.
+  */
+final case class StatCounter(name: String, width: Int, source: String, region: StatRegion, doc: String)
 
 /** One derived statistic: an expression over counters and derived entries declared earlier (see [[StatSchema]]). */
-final case class StatDerived(name: String, expr: String, region: StatRegion, unit: String, digits: Int, doc: String)
+final case class StatDerived(
+    name: String,
+    expr: String,
+    source: String,
+    region: StatRegion,
+    unit: String,
+    digits: Int,
+    doc: String
+)
 
 /** Machine-readable contract a simulator reads to interpret an RTL design's `stat_*` counters.
   *
   * One file is emitted per simulation dump (`<design>.stats.toml`, see [[StatSchema.emit]]). Rules:
   *   - `name` is the VPI leaf name; counter names are globally unique and use the `stat_` prefix.
+  *   - `source` is the block that declares the entry — the design-time owner, not an instance path (which instance a
+  *     counter belongs to is what its name carries). It is the second classification axis beside the region: what a
+  *     number measures, and who produces it.
   *   - derived entries are evaluated in file order: a rule may reference counters and rules declared above it, so
   *     dependency cycles cannot exist and the consumer needs no graph resolution.
   *   - when a reference is unavailable or a division has a zero denominator, the entry is reported as unavailable
@@ -27,7 +40,13 @@ final case class StatSchema(regions: Seq[StatRegion], counters: Seq[StatCounter]
 
   private def fail(msg: String): Nothing = throw new IllegalArgumentException(s"invalid stat schema: $msg")
 
-  /** Full schema check: uniqueness, region membership, expression syntax and in-order reference resolution. */
+  private def checkSource(source: String, entry: String): Unit =
+    if !StatSchema.SourcePattern.matches(source) then
+      fail(s"$entry declares source '$source', which must match ${StatSchema.SourcePattern}")
+
+  /** Full schema check: uniqueness, source attribution, region membership, expression syntax and in-order reference
+    * resolution.
+    */
   def validate(): Unit =
     regions.foreach(r => if r.name.trim.isEmpty then fail("empty region name"))
     regions
@@ -41,6 +60,7 @@ final case class StatSchema(regions: Seq[StatRegion], counters: Seq[StatCounter]
         fail(s"counter '${c.name}' must use the ${StatSchema.CounterPrefix} prefix")
       if c.width <= 0 || c.width > StatSchema.MaxCounterWidth then
         fail(s"counter '${c.name}' width must be in 1..${StatSchema.MaxCounterWidth}")
+      checkSource(c.source, s"counter '${c.name}'")
       if !regions.exists(_.name == c.region.name) then
         fail(s"counter '${c.name}' references unknown region '${c.region.name}'")
     }
@@ -51,6 +71,7 @@ final case class StatSchema(regions: Seq[StatRegion], counters: Seq[StatCounter]
       .foreach(n => fail(s"duplicate counter '$n'"))
 
     derived.foreach { d =>
+      checkSource(d.source, s"derived '${d.name}'")
       if !regions.exists(_.name == d.region.name) then
         fail(s"derived '${d.name}' references unknown region '${d.region.name}'")
       if d.digits < 0 || d.digits > StatSchema.MaxDigits then
@@ -98,6 +119,7 @@ final case class StatSchema(regions: Seq[StatRegion], counters: Seq[StatCounter]
       sb ++= "\n[[counter]]\n"
       sb ++= s"""name = "${StatSchema.escape(c.name)}"\n"""
       sb ++= s"width = ${c.width}\n"
+      sb ++= s"""source = "${StatSchema.escape(c.source)}"\n"""
       sb ++= s"""region = "${StatSchema.escape(c.region.name)}"\n"""
       sb ++= s"""doc = "${StatSchema.escape(c.doc)}"\n"""
     }
@@ -105,6 +127,7 @@ final case class StatSchema(regions: Seq[StatRegion], counters: Seq[StatCounter]
       sb ++= "\n[[derived]]\n"
       sb ++= s"""name = "${StatSchema.escape(d.name)}"\n"""
       sb ++= s"""expr = "${StatSchema.escape(d.expr)}"\n"""
+      sb ++= s"""source = "${StatSchema.escape(d.source)}"\n"""
       sb ++= s"""region = "${StatSchema.escape(d.region.name)}"\n"""
       sb ++= s"""unit = "${StatSchema.escape(d.unit)}"\n"""
       sb ++= s"digits = ${d.digits}\n"
@@ -114,10 +137,14 @@ final case class StatSchema(regions: Seq[StatRegion], counters: Seq[StatCounter]
 
 object StatSchema:
 
-  val Version: Int = 1
+  /** Format version: v2 adds the required `source` on counters and derived entries. */
+  val Version: Int = 2
 
-  /** VPI leaf-name prefix every counter shares (uniqueness contract across all [[StatsRegs]] instances). */
+  /** VPI leaf-name prefix every counter shares (uniqueness contract across all counter boxes). */
   val CounterPrefix: String = "stat_"
+
+  /** Shape of a `source`: the block that declares an entry, as a lowercase identifier. */
+  val SourcePattern = "[a-z][a-z0-9_]*".r
 
   /** Consumer limits of schema v1: a 64-bit VPI readout and f64 display precision. */
   val MaxCounterWidth: Int = 64

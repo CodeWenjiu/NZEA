@@ -12,11 +12,12 @@ import nzea_core.CoreConfig
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
 import nzea_core.isa.{Backend, Isa}
-import nzea_rtl.RtlFlow
+import nzea_rtl.{RtlFlow, StatScope}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class BackParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String]) extends Parameter:
+case class BackParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, mmioRanges: Seq[String], stats: StatScope)
+    extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[BackParameter] = upickle.default.macroRW
@@ -45,6 +46,9 @@ class BackProbe(parameter: BackParameter) extends DVBundle[BackParameter, BackLa
 object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
   override def moduleName(parameter: BackParameter): String = "Back"
 
+  /** The block name the backend's statistics are attributed to; the parent's scope takes it as a segment. */
+  val Source: String = "back"
+
   def architecture(parameter: BackParameter) =
     val io = summon[Interface[BackIO]]
     given ClockScope = ClockScope.posedge(io.clock)
@@ -56,7 +60,8 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     val uopFirst = io.issue.first
     val isMem = io.issue.bits.backend === Backend.MEM.lit.U(Backend.width)
 
-    val int = IntPath.instantiate(IntPathParameter(c.isa, c.defaultPc, parameter.flow))
+    val int =
+      IntPath.instantiate(IntPathParameter(c.isa, c.defaultPc, parameter.flow, parameter.stats.child(IntPath.Source)))
     val mem = MemPath.instantiate(MemPathParameter(c.isa, c.defaultPc, parameter.mmioRanges))
 
     int.io.clock := io.clock

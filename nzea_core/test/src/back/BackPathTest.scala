@@ -3,7 +3,7 @@ package nzea_core.back
 import nzea_core.CoreConfig
 import nzea_core.back.mem.{DbusUser, MemPath, MmioWindow}
 import nzea_core.isa.{Backend, CsrType, Isa}
-import nzea_rtl.{RtlFlow, TestFlow}
+import nzea_rtl.{RtlFlow, StatScope, TestFlow}
 import nzea_rtl.stdlib.*
 import utest.*
 
@@ -14,7 +14,9 @@ object BackPathTest extends TestSuite:
 
   private val width = 32
   private val window = "0x10000000:0x1000"
-  private val module = Back.moduleName(BackParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, Seq(window)))
+
+  private val module =
+    Back.moduleName(BackParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, Seq(window), StatScope.root))
 
   private def elaborate(isa: String): String =
     TestFlow.lower(
@@ -31,7 +33,9 @@ object BackPathTest extends TestSuite:
             "--flow",
             "yosys",
             "--mmioRanges",
-            window
+            window,
+            "--stats",
+            "root"
           )
         ),
       cfg => Back.main(Array("design", cfg.toString))
