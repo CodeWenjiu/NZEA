@@ -2,21 +2,20 @@ package nzea_core.middle.isu
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.ValidIO
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassLevel, CoreConfig}
+import nzea_core.CoreConfig
 import nzea_core.back.{IssueSlot, IssueUop}
 import nzea_core.front.idu.IduOut
-import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Operand, Srcs}
+import nzea_core.isa.{Backend, CsrType, Isa}
 import nzea_core.middle.ExecSlot
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IsuParameter(isa: Isa, defaultPc: Long, bypass: BypassLevel) extends Parameter:
+case class IsuParameter(isa: Isa, defaultPc: Long) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IsuParameter] = upickle.default.macroRW
@@ -35,24 +34,18 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
   /** The read's pace back to that register: set when this cycle's read can place the payload's operands. */
   val decoded_ready = Aligned(Bool())
 
-  /** The register file's read side: the indexes the payload names, the values the file answers with. */
-  val rs1_index = Aligned(UInt(Gpr.indexWidth))
-  val rs2_index = Aligned(UInt(Gpr.indexWidth))
-  val rs1_data = Flipped(UInt(width))
-  val rs2_data = Flipped(UInt(width))
+  /** From the read: the operands it placed, and whether every one of them is settled. */
+  val src_a = Flipped(UInt(width))
+  val src_b = Flipped(UInt(width))
+  val src_c = Flipped(UInt(width))
+  val operands_ready = Flipped(Bool())
 
   /** The CSR file's read side, addressed from the execute slot's held address. */
   val csr_rdata = Flipped(UInt(width))
 
-  /** Write-back: its destination settles the operand hazard, and a completion frees the execute slot. */
-  val wb_valid = Flipped(Bool())
-  val wb_rd = Flipped(UInt(Gpr.indexWidth))
+  /** The execute slot's pace: a completion frees it, and a flush kills the cycle. */
   val complete = Flipped(Bool())
   val flush = Flipped(Bool())
-
-  /** The bypass network's answers: the completing instruction's result, when it names the asked register. */
-  val bypass_rs1 = Flipped(ValidIO(UInt(width)))
-  val bypass_rs2 = Flipped(ValidIO(UInt(width)))
 
   /** The execute slot as the middle's IS/EX register presents it: the payload the units work on, its validity, and the
     * pulse marking the cycle it arrived.
@@ -69,20 +62,15 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
 
 class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers](parameter)
 
-/** Issue unit: the middle's read — the register file's answers placed into the uop's slots, and the uop handed to the
-  * execute slot.
+/** Issue unit: the assembly of the uop the units work on, between the middle's two registers.
   *
   * Combinational: the ID/IS and IS/EX registers are the middle's (`Isu` neither owns nor instantiates one), and this
-  * unit is what sits between them — the same rule the front-end follows around [[nzea_core.front.idu.Idu]]. The read
-  * happens in the cycle a payload moves out of ID/IS: that is the cycle the instruction below it completes, when its
-  * result is on the way to the file, so a slot that names that instruction's register is answered by the file's own
-  * write and never needs a fix-up. A payload whose operands are already settled moves in the cycle that instruction
-  * completes, which keeps the pipeline at an instruction per cycle; one that reads what it writes moves a cycle later,
-  * which is the price of the read being correct at the first attempt. The slot holds the uop for the unit's whole
-  * residence — the units take a level, not a handshake — and `slot_first` marks the cycle it arrived.
-  *
-  * The files themselves stay in [[nzea_core.middle.Middle]]: their reads are this unit's, their writes are
-  * write-back's, so the indexes and the read data cross this boundary rather than the storage.
+  * unit is what sits between them — the same rule the front-end follows around [[nzea_core.front.idu.Idu]]. The
+  * operands arrive already placed from [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility; this
+  * unit resolves the fall-through here, where the pc is a held value, assembles the `moved` payload, and presents the
+  * uop to the backend, silencing it when the slot is empty or the flush is killing the cycle. The slot holds the uop
+  * for the unit's whole residence — the units take a level, not a handshake — and `slot_first` marks the cycle it
+  * arrived.
   */
 @generator
 object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
@@ -94,72 +82,25 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val width = parameter.config.width
-    val indexWidth = Gpr.indexWidth
 
-    /** The read: the file answers the two indexes the payload names, the bypass network's answer wins where it is valid
-      * (it is the younger producer), and the operand form places the result — with the immediate, the pc and zero —
-      * into the three slots the units read.
-      */
-    def readOperands(): (Referable[UInt], Referable[UInt], Referable[UInt]) =
-      val dec = io.decoded
-      io.rs1_index := dec.rs1_index
-      io.rs2_index := dec.rs2_index
-      val rs1 = io.bypass_rs1.valid ? (io.bypass_rs1.bits, io.rs1_data)
-      val rs2 = io.bypass_rs2.valid ? (io.bypass_rs2.bits, io.rs2_data)
-      Srcs.resolve(
-        dec.srcs,
-        Seq[(Operand, Referable[UInt])](
-          Operand.Rs1 -> rs1,
-          Operand.Rs2 -> rs2,
-          Operand.Imm -> dec.imm,
-          Operand.Pc -> dec.pc,
-          Operand.Zero -> 0.U(width)
-        ),
-        width
-      )
-
-    /** ID/IS is consumed when this cycle's read can place the payload's operands: the execute stage is about to free up
-      * (its uop completes, or the slot is empty) and the operands are settled. What a read cannot see is a value still
-      * in flight, and how long it waits for one is the bypass level's answer: at `Execute` the bypass network answers
-      * with the completing instruction's result (the move happens in its completion cycle, so its wait term would be
-      * vacuous), at `Commit` the retiring instruction's write is in the file's own read, and a level that reaches
-      * neither waits for the file. A flush moves nothing: what waits in the stages is on the path being killed.
+    /** ID/IS is consumed when the read has placed the payload's operands — the read owns that test, including the
+      * in-flight writers it had to wait for — and the execute stage is about to free up: its uop completes, or the slot
+      * is empty. A flush moves nothing: what waits in the stages is on the path being killed.
       */
     def canPlaceOperands(): Referable[Bool] =
-      // The operand form once more, for the registers each slot was read from: 0 for the slots no register feeds,
-      // which is also the index no instruction writes.
-      val (idxA, idxB, idxC) = Srcs.resolve(
-        io.decoded.srcs,
-        Seq[(Operand, Referable[UInt])](
-          Operand.Rs1 -> io.decoded.rs1_index,
-          Operand.Rs2 -> io.decoded.rs2_index,
-          Operand.Imm -> 0.U(indexWidth),
-          Operand.Pc -> 0.U(indexWidth),
-          Operand.Zero -> 0.U(indexWidth)
-        ),
-        indexWidth
-      )
-      def reads(rd: Referable[UInt]): Referable[Bool] =
-        (rd =/= 0.U(indexWidth)) & ((idxA === rd) | (idxB === rd) | (idxC === rd))
-      val waitsForExecute =
-        if parameter.bypass.execute then false.B else io.slot_valid & reads(io.slot.rd_index)
-      val waitesForCommit =
-        if parameter.bypass.commit then false.B else io.wb_valid & reads(io.wb_rd)
-      val operandsReady = !waitsForExecute & !waitesForCommit
-      (!io.slot_valid | io.complete) & operandsReady & !io.flush
+      (!io.slot_valid | io.complete) & io.operands_ready & !io.flush
 
-    /** What moves into IS/EX: the read's uop, with the destination and the CSR address riding in it. The fall-through
-      * is resolved here, where the pc is a held value: the execute cycle has the branch target adder in it already, and
-      * this value does not depend on anything computed there.
+    /** What moves into IS/EX: the read's operands, and the payload's held fields with the destination and the CSR
+      * address riding in it.
       */
-    def moveUop(a: Referable[UInt], b: Referable[UInt], c: Referable[UInt]): Unit =
+    def moveUop(): Unit =
       val dec = io.decoded
       io.moved.pc := dec.pc
       io.moved.pc_plus4 := prefixAdder(dec.pc, 4.U(width), false.B, width)
       io.moved.imm := dec.imm
-      io.moved.src_a := a
-      io.moved.src_b := b
-      io.moved.src_c := c
+      io.moved.src_a := io.src_a
+      io.moved.src_b := io.src_b
+      io.moved.src_c := io.src_c
       io.moved.backend := dec.backend
       io.moved.op := dec.op
       io.moved.rd_index := dec.rd_index
@@ -188,7 +129,6 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       io.issue.first := io.slot_first & !io.flush
       io.issue.bits :<= uop
 
-    val (srcA, srcB, srcC) = readOperands()
     io.decoded_ready := canPlaceOperands()
-    moveUop(srcA, srcB, srcC)
+    moveUop()
     issue()

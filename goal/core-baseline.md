@@ -23,7 +23,7 @@ nzea_core/src/
     idu/                Idu（PLA 译码 + 立即数成形 + 源寄存器号）/ inst/（Insts 类型与模式形状 ｜ InstI、InstM 指令行，各自 rows(xlen) 选行）/ DecodeTables（真值表 → PLA）
   middle/               Middle（共享文件 Arf/CsrFile + 两级流水寄存器 idis/isex + 写回寄存器（提交与 flush 的源头），多态点）/ CommitMsg / ExecSlot / issue.pulse / retire.pulse
     isu/                Isu（寄存器读 + 操作数槽位解析 + 发射，纯组合；两级寄存器与 pipelineConnect 由 Middle own）
-  back/                 Back（按 backend 分发 + 完成合并 + 出口锁存）/ IssueUop / BackOut / PathResult / OpWindow
+  back/                 Back（按 backend 分发 + 完成合并 + 出口锁存）/ IssueUop / BackOut / PathResult / OpWindow / Bypass（前递网络：完成中的结果按请求寄存器号匹配，逐读口返回 ValidIO）/ BypassBus（middle↔back）
     int/                IntPath（ALU/BRU/MUL/DIV/SYSU + 分支计数）/ Fu（FuType 与 IntOp 窗口）/ FuOps（各 op 编码）/ Mul / Div
     mem/                MemPath（LSU：请求保持 + 响应 tag 匹配）/ LsuOp（LsuOp 与 MemOp 窗口）/ DbusUser
   isa/                  跨段 ISA 级类型：Backend / CsrType / Gpr / Operands（操作数形态 Srcs）
@@ -69,11 +69,17 @@ nzea_core/src/
   白取一个词。（实测：若把中端也改成 `Consume`，每次 flush 多花≈1 拍；若把前端改成 `Refuse`，每次 flush 也多花≈1 拍。）
 - 顺序单发射；取指永远 `pc+4`（always-not-taken），分支在 BRU 解析后 flush + redirect；无 BPU。
 - 中端两槽：`idis`（译码载荷，还没有操作数）与 `isex`（`ExecSlot`：就绪 uop + `rd_index`/`csr_addr`；后端只看到
-  它反推出的 `IssueUop`）。两个寄存器与 `pipelineConnect` 都在 `Middle`，`Isu` 只是夹在中间的组合读（与前端
+  它反推出的 `IssueUop`）。两个寄存器与 `pipelineConnect` 都在 `Middle`，夹在中间的是两个组合单元：
+  `OperandRead`（操作数读取：请求 index、合流文件/网络、按形式置换，及在飞写者的等待）与 `Isu`（uop 组装；与前端
   `Idu` 同规矩）。载荷在后端 uop 完成的那拍搬入 `isex`
   并在同一拍读寄存器：此时写口上正是那条在途指令的写，读一次就是对的。载荷读的正是这条指令写的寄存器时，
   搬运晚一拍（写口下一拍才到），即 "读永远正确" 的代价。
-- 写回链接（`BypassConfig.writeback`）就是 ARF 自己的同拍写穿透：有它读口答案取自写口，没有它读口给文件现值。
+- 前递网络是一个按档位裁剪的源清单：`BypassLevel` 取转发阶梯的年轻前缀——`Commit` 档 = {提交中的写}，
+  `Execute` 档 = {完成中的结果, 提交中的写}（冲突取年轻者），`None` = 空。源各自进 `back.Bypass`（完成结果在
+  back 本地，提交写经 `BypassBus` 从中端带来），逐读口给 `ValidIO`；`OperandRead` 以 `valid ? bypass : arf` 选择。
+  `Arf` 是纯存储（无写穿透 mux）。
+- 等待与源清单对偶：网络上没有的层就是读要等的层——不到 `Execute` 档读在飞执行槽则等，不到 `Commit` 档读提交中的写
+  则等；被覆盖的等待项连同比较器在构建期折叠。
 - CSR：地址随 IS/EX 槽锁存（`isex` 的 `csr_addr` 字段），读是组合读，写只发生在提交拍；flush 不污染架构状态。
 - 总线纯 Decoupled：取消/甄别全在 master 侧（取指用 epoch、LSU 用请求 tag）；reset 期间的流量拒绝是 fabric 的职责。
 - 异常/中断：**不做**。`--flow verilator` 时每个计数器一个 `public_flat_rd` 黑盒（模块名即计数器名），名字由声明处的
@@ -96,6 +102,13 @@ nzea_core/src/
   ipc 0.3607，改动前后逐拍一致。
 - difftest：remu `--platform nzea --sim-opt target=core`，microbench `test` 10/10（32i / 32im / 64im），
   CSR 读写汇编回归 32im / 64im 通过。
+- 前递网络（2026-09-30）：`Commit` 档 32i 1.154 ns（~837 MHz）/ 64i 1.353 ns（~715 MHz），面积 21105.28 / 41964.72，
+  与重构前的差在 ±0.03 ns 映射噪声带内；`Execute` 档 32i 1.211 ns（~797 MHz）/ 64i 1.450 ns（~669 MHz），面积
+  21268.80 / 42276.36，微基准 IPC 0.3429（与内联实现逐拍一致，difftest 全过）。
+- 源清单 + 读单元（2026-09-30，同日）：源的集合改为档位前缀的 `Seq[ForwardSource]`（`forwardRead` 归约），`Arf` 去写穿透，
+  `Isu` 的读与等待拆到 `OperandRead` 单元（`Isu` 只剩 uop 组装）。`Commit` 档 32i 1.134 ns（~851 MHz）/ 64i 1.336 ns
+  （~724 MHz），面积 21044.52 / 41833.96（较上一步 -0.3%）；`Execute` 档微基准 IPC 0.3429，difftest 全过；
+  `branch_loop` 与基线逐拍一致（463/167/0.3607）。
 
 ## 挂载顺序（每步正交、独立验证）
 

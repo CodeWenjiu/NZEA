@@ -107,9 +107,10 @@ object MiddleElaborateTest extends TestSuite:
         )
       )
 
-    test("the middle instantiates the register file, the CSR file and the issue unit"):
+    test("the middle instantiates the register file, the CSR file, the read unit and the issue unit"):
       assert(sv.contains("module Arf"))
       assert(sv.contains("module CsrFile"))
+      assert(sv.contains("module OperandRead"))
       assert(sv.contains("module Isu"))
 
     // The read is the issue unit's, and the one producer it cannot see yet is the instruction in execute: a payload
@@ -123,9 +124,9 @@ object MiddleElaborateTest extends TestSuite:
     test("the middle carries the stage registers"):
       assert(sv.contains("idisValid") && sv.contains("isexValid"))
 
-    // The bypass network's answer is the issue unit's to select: the middle carries the bus to the read, and the read
-    // takes the network's value where it is valid.
-    test("the bypass bus reaches the issue unit's reads"):
+    // The bypass network's answer is the read's to select: the middle carries the bus to the read, and the read takes
+    // the network's value where it is valid.
+    test("the bypass bus reaches the read unit"):
       assert(sv.contains("bypass_rs1_valid") && sv.contains("bypass_rs2_valid"))
 
     // The unit itself owns no state: the `Isu` module in the same lowering has no flop and no stage register.

@@ -12,7 +12,7 @@ import nzea_core.{BypassLevel, CoreConfig}
 import nzea_core.back.{BypassBus, IssueSlot, IssueUop, PathResult}
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Gpr, Isa}
-import nzea_core.middle.isu.{Isu, IsuParameter}
+import nzea_core.middle.isu.{Isu, IsuParameter, OperandRead, OperandReadParameter}
 import nzea_core.stats.Regions
 import nzea_rtl.{RtlFlow, StatScope}
 import nzea_rtl.stdlib.*
@@ -44,10 +44,11 @@ class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, 
 /** In-order middle: the issue stage between its two elastic registers, the files it reads, and the write-back stage the
   * commit and the flush are.
   *
-  * The ID/IS and IS/EX registers are owned here, with [[nzea_core.middle.isu.Isu]] between them as a combinational read
-  * — the same rule the front-end follows around its decode. The register and CSR files stay here too — their reads
-  * belong to issue and their writes to write-back, so both sides touch them and this is where they live — as does
-  * EX/WB, which is neither elastic nor cancellable: the completion lands in it, the register write, the CSR write and
+  * The ID/IS and IS/EX registers are owned here, with [[nzea_core.middle.isu.OperandRead]] (the operand fetch and the
+  * in-flight writers it must wait for) and [[nzea_core.middle.isu.Isu]] (the assembly of the issued uop) between them,
+  * both combinational — the same rule the front-end follows around its decode. The register and CSR files stay here too
+  * — their reads belong to issue and their writes to write-back, so both sides touch them and this is where they live —
+  * as does EX/WB, which is neither elastic nor cancellable: the completion lands in it, the register write, the CSR
   * write and the commit ride it, and a mispredicted branch in it is what cancels the younger stages. The flush is
   * sourced here, from that register, so every stage reads one net instead of asking the stage below.
   */
@@ -95,36 +96,51 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
     // The execute slot's arrival edge: the units take the uop as a level and need the cycle it began.
     val slotFirst = RegInit(false.B)
 
-    /** The two registers and the read between them: the uop the read hands to IS/EX, the operand answers it asks the
-      * files for, and the completion that frees the slot.
+    /** The two registers and the units between them: the read that places the operands (and waits for the writers the
+      * network cannot answer), the assembly of the uop it hands to IS/EX, and the completion that frees the slot.
       */
     def issueStage(): Unit =
-      val isu = Isu.instantiate(IsuParameter(parameter.isa, parameter.defaultPc, parameter.bypass))
+      val read = OperandRead.instantiate(OperandReadParameter(parameter.isa, parameter.defaultPc, parameter.bypass))
+      val isu = Isu.instantiate(IsuParameter(parameter.isa, parameter.defaultPc))
+      read.io.clock := io.clock
+      read.io.resetN := io.resetN
       isu.io.clock := io.clock
       isu.io.resetN := io.resetN
-      isu.io.decoded :<= idis.bits
-      idis.ready := isu.io.decoded_ready
-      isu.io.slot :<= isex.bits
-      isu.io.slot_valid := isex.valid
-      isu.io.slot_first := slotFirst
-      isu.io.flush := flushing
-      isu.io.complete := complete
-      isu.io.wb_valid := retire
-      isu.io.wb_rd := wbRd
-      isu.io.rs1_data := arf.io.rs1.data
-      isu.io.rs2_data := arf.io.rs2.data
-      isu.io.csr_rdata := csr.io.read_data
-      arf.io.rs1.index := isu.io.rs1_index
-      arf.io.rs2.index := isu.io.rs2_index
-      csr.io.read_addr := isex.bits.csr_addr
-      io.issue :<= isu.io.issue
+
+      // The read: the payload's indexes out to the file and the network, the answers back in, and the placement of the
+      // three operand slots, with the pace this read can move at.
+      read.io.decoded :<= idis.bits
+      read.io.slot_valid := isex.valid
+      read.io.slot_rd_index := isex.bits.rd_index
+      read.io.wb_valid := retire
+      read.io.wb_rd := wbRd
+      read.io.rs1_data := arf.io.rs1.data
+      read.io.rs2_data := arf.io.rs2.data
+      arf.io.rs1.index := read.io.rs1_index
+      arf.io.rs2.index := read.io.rs2_index
 
       // The bypass bus: the read's indexes out to the network, its answers back into the read's select, and the
       // retiring write over the same bus (driven in the write-back stage, where it exists).
-      io.bypass.rs1_index := isu.io.rs1_index
-      io.bypass.rs2_index := isu.io.rs2_index
-      isu.io.bypass_rs1 :<= io.bypass.rs1
-      isu.io.bypass_rs2 :<= io.bypass.rs2
+      io.bypass.rs1_index := read.io.rs1_index
+      io.bypass.rs2_index := read.io.rs2_index
+      read.io.bypass_rs1 :<= io.bypass.rs1
+      read.io.bypass_rs2 :<= io.bypass.rs2
+
+      // The issued uop: the read's operands and feasibility, the payload's held fields, and the CSR read.
+      isu.io.decoded :<= idis.bits
+      idis.ready := isu.io.decoded_ready
+      isu.io.src_a := read.io.src_a
+      isu.io.src_b := read.io.src_b
+      isu.io.src_c := read.io.src_c
+      isu.io.operands_ready := read.io.ready
+      isu.io.slot :<= isex.bits
+      isu.io.slot_valid := isex.valid
+      isu.io.slot_first := slotFirst
+      isu.io.complete := complete
+      isu.io.flush := flushing
+      isu.io.csr_rdata := csr.io.read_data
+      csr.io.read_addr := isex.bits.csr_addr
+      io.issue :<= isu.io.issue
 
       // The read's uop into IS/EX: handed over in the cycle ID/IS is consumed, taken when the units are done with the
       // previous one — the cycle they report it complete.
