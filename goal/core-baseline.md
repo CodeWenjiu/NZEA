@@ -21,7 +21,8 @@ nzea_core/src/
   front/                Front（取指 + 译码，两段之间的流水寄存器由它 own，受 flush 控制）
     ifu/                Ifu（pc/epoch，一次一个请求）/ IbusUser（user = {pc, epoch}）
     idu/                Idu（PLA 译码 + 立即数成形 + 源寄存器号）/ inst（指令表）/ DecodeTables（真值表 → PLA）
-  middle/               Middle（ARF 读 + 发射槽 + 提交，多态点）/ Arf（2 读口 + 1 写口 + 写回链接）/ CsrFile / CommitMsg
+  middle/               Middle（共享文件 Arf/CsrFile + 两级流水寄存器 idis/isex + 写回寄存器（提交与 flush 的源头），多态点）/ CommitMsg / ExecSlot / issue.pulse / retire.pulse
+    isu/                Isu（寄存器读 + 操作数槽位解析 + 发射，纯组合；两级寄存器与 pipelineConnect 由 Middle own）
   back/                 Back（按 backend 分发 + 完成合并 + 出口锁存）/ IssueUop / BackOut / PathResult / OpWindow
     int/                IntPath（ALU/BRU/MUL/DIV/SYSU + 分支计数）/ Fu（FuType 与 IntOp 窗口）/ FuOps（各 op 编码）/ Mul / Div
     mem/                MemPath（LSU：请求保持 + 响应 tag 匹配）/ LsuOp（LsuOp 与 MemOp 窗口）/ DbusUser
@@ -58,8 +59,8 @@ nzea_core/src/
   |---|---|---|---|
   | IF | `ifu.pc` + 总线往返 | Ifu | 请求/响应、epoch 甄别 |
   | ID | `ifid`（指令字） | Front | `Idu` 的 PLA + 立即数 |
-  | ID/IS | `idis`（译码载荷） | Middle | 寄存器读（`Arf` 组合读 + `Srcs.resolve`） |
-  | IS/EX | `isex`（就绪 uop） | Middle | 执行（IntPath/MemPath 组合） |
+  | ID/IS | `idis`（译码载荷） | Middle | 寄存器读（`Arf` 组合读 + `Srcs.resolve`，即 `Isu`） |
+  | IS/EX | `isex`（`ExecSlot`） | Middle | 执行（IntPath/MemPath 组合） |
   | EX/WB | `wb`（结果） | Middle | 写回：`arf`/`csr` 写 + commit + flush/redirect 广播 |
 
   后端的“级数”完全由单元自己声明（ALU/BRU/SYSU 组合、MUL 3 拍、DIV 多拍、LSU 变长）。
@@ -67,11 +68,13 @@ nzea_core/src/
   响应被拒会挂在总线上堵住下一拍；中端两个寄存器取 `Refuse`——它们的生产者是同级流水，拒收让取指不在被杀的路上
   白取一个词。（实测：若把中端也改成 `Consume`，每次 flush 多花≈1 拍；若把前端改成 `Refuse`，每次 flush 也多花≈1 拍。）
 - 顺序单发射；取指永远 `pc+4`（always-not-taken），分支在 BRU 解析后 flush + redirect；无 BPU。
-- 中端两槽：`idis`（译码载荷，还没有操作数）与 `isex`（后端正在执行的 uop）。载荷在后端 uop 完成的那拍搬入 `isex`
+- 中端两槽：`idis`（译码载荷，还没有操作数）与 `isex`（`ExecSlot`：就绪 uop + `rd_index`/`csr_addr`；后端只看到
+  它反推出的 `IssueUop`）。两个寄存器与 `pipelineConnect` 都在 `Middle`，`Isu` 只是夹在中间的组合读（与前端
+  `Idu` 同规矩）。载荷在后端 uop 完成的那拍搬入 `isex`
   并在同一拍读寄存器：此时写口上正是那条在途指令的写，读一次就是对的。载荷读的正是这条指令写的寄存器时，
   搬运晚一拍（写口下一拍才到），即 "读永远正确" 的代价。
 - 写回链接（`BypassConfig.writeback`）就是 ARF 自己的同拍写穿透：有它读口答案取自写口，没有它读口给文件现值。
-- CSR：地址随 uop 锁存（`exCsrAddr`），读是组合读，写只发生在提交拍；flush 不污染架构状态。
+- CSR：地址随 IS/EX 槽锁存（`isex` 的 `csr_addr` 字段），读是组合读，写只发生在提交拍；flush 不污染架构状态。
 - 总线纯 Decoupled：取消/甄别全在 master 侧（取指用 epoch、LSU 用请求 tag）；reset 期间的流量拒绝是 fabric 的职责。
 - 异常/中断：**不做**。`--flow verilator` 时每个计数器一个 `public_flat_rd` 黑盒（模块名即计数器名），名字由声明处的
   scope 拼成：`stat_core_middle_cycle` / `stat_core_middle_inst_commit`（Middle）与 `stat_core_back_int_bp_branch` /
@@ -80,12 +83,14 @@ nzea_core/src/
 
 ## 基线测量（2026-09-29）
 
-- riscv32i / icsprout55 H7CL tt / 2 ns 约束：面积 21053.76，最差路径 **1.137 ns**（`pc+4` 移出执行拍后，提交
-  `next_pc` 一端的锥只剩 op 译码 → BRU 目标基址 mux → 分支目标加法器），等价 ~850 MHz，slack 0.818 ns；
-  riscv64i：面积 42104.16，最差路径 1.410 ns（~690 MHz 等价，slack 0.550 ns）。
-- 逐点对照（同一流程复测，riscv32i 最差路径 / 路径上单元数）：1.190 ns / 78（重构前）→ 1.205 / 86（流水级显式化）
-  → **1.137 / 60**（+`pc_plus4`）。riscv64i 同一轮：1.285 / 92 → 1.427 / 104 → 1.410 / 92——64i 走的是 BRU
-  目标加法器锥（逻辑与重构前相同），单元数与基线持平，差异来自 yosys-sta 的映射/驱动选择，属流噪声量级。
+- riscv32i / icsprout55 H7CL tt / 2 ns 约束：面积 21164.64，最差路径 **1.136 ns**（IS 拍自己的 `pc+4` 键：
+  `dec.pc → +4 → isex_pc_plus4`；提交 `next_pc` 那端 1.137 ns 紧随其后，锥只剩 op 译码 → BRU 目标基址 mux →
+  分支目标加法器），等价 ~848 MHz，slack 0.820 ns；riscv64i：面积 42317.52，最差路径 1.323 ns
+  （~730 MHz 等价，slack 0.630 ns）。flop 数 1732（32i）/ 3342（64i）：位总数不变，多出的两个是
+  `pc_plus4[1:0] ≡ pc[1:0]` 的合并在寄存器载荷重组后没再被 yosys 合并（两个重复 DFF）。
+- 逐点对照（同一流程复测，riscv32i 最差路径）：1.190（重构前）→ 1.205（流水级显式化）→ 1.137（`pc_plus4`）
+  → 1.128（ISU 抽取）→ **1.136**（两级寄存器归 Middle）；riscv64i：1.285 → 1.427 → 1.410 → 1.321 → **1.323**。
+  各步 ±0.1 ns 量级的跳变都是 yosys-sta 对（逻辑等价的）网表做的映射/驱动选择差异，不是逻辑变化。
 - IPC（microbench `test`）：riscv32im 0.3412 / riscv32i 0.3711 / riscv64im 0.3332（差异来自相邻依赖对多等一拍）。
   确定性探针 `nzea_core/test/asm/branch_loop.S`（32 迭代的 taken 回边 + 一次 load/store）：463 拍 / 167 条 /
   ipc 0.3607，改动前后逐拍一致。

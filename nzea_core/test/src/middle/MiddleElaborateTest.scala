@@ -97,12 +97,26 @@ object MiddleElaborateTest extends TestSuite:
         )
       )
 
-    test("the middle instantiates the register file and the CSR file"):
+    test("the middle instantiates the register file, the CSR file and the issue unit"):
       assert(sv.contains("module Arf"))
       assert(sv.contains("module CsrFile"))
+      assert(sv.contains("module Isu"))
 
-    // The read is the middle's, and the one producer it cannot see yet is the instruction in execute: a payload naming
-    // that register waits for the completion to pass, so the comparison runs against the execute slot's own destination
-    // — `exRd` in the lowered RTL — rather than against the retiring instruction's.
+    // The read is the issue unit's, and the one producer it cannot see yet is the instruction in execute: a payload
+    // naming that register waits for the completion to pass, so the comparison runs against the IS/EX register's own
+    // destination field — `isex_rd_index` in the lowered RTL — rather than against the retiring instruction's.
     test("a payload that reads the instruction in execute waits for it"):
-      assert(sv.contains("exRd"))
+      assert(sv.contains("isex_rd_index"))
+
+    // The stage registers are the middle's — the issue unit between them is combinational — so the names the event
+    // files address are in the middle's scope.
+    test("the middle carries the stage registers"):
+      assert(sv.contains("idisValid") && sv.contains("isexValid"))
+
+    // The unit itself owns no state: the `Isu` module in the same lowering has no flop and no stage register.
+    test("the issue unit is purely combinational"):
+      val start = sv.indexOf("module Isu(")
+      assert(start >= 0)
+      val body = sv.substring(start, sv.indexOf("endmodule", start))
+      assert(!body.contains("always @(posedge"))
+      assert(!body.contains("idisValid") && !body.contains("isexValid"))

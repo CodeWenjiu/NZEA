@@ -85,21 +85,33 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val signed: Referable[Bool] = is(DivOp.Div) | is(DivOp.Rem) | wordSigned
     val isWord: Referable[Bool] = if hasWord then (wordSigned | is(DivOp.Divuw) | is(DivOp.Remuw)) else false.B
 
-    // A word form reads the low 32 bits of an operand, extended by the op's signedness.
-    def wordIn(v: Referable[UInt]): Referable[UInt] =
-      val low: Node[Bits] = v.asBits.bits(31, 0)
-      val signExtended: Node[Bits] = fill(width - 32, low.bit(31)) ## low
-      wordSigned ? (signExtended.asUInt, (BigInt(0).B(width - 32) ## low).asUInt)
-    val aIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(a), a)) else a
-    val bIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(b), b)) else b
+    /** The operands, with a word form reading the low 32 bits of each, extended by the op's signedness. */
+    def extendedOperands() =
+      def wordIn(v: Referable[UInt]): Referable[UInt] =
+        val low: Node[Bits] = v.asBits.bits(31, 0)
+        val signExtended: Node[Bits] = fill(width - 32, low.bit(31)) ## low
+        wordSigned ? (signExtended.asUInt, (BigInt(0).B(width - 32) ## low).asUInt)
+      val aIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(a), a)) else a
+      val bIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(b), b)) else b
+      (aIn, bIn)
 
-    val aNeg = Node(aIn.asBits).bit(width - 1)
-    val bNeg = Node(bIn.asBits).bit(width - 1)
+    val (aIn, bIn) = extendedOperands()
 
-    val aAbs = aNeg ? (subWrap(0.U(width), aIn, width), aIn)
-    val bAbs = bNeg ? (subWrap(0.U(width), bIn, width), bIn)
-    val divisor = signed ? (bAbs, bIn)
-    val dividend = signed ? (aAbs, aIn)
+    /** The sign each operand brings, taken before the magnitudes are formed. */
+    def signs(aIn: Referable[UInt], bIn: Referable[UInt]) =
+      (Node(aIn.asBits).bit(width - 1), Node(bIn.asBits).bit(width - 1))
+
+    val (aNeg, bNeg) = signs(aIn, bIn)
+
+    /** The magnitudes the loop divides, with the unsigned forms passing the operands through. */
+    def magnitudes(aIn: Referable[UInt], bIn: Referable[UInt], aNeg: Referable[Bool], bNeg: Referable[Bool]) =
+      val aAbs = aNeg ? (subWrap(0.U(width), aIn, width), aIn)
+      val bAbs = bNeg ? (subWrap(0.U(width), bIn, width), bIn)
+      val divisor = signed ? (bAbs, bIn)
+      val dividend = signed ? (aAbs, aIn)
+      (dividend, divisor)
+
+    val (dividend, divisor) = magnitudes(aIn, bIn, aNeg, bNeg)
 
     val divByZero = bIn === 0.U(width)
     val overflow =
@@ -107,42 +119,51 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val allOnes: Referable[UInt] = BigInt((1 << width) - 1).U(width)
     val minInt: Referable[UInt] = (BigInt(1) << (width - 1)).U(width)
 
-    // The last iteration's result comes from the value that iteration produces, not from the register it is held in.
-    val shifted = (rq.asBits << 1).bits(workingWidth - 1, 0)
-    val remHi = shifted.bits(workingWidth - 1, width).asUInt
-    val ge = remHi >= divisor
-    val newRem: Node[Bits] = (ge ? (subWrap(remHi, divisor, width), remHi)).asBits
-    val newRq = (newRem ## shifted.bits(width - 1, 1) ## ge.asBits).asUInt
+    /** One shift-subtract step of the loop: shift `{remainder, quotient}` left and subtract the divisor where the
+      * remainder holds, which is also the shifted-in quotient bit. The last iteration's result comes from the value
+      * that iteration produces, not from the register it is held in.
+      */
+    def iterate(divisor: Referable[UInt]) =
+      val shifted = (rq.asBits << 1).bits(workingWidth - 1, 0)
+      val remHi = shifted.bits(workingWidth - 1, width).asUInt
+      val ge = remHi >= divisor
+      val newRem: Node[Bits] = (ge ? (subWrap(remHi, divisor, width), remHi)).asBits
+      (newRem ## shifted.bits(width - 1, 1) ## ge.asBits).asUInt
 
+    val newRq = iterate(divisor)
     val last = count === (width - 1).U(countWidth)
     val start = io.issue.valid & io.issue.first
 
-    val quoAbs = Node(newRq.asBits).bits(width - 1, 0).asUInt
-    val remAbs = Node(newRq.asBits).bits(workingWidth - 1, width).asUInt
-    val quo = (signed & (aNeg ^ bNeg)) ? (subWrap(0.U(width), quoAbs, width), quoAbs)
-    val rem = (signed & aNeg) ? (subWrap(0.U(width), remAbs, width), remAbs)
-
-    /** DIV/REM answer a zero divisor with all ones and the unsigned forms with the dividend; the signed overflow
+    /** The loop's fixed-up results: each op's ending, plus the two special cases, all with the sign rules applied.
+      * DIV/REM answer a zero divisor with all ones and the unsigned forms with the dividend; the signed overflow
       * answers with INT_MIN for the quotient and zero for the remainder. A word form answers with the same, extended —
       * `aIn` is already the extended dividend — and never takes the overflow path, whose operands cannot both hold.
       */
-    def byZero(v: DivOp): Referable[UInt] = v match
-      case DivOp.Div | DivOp.Divu | DivOp.Divw | DivOp.Divuw => allOnes
-      case DivOp.Rem | DivOp.Remu | DivOp.Remw | DivOp.Remuw => aIn
-    def onOverflow(v: DivOp): Referable[UInt] = v match
-      case DivOp.Div | DivOp.Divw   => minInt
-      case DivOp.Divu | DivOp.Divuw => allOnes
-      case DivOp.Rem | DivOp.Remw   => 0.U(width)
-      case DivOp.Remu | DivOp.Remuw => aIn
-    def result(v: DivOp): Referable[UInt] = v match
-      case DivOp.Div | DivOp.Divw   => quo
-      case DivOp.Divu | DivOp.Divuw => quoAbs
-      case DivOp.Rem | DivOp.Remw   => rem
-      case DivOp.Remu | DivOp.Remuw => remAbs
+    def completions(aNeg: Referable[Bool], bNeg: Referable[Bool], aIn: Referable[UInt], divisor: Referable[UInt]) =
+      val quoAbs = Node(newRq.asBits).bits(width - 1, 0).asUInt
+      val remAbs = Node(newRq.asBits).bits(workingWidth - 1, width).asUInt
+      val quo = (signed & (aNeg ^ bNeg)) ? (subWrap(0.U(width), quoAbs, width), quoAbs)
+      val rem = (signed & aNeg) ? (subWrap(0.U(width), remAbs, width), remAbs)
+      def byZero(v: DivOp): Referable[UInt] = v match
+        case DivOp.Div | DivOp.Divu | DivOp.Divw | DivOp.Divuw => allOnes
+        case DivOp.Rem | DivOp.Remu | DivOp.Remw | DivOp.Remuw => aIn
+      def onOverflow(v: DivOp): Referable[UInt] = v match
+        case DivOp.Div | DivOp.Divw   => minInt
+        case DivOp.Divu | DivOp.Divuw => allOnes
+        case DivOp.Rem | DivOp.Remw   => 0.U(width)
+        case DivOp.Remu | DivOp.Remuw => aIn
+      def result(v: DivOp): Referable[UInt] = v match
+        case DivOp.Div | DivOp.Divw   => quo
+        case DivOp.Divu | DivOp.Divuw => quoAbs
+        case DivOp.Rem | DivOp.Remw   => rem
+        case DivOp.Remu | DivOp.Remuw => remAbs
+      (
+        mux1H(op, ops.variants.map(result), width),
+        mux1H(op, ops.variants.map(byZero), width),
+        mux1H(op, ops.variants.map(onOverflow), width)
+      )
 
-    val resultValue = mux1H(op, ops.variants.map(result), width)
-    val byZeroValue = mux1H(op, ops.variants.map(byZero), width)
-    val onOverflowValue = mux1H(op, ops.variants.map(onOverflow), width)
+    val (resultValue, byZeroValue, onOverflowValue) = completions(aNeg, bNeg, aIn, divisor)
 
     // The two special cases are mutually exclusive (the divisor cannot be both zero and minus one) and both answer
     // without running the loop. Their tests stay on the value path: the state register's enables are only `start`,
@@ -150,34 +171,48 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val special = divByZero | overflow
     val specialValue: Referable[UInt] = divByZero ? (byZeroValue, onOverflowValue)
 
-    when(!io.issue.valid) {
-      state := sIdle
-    }.otherwise {
-      when(state === sIdle) {
-        when(start) {
-          rq := (0.B(width) ## dividend.asBits).asUInt
-          count := 0.U(countWidth)
-          // Both completions write the result here; the loop overwrites it when its last iteration lands.
-          resultReg := specialValue
-          state := special ? (sDone, sCalc)
+    /** The FSM: idle until `start`, one iteration per cycle, then the one-cycle completion state. */
+    def fsm(
+        start: Referable[Bool],
+        last: Referable[Bool],
+        special: Referable[Bool],
+        specialValue: Referable[UInt],
+        resultValue: Referable[UInt]
+    ): Unit =
+      when(!io.issue.valid) {
+        state := sIdle
+      }.otherwise {
+        when(state === sIdle) {
+          when(start) {
+            rq := (0.B(width) ## dividend.asBits).asUInt
+            count := 0.U(countWidth)
+            // Both completions write the result here; the loop overwrites it when its last iteration lands.
+            resultReg := specialValue
+            state := special ? (sDone, sCalc)
+          }
         }
-      }
-      when(state === sCalc) {
-        rq := newRq
-        count := addWrap(count, 1.U(countWidth), countWidth)
-        when(last) {
-          resultReg := resultValue
-          state := sDone
+        when(state === sCalc) {
+          rq := newRq
+          count := addWrap(count, 1.U(countWidth), countWidth)
+          when(last) {
+            resultReg := resultValue
+            state := sDone
+          }
         }
+        // The completion state lasts exactly one cycle — the FSM leaves it on its own — so `done` is a pulse by
+        // construction, with nothing to clear for the next divide.
+        when(state === sDone) { state := sIdle }
       }
-      // The completion state lasts exactly one cycle — the FSM leaves it on its own — so `done` is a pulse by
-      // construction, with nothing to clear for the next divide.
-      when(state === sDone) { state := sIdle }
-    }
+
+    fsm(start, last, special, specialValue, resultValue)
 
     io.done := state === sDone
-    if hasWord then
-      val resultWord: Node[UInt] =
-        (fill(width - 32, resultReg.asBits.bit(31)) ## resultReg.asBits.bits(31, 0)).asUInt
-      io.data := (isWord ? (resultWord, resultReg))
-    else io.data := resultReg
+
+    /** The register's value in the width the op answers with: a word form is the register's low word, extended. */
+    def resultWord(): Referable[UInt] =
+      if hasWord then
+        val word: Node[UInt] = (fill(width - 32, resultReg.asBits.bit(31)) ## resultReg.asBits.bits(31, 0)).asUInt
+        isWord ? (word, resultReg)
+      else resultReg
+
+    io.data := resultWord()

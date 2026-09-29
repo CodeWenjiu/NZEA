@@ -67,29 +67,40 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val isBru = selects(IntOp.bru)
     val isSysu = selects(IntOp.sysu)
 
-    // The operands are the uop's slots: decode already resolved them, so a unit reads the slot its form filled. The op
-    // field each unit slices is as wide as that unit's op set under this configuration.
-    val alu = Alu.instantiate(AluParameter(parameter.config.isa, parameter.config.defaultPc))
-    alu.io.op := Encoding.take(fuOp, AluOp.set(parameter.config.isa).width)
-    alu.io.opA := u.src_a
-    alu.io.opB := u.src_b
+    /** The three combinational units. The operands are the uop's slots — decode already resolved them — and each unit
+      * slices its own width out of the shared op field.
+      */
+    def aluUnit() =
+      val alu = Alu.instantiate(AluParameter(parameter.config.isa, parameter.config.defaultPc))
+      alu.io.op := Encoding.take(fuOp, AluOp.set(parameter.config.isa).width)
+      alu.io.opA := u.src_a
+      alu.io.opB := u.src_b
+      alu
 
-    val bru = Bru.instantiate(BruParameter(width))
-    bru.io.op := Encoding.take(fuOp, BruOp.width)
-    bru.io.pc := u.pc
-    // The prediction is data: the baseline predicts the fall-through, and a predictor that lands later replaces this
-    // line rather than the unit. The fall-through itself is a uop field — the middle resolved it where the pc is a held
-    // value, which keeps this cycle's adder count at one.
-    bru.io.predNextPc := u.pc_plus4
-    bru.io.offset := u.imm
-    bru.io.rs1 := u.src_a
-    bru.io.rs2 := u.src_b
+    def bruUnit() =
+      val bru = Bru.instantiate(BruParameter(width))
+      bru.io.op := Encoding.take(fuOp, BruOp.width)
+      bru.io.pc := u.pc
+      // The prediction is data: the baseline predicts the fall-through, and a predictor that lands later replaces
+      // this line rather than the unit. The fall-through itself is a uop field — the middle resolved it where the pc
+      // is a held value, which keeps this cycle's adder count at one.
+      bru.io.predNextPc := u.pc_plus4
+      bru.io.offset := u.imm
+      bru.io.rs1 := u.src_a
+      bru.io.rs2 := u.src_b
+      bru
 
-    val sysu = Sysu.instantiate(SysuParameter(width))
-    sysu.io.op := Encoding.take(fuOp, SysuOp.width)
-    sysu.io.rs1 := u.src_a
-    sysu.io.csrRdata := u.csr_rdata
-    sysu.io.csrType := u.csr_type
+    def sysuUnit() =
+      val sysu = Sysu.instantiate(SysuParameter(width))
+      sysu.io.op := Encoding.take(fuOp, SysuOp.width)
+      sysu.io.rs1 := u.src_a
+      sysu.io.csrRdata := u.csr_rdata
+      sysu.io.csrType := u.csr_type
+      sysu
+
+    val alu = aluUnit()
+    val bru = bruUnit()
+    val sysu = sysuUnit()
 
     // The resolved branch rides the result: `redirect_valid` is the mispredict, and the target — not `nextPc` — is
     // where the fetch stream restarts (the middle latches both with the completion and broadcasts them in write-back).
@@ -100,78 +111,90 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     io.result.redirect_valid := branchMispred
     io.result.redirect_target := bru.io.target
 
-    // MUL and DIV come and go with M, and the same set that decides that here decided the window's codes above.
-    val mul = Option.when(ops.contains(IntOp.mul))(
-      Mul.instantiate(MulParameter(parameter.config.isa, parameter.config.defaultPc))
-    )
-    val div = Option.when(ops.contains(IntOp.div))(
-      Div.instantiate(DivParameter(parameter.config.isa, parameter.config.defaultPc))
-    )
-    for m <- mul do
-      m.io.clock := io.clock
-      m.io.resetN := io.resetN
-      m.io.issue.valid := uopValid & selects(IntOp.mul)
-      m.io.issue.first := uopFirst
-      m.io.issue.bits.opA := u.src_a
-      m.io.issue.bits.opB := u.src_b
-      m.io.issue.bits.op := Encoding.take(fuOp, MulOp.set(parameter.config.isa).width)
-    for d <- div do
-      d.io.clock := io.clock
-      d.io.resetN := io.resetN
-      d.io.issue.valid := uopValid & selects(IntOp.div)
-      d.io.issue.first := uopFirst
-      d.io.issue.bits.opA := u.src_a
-      d.io.issue.bits.opB := u.src_b
-      d.io.issue.bits.op := Encoding.take(fuOp, DivOp.set(parameter.config.isa).width)
+    /** MUL and DIV come and go with M, and the same set that decides that here decided the window's codes above. */
+    def mulDivUnits() =
+      val mul = Option.when(ops.contains(IntOp.mul))(
+        Mul.instantiate(MulParameter(parameter.config.isa, parameter.config.defaultPc))
+      )
+      val div = Option.when(ops.contains(IntOp.div))(
+        Div.instantiate(DivParameter(parameter.config.isa, parameter.config.defaultPc))
+      )
+      for m <- mul do
+        m.io.clock := io.clock
+        m.io.resetN := io.resetN
+        m.io.issue.valid := uopValid & selects(IntOp.mul)
+        m.io.issue.first := uopFirst
+        m.io.issue.bits.opA := u.src_a
+        m.io.issue.bits.opB := u.src_b
+        m.io.issue.bits.op := Encoding.take(fuOp, MulOp.set(parameter.config.isa).width)
+      for d <- div do
+        d.io.clock := io.clock
+        d.io.resetN := io.resetN
+        d.io.issue.valid := uopValid & selects(IntOp.div)
+        d.io.issue.first := uopFirst
+        d.io.issue.bits.opA := u.src_a
+        d.io.issue.bits.opB := u.src_b
+        d.io.issue.bits.op := Encoding.take(fuOp, DivOp.set(parameter.config.isa).width)
+      (mul, div)
+
+    val (mul, div) = mulDivUnits()
     val mulDone = mul.map(m => selects(IntOp.mul) & m.io.done).getOrElse(false.B)
     val divDone = div.map(d => selects(IntOp.div) & d.io.done).getOrElse(false.B)
     val mulData: Referable[UInt] = mul.map(m => m.io.data).getOrElse(0.U(width))
     val divData: Referable[UInt] = div.map(d => d.io.data).getOrElse(0.U(width))
 
-    // Every unit's value is built and the tag picks between them: the union owns that mux, and its entries are the
-    // configured cases in tag order, so the two cannot drift apart.
-    val unitData: IntOp => Referable[UInt] =
-      case IntOp.Alu(_)  => alu.io.data
-      case IntOp.Bru(_)  => u.pc_plus4
-      case IntOp.Sysu(_) => u.csr_rdata
-      case IntOp.Mul(_)  => mulData
-      case IntOp.Div(_)  => divData
+    /** The result: every unit's value built and the tag picking between them, then the completion and the one-shot
+      * result of the uop. A completion is a pulse per instruction: the combinational units report in the uop's first
+      * cycle, the serial ones when they finish — a level would still be high when the next uop arrives, since the
+      * middle admits it in the cycle this one commits.
+      */
+    def result(): Unit =
+      // Every unit's value is built and the tag picks between them: the union owns that mux, and its entries are the
+      // configured cases in tag order, so the two cannot drift apart.
+      val unitData: IntOp => Referable[UInt] =
+        case IntOp.Alu(_)  => alu.io.data
+        case IntOp.Bru(_)  => u.pc_plus4
+        case IntOp.Sysu(_) => u.csr_rdata
+        case IntOp.Mul(_)  => mulData
+        case IntOp.Div(_)  => divData
+      val data: Referable[UInt] = ops.dispatch(op)(ops.cases.map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
+      val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
 
-    val data: Referable[UInt] = ops.dispatch(op)(ops.cases.map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
+      io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)
+      io.result.data := data
+      io.result.next_pc := isBru ? (bru.io.nextPc, u.pc_plus4)
+      io.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
+      io.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
+      io.result.is_mmio := false.B
 
-    val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
-    // One completion pulse per instruction: the combinational units report in the uop's first cycle, the serial ones
-    // when they finish. A level would still be high when the next uop arrives — the middle admits it in the cycle this
-    // one commits.
-    io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)
-    io.result.data := data
-    io.result.next_pc := isBru ? (bru.io.nextPc, u.pc_plus4)
-    io.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
-    io.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
-    io.result.is_mmio := false.B
+    result()
 
-    // Counters the simulator reads back: every branch or jump that resolves here, and how the fetch stream did against
-    // it. Declared here, and emitted from these declarations after elaboration.
-    if parameter.flow.counters then
-      val branch = parameter.stats.stat("bp_branch", Regions.Bp, "resolved branches")
-      val mispred = parameter.stats.stat("bp_mispred", Regions.Bp, "branches whose prediction was wrong")
-      // A per-instruction event is the slot's first cycle: a combinational unit holds its uop for the whole residence,
-      // so counting the level would count one branch once per cycle it is held — and with back-to-back instructions the
-      // level does not fall between them. It is a named wire on purpose: the counters and the waveform's event file
-      // (`branch.pulse` beside this one) both address this event by name, and a plain val would be inlined into an
-      // anonymous net.
-      val branchResolved = Wire(Bool())
-      branchResolved := uopFirst & isBru
-      branch.inc(branchResolved)
-      mispred.inc(branchResolved & branchMispred)
-      // No taken counter: the fetch stream predicts the fall-through, so a taken branch *is* a misprediction here and a
-      // second counter would report the same number twice. The taken bias is what a predictor turns into a prediction —
-      // it becomes a statistic of its own when one lands.
-      parameter.stats.rule(
-        "mispredict_rate",
-        s"${mispred.name} / ${branch.name} * 100",
-        Regions.Bp,
-        "%",
-        2,
-        "share of resolved branches predicted wrongly"
-      )
+    /** Counters the simulator reads back: every branch or jump that resolves here, and how the fetch stream did against
+      * it. Declared here, and emitted from these declarations after elaboration.
+      */
+    def counters(): Unit =
+      if parameter.flow.counters then
+        val branch = parameter.stats.stat("bp_branch", Regions.Bp, "resolved branches")
+        val mispred = parameter.stats.stat("bp_mispred", Regions.Bp, "branches whose prediction was wrong")
+        // A per-instruction event is the slot's first cycle: a combinational unit holds its uop for the whole
+        // residence, so counting the level would count one branch once per cycle it is held — and with back-to-back
+        // instructions the level does not fall between them. It is a named wire on purpose: the counters and the
+        // waveform's event file (`branch.pulse` beside this one) both address this event by name, and a plain val
+        // would be inlined into an anonymous net.
+        val branchResolved = Wire(Bool())
+        branchResolved := uopFirst & isBru
+        branch.inc(branchResolved)
+        mispred.inc(branchResolved & branchMispred)
+        // No taken counter: the fetch stream predicts the fall-through, so a taken branch *is* a misprediction here
+        // and a second counter would report the same number twice. The taken bias is what a predictor turns into a
+        // prediction — it becomes a statistic of its own when one lands.
+        parameter.stats.rule(
+          "mispredict_rate",
+          s"${mispred.name} / ${branch.name} * 100",
+          Regions.Bp,
+          "%",
+          2,
+          "share of resolved branches predicted wrongly"
+        )
+
+    counters()
