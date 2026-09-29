@@ -6,9 +6,15 @@ it and renders it (`remu_simulator_nzea::stat_schema`). The acceptance values in
 
 Scope: the statistics path only (`stat` command / `stat_*` VPI counters / derived values). Nothing else in remu.
 
-Migration note (2026-09-26; updated 2026-09-27): the core rewrite on Scala 3 / zaozi landed and the stats path was
-re-ported with it, so the implementation paths in §11 are current again. The specification below was not changed by the
-rewrite; `legacy/` (tag `legacy-baseline`) keeps the pre-rewrite version, and the tile / fpga side is still frozen there.
+Migration note (2026-09-26; updated 2026-09-27, 2026-09-29): the core rewrite on Scala 3 / zaozi landed and the stats path was
+re-ported with it, so the implementation paths in §11 are current again. **Schema v2** (2026-09-29, handoff in
+`stat-schema-v2.md`) adds the required `source` on counters and derived entries and is implemented on both sides. The
+v2 follow-up (same day) moved declaration to the call site: a module declares a counter where the event is, its scope
+comes down in its own parameter, and the name is the scope's path plus the local name — `stat_core_middle_cycle`,
+`stat_core_back_int_bp_branch` — so `source` is the declaring block and the name carries where in the design it sits.
+One black box per counter, named after the counter, carries the `public_flat_rd` register. The specification below was
+not changed otherwise; `legacy/` (tag `legacy-baseline`) keeps the pre-rewrite version, and the tile / fpga side is still
+frozen there.
 
 Verification owner: the nzea side provides the artifact, the reference values (§8) and the acceptance run; the
 requirements below are testable one by one.
@@ -23,7 +29,7 @@ Today remu owns the semantics of nzea's counters:
 - `remu_simulator/src/stat.rs` hardcodes the `stat ipc` / `stat bp` subcommands (`StatCmd::{Ipc, Bp}`);
 - value formatting (`{ipc:.4}`, `%`) and display order are decided in Rust;
 - raw counters are truncated to 32 bits: `nzea_wrapper.cpp` passes `uint32_t` read with `vpiIntVal`, so the 64-bit
-  `stat_cycle` wraps on long runs;
+  the 64-bit counters wrap on long runs;
 - rules outlive the counters they read: `stat_bp_dir_mispred`, `stat_bp_pred_taken`, `stat_bp_ret`,
   `stat_bp_ret_mispred` are referenced today but do not exist in the current BRU.
 
@@ -49,16 +55,17 @@ readout, expression evaluation, formatting, tables.
   into `<dir>` — the directory that also holds `filelist.f`, i.e. the verilog directory remu already knows
   (`verilog_dir()` in `runtime.rs`). Observed today for `core`/`riscv32i`:
   `target/remu-so/nzea/core/riscv32i/nzea-verilog/core/riscv32i/NzeaCore.stats.toml`.
-- **Only simulation dumps contain it** (counters exist only when `sim = true`; FPGA builds have none).
+- **Only simulation dumps contain it** (counters are built only for the flow that reads the design through DPI —
+  `--flow verilator` today; a synthesis or FPGA dump has none).
 - **Build artifact:** written on every dump. Hand-edited copies in the model cache are overwritten.
 - **No cache-key change needed:** the model-cache hash already covers nzea's `.scala` sources and justfile, so any
   schema change invalidates the model like an RTL change does.
 - **Version policy:** `schema` is an integer; a value the parser does not know must fail loudly (no guessing).
 
-## 4. File format (normative, schema = 1)
+## 4. File format (normative, schema = 2)
 
 ```toml
-schema = 1
+schema = 2
 design = "NzeaCore"
 
 [[region]]
@@ -66,14 +73,16 @@ name = "throughput"
 doc  = "Retire throughput"
 
 [[counter]]
-name   = "stat_cycle"
+name   = "stat_core_middle_cycle"
 width  = 64
+source = "middle"
 region = "throughput"
 doc    = "core clock cycles"
 
 [[derived]]
 name   = "ipc"
-expr   = "stat_inst_commit / stat_cycle"
+expr   = "stat_core_middle_inst_commit / stat_core_middle_cycle"
+source = "middle"
 region = "throughput"
 unit   = ""
 digits = 4
@@ -82,11 +91,12 @@ doc    = "instructions per cycle"
 
 | Key | Type | Meaning |
 |-----|------|---------|
-| `schema` | integer | format version (currently `1`) |
+| `schema` | integer | format version (currently `2`) |
 | `design` | string | top module name of the described RTL (sanity check only) |
 | `region.name` / `region.doc` | string | region identifier / one-line help |
 | `counter.name` | string | VPI leaf name; globally unique; `stat_` prefix |
 | `counter.width` | integer | register bit width; **read exactly this many bits**; range `1..64` |
+| `counter.source` / `derived.source` | string | the block that declares the entry; `^[a-z][a-z0-9_]*$`; a design-time owner, not an instance path |
 | `counter.region` | string | must match a declared region |
 | `derived.name` | string | display name; must not collide with a counter |
 | `derived.expr` | string | expression, see §5 |
@@ -95,9 +105,13 @@ doc    = "instructions per cycle"
 | `derived.digits` | integer | decimal places for the derived value; range `0..30` |
 | `counter.doc` / `derived.doc` | string | one-line help |
 
-Structural rules: every counter/derived belongs to exactly one declared region; declaration order **is** display
-order; counters precede derived entries in the emitted file; the numeric ranges in the table above are part of schema
-v1 and are enforced by the generator (nzea's `validate()`), so a file either satisfies them or is never written.
+Structural rules: every counter/derived belongs to exactly one declared region and names one source block; declaration
+order **is** display order; counters precede derived entries in the emitted file; the numeric ranges in the table above
+are part of the format and are enforced by the generator (nzea's `validate()`), so a file either satisfies them or is
+never written. Counter names are composed as `stat_<scope>_<local name>`, where `<scope>` is the path of declaring blocks
+from the design's root (`core_middle`, `core_back_int`): the name is globally unique by construction and says where the
+counter lives, while `source` stays the block's own name. A counter declared twice is a generator error, not a rename:
+the name is the VPI interface.
 
 ## 5. Expression grammar and evaluation semantics (normative)
 
@@ -134,12 +148,12 @@ for d in derived:                                                  # file order,
 |---|-------------|--------------------|
 | R1 | The schema file is loaded from the same directory as `filelist.f`; loading happens once per model build/load, before the first `stat` command can run. | `stat` after a fresh model build prints schema-defined entries. |
 | R2 | `stat_derive.rs` is deleted; no derived entry, group or format string is hardcoded in remu any more. | `grep -rn "DeriveRule\|NZEA_DERIVE_RULES" remu_simulator` returns nothing. |
-| R3 | Counters are read with their declared width; the C callback carries `u64` values (`nzea_iter_stats` / `nzea_stat_callback` signature change in `nzea_wrapper.cpp`, `collect_stat_cb` in `simulator_trait.rs`). Keep the Verilator double-read quirk. | `stat_cycle` on a run longer than 2^32 cycles (or a unit test on a synthetic value > `u32::MAX`) is not truncated. |
+| R3 | Counters are read with their declared width; the C callback carries `u64` values (`nzea_iter_stats` / `nzea_stat_callback` signature change in `nzea_wrapper.cpp`, `collect_stat_cb` in `simulator_trait.rs`). Keep the Verilator double-read quirk. | a 64-bit counter on a run longer than 2^32 cycles (or a unit test on a synthetic value > `u32::MAX`) is not truncated. |
 | R4 | `stat` (no argument) prints every counter, then every derived entry, in **file order**; the order is deterministic across runs. | Two consecutive `stat` invocations print identical ordering. |
 | R5 | `stat raw` prints counters only. | — |
 | R6 | `stat <query>` resolves an exact counter or derived name first, then a region name; unknown queries fail with an error listing the available names and regions. | `stat ipc`, `stat throughput`, `stat bp`, `stat nosuch` (error). |
-| R7 | A region query prints that region's counters (file order) followed by that region's derived entries (file order). | `stat bp` shows 3 counters + `mispredict_rate` + `taken_rate`. |
-| R8 | Derived values are formatted from `digits` + `unit`; unavailable entries print `n/a` plus a reason (missing counter name / division by zero), never `0`, `inf` or `NaN`. | Force `stat_cycle = 0` (or a missing counter in a scratch schema) and check `n/a`. |
+| R7 | A region query prints that region's counters (file order) followed by that region's derived entries (file order). | `stat bp` shows that region's two counters + `mispredict_rate`. |
+| R8 | Derived values are formatted from `digits` + `unit`; unavailable entries print `n/a` plus a reason (missing counter name / division by zero), never `0`, `inf` or `NaN`. | Force a counter to 0 (or a missing counter in a scratch schema) and check `n/a`. |
 | R9 | A counter declared in the schema but absent from the VPI set is a hard error naming the counter (build mismatch). | Scratch schema with a bogus counter → error. |
 | R10 | A `stat_*` register found in VPI but not declared in the schema produces a warning naming it (exposed but undeclared). | Scratch RTL/schema pair. |
 | R11 | When the schema file is missing and the user asks for statistics, remu fails with a clear message ("this build exposes no stats"). There is **no** fallback table. | FPGA build (no counters) → clear error, no fake numbers. |
@@ -154,7 +168,7 @@ for d in derived:                                                  # file order,
 | `schema` value unknown | error naming the supported version |
 | TOML malformed / missing required key | error with the file path and the offending key |
 | expression does not parse | cannot occur in a valid file (nzea validates before writing); if it does, error at load, do not silently skip |
-| `stat_cycle = 0` and a rule divides by it | that derived entry prints `n/a (div by zero: stat_cycle)`; other entries unaffected |
+| a counter = 0 and a rule divides by it | that derived entry prints `n/a (div by zero: <counter>)`; other entries unaffected |
 | counter declared but not present in VPI | hard error naming the counter (R9) |
 | `stat_*` in VPI but not declared | warning naming it; the counter is **not** displayed as a stat (the schema is the contract) |
 | region with counters but no derived entries | `stat <region>` prints just the counters |
@@ -173,7 +187,7 @@ follow-up items below.
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| declared vs actual counter `width` cross-check | done | callback carries `(name, lo, hi, width)`; declaring `stat_cycle` as 32-bit against a 64-bit RTL fails with both widths named |
+| declared vs actual counter `width` cross-check | done | callback carries `(name, lo, hi, width)`; declaring a 32-bit counter against a 64-bit RTL fails with both widths named |
 | non-finite values render `n/a (overflow)` | done | an overflowing rule prints `n/a (overflow)` |
 | undeclared-counter warning order stable | done | two undeclared counters warned in name order, both ignored |
 | wide-readout unit test | done | `assemble_stat_value` covered (narrow / >32 bit / zero-extension); 17 crate tests pass |
@@ -187,14 +201,17 @@ re-confirmed after it):
 
 | command | expected |
 |---|---|
-| `just run-app hello_world riscv32i -- --platform nzea --difftest remu --batch --startup "{ continue } and { stat print }" --sim-opt watchdog=3x5` | `stat_cycle` 1703, `stat_inst_commit` 392, `stat_bp_branch` 84, `stat_bp_mispred` 66, `stat_bp_actual_taken` 67, `ipc` 0.2302, `cpi` 4.3444, `mispredict_rate` 78.57%, `taken_rate` 79.76% |
-| `just run-app microbench riscv32im -- --platform nzea --difftest remu --batch --startup "{ continue } and { stat ipc }" --app-args test --sim-opt watchdog=3x5` | `ipc` 0.2173 (`stat_cycle`/`stat_inst_commit` around 3111800/676232) |
+| `just run-app hello_world riscv32i -- --platform nzea --difftest remu --batch --startup "{ continue } and { stat print }" --sim-opt watchdog=3x30` | `stat_core_middle_cycle` 1057, `stat_core_middle_inst_commit` 392, `stat_core_back_int_bp_branch` 84, `stat_core_back_int_bp_mispred` 67, `ipc` 0.3709, `mispredict_rate` 79.76% |
+| `just run-app microbench riscv32im -- --platform nzea --difftest remu --batch --startup "{ continue } and { stat print }" --app-args test --sim-opt watchdog=3x30` | `ipc` 0.3412 (`stat_core_middle_cycle`/`stat_core_middle_inst_commit` around 1980000/675700) |
 
 `hello_world` reproduces bit-exactly. On longer runs the totals drift slightly — they depend on how far the DUT is
-stepped past the finisher before the run stops, which varies run to run (observed on microbench, same build:
-3111440/676143, 3111599/676185, 3111800/676232). `ipc` is stable at 4 digits. Compare `ipc` and treat counter totals as
-approximate there. The rules whose counters no longer exist (`dir_mispred_rate`, `tgt_mispred_rate`, `pred_taken_rate`,
-`ret_*`) must simply not appear — no `0.00%` placeholders.
+stepped past the finisher before the run stops, which varies run to run. `ipc` is stable at 4 digits; compare `ipc` and
+treat counter totals as approximate there.
+
+Schema-v2 checks reproduced from this tree: `stat print` lists the scoped counters and `stat <region>` (`stat
+throughput`, `stat bp`) filters them; the reader rejects `schema = 1`, a missing `source`, and a `source` that is not
+`^[a-z][a-z0-9_]*$`; a counter the schema declares but the RTL does not expose fails with both the name and its
+`source` named.
 
 ## 9. Do not do
 
@@ -227,14 +244,17 @@ approximate there. The rules whose counters no longer exist (`dir_mispred_rate`,
 |------|------|
 | `nzea_rtl/src/StatSchema.scala` | types, `validate()`, reference `evaluate()`, `toToml()`, `emit()` |
 | `nzea_rtl/src/StatExpr.scala` | grammar + evaluator (the normative reference for §5) |
-| `nzea_rtl/src/StatsRegs.scala` | `public_flat_rd` counter black box; declarations drive RTL **and** schema |
-| `nzea_core/src/stats/CoreStats.scala` | declarations: regions `throughput`, `bp`; counters `stat_cycle`, `stat_inst_commit`, `stat_bp_branch`, `stat_bp_mispred`, `stat_bp_actual_taken`; derived `ipc`, `cpi`, `mispredict_rate`, `taken_rate` |
-| `nzea_cli/src/Main.scala` (sim dumps; the tile owns its own emitter once ported) | `StatSchema.emit(...)` on `sim` dumps |
-| `nzea_core/test/src/stats/CountersTest.scala`, `nzea_rtl/test/src/{StatSchemaTest,StatsRegsTest}.scala` | pin the emitted counters/widths and the grammar semantics |
+| `nzea_rtl/src/StatBox.scala` | the black box of **one** counter: `public_flat_rd` register, module named after the counter (that is what the instantiation and the emitted file are called) |
+| `nzea_rtl/src/StatScope.scala` | `StatScope` (the block's path, handed down in the parameter), `StatHandle.stat/rule` (one call declares, instantiates and registers), `StatRegistry` (what a dump reads back and emits) |
+| `nzea_core/src/middle/Middle.scala`, `nzea_core/src/back/int/IntPath.scala` | declarations at the call site, beside the events they observe: `stat("cycle", …)`, `stat("bp_branch", …)` under the scope the parent passed |
+| `nzea_core/src/{Core,back/Back}.scala` | `val Source` names and `stats.child(Source)` — the one place the nesting is written |
+| `nzea_core/src/stats/Regions.scala` | the subjects (`throughput`, `bp`), shared across blocks |
+| `nzea_cli/src/Main.scala` | `StatRegistry.emitBoxes(...)` + `StatSchema.emit(...)` on simulation dumps |
+| `nzea_core/test/src/stats/CountersTest.scala`, `nzea_rtl/test/src/{StatSchemaTest,StatBoxTest,StatScopeTest}.scala` | pin the declared/emitted counters, the box text and the scope grammar |
 
 Guarantees: the schema is validated before it is written (unique names, known regions, expression syntax, resolvable
-references), and a test asserts the emitted RTL exposes **exactly** the declared counters with the declared widths —
-so a schema reaching remu is well-formed and matches its RTL.
+references), and a test asserts each declared counter is box-width and that the module which declared it instantiates its
+box — so a schema reaching remu is well-formed and matches its RTL.
 
 ## 12. Governance and out of scope
 

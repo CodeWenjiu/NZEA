@@ -56,8 +56,10 @@ nzea_core/src/
 - 写回链接（`BypassConfig.writeback`）就是 ARF 自己的同拍写穿透：有它读口答案取自写口，没有它读口给文件现值。
 - CSR：地址随 uop 锁存（`exCsrAddr`），读是组合读，写只发生在提交拍；flush 不污染架构状态。
 - 总线纯 Decoupled：取消/甄别全在 master 侧（取指用 epoch、LSU 用请求 tag）；reset 期间的流量拒绝是 fabric 的职责。
-- 异常/中断：**不做**。`sim=true` 时经 `StatsRegs` 暴露 `stat_cycle` / `stat_inst_commit`（+ BRU 的
-  `stat_bp_branch` / `stat_bp_mispred` / `stat_bp_actual_taken`），schema 随 dump 一起产出（见 `stat-schema.md`）。
+- 异常/中断：**不做**。`--flow verilator` 时每个计数器一个 `public_flat_rd` 黑盒（模块名即计数器名），名字由声明处的
+  scope 拼成：`stat_core_middle_cycle` / `stat_core_middle_inst_commit`（Middle）与 `stat_core_back_int_bp_branch` /
+  `stat_core_back_int_bp_mispred`（IntPath），派生 `ipc` / `mispredict_rate`，schema 随 dump 一起产出（见
+  `stat-schema.md`）。
 
 ## 基线测量（2026-09-29）
 
