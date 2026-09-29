@@ -9,6 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.{BypassLevel, CoreConfig}
+import nzea_core.stats.Regions
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.{Front, FrontParameter}
@@ -99,3 +100,19 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     io.ibus :<>= front.io.ibus
     io.dbus :<>= back.io.dbus
     io.commit_msg :<= middle.io.commit
+
+    /** The instruction port's bandwidth and what it buys: the port accepts one request and offers one response per
+      * fetch, so `resp` against `fire` is the flushes' toll — a killed stream's response is consumed and digested,
+      * never forwarded, which spent the port on an instruction that retired nothing.
+      */
+    def counters(): Unit =
+      val req = parameter.stats.stat("ibus_req", Regions.Fetch, "fetch requests accepted")
+      val resp = parameter.stats.stat("ibus_resp", Regions.Fetch, "fetch responses consumed")
+      val stall = parameter.stats.stat("ibus_stall", Regions.Fetch, "cycles a fetch request waits for the bus")
+      val fire = parameter.stats.stat("fetch_fire", Regions.Fetch, "instructions delivered to the middle")
+      req.inc(io.ibus.req.valid & io.ibus.req.ready)
+      resp.inc(io.ibus.resp.valid & io.ibus.resp.ready)
+      stall.inc(io.ibus.req.valid & !io.ibus.req.ready)
+      fire.inc(front.io.out.valid & front.io.out.ready)
+
+    if parameter.flow.counters then counters()

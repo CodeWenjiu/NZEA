@@ -1,6 +1,7 @@
 package nzea_core.stats
 
 import nzea_core.BypassLevel
+import nzea_core.{Core, CoreParameter}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.isa.Isa
 import nzea_core.middle.{Middle, MiddleParameter}
@@ -67,6 +68,32 @@ object CountersTest extends TestSuite:
     )
   )
 
+  private lazy val coreRun = run(
+    TestFlow.lower(
+      core,
+      cfg =>
+        Core.main(
+          Array(
+            "config",
+            cfg.toString,
+            "--isa",
+            "riscv32i",
+            "--defaultPc",
+            "2147483648",
+            "--flow",
+            "verilator",
+            "--bypass",
+            "commit",
+            "--mmioRanges",
+            "0x10000000:0x1000",
+            "--stats",
+            "core"
+          )
+        ),
+      cfg => Core.main(Array("design", cfg.toString))
+    )
+  )
+
   private lazy val middle =
     Middle.moduleName(
       MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, BypassLevel.Commit, StatScope(Seq("middle")))
@@ -75,11 +102,29 @@ object CountersTest extends TestSuite:
   private lazy val intPath =
     IntPath.moduleName(IntPathParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, StatScope(Seq("int"))))
 
+  private lazy val core =
+    Core.moduleName(
+      CoreParameter(
+        Isa("riscv32i"),
+        0x80000000L,
+        RtlFlow.Verilator,
+        Seq("0x10000000:0x1000"),
+        BypassLevel.Commit,
+        StatScope(Seq("core"))
+      )
+    )
+
   val tests = Tests:
     test("the middle declares its throughput counters and the rule over them"):
       assert(
         middleRun.schema.counters.map(c => (c.name, c.source)) ==
-          Seq("stat_middle_cycle" -> "middle", "stat_middle_inst_commit" -> "middle")
+          Seq(
+            "stat_middle_cycle" -> "middle",
+            "stat_middle_inst_commit" -> "middle",
+            "stat_middle_operand_wait" -> "middle",
+            "stat_middle_slot_busy" -> "middle",
+            "stat_middle_flush" -> "middle"
+          )
       )
       assert(middleRun.schema.derived.map(_.name) == Seq("ipc"))
       assert(
@@ -95,8 +140,17 @@ object CountersTest extends TestSuite:
       assert(intRun.schema.regions.map(_.name) == Seq("bp"))
       intRun.schema.validate()
 
+    test("the core declares the instruction port's bandwidth counters"):
+      val fetch = coreRun.schema.counters.filter(_.region.name == "fetch")
+      assert(
+        fetch.map(_.name) ==
+          Seq("stat_core_ibus_req", "stat_core_ibus_resp", "stat_core_ibus_stall", "stat_core_fetch_fire")
+      )
+      assert(fetch.map(_.source).distinct == Seq("core"))
+      coreRun.schema.validate()
+
     test("every counter is box-width, and its box is instantiated by the module that declared it"):
-      for r <- Seq(middleRun, intRun) do
+      for r <- Seq(middleRun, intRun, coreRun) do
         for c <- r.schema.counters do
           require(c.width == StatBox.Width, s"${c.name} is ${c.width} bits wide, not ${StatBox.Width}")
           val instance = raw"(?m)^\s*${c.name}\s+\w+\s*\(".r

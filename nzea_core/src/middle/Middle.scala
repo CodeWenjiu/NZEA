@@ -185,13 +185,22 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
       io.commit.bits.csr_data := wb.csr_data
 
     /** Counters the simulator reads back: declared here, where the commit and the cycle are both known, and emitted
-      * from this one call — a dump reads the registered set back out after elaboration.
+      * from this one call — a dump reads the registered set back out after elaboration. The stage counters are what the
+      * commit count cannot say: how many cycles the pipeline spends holding — a payload waiting for its own operands, a
+      * slot stuck on a multi-cycle unit — and how many a flush drops.
       */
     def counters(): Unit =
       val cycle = parameter.stats.stat("cycle", Regions.Throughput, "core clock cycles")
       val commit = parameter.stats.stat("inst_commit", Regions.Throughput, "retired instructions")
+      val wait = parameter.stats.stat("operand_wait", Regions.Throughput, "cycles a payload waits for its own operands")
+      val busy =
+        parameter.stats.stat("slot_busy", Regions.Throughput, "cycles the execute slot holds an unfinished uop")
+      val flush = parameter.stats.stat("flush", Regions.Throughput, "cycles a flush drains the younger stages")
       cycle.inc(true.B)
       commit.inc(retire)
+      wait.inc(idis.valid & !idis.ready & (!isex.valid | complete) & !flushing)
+      busy.inc(isex.valid & !complete)
+      flush.inc(flushing)
       parameter.stats.rule(
         "ipc",
         s"${commit.name} / ${cycle.name}",
