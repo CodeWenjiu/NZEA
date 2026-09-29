@@ -4,6 +4,7 @@ import me.jiuyang.decoder.{BitPat, BitSet, TruthTable}
 import nzea_core.CoreConfig
 import nzea_core.back.OpWindow
 import nzea_core.back.int.IntOp
+import nzea_core.front.idu.inst.*
 import nzea_core.isa.{Backend, Isa, Srcs}
 import nzea_rtl.stdlib.Encoding
 
@@ -31,7 +32,7 @@ object DecodeTables:
 
   def all(config: CoreConfig): Seq[TruthTable] =
     val ops = IntOp.set(config.isa)
-    val insts = RiscvInsts.all(config)
+    val insts = RiscvInsts.all(config.isa)
     Seq(
       backend(insts),
       window(insts, ops, OpWindow.width(config)),

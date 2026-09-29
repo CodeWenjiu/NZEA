@@ -20,7 +20,7 @@ nzea_core/src/
   NzeaCore.scala        顶层：sim 时三个总线接 DPI 桥；--sim false 时把 ibus/dbus/commit 暴露为端口（综合顶层）
   front/                Front（取指 + 译码，两段之间的流水寄存器由它 own，受 flush 控制）
     ifu/                Ifu（pc/epoch，一次一个请求）/ IbusUser（user = {pc, epoch}）
-    idu/                Idu（PLA 译码 + 立即数成形 + 源寄存器号）/ inst（指令表）/ DecodeTables（真值表 → PLA）
+    idu/                Idu（PLA 译码 + 立即数成形 + 源寄存器号）/ inst/（Insts 类型与模式形状 ｜ InstI、InstM 指令行，各自 rows(xlen) 选行）/ DecodeTables（真值表 → PLA）
   middle/               Middle（共享文件 Arf/CsrFile + 两级流水寄存器 idis/isex + 写回寄存器（提交与 flush 的源头），多态点）/ CommitMsg / ExecSlot / issue.pulse / retire.pulse
     isu/                Isu（寄存器读 + 操作数槽位解析 + 发射，纯组合；两级寄存器与 pipelineConnect 由 Middle own）
   back/                 Back（按 backend 分发 + 完成合并 + 出口锁存）/ IssueUop / BackOut / PathResult / OpWindow
