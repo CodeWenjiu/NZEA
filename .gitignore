@@ -3,6 +3,7 @@
 .bsp
 .cache
 .direnv
+.metals
 .sccache
 .scala-build
 .vscode
@@ -14,13 +15,6 @@ result*
 
 # Side worktree holding the frozen pre-migration core (`just legacy-oracle`)
 .oracle
-
-# nix-built language server pinned into the tree (`nix build ... -o .zed/ls`)
-.zed/ls
-
-# zaozi-lsp workspace state (SemanticDB index segments + workspace state):
-# rebuildable, machine-local, never committed.
-.zaozi-lsp
 
 # Agent scratch
 /.sisyphus

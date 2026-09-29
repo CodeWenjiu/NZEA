@@ -11,11 +11,6 @@
     # sources we publish locally (`just z-publish`); keep its commit in sync with
     # this pin.
     zaozi.url = "github:CodeWenjiu/zaozi";
-
-    # Scala 3 language server (SemanticDB + BSP backed; replaces Metals). Also
-    # pins the binary the zaozi-lsp Zed extension launches from PATH. The
-    # wrapper bakes its own JDK, so it does not follow our nixpkgs.
-    zaozi-lsp.url = "github:xinpian-tech/zaozi-lsp";
   };
 
   outputs =
@@ -24,7 +19,6 @@
       utils,
       rust-overlay,
       zaozi,
-      zaozi-lsp,
       ...
     }:
     utils.lib.eachDefaultSystem (
@@ -59,12 +53,6 @@
             zpkgs.lit
             zpkgs.z3
             zpkgs.scala-cli
-
-            # === Editor: Scala 3 language server ===
-            # Zed launches `zaozi-lsp` from the worktree PATH (the zaozi-lsp Zed
-            # extension) or from an absolute override in .zed/settings.json; the
-            # dev shell is what puts it on `.direnv/bin`.
-            zaozi-lsp.packages.${system}.default
 
             # === RTL simulation / analysis ===
             pkgs.iverilog # 4-state simulation
