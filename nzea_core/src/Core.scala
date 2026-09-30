@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassLevel, CoreConfig}
+import nzea_core.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.stats.Regions
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
@@ -26,6 +26,7 @@ case class CoreParameter(
     flow: RtlFlow,
     mmioRanges: Seq[String],
     bypass: BypassLevel,
+    bpu: BpuLevel,
     stats: StatScope
 ) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -65,7 +66,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val c = parameter.config
-    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc))
+    val front = Front.instantiate(FrontParameter(c.isa, c.defaultPc, parameter.bpu))
     val middle =
       Middle.instantiate(
         MiddleParameter(c.isa, c.defaultPc, parameter.flow, parameter.bypass, parameter.stats.child(Middle.Source))
@@ -78,6 +79,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
           parameter.flow,
           parameter.mmioRanges,
           parameter.bypass,
+          parameter.bpu,
           parameter.stats.child(Back.Source)
         )
       )
@@ -92,6 +94,9 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
     middle.io.decoded :<>= front.io.out
     front.io.redirect :<= middle.io.redirect
     front.io.flush := middle.io.flush
+    // The predictor's training crosses the middle without touching it: the branch resolves at the back, the tables
+    // live at the front, and nothing between the two consumes the outcome.
+    front.io.bp_update :<= back.io.bp_update
 
     back.io.issue :<= middle.io.issue
     middle.io.complete :<= back.io.complete

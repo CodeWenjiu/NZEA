@@ -114,9 +114,10 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
     val (dividend, divisor) = magnitudes(aIn, bIn, aNeg, bNeg)
 
     val divByZero = bIn === 0.U(width)
-    val overflow =
-      signed & (aIn === (BigInt(1) << (width - 1)).U(width)) & (bIn === (BigInt((1 << width) - 1)).U(width))
-    val allOnes: Referable[UInt] = BigInt((1 << width) - 1).U(width)
+    // The all-ones forms are built in BigInt: `(1 << width) - 1` on an `Int` wraps its shift amount and goes to zero
+    // from width 32 up, which would answer a zero divisor with zero instead of minus one.
+    val allOnes: Referable[UInt] = ((BigInt(1) << width) - 1).U(width)
+    val overflow = signed & (aIn === (BigInt(1) << (width - 1)).U(width)) & (bIn === allOnes)
     val minInt: Referable[UInt] = (BigInt(1) << (width - 1)).U(width)
 
     /** One shift-subtract step of the loop: shift `{remainder, quotient}` left and subtract the divisor where the

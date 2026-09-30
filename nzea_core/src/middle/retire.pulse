@@ -9,6 +9,7 @@
 -- One instruction retired: register write-back, CSR write and the commit trace all ride this pulse.
 commit_fire = commit_valid
 
--- A taken branch: the write-back register holds a mispredicted branch, so the middle flushes the younger stages and the
--- front restarts from `wb_redirect_target`. The baseline predicts not-taken, so a taken branch is also a mispredict.
+-- A mispredicted branch: the write-back register's resolved `next_pc` disagrees with the prediction it was fetched
+-- under (`wb_is_branch & next_pc =/= pred_next_pc`, the test `flushing` starts from), so the middle flushes the younger
+-- stages and the front restarts from `wb_next_pc`.
 redirect = flushing

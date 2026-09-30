@@ -10,14 +10,15 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.CoreConfig
+import nzea_core.{BpuLevel, CoreConfig}
+import nzea_core.back.BpUpdate
 import nzea_core.front.idu.{Idu, IduOut, IduParameter}
 import nzea_core.front.ifu.{FetchedInst, Ifu, IfuParameter}
 import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class FrontParameter(isa: Isa, defaultPc: Long) extends Parameter:
+case class FrontParameter(isa: Isa, defaultPc: Long, bpu: BpuLevel) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[FrontParameter] = upickle.default.macroRW
@@ -32,6 +33,7 @@ class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
   val flush = Flipped(Bool())
   val ibus = Aligned(Ifu.busType(parameter.config))
   val redirect = Flipped(Valid(UInt(width)))
+  val bp_update = Flipped(Valid(new BpUpdate(width)))
   val out = Aligned(Decoupled(new IduOut(parameter.config)))
 
 class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, FrontLayers](parameter)
@@ -54,7 +56,7 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val c = parameter.config
-    val ifu = Ifu.instantiate(IfuParameter(c.isa, c.defaultPc))
+    val ifu = Ifu.instantiate(IfuParameter(c.isa, c.defaultPc, parameter.bpu))
     val idu = Idu.instantiate(IduParameter(c.isa, c.defaultPc))
 
     ifu.io.clock := io.clock
@@ -64,6 +66,7 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
 
     io.ibus :<>= ifu.io.ibus
     ifu.io.redirect :<>= io.redirect
+    ifu.io.bp_update :<>= io.bp_update
 
     pipelineConnect(ifu.io.out, idu.io.in, io.flush, "ifid", FlushHandover.Consume)
 

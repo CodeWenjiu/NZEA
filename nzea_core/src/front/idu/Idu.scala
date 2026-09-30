@@ -15,9 +15,9 @@ import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** What decode hands the middle: the decoded instruction — where it is, the pc the fetch predicted it goes on to, its
-  * immediate, the register it writes, the two registers it can read, and the operand form that says which source fills
-  * each issue slot.
+/** What decode hands the middle: the decoded instruction — where it is, the pc the fetch predicted it goes on to and
+  * the instruction's own fall-through, its immediate, the register it writes, the two registers it can read, and the
+  * operand form that says which source fills each issue slot.
   *
   * The values are not here. Decode stays a decode and the read happens in the middle, in the cycle the uop is issued:
   * that is the first cycle the register file holds every write the instruction must see, so the read never needs the
@@ -26,6 +26,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 class IduOut(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
   val next_pc = Aligned(UInt(config.width))
+  val fall_through = Aligned(UInt(config.width))
   val imm = Aligned(UInt(config.width))
   val rd_index = Aligned(UInt(Gpr.indexWidth))
   val rs1_index = Aligned(UInt(Gpr.indexWidth))
@@ -106,6 +107,7 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     io.out.valid := io.in.valid
     io.out.bits.pc := io.in.bits.pc
     io.out.bits.next_pc := io.in.bits.next_pc
+    io.out.bits.fall_through := io.in.bits.fall_through
     io.out.bits.imm := imm
     io.out.bits.rd_index := rdIndex
     io.out.bits.rs1_index := rs1Index

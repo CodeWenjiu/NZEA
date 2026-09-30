@@ -1,7 +1,7 @@
 package nzea_cli
 
 import nzea_config.NzeaCoreParameter
-import nzea_core.BypassLevel
+import nzea_core.{BpuLevel, BypassLevel}
 import nzea_core.isa.Isa
 import nzea_rtl.{Elaborate, RtlFlow, StatRegistry, StatSchema, StatScope}
 import nzea_top.NzeaCore
@@ -51,6 +51,9 @@ object Main:
     // Fixed for now: the commit level is the baseline's only forwarding choice, and it is not a user knob yet. Edit
     // this line to build the design without it.
     val bypass = BypassLevel.Execute
+    // Fixed for now too: the fetch's predictor — `Bimodal` builds its tables, `Off` is the sequential fetch. Edit this
+    // line to switch levels.
+    val bpu = BpuLevel.Bimodal(64, 4)
     val outDir = flags
       .get("outDir")
       .filter(_.nonEmpty)
@@ -59,7 +62,7 @@ object Main:
     require(target == "core", s"only --target core is ported, got '$target'")
     require(platform == "yosys" || platform == "fpga", s"unknown platform '$platform'")
 
-    val parameter = NzeaCoreParameter(isa, defaultPc, flow, mmioWindows, bypass, StatScope.root)
+    val parameter = NzeaCoreParameter(isa, defaultPc, flow, mmioWindows, bypass, bpu, StatScope.root)
     val scratch = os.temp.dir(prefix = "nzea-dump")
     try
       Elaborate.withLinked(
@@ -78,6 +81,8 @@ object Main:
               flow.segment,
               "--bypass",
               bypass.name,
+              "--bpu",
+              bpu.name,
               // The scope the design's own counters hang under; a dump nests them by the blocks that declare them.
               "--stats",
               "root"

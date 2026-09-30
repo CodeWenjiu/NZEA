@@ -6,10 +6,11 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_core.BpuLevel
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class BruParameter(width: Int) extends Parameter
+case class BruParameter(width: Int, bpu: BpuLevel) extends Parameter
 
 given upickle.default.ReadWriter[BruParameter] = upickle.default.macroRW
 
@@ -20,6 +21,9 @@ class BruIO(parameter: BruParameter) extends HWBundle(parameter):
   val op = Flipped(UInt(BruOp.width))
   val pc = Flipped(UInt(parameter.width))
   val predNextPc = Flipped(UInt(parameter.width))
+
+  /** The pc's own fall-through, for the paths the prediction did not take. */
+  val fallThrough = Flipped(UInt(parameter.width))
   val offset = Flipped(UInt(parameter.width))
   val rs1 = Flipped(UInt(parameter.width))
   val rs2 = Flipped(UInt(parameter.width))
@@ -32,10 +36,10 @@ class BruProbe(parameter: BruParameter) extends DVBundle[BruParameter, BruLayers
 
 /** Branch unit: resolves a jump or branch into a taken flag, a target and the pc to continue from.
   *
-  * The prediction is an input, not this unit's knowledge: the pc to continue from when the branch is not taken is
-  * whatever the fetch stream predicted, so the fetcher's prediction reaches this unit as data and a predictor that
-  * lands later changes where the value comes from, not this interface. On this baseline that prediction is the
-  * fall-through, which is what the mispredict test below folds away.
+  * The prediction is an input, not this unit's knowledge: the pc to continue from when the branch is not taken is the
+  * fall-through (a predicted level resolves against the fetch's prediction and redirects wherever the two disagree, in
+  * either direction), so a predictor that lands changes where the prediction comes from, not this interface. At `Off`
+  * that prediction is the fall-through, which is what the mispredict test below folds away.
   *
   * Combinational, and it carries no valid: the path gates the redirect with the tag it issued.
   */
@@ -70,11 +74,14 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
 
     io.taken := taken
     io.target := target
-    io.nextPc := taken ? (target, io.predNextPc)
+    io.nextPc := taken ? (target, io.fallThrough)
 
-    // The mispredict is the fetch stream's prediction check, `predNextPc =/= target`. The baseline predicts the
-    // fall-through, so for the pc-relative forms the check reduces to the offset not being 4 — instruction-static,
-    // which keeps the target adder, the one slow cone in this cycle, out of the redirect's valid path. JALR bases its
-    // target on a register, so it always redirects: one that lands on its own fall-through refetches instead of
-    // continuing.
-    io.mispredict := taken & (isJalr | (io.offset =/= 4.U(width)))
+    // The prediction check, `predNextPc =/= nextPc`: where the stream went against where the branch resolved. The
+    // flush's own copy of the test is the write-back stage's (`is_branch & next_pc =/= pred_next_pc`, made against its
+    // registers); this output is what the resolve-side counters report on. At `Off` the prediction is the fall-through,
+    // which folds the check into the offset not being 4 for the pc-relative forms — instruction-static, the sequential
+    // baseline's own mispredict. JALR bases its target on a register, so it always counts as a redirect there.
+    val mispredict: Referable[Bool] =
+      if parameter.bpu.predicted then io.nextPc =/= io.predNextPc
+      else taken & (isJalr | (io.offset =/= 4.U(width)))
+    io.mispredict := mispredict

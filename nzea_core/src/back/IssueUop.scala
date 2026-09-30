@@ -22,14 +22,16 @@ import nzea_core.isa.{Backend, CsrType, Gpr}
   * over the configuration rather than numbers it worked out.
   *
   * `next_pc` is the pc the fetch stream goes on with after this instruction — the fetcher's prediction for it, carried
-  * since the fetch. The baseline predicts the fall-through, so on this configuration the field is the core's one `pc +
-  * 4`, made where it already sits on the fetch-rate path; a predictor that lands later changes that value and nothing
-  * else about the carrying. The branch unit resolves against it (taken ? target : next_pc is the actual stream), and a
-  * consumer that needs the fall-through of an instruction on the predicted path reads it here.
+  * since the fetch — and `fall_through` is the instruction's own `pc + 4`, made by the fetch for the same instruction
+  * and carried beside it: a predictor changes the first and never the second. The branch unit resolves against the
+  * prediction (`taken ? target : fall_through` is the actual stream, which the write-back stage compares against the
+  * prediction to find a mispredict), and the units that need the architectural continuation — the link value, the
+  * not-taken path — read it here instead of rebuilding an adder of their own.
   */
 class IssueUop(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
   val next_pc = Aligned(UInt(config.width))
+  val fall_through = Aligned(UInt(config.width))
   val imm = Aligned(UInt(config.width))
   val src_a = Aligned(UInt(config.width))
   val src_b = Aligned(UInt(config.width))

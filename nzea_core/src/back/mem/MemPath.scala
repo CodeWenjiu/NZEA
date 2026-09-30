@@ -188,7 +188,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
       io.result.csr_type := CsrType.None.lit.U(CsrType.width)
       io.result.csr_data := 0.U(width)
       io.result.is_mmio := isMmio
-      io.result.redirect_valid := false.B
-      io.result.redirect_target := 0.U(width)
+      io.result.is_branch := false.B
+      io.result.pred_next_pc := u.next_pc
 
     result()

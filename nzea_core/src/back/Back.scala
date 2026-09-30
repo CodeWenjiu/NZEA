@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassLevel, CoreConfig}
+import nzea_core.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
 import nzea_core.isa.{Backend, Isa}
@@ -22,6 +22,7 @@ case class BackParameter(
     flow: RtlFlow,
     mmioRanges: Seq[String],
     bypass: BypassLevel,
+    bpu: BpuLevel,
     stats: StatScope
 ) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -39,6 +40,9 @@ class BackIO(parameter: BackParameter) extends HWBundle(parameter):
   val complete = Aligned(ValidIO(new PathResult(width)))
   val bypass = Flipped(new BypassBus(width))
   val dbus = Aligned(MemPath.dbusType(parameter.config))
+
+  /** The resolved branches, for the front's predictor: the int path's own registers, already off the resolve cone. */
+  val bp_update = Aligned(ValidIO(new BpUpdate(width)))
 
 class BackProbe(parameter: BackParameter) extends DVBundle[BackParameter, BackLayers](parameter)
 
@@ -69,7 +73,9 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     val isMem = io.issue.bits.backend === Backend.MEM.lit.U(Backend.width)
 
     val int =
-      IntPath.instantiate(IntPathParameter(c.isa, c.defaultPc, parameter.flow, parameter.stats.child(IntPath.Source)))
+      IntPath.instantiate(
+        IntPathParameter(c.isa, c.defaultPc, parameter.flow, parameter.stats.child(IntPath.Source), parameter.bpu)
+      )
     val mem = MemPath.instantiate(MemPathParameter(c.isa, c.defaultPc, parameter.mmioRanges))
     val bypass = Bypass.instantiate(BypassParameter(c.isa, c.defaultPc, parameter.bypass))
 
@@ -87,6 +93,9 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
     mem.io.issue.valid := uopValid & isMem
     mem.io.issue.first := uopFirst & isMem
     mem.io.issue.bits :<= io.issue.bits
+
+    // The resolved branches leave the back from here: the front's predictor listens, the middle does not pass them.
+    io.bp_update :<= int.io.bp_update
 
     val done = (int.io.done & !isMem) | (mem.io.done & isMem)
 

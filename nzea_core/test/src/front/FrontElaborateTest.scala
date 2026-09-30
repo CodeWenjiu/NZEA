@@ -1,6 +1,6 @@
 package nzea_core.front
 
-import nzea_core.CoreConfig
+import nzea_core.{BpuLevel, CoreConfig}
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
@@ -14,7 +14,7 @@ import utest.*
 object FrontElaborateTest extends TestSuite:
 
   private val width = 32
-  private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L))
+  private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L, BpuLevel.Off))
 
   private lazy val sv = TestFlow.lower(
     module,
@@ -26,7 +26,9 @@ object FrontElaborateTest extends TestSuite:
           "--isa",
           "riscv32i",
           "--defaultPc",
-          "2147483648"
+          "2147483648",
+          "--bpu",
+          "off"
         )
       ),
     cfg => Front.main(Array("design", cfg.toString))
@@ -53,11 +55,16 @@ object FrontElaborateTest extends TestSuite:
           "ibus_resp_bits_id" -> Ifu.busIdWidth,
           "redirect_valid" -> 1,
           "redirect_bits" -> width,
+          "bp_update_valid" -> 1,
+          "bp_update_bits_pc" -> width,
+          "bp_update_bits_taken" -> 1,
+          "bp_update_bits_target" -> width,
           "flush" -> 1,
           "out_valid" -> 1,
           "out_ready" -> 1,
           "out_bits_pc" -> width,
           "out_bits_next_pc" -> width,
+          "out_bits_fall_through" -> width,
           "out_bits_imm" -> width,
           "out_bits_rd_index" -> Gpr.indexWidth,
           "out_bits_rs1_index" -> Gpr.indexWidth,

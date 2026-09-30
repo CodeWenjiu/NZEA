@@ -37,16 +37,17 @@ nzea_core/src/
 
 ## 合同（跨模块）
 
-- 前端→中端 `IduOut`（**架构级**）：`pc / next_pc / imm / rd_index / rs1_index / rs2_index / srcs（操作数形态）/ backend / op 窗口 / csr_addr`。
+- 前端→中端 `IduOut`（**架构级**）：`pc / next_pc / fall_through / imm / rd_index / rs1_index / rs2_index / srcs（操作数形态）/ backend / op 窗口 / csr_addr`。
   译码只出"指令是什么"；ARF 读与操作数槽位解析在中端发射拍完成（`Srcs.resolve`），读到的就是文件当时的内容。
-- 中端→后端 `IssueUop`（**就绪操作数**）：三个槽位 + `pc`/`next_pc`/`imm`（结构用途）+ `backend` + `op` 窗口
-  + `csr_type`/`csr_rdata`。`next_pc` 是取指预测的下一 pc（基线 = 顺延），随取指携带：全核唯一的 `pc+4` 在
-  `Ifu`（它既是 pc 寄存器的下一值，又是该指令的预测），经请求 user 字段随响应回送，一路带到 BRU；`Isu` 不再
-  自己解 `pc+4`。后端不做源选择，只按自己的 op 读槽位：
+- 中端→后端 `IssueUop`（**就绪操作数**）：三个槽位 + `pc`/`next_pc`/`fall_through`/`imm`（结构用途）+ `backend`
+  + `op` 窗口 + `csr_type`/`csr_rdata`。`next_pc` 是取指预测的下一 pc（基线 = 顺延），`fall_through` 是该指令自己的
+  `pc + 4`（`pcPlus4`，取指端算好后经 user 字段随响应回送）——两者都随取指携带，后端任何阶段都不重建 `pc+4`。
+  后端不做源选择，只按自己的 op 读槽位：
   ALU 读 a/b；BRU 比较 a/b、JALR 用 a 当目标基址；SYSU 的写数据与"零源不写"判定读 a；MUL/DIV 读 a/b；
   LSU 地址 = a+b、store 数据 = c。
-- 后端→中端 `PathResult`（完成通道，Valid）：`data / next_pc / csr_type / csr_data / is_mmio / redirect_valid /
-  redirect_target`。后端**没有流水状态**：uop 由中端的 IS/EX 寄存器按住，完成载荷由中端的写回寄存器采样。
+- 后端→中端 `PathResult`（完成通道，Valid）：`data / next_pc / csr_type / csr_data / is_mmio / is_branch /
+  pred_next_pc`。后端**没有流水状态**：uop 由中端的 IS/EX 寄存器按住，完成载荷由中端的写回寄存器采样；误预测
+  比较（`is_branch & next_pc =/= pred_next_pc`）也在那个寄存器上做，不在后端的组合锥里。
 - 中端→前端：`redirect`（Valid，显式事件，同时是唯一让 `Ifu` 自增 epoch 的原因）+ `flush`（广播，给流水寄存器）。
 - 后端窗口：`IntOp` = `fuOp | fuType`，`MemOp` = `LsuOp`；二者低锚定、互相别名，共享 `op` 字段的宽度 = `OpWindow.Width`。
 - 中端→顶层 `commit`（`CommitMsg`）：架构状态变化的轨迹（`next_pc`/`rd_index`/`rd_value`/`is_mmio`/`csr_*`）。
@@ -68,9 +69,9 @@ nzea_core/src/
 - `pipelineConnect` 的 flush 策略显式化（`FlushHandover`）：前端 IF/ID 取 `Consume`——它的生产者是总线响应，
   响应被拒会挂在总线上堵住下一拍；中端两个寄存器取 `Refuse`——它们的生产者是同级流水，拒收让取指不在被杀的路上
   白取一个词。（实测：若把中端也改成 `Consume`，每次 flush 多花≈1 拍；若把前端改成 `Refuse`，每次 flush 也多花≈1 拍。）
-- 顺序单发射；取指预测 = 顺延（always-not-taken）。预测随取指走完全程（`FetchedInst`→`IduOut`→`ExecSlot`→
-  `IssueUop.next_pc`），BRU 用它与解析结果对照（基线下该对照折叠成 `offset =/= 4`，目标加法器不进 redirect 的
-  valid 锥）；分支在 BRU 解析后 flush + redirect；无 BPU。BP 落地时替换 `Ifu` 里那一个预测值，管道其余不动。
+- 顺序单发射；取指预测 = 顺延（always-not-taken）。预测与顺延值随取指走完全程（`FetchedInst`→`IduOut`→`ExecSlot`→
+  `IssueUop`），BRU 用预测与解析结果对照（基线下该对照折叠成 `offset =/= 4`，目标加法器不进 redirect 的 valid
+  锥）；分支在 BRU 解析后 flush + redirect；无 BPU。BP 落地时替换 `Ifu` 里那一个预测值，管道其余不动。
 - 中端两槽：`idis`（译码载荷，还没有操作数）与 `isex`（`ExecSlot`：就绪 uop + `rd_index`/`csr_addr`；后端只看到
   它反推出的 `IssueUop`）。两个寄存器与 `pipelineConnect` 都在 `Middle`，夹在中间的是两个组合单元：
   `OperandRead`（操作数读取：请求 index、合流文件/网络、按形式置换，及在飞写者的等待）与 `Isu`（uop 组装；与前端
@@ -123,7 +124,8 @@ nzea_core/src/
 ## 挂载顺序（每步正交、独立验证）
 
 1. 基线（无 BP in-order）→ 验证三段合同 ✅
-2. 挂 BP：前端取指器加回 PHT/BTB/RAS（合同点在 `Ifu` 内部，前端边界不变）
+2. 挂 BP：前端取指器加回 PHT/BTB/RAS（合同点在 `Ifu` 内部）——M2a（`Bimodal` = PHT + BTB）已落地，见
+   `goal/branch-prediction.md`；RAS 与 TAGE 待续
 3. 挂 OoO 中端：RAT+PRF+ROB+IQ 重写 `Middle`（前/后端不动；操作数槽位合同不变，槽位改由 PRF 读 + wakeup 产生）
 4. 向量后端：后端扩展（`BackOut` / `MemPath` 的契约点）
 

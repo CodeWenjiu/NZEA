@@ -94,6 +94,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       val dec = io.decoded
       io.moved.pc := dec.pc
       io.moved.next_pc := dec.next_pc
+      io.moved.fall_through := dec.fall_through
       io.moved.imm := dec.imm
       io.moved.src_a := io.src_a
       io.moved.src_b := io.src_b
@@ -112,6 +113,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       val uop = Wire(new IssueUop(parameter.config))
       uop.pc := slot.pc
       uop.next_pc := slot.next_pc
+      uop.fall_through := slot.fall_through
       uop.imm := slot.imm
       uop.src_a := slot.src_a
       uop.src_b := slot.src_b

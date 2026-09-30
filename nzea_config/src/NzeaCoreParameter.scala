@@ -2,7 +2,7 @@ package nzea_config
 
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BypassLevel, CoreConfig}
+import nzea_core.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.{RtlFlow, StatScope}
 
@@ -21,6 +21,7 @@ case class NzeaCoreParameter(
     flow: RtlFlow,
     mmioRanges: Seq[String],
     bypass: BypassLevel,
+    bpu: BpuLevel,
     stats: StatScope
 ) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)

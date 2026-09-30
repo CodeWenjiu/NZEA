@@ -1,6 +1,6 @@
 package nzea_core.stats
 
-import nzea_core.BypassLevel
+import nzea_core.{BpuLevel, BypassLevel}
 import nzea_core.{Core, CoreParameter}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.isa.Isa
@@ -60,6 +60,8 @@ object CountersTest extends TestSuite:
             "2147483648",
             "--flow",
             "verilator",
+            "--bpu",
+            "off",
             "--stats",
             "int"
           )
@@ -84,6 +86,8 @@ object CountersTest extends TestSuite:
             "verilator",
             "--bypass",
             "commit",
+            "--bpu",
+            "off",
             "--mmioRanges",
             "0x10000000:0x1000",
             "--stats",
@@ -100,7 +104,9 @@ object CountersTest extends TestSuite:
     )
 
   private lazy val intPath =
-    IntPath.moduleName(IntPathParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, StatScope(Seq("int"))))
+    IntPath.moduleName(
+      IntPathParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, StatScope(Seq("int")), BpuLevel.Off)
+    )
 
   private lazy val core =
     Core.moduleName(
@@ -110,6 +116,7 @@ object CountersTest extends TestSuite:
         RtlFlow.Verilator,
         Seq("0x10000000:0x1000"),
         BypassLevel.Commit,
+        BpuLevel.Off,
         StatScope(Seq("core"))
       )
     )
@@ -134,9 +141,11 @@ object CountersTest extends TestSuite:
       middleRun.schema.validate()
 
     test("the int path declares its branch counters and the rule over them"):
-      assert(intRun.schema.counters.map(_.name) == Seq("stat_int_bp_branch", "stat_int_bp_mispred"))
+      assert(
+        intRun.schema.counters.map(_.name) == Seq("stat_int_bp_branch", "stat_int_bp_taken", "stat_int_bp_mispred")
+      )
       assert(intRun.schema.counters.map(_.source).distinct == Seq("int"))
-      assert(intRun.schema.derived.map(_.name) == Seq("mispredict_rate"))
+      assert(intRun.schema.derived.map(_.name) == Seq("taken_rate", "mispredict_rate"))
       assert(intRun.schema.regions.map(_.name) == Seq("bp"))
       intRun.schema.validate()
 

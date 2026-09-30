@@ -49,8 +49,9 @@ class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, 
   * both combinational — the same rule the front-end follows around its decode. The register and CSR files stay here too
   * — their reads belong to issue and their writes to write-back, so both sides touch them and this is where they live —
   * as does EX/WB, which is neither elastic nor cancellable: the completion lands in it, the register write, the CSR
-  * write and the commit ride it, and a mispredicted branch in it is what cancels the younger stages. The flush is
-  * sourced here, from that register, so every stage reads one net instead of asking the stage below.
+  * write and the commit ride it, and a mispredicted branch in it — `next_pc` against the prediction it was fetched
+  * under — is what cancels the younger stages. The flush is sourced here, from that register, so every stage reads one
+  * net instead of asking the stage below.
   */
 @generator
 object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleProbe]:
@@ -69,13 +70,15 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
 
     // EX/WB: the one register here that is neither elastic nor cancellable — what the units completed retires from it,
     // and a mispredicted branch in it is what cancels the younger stages. The flush is sourced from it, so every stage
-    // reads one net instead of asking the stage below.
+    // reads one net instead of asking the stage below, and the prediction check that starts the flush is made against
+    // it as well: both sides of `next_pc =/= pred_next_pc` are registers here, out of the back's combinational path.
     val wb = Reg(new PathResult(width))
     val wbValid = RegInit(false.B)
     val wbRd = Reg(UInt(indexWidth))
     val complete = io.complete.valid
     val retire = wbValid
-    val flushing = retire & wb.redirect_valid
+    val mispredicted = wb.is_branch & (wb.next_pc =/= wb.pred_next_pc)
+    val flushing = retire & mispredicted
 
     val csr = CsrFile.instantiate(CsrFileParameter(width))
     csr.io.clock := io.clock
@@ -161,7 +164,9 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
 
       io.flush := flushing
       io.redirect.valid := flushing
-      io.redirect.bits := wb.redirect_target
+      // The restart is wherever the branch actually resolved to: `next_pc`, not the target — under a predictor a
+      // mispredict on a not-taken resolution points back at the fall-through.
+      io.redirect.bits := wb.next_pc
 
       arf.io.write.valid := retire
       arf.io.write.bits.index := wbRd

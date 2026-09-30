@@ -1,6 +1,6 @@
 package nzea_core.back
 
-import nzea_core.{BypassLevel, CoreConfig}
+import nzea_core.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.back.mem.{DbusUser, MemPath, MmioWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
 import nzea_rtl.{RtlFlow, StatScope, TestFlow}
@@ -17,7 +17,15 @@ object BackPathTest extends TestSuite:
 
   private val module =
     Back.moduleName(
-      BackParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, Seq(window), BypassLevel.Commit, StatScope.root)
+      BackParameter(
+        Isa("riscv32i"),
+        0x80000000L,
+        RtlFlow.Yosys,
+        Seq(window),
+        BypassLevel.Commit,
+        BpuLevel.Bimodal(128, 8),
+        StatScope.root
+      )
     )
 
   private def elaborate(isa: String, level: BypassLevel = BypassLevel.Commit): String =
@@ -38,6 +46,8 @@ object BackPathTest extends TestSuite:
             window,
             "--bypass",
             level.name,
+            "--bpu",
+            "bimodal:128:8",
             "--stats",
             "root"
           )
@@ -58,6 +68,7 @@ object BackPathTest extends TestSuite:
           "issue_first" -> 1,
           "issue_bits_pc" -> width,
           "issue_bits_next_pc" -> width,
+          "issue_bits_fall_through" -> width,
           "issue_bits_imm" -> width,
           "issue_bits_src_a" -> width,
           "issue_bits_src_b" -> width,
@@ -67,14 +78,18 @@ object BackPathTest extends TestSuite:
           "issue_bits_csr_type" -> CsrType.width,
           "issue_bits_csr_rdata" -> width,
           "issue_bits_rd_index" -> Gpr.indexWidth,
+          "bp_update_valid" -> 1,
+          "bp_update_bits_pc" -> width,
+          "bp_update_bits_taken" -> 1,
+          "bp_update_bits_target" -> width,
           "complete_valid" -> 1,
           "complete_bits_data" -> width,
           "complete_bits_next_pc" -> width,
           "complete_bits_csr_type" -> CsrType.width,
           "complete_bits_csr_data" -> width,
           "complete_bits_is_mmio" -> 1,
-          "complete_bits_redirect_valid" -> 1,
-          "complete_bits_redirect_target" -> width,
+          "complete_bits_is_branch" -> 1,
+          "complete_bits_pred_next_pc" -> width,
           "dbus_req_valid" -> 1,
           "dbus_req_ready" -> 1,
           "dbus_req_bits_addr" -> width,

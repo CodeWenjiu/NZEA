@@ -2,20 +2,22 @@ package nzea_core.back.int
 
 import java.lang.foreign.Arena
 
+import me.jiuyang.stdlib.ValidIO
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.CoreConfig
-import nzea_core.back.{IssueSlot, IssueUop, PathResult}
+import nzea_core.{BpuLevel, CoreConfig}
+import nzea_core.back.{BpUpdate, IssueSlot, IssueUop, PathResult}
 import nzea_core.isa.{CsrType, Isa}
 import nzea_core.stats.Regions
 import nzea_rtl.{RtlFlow, StatScope}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, stats: StatScope) extends Parameter:
+case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, stats: StatScope, bpu: BpuLevel)
+    extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IntPathParameter] = upickle.default.macroRW
@@ -30,6 +32,11 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
   val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
   val done = Aligned(Bool())
   val result = Aligned(new PathResult(width))
+
+  /** The resolved branches, for the front's predictor: the branch unit's own wires, registered at the resolve cycle so
+    * the tables' write decode hangs off registers rather than off the units' cones.
+    */
+  val bp_update = Aligned(ValidIO(new BpUpdate(width)))
 
 class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParameter, IntPathLayers](parameter)
 
@@ -67,6 +74,19 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val isBru = selects(IntOp.bru)
     val isSysu = selects(IntOp.sysu)
 
+    // The branch path's fall-through: the instruction's own `pc + 4`, carried from the fetch beside the prediction —
+    // the lookup that answered the prediction made it too, so nothing here rebuilds that adder. It is the not-taken
+    // continuation, the link value, and the value the write-back stage's prediction check compares against.
+    val fallThrough: Referable[UInt] = u.fall_through
+
+    /** The cycle a branch resolves: a per-instruction event on the uop's first cycle — the combinational unit holds its
+      * uop for the whole residence, so counting the level would count one branch once per cycle it is held. A named
+      * wire on purpose: the counters, the predictor's training and the waveform's event file (`branch.pulse` beside
+      * this one) all address this event by name.
+      */
+    val branchResolved = Wire(Bool())
+    branchResolved := uopFirst & isBru
+
     /** The three combinational units. The operands are the uop's slots — decode already resolved them — and each unit
       * slices its own width out of the shared op field.
       */
@@ -78,12 +98,13 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       alu
 
     def bruUnit() =
-      val bru = Bru.instantiate(BruParameter(width))
+      val bru = Bru.instantiate(BruParameter(width, parameter.bpu))
       bru.io.op := Encoding.take(fuOp, BruOp.width)
       bru.io.pc := u.pc
       // The prediction is data, and it has been since the fetch: the uop carries the next pc the fetcher predicted
       // when it read this instruction. A predictor that lands later replaces the fetcher's one value, not this unit.
       bru.io.predNextPc := u.next_pc
+      bru.io.fallThrough := fallThrough
       bru.io.offset := u.imm
       bru.io.rs1 := u.src_a
       bru.io.rs2 := u.src_b
@@ -101,14 +122,13 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
     val bru = bruUnit()
     val sysu = sysuUnit()
 
-    // The resolved branch rides the result: `redirect_valid` is the mispredict, and the target — not `nextPc` — is
-    // where the fetch stream restarts (the middle latches both with the completion and broadcasts them in write-back).
-    // The condition is a named wire on purpose (like `branchResolved` below): the redirect and the waveform's event
-    // file (`branch.pulse` beside this one) both address it by name, and a plain alias would fold into the unit's port.
+    // The resolved branch rides the result as data: `is_branch` marks it, and `next_pc` is wherever it actually goes —
+    // under a predictor, a mispredict on a not-taken resolution points back at the fall-through. The prediction check
+    // itself is the write-back stage's, made there against registers. The resolve cycle is a named wire on purpose
+    // (like `branchResolved` below): its counters and the waveform's event file (`branch.pulse` beside this one) address
+    // it by name, and a plain alias would fold into the unit's port.
     val branchMispred = Wire(Bool())
     branchMispred := uopValid & isBru & bru.io.mispredict
-    io.result.redirect_valid := branchMispred
-    io.result.redirect_target := bru.io.target
 
     /** MUL and DIV come and go with M, and the same set that decides that here decided the window's codes above. */
     def mulDivUnits() =
@@ -152,7 +172,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       // configured cases in tag order, so the two cannot drift apart.
       val unitData: IntOp => Referable[UInt] =
         case IntOp.Alu(_)  => alu.io.data
-        case IntOp.Bru(_)  => u.next_pc
+        case IntOp.Bru(_)  => fallThrough
         case IntOp.Sysu(_) => u.csr_rdata
         case IntOp.Mul(_)  => mulData
         case IntOp.Div(_)  => divData
@@ -161,32 +181,61 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
       io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)
       io.result.data := data
-      io.result.next_pc := isBru ? (bru.io.nextPc, u.next_pc)
+      // One mux, not two: `isBru & taken` picks the target in the same level the test lands, so the write-back stage's
+      // next pc does not pay two mux stages for one choice.
+      io.result.next_pc := (isBru & bru.io.taken) ? (bru.io.target, fallThrough)
       io.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
       io.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
       io.result.is_mmio := false.B
+      io.result.is_branch := isBru
+      io.result.pred_next_pc := u.next_pc
 
     result()
 
-    /** Counters the simulator reads back: every branch or jump that resolves here, and how the fetch stream did against
-      * it. Declared here, and emitted from these declarations after elaboration.
+    /** The predictor's training data: the branch unit's own outcome, registered on the cycle it resolves. Every signal
+      * already exists — the interface exists at every level, and nothing here knows whether a front is listening — and
+      * the register is what keeps the tables' write decode (a whole PHT/BTB worth of fanout in the front) off the cones
+      * that produce them, the target adder's above all. Training therefore lands one cycle after the resolve it
+      * describes: a table reorganizes a round later, which only a self-loop tighter than roughly two cycles could
+      * notice.
+      */
+    def bpTraining(): Unit =
+      val updateValid = RegInit(false.B)
+      val updatePc = Reg(UInt(width))
+      val updateTaken = Reg(Bool())
+      val updateTarget = Reg(UInt(width))
+      when(branchResolved) {
+        updatePc := u.pc
+        updateTaken := bru.io.taken
+        updateTarget := bru.io.target
+      }
+      updateValid := branchResolved
+      io.bp_update.valid := updateValid
+      io.bp_update.bits.pc := updatePc
+      io.bp_update.bits.taken := updateTaken
+      io.bp_update.bits.target := updateTarget
+
+    bpTraining()
+
+    /** Counters the simulator reads back: every branch or jump that resolves here, how it went, and how the fetch
+      * stream's prediction did against it. Declared here, and emitted from these declarations after elaboration.
       */
     def counters(): Unit =
       if parameter.flow.counters then
         val branch = parameter.stats.stat("bp_branch", Regions.Bp, "resolved branches")
+        val taken = parameter.stats.stat("bp_taken", Regions.Bp, "resolved branches that were taken")
         val mispred = parameter.stats.stat("bp_mispred", Regions.Bp, "branches whose prediction was wrong")
-        // A per-instruction event is the slot's first cycle: a combinational unit holds its uop for the whole
-        // residence, so counting the level would count one branch once per cycle it is held — and with back-to-back
-        // instructions the level does not fall between them. It is a named wire on purpose: the counters and the
-        // waveform's event file (`branch.pulse` beside this one) both address this event by name, and a plain val
-        // would be inlined into an anonymous net.
-        val branchResolved = Wire(Bool())
-        branchResolved := uopFirst & isBru
         branch.inc(branchResolved)
+        taken.inc(branchResolved & bru.io.taken)
         mispred.inc(branchResolved & branchMispred)
-        // No taken counter: the fetch stream predicts the fall-through, so a taken branch *is* a misprediction here
-        // and a second counter would report the same number twice. The taken bias is what a predictor turns into a
-        // prediction — it becomes a statistic of its own when one lands.
+        parameter.stats.rule(
+          "taken_rate",
+          s"${taken.name} / ${branch.name} * 100",
+          Regions.Bp,
+          "%",
+          2,
+          "share of resolved branches that were taken, the bias a predictor exploits"
+        )
         parameter.stats.rule(
           "mispredict_rate",
           s"${mispred.name} / ${branch.name} * 100",

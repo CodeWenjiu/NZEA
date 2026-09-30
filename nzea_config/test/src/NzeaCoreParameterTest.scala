@@ -1,6 +1,6 @@
 package nzea_config
 
-import nzea_core.BypassLevel
+import nzea_core.{BpuLevel, BypassLevel}
 import nzea_core.isa.Isa
 import nzea_rtl.{RtlFlow, StatScope}
 import utest.*
@@ -17,6 +17,7 @@ object NzeaCoreParameterTest extends TestSuite:
       RtlFlow.Yosys,
       Seq("0x10000000:8"),
       BypassLevel.Commit,
+      BpuLevel.Bimodal(128, 8),
       StatScope.root
     )
 
@@ -25,6 +26,8 @@ object NzeaCoreParameterTest extends TestSuite:
       assert(parameter.config.width == 32)
       assert(parameter.config.defaultPc == 0x80000000L)
       assert(parameter.bypass.commit)
+      assert(parameter.bpu.predicted)
+      assert(parameter.bpu.name == "bimodal:128:8")
       assert(!parameter.flow.bridges)
 
     test("it round-trips through the config file"):
