@@ -45,30 +45,62 @@ fn parse_def(s: &str) -> Result<(String, Expr), WaveError> {
 /// After normalization, every `Signal` in the AST carries a fully-qualified
 /// name: bare names are prefixed with `ns` (or kept bare for the main scope),
 /// and event references are replaced by their definition subtrees.
+///
+/// A reference whose definition is already being expanded stays a signal
+/// instead of expanding again: `flushing = flushing` is the natural alias for
+/// a signal of that name in the event set's scope, and a definition chain that
+/// loops back (`a = b`, `b = a`) must terminate, not recurse forever.
 pub(crate) fn normalize(expr: &Expr, ns: &str, events: &BTreeMap<String, Expr>) -> Expr {
+    normalize_with(expr, ns, events, &mut Vec::new())
+}
+
+/// [`normalize`] with the path of definitions currently open — the guard that
+/// turns a back-reference into a signal.
+fn normalize_with(
+    expr: &Expr,
+    ns: &str,
+    events: &BTreeMap<String, Expr>,
+    expanding: &mut Vec<String>,
+) -> Expr {
     super::expr::walk::map(expr, &mut |e| match e {
-        Expr::Signal(name) => {
-            if name.contains('.') {
-                // Qualified: either an event reference or a namespaced signal
-                if let Some(def) = events.get(name) {
-                    // Substitute with the definition, normalized in ITS own namespace
-                    let set_ns = name.split('.').next().unwrap_or("").to_string();
-                    return normalize(def, &set_ns, events);
-                }
-                // Namespaced signal: keep as-is
-                Expr::Signal(name.clone())
-            } else if let Some(def) = events.get(&format!("{ns}.{name}")) {
-                // Bare name matching an event in the current namespace
-                normalize(def, ns, events)
-            } else if ns.is_empty() {
-                Expr::Signal(name.clone())
-            } else {
-                // Bare signal in a non-main namespace → qualify
-                Expr::Signal(format!("{ns}.{name}"))
-            }
-        }
+        Expr::Signal(name) => normalize_signal(name, ns, events, expanding),
         _ => e.clone(),
     })
+}
+
+/// One signal reference: an event reference expands into its definition, every
+/// other name is qualified with the namespace it is read in.
+fn normalize_signal(
+    name: &str,
+    ns: &str,
+    events: &BTreeMap<String, Expr>,
+    expanding: &mut Vec<String>,
+) -> Expr {
+    // A qualified name is an event reference looked up as-is; a bare one is
+    // looked up under the current namespace.
+    let key = if name.contains('.') {
+        name.to_string()
+    } else {
+        format!("{ns}.{name}")
+    };
+    if !expanding.contains(&key)
+        && let Some(def) = events.get(&key)
+    {
+        // Substitute with the definition, normalized in ITS own namespace:
+        // a reference through another set's namespace enters that set.
+        let set_ns = key.split('.').next().unwrap_or("").to_string();
+        expanding.push(key);
+        let out = normalize_with(def, &set_ns, events, expanding);
+        expanding.pop();
+        return out;
+    }
+    // Not an expandable event reference, so a signal: bare names take the
+    // namespace prefix, main-scope and already-qualified names keep theirs.
+    if name.contains('.') || !ns.is_empty() {
+        Expr::Signal(key)
+    } else {
+        Expr::Signal(name.to_string())
+    }
 }
 
 /// Collect (namespace, signal name) pairs from a normalized AST.
@@ -85,4 +117,56 @@ pub(crate) fn collect_signal_refs(expr: &Expr, out: &mut Vec<(Option<String>, St
         Ok(())
     })
     .expect("collect_signal_refs callback is infallible")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sig(name: &str) -> Expr {
+        Expr::Signal(name.to_string())
+    }
+
+    fn defs(entries: &[(&str, Expr)]) -> BTreeMap<String, Expr> {
+        entries.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    #[test]
+    fn self_named_definition_resolves_to_a_signal() {
+        // `flushing = flushing`: the natural alias for the set scope's own
+        // signal, not a reason to expand forever.
+        let events = defs(&[("W.flushing", sig("flushing"))]);
+        assert_eq!(normalize(&sig("W.flushing"), "", &events), sig("W.flushing"));
+    }
+
+    #[test]
+    fn definition_cycle_terminates() {
+        // `a = b`, `b = a`: the back-edge (`W.a` reached from inside `W.b`)
+        // resolves as the signal instead of recursing.
+        let events = defs(&[("W.a", sig("b")), ("W.b", sig("a"))]);
+        assert_eq!(normalize(&sig("W.a"), "", &events), sig("W.a"));
+    }
+
+    #[test]
+    fn definitions_still_expand_and_qualify() {
+        // `taken = resolved && W.mispred` with `mispred = mispred_valid`: one
+        // definition expands into another, and bare signals get the set's
+        // namespace.
+        let events = defs(&[
+            (
+                "W.taken",
+                Expr::And(Box::new(sig("resolved")), Box::new(sig("W.mispred"))),
+            ),
+            ("W.mispred", sig("mispred_valid")),
+        ]);
+        let want = Expr::And(Box::new(sig("W.resolved")), Box::new(sig("W.mispred_valid")));
+        assert_eq!(normalize(&sig("W.taken"), "", &events), want);
+    }
+
+    #[test]
+    fn namespace_qualification_matches_the_reading_scope() {
+        let events = defs(&[]);
+        assert_eq!(normalize(&sig("flushing"), "W", &events), sig("W.flushing"));
+        assert_eq!(normalize(&sig("flushing"), "", &events), sig("flushing"));
+    }
 }

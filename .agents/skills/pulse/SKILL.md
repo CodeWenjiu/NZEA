@@ -126,6 +126,10 @@ An event set binds a source to a scope and gives it a namespace name:
   is whitespace-split): `--event "bus_transfer=req_valid&&req_ready->resp_valid TOP.NzeaTile.icache Icache"`.
 - Undefined signals are an error, never a silent empty result. Undefined event
   namespaces in `--eval` are also an error.
+- A definition may read a name equal to its own (`flushing = flushing`): a
+  back-reference resolves as a signal, not another expansion — self-aliases
+  work, and definition cycles (`a = b`, `b = a`) terminate instead of
+  recursing forever.
 
 ## Expression language
 

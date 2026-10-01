@@ -25,6 +25,32 @@ Use the installed binary as the source of truth for exact syntax, defaults, and 
 
 Before using any command in a nontrivial way, read `pulse help <command>`. Do this instead of trying to guess spellings.
 
+## Mental model (read this first)
+
+pulse is an **event engine + value reader** over waveform files. Four verbs:
+
+| Verb | Command | Answers |
+|---|---|---|
+| Discover | `info` / `scope` / `signal` | What is in this dump? |
+| Find time | `property` | WHEN did X happen? (event engine) |
+| Read value | `value` | What value did X have then? |
+| Show | `plot` / `diff` | Draw it / compare two runs |
+
+Two time domains, one shared TimeBase (the posedge table):
+
+- **tick** = raw waveform timestamp (`--at` bare numbers, `value` samples)
+- **cycle** = Nth posedge of `clock` (`--cycles`, `--at Nc`, `property` matches)
+
+Cross-cutting composition (no new verbs):
+
+- `property --sample EXPR` — read values while finding events (commit-log style).
+- `value --at 'match(EXPR)'` — use the event language as a time-point source.
+- `--json` everywhere; `property` matches carry `{cycle, tick}` pairs so no
+  manual conversion is ever needed.
+
+The canonical workflow: `info` → `scope` → pick signals → `property` to find
+interesting cycles → `--sample` (or `value --at match()`) to read the scene.
+
 ## Command routing by task
 
 - Dump bounds, time unit, top-level scopes: `info`.
@@ -34,10 +60,16 @@ Before using any command in a nontrivial way, read `pulse help <command>`. Do th
   constant-folding checks can be derived from metadata alone).
 - State at explicit timestamp(s) or ranges: `value`.
 - Timestamps/ranges where a boolean or temporal event expression is true: `property`.
+- **Event + value in one pass**: `property --sample EXPR` attaches a value
+  column to every match (commit log in one command).
+- **Events as time points**: `value --at 'match(EXPR)'` samples signals at
+  every tick where the event expression fires — same evaluator as `--eval`.
 - Render a waveform window as SVG (for humans/docs): `plot`.
 - Compare two waveforms (pass/fail, before/after a fix): `diff`.
 - Event files and cross-module composition: `property --event` + `--eval` (see below).
 - Counting event occurrences (match counts, no range lists): `property --count`.
+- Many queries in one process (one waveform load, shared signal cache):
+  `batch` (see below).
 - Machine parsing or aggregation: `--json` on every command.
 
 Start most investigations with:
@@ -94,6 +126,10 @@ An event set binds a source to a scope and gives it a namespace name:
   is whitespace-split): `--event "bus_transfer=req_valid&&req_ready->resp_valid TOP.NzeaTile.icache Icache"`.
 - Undefined signals are an error, never a silent empty result. Undefined event
   namespaces in `--eval` are also an error.
+- A definition may read a name equal to its own (`flushing = flushing`): a
+  back-reference resolves as a signal, not another expansion — self-aliases
+  work, and definition cycles (`a = b`, `b = a`) terminate instead of
+  recursing forever.
 
 ## Expression language
 
@@ -177,13 +213,36 @@ shorthand for `0--N` and `N--0`.
 ## Time windows and search speed
 
 - `--cycles FROM-TO` selects a window of **cycles** (posedge-clock counts), not
-  ticks: `0-100`, `500-`, `-100`, or omitted for the full trace.
+  ticks: `0-100`, `500-`, `-100`, or omitted for the full trace. A window
+  entirely past the trace end is an **error** (not silent empty matches) —
+  e.g. `--cycles 1326400-1326542` on a 663271-cycle dump fails with
+  "empty window".
 - Prefer a strong `--cycles` window over `--max`: evaluation scans the whole
   window, so a narrow window is the primary speed lever. `--max` only truncates
   the output afterwards; it does not speed up the search.
 - `value --at` takes ticks with optional units: `100`, `200-400`, `100-`
   (open-ended, clamped to the last tick), `-100` (from start), `~N` (last N
-  ticks), or a comma-separated mix. `200-400` emits one row per tick in the range.
+  ticks), or a comma-separated mix. `200-400` emits one row per tick in the
+  range.
+- **Unit suffixes on `--at`**: `100c` = the 100th cycle (posedge-clock count,
+  resolved through the same TimeBase as `--cycles`; errors when past the
+  trace), `100t` = tick 100 (same as bare `100`), `100ns` = absolute time in
+  nanoseconds (converted via the dump's timescale, rounded down). Ranges and
+  `-`/`~` forms stay in ticks.
+- **`--at 'match(EXPR)'`**: sample at every tick where the event fires — the
+  full expression language is available (`&&`, `->`, windows, `rise`/`fall`,
+  `is_x`):
+
+      pulse value --at 'match(flushing)' --signals redirect_bits,ex_pc --radix hex
+
+  The scan covers the whole trace (no `--cycles` on `value`); expression
+  signals are resolved in the same scope and need not be listed in
+  `--signals`. Event-set references are not available here (no `--event`).
+- `property --sample NAME` (repeatable) appends a per-match value column,
+  single `--eval` only: signal names sample width-aware (radix via `--radix`,
+  default `hex`); anything else is a value expression evaluated to 0/1
+  (e.g. `--sample 'pc == 0x8000'`). X/Z samples render `?`. Mutually
+  exclusive with `--count`; combines with `--cycles`/`--max`.
 - `value --changes` (mutually exclusive with `--at`) scans the whole trace and
   emits **one row per tick where any requested signal's value differs from the
   previous tick** (the first tick always appears: initial state). Multi-signal
@@ -202,6 +261,32 @@ shorthand for `0--N` and `N--0`.
   `io_top=80010eec` instead of a 32-bit 0/1 string. One-bit signals are
   unaffected (always 0/1). Works for both JSON and text output; X/Z values or
   vectors wider than 64 bits fall back to binary.
+
+## Batch scripts (many queries, one process)
+
+Each CLI invocation loads the waveform and scans the FST for the requested
+signals (2s for a 15 MB dump); a script with many queries pays that per call.
+`batch` runs all commands in **one process**: the waveform is loaded once and
+loaded signals stay in the cache, so repeated queries are ~instant.
+
+    pulse batch --wave trace.fst script.ppl      # script file
+    pulse batch --wave trace.fst - <<'EOF'        # stdin
+    property --scope TOP.NzeaTile.core --eval io_dbus_req_valid --count
+    value --scope TOP.NzeaTile.core --at 603c --signals io_dbus_req_bits_addr --radix hex
+    property --scope TOP.NzeaTile.core --eval io_dbus_req_valid --sample io_dbus_req_bits_addr --cycles 0-1000
+    EOF
+
+- One command per line; **syntax identical to the CLI** (quotes group words).
+  Blank lines and `#` comments are skipped.
+- First query on a signal still scans the whole FST; every later query on that
+  signal is free. Group queries by signal to maximise the win.
+- Errors stop the script (shell-script semantics) and the exit code is
+  non-zero; `--keep-going` runs everything and still reports failure.
+- Command echo (`> cmd`) goes to **stderr**; stdout carries only command
+  output, so `--json` sessions are pure NDJSON (`| jq` works).
+- `--wave` is session-level (not per line); inline `--json` is allowed and
+  overrides the output format for that line only. `diff` works inside a
+  script too (it takes `--wave-a`/`--wave-b` on its own line).
 
 ## Plotting (SVG output)
 
@@ -290,19 +375,20 @@ Every command supports `--json`:
 - `scope`: tree nodes `{name, depth, expanded?}` or flat `{path}` list
 - `signal`: `{scope, signals: [{name, width, vector}]}`
 - `value`: `{scope, signals, samples: [{time, <sig>: value, ...}]}`
-- `property` (single `--eval`): `{from, to, total_cycles, max?, matches: [<t> | {from,to}]}`
+- `property` (single `--eval`): `{from, to, total_cycles, max?, matches: [{cycle, tick} | {from: {cycle,tick}, to: {cycle,tick}}]}`
+  — every match carries **both time domains**, so consumers never convert.
+- `property --sample`: additionally `samples: [{cycle, tick, <name>: value, ...}]`
+  (values in the `--radix` format, `"?"` for X/Z).
 - `property --count` (single `--eval`): `{from, to, total_cycles, count}`
 - `property` (multiple `--eval`): `{from, to, total_cycles, max?, columns: [{name, matches}]}`
 - `property --count` (multiple `--eval`): `{from, to, total_cycles, columns: [{name, count}]}`
 
-`property` matches are **cycle indices** (the Nth posedge-clock edge) for point
-events and `{from,to}` objects for interval events (`~~`). This matches the
-`from`/`to`/`total_cycles` fields and the `--cycles` window, so all of
-`property`'s output is in one unit. To sample signal values at a matched cycle,
-convert to a tick and use `value --at`: the Nth posedge of `clock` has tick
-`2*N` in a 2x-timescale dump (tick = cycle*2 when `posedge` and `negedge` both
-dump; verify with `pulse info` `time_end` vs `property --count` `total_cycles`,
-ratio = ticks per cycle).
+All time-based commands share one TimeBase: `--cycles` numbers, `--at Nc` and
+`property` matches are the same cycle domain (Nth posedge of `clock`); ticks
+are the raw waveform timestamps (`value` samples and `--at` bare numbers).
+Text output renders the cycle; `--json` adds the tick on every match.
+When the scope has no clock signal, a cycle *is* a time-table entry — the two
+domains collapse, which is the ILA-export convention.
 
 ## Recovery patterns
 
