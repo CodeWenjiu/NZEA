@@ -86,6 +86,45 @@ def prefixAdder(a: Referable[UInt], b: Referable[UInt], cin: Referable[Bool], wi
   // The carry into bit k is generate[k - 1]; bit 0 takes cin.
   Node(half ^ Node(generate.bits(width - 2, 0) ## cin.asBits)).asUInt
 
+/** Unsigned `a < b` as a Kogge-Stone borrow scan, not the `<` primitive.
+  *
+  * `<` left to synthesis maps to a serial borrow chain — one gate per bit chasing the borrow upward (measured at ~0.9
+  * ns across 32 bits inside the execute loop) — because the area-cheapest shape for a comparator is a ripple, the same
+  * collapse [[pcPlus4]]'s doc records for constant addends. The borrow has a prefix recurrence of its own: a bit
+  * *generates* a borrow when `!a[i] & b[i]`, *propagates* one when `a[i] == b[i]`, and the answer is the borrow that
+  * reaches past the top bit — an O(log2 n) network of the same shape [[prefixAdder]] runs for its carries.
+  */
+def lessThan(a: Referable[UInt], b: Referable[UInt], width: Int)(using
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): Node[Bool] =
+  require(width >= 2, s"lessThan needs width >= 2, got $width")
+  val aBits: Node[Bits] = Node(a.asBits)
+  val bBits: Node[Bits] = Node(b.asBits)
+
+  var generate: Node[Bits] = Node(~aBits & bBits)
+  var propagate: Node[Bits] = Node(~(aBits ^ bBits))
+
+  // The same rolling-span recurrence as the adder's: after level i, generate[k]/propagate[k] cover [k - 2^i + 1 .. k].
+  var level = 0
+  while (1 << level) < width do
+    val distance = 1 << level
+    val pad: Referable[Bits] = BigInt(0).B(distance)
+    val mask: Referable[Bits] = ((BigInt(1) << distance) - 1).B(width + distance)
+    val previousGenerate: Node[Bits] = (generate ## pad).bits(width - 1, 0)
+    val previousPropagate: Node[Bits] = ((propagate ## pad) | mask).bits(width - 1, 0)
+    generate = Node(generate | (propagate & previousGenerate))
+    propagate = Node(propagate & previousPropagate)
+    level += 1
+
+  // The borrow past the top bit is the answer; nothing else reads the network.
+  Node(generate.bit(width - 1))
+
 /** A pc's fall-through, `pc + 4`, as a Kogge-Stone AND-prefix rather than a general adder.
   *
   * A general adder with a constant addend (`prefixAdder(x, 4, ...)`) collapses under synthesis into a ripple of complex

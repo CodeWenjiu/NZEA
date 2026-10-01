@@ -169,14 +169,18 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       */
     def result(): Unit =
       // Every unit's value is built and the tag picks between them: the union owns that mux, and its entries are the
-      // configured cases in tag order, so the two cannot drift apart.
+      // configured cases, so the two cannot drift apart. The order decides the shape only (the tags are exclusive):
+      // the ALU's value is the deep one — a whole execute cone behind it — so it is registered last, at the mux's
+      // shallow end, and the register-fed values take the depth instead.
       val unitData: IntOp => Referable[UInt] =
         case IntOp.Alu(_)  => alu.io.data
         case IntOp.Bru(_)  => fallThrough
         case IntOp.Sysu(_) => u.csr_rdata
         case IntOp.Mul(_)  => mulData
         case IntOp.Div(_)  => divData
-      val data: Referable[UInt] = ops.dispatch(op)(ops.cases.map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
+      val (aluCases, otherCases) = ops.cases.partition { case IntOp.Alu(_) => true; case _ => false }
+      val data: Referable[UInt] =
+        ops.dispatch(op)((otherCases ++ aluCases).map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
       val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
 
       io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)

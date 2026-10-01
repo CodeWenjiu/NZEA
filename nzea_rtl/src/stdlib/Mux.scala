@@ -53,7 +53,29 @@ def muxLookup[K <: Data, V <: Data](
 ): Referable[V] =
   muxCase(default, mapping.map((k, v) => (key === k, v)))
 
-/** Chisel `Mux1H` over bit vectors of the given `width`. */
+/** Pairwise reduce in one shape: each level combines neighbours, so the expression a caller builds is a balanced tree,
+  * not a serial fold. Serial folds are what leave synthesis a chain to map — the execute loop's src-to-src bypass cone
+  * measured two gates per fold step (see the selection helpers below that use this).
+  */
+private def balancedReduce[T](values: Seq[T])(combine: (T, T) => T): T =
+  require(values.nonEmpty, "balancedReduce needs at least one value")
+  var level: Seq[T] = values
+  while level.size > 1 do
+    level = level
+      .grouped(2)
+      .map {
+        case Seq(lhs, rhs) => combine(lhs, rhs)
+        case Seq(only)     => only
+      }
+      .toSeq
+  level.head
+
+/** Chisel `Mux1H` over bit vectors of the given `width`.
+  *
+  * The one-hot sum of products the name promises — each value gated by its own select bit and the gates ORed — but the
+  * OR is [[balancedReduce]], not a serial fold: `n` values mean `ceil(log2 n)` gate levels, the shape synthesis can
+  * keep, however many there are. An all-zero selector still yields zero, every product being gated off.
+  */
 def mux1H(
     sel: Referable[UInt],
     values: Seq[Referable[Bits]],
@@ -69,10 +91,9 @@ def mux1H(
 ): Node[Bits] =
   require(values.nonEmpty, "mux1H needs at least one value")
   require(width >= 1, s"mux1H expects width >= 1, got $width")
-  val zero = BigInt(0).B(width)
-  values.zipWithIndex
-    .map((value, index) => sel.asBits.bit(index) ? (value, zero))
-    .reduce((lhs, rhs) => lhs | rhs)
+  balancedReduce(values.zipWithIndex.map((value, index) => fill(width, sel.asBits.bit(index)) & Node(value.asBits)))(
+    (lhs, rhs) => lhs | rhs
+  )
 
 /** Chisel `Mux1H` over `UInt` values. */
 @targetName("mux1HUInt")
@@ -105,6 +126,4 @@ def mux1H(
     InstanceContext
 ): Node[Bool] =
   require(values.nonEmpty, "mux1H needs at least one value")
-  values.zipWithIndex
-    .map((value, index) => sel.asBits.bit(index) ? (value, false.B))
-    .reduce((lhs, rhs) => lhs | rhs)
+  balancedReduce(values.zipWithIndex.map((value, index) => value & sel.asBits.bit(index)))((lhs, rhs) => lhs | rhs)

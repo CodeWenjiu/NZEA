@@ -35,11 +35,10 @@ class AluProbe(parameter: AluParameter) extends DVBundle[AluParameter, AluLayers
   * The operands arrive resolved — decode filled the uop's slots — so the unit selects nothing, and being combinational
   * it carries no valid: the path gates its result with the tag it issued.
   *
-  * The one-hot encoding is load bearing here, because [[AluOp]]'s declaration order groups the ops: bits `[1:0]` are
-  * arithmetic, `[4:2]` logic, `[7:5]` shifts and `[9:8]` compares, and the word block starts at [[AluOp.baseWidth]]
-  * mirroring the arithmetic and shift groups. Each group is therefore one `mux1H` over its own slice — the base slice
-  * ORed with the word slice shifted down onto it — and the class that selects between the groups is an OR of the
-  * group's bits.
+  * The op field is the one-hot code itself, in declaration order, so the result is one flat select: every op's value
+  * built, gated by its own code bit and ORed as a balanced tree — one selection cone, where grouping the ops into
+  * classes would put two in series on the execute loop's src-to-src bypass cone. The word block reuses its base twin's
+  * value sign-extended from bit 31, which is wiring.
   */
 @generator
 object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
@@ -99,40 +98,43 @@ object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
 
     val add = prefixAdder(io.opA, io.opB, false.B, width)
     val sub = prefixAdder(io.opA, (~bBits).asUInt, true.B, width)
-    val slt = (aBits.asSInt < bBits.asSInt) ? (1.U(width), 0.U(width))
-    val sltu = (io.opA < io.opB) ? (1.U(width), 0.U(width))
-
-    // The base groups keep their positions; the word block mirrors the arithmetic and shift groups above baseWidth. A
-    // group's select is its base slice OR its word slice, both read as the group's own bits: the two slices sit at the
-    // same positions inside their own slice, so the group select is a per-bit OR, not a shift.
-    val arithWord = if hasWord then opBits.bit(AluOp.baseWidth) | opBits.bit(AluOp.baseWidth + 1) else false.B
-    val shiftWordSel: Node[UInt] =
-      if hasWord then Node(opBits.bits(7, 5) | opBits.bits(AluOp.baseWidth + 4, AluOp.baseWidth + 2)).asUInt
-      else Node(opBits.bits(7, 5)).asUInt
-    val subSel = opBits.bit(1) | (if hasWord then opBits.bit(AluOp.baseWidth + 1) else false.B)
-
-    val arith = subSel ? (sub, add)
-    val logic = mux1H(
-      Node(opBits.bits(4, 2)).asUInt,
-      Seq((aBits & bBits).asUInt, (aBits | bBits).asUInt, (aBits ^ bBits).asUInt),
-      width
+    // The compares are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a one-gate-
+    // per-bit borrow ripple (see `lessThan`), which is what put the execute loop's longest cone on this class. The
+    // one-bit answer is zero-extended by concatenation: `? (1, 0)` would spend two more gates on the cone for a value
+    // that is a wire.
+    val sltu = Node(BigInt(0).B(width - 1) ## lessThan(io.opA, io.opB, width).asBits)
+    // Signed: when the signs differ the negative side is the smaller; otherwise the words order like unsigned.
+    val signDiff: Referable[Bool] = aBits.bit(width - 1) ^ bBits.bit(width - 1)
+    val slt = Node(
+      BigInt(0).B(width - 1) ## (signDiff ? (aBits.bit(width - 1), lessThan(aBits.asUInt, bBits.asUInt, width))).asBits
     )
-    val shift = mux1H(shiftWordSel, Seq(sll, srl, sra), width)
-    val cmp = opBits.bit(9) ? (sltu, slt)
-    val arithSel = opBits.bit(0) | opBits.bit(1) | arithWord
-    val logicSel = opBits.bit(2) | opBits.bit(3) | opBits.bit(4)
-    val shiftSel =
-      opBits.bit(5) | opBits.bit(6) | opBits.bit(7) |
-        (if hasWord then
-           (opBits.bit(AluOp.baseWidth + 2) | opBits.bit(AluOp.baseWidth + 3) |
-             opBits.bit(AluOp.baseWidth + 4))
-         else false.B)
-    val cmpSel = opBits.bit(8) | opBits.bit(9)
-    val classSel: Node[UInt] = (cmpSel.asBits ## shiftSel.asBits ## logicSel.asBits ## arithSel.asBits).asUInt
 
-    val data: Node[UInt] = mux1H(classSel, Seq(arith, logic, shift, cmp), width)
-    if hasWord then
-      val dataWord: Node[UInt] =
-        (fill(width - wordWidth, data.asBits.bit(wordWidth - 1)) ## data.asBits.bits(wordWidth - 1, 0)).asUInt
-      io.data := (wordSel ? (dataWord, data))
-    else io.data := data
+    // The result: one flat one-hot select. The op field is the code itself, in declaration order, so no group/class
+    // decode sits between the values and the select — every value is built and gated by its own bit, and the gates are
+    // ORed as one balanced tree. That is one selection cone where a group mux feeding a class mux made two, and the
+    // execute loop's src-to-src bypass cone is exactly where those two cones landed, in series. The word forms reuse
+    // their base twin's value sign-extended from bit 31 — wiring, not gates — which retires the result-side word mux.
+    val signExtWord: Referable[Bits] => Node[Bits] =
+      v => Node(fill(width - wordWidth, v.bit(wordWidth - 1)) ## v.bits(wordWidth - 1, 0))
+    val values: Seq[Referable[Bits]] =
+      Seq(
+        add.asBits,
+        sub.asBits,
+        (aBits & bBits),
+        (aBits | bBits),
+        (aBits ^ bBits),
+        sll.asBits,
+        srl.asBits,
+        sra.asBits,
+        slt,
+        sltu
+      ) ++
+        (if hasWord then Seq(add.asBits, sub.asBits, sll.asBits, srl.asBits, sra.asBits).map(signExtWord)
+         else Seq.empty)
+    // The select reads the field positionally: values are in code order and a gated set only drops a trailing block
+    // (see `AluOp.set`), so a variant's position in the list is the code bit that selects it.
+    require(
+      ops.variants.zipWithIndex.forall { case (v, i) => v.ordinal == i },
+      "the flat select reads the op field positionally; a gated set must only drop a trailing block"
+    )
+    io.data := mux1H(opBits.asUInt, values, width).asUInt

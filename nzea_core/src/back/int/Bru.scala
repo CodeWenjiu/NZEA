@@ -58,18 +58,17 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
     // JALR bases its target on its register operand; every other jump and branch bases on the pc.
     val isJalr = op === BruOp.JALR.lit.U(BruOp.width)
     val target = prefixAdder(isJalr ? (io.rs1, io.pc), io.offset, false.B, width)
+    // The orderings are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a
+    // one-gate-per-bit borrow ripple (see `lessThan`), and four of the eight outcomes ride it — the same cone the ALU
+    // already took off its compares. Signed shares the unsigned scan (when the signs differ, the negative side is the
+    // smaller), and equality is one compare with its negation beside it.
+    val lessU = lessThan(io.rs1, io.rs2, width)
+    val signDiff: Referable[Bool] = rs1Bits.bit(width - 1) ^ rs2Bits.bit(width - 1)
+    val lessS: Referable[Bool] = signDiff ? (rs1Bits.bit(width - 1), lessU)
+    val equal: Referable[Bool] = io.rs1 === io.rs2
     val taken = mux1H(
       op,
-      Seq(
-        true.B,
-        true.B,
-        io.rs1 === io.rs2,
-        io.rs1 =/= io.rs2,
-        (rs1Bits.asSInt < rs2Bits.asSInt),
-        (rs1Bits.asSInt >= rs2Bits.asSInt),
-        io.rs1 < io.rs2,
-        io.rs1 >= io.rs2
-      )
+      Seq(true.B, true.B, equal, !equal, lessS, !lessS, lessU, !lessU)
     )
 
     io.taken := taken
