@@ -76,7 +76,11 @@ if {$USE_PDK} {
   dfflibmap {*}$LIBS {*}$EXCLUDE_CELLS
   opt -undriven -purge
   set max_FO 24
-  set abc_script "+strash;dch;map -B 0.9;topo;stime -c;buffer -c -N ${max_FO};upsize -c;dnsize -c;stime,-p;print_stats -m"
+  # The sweep point: `ABC_SCRIPT` overrides the mapper script (the default is the same string), so delay-vs-area
+  # variants are one env var and one `just sta` apart - `just sta` re-synthesizes, so a run measures the variant end to
+  # end.
+  set abc_script [expr {[info exists env(ABC_SCRIPT)] ? $env(ABC_SCRIPT) : \
+    "+strash;dch;map -B 0.9;topo;stime -c;buffer -c -N ${max_FO};upsize -c;dnsize -c;stime,-p;print_stats -m"}]
   abc -D "$CLK_PERIOD_PS" -constr "$sdc_file" {*}$LIBS {*}$EXCLUDE_CELLS -script $abc_script -showtmp
   hilomap -singleton -hicell {*}$TIEHI_CELL_AND_PORT -locell {*}$TIELO_CELL_AND_PORT
   setundef -zero
