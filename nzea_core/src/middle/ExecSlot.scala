@@ -4,7 +4,7 @@ import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.CoreConfig
-import nzea_core.back.OpWindow
+import nzea_core.back.{BpUpdate, OpWindow}
 import nzea_core.isa.{Backend, Gpr}
 
 /** The IS/EX register's payload: the ready-operand uop ([[nzea_core.back.IssueUop]]) plus the two fields the backend's
@@ -18,6 +18,7 @@ class ExecSlot(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
   val next_pc = Aligned(UInt(config.width))
   val fall_through = Aligned(UInt(config.width))
+  val pht_count = Aligned(UInt(BpUpdate.phtCountBits))
   val imm = Aligned(UInt(config.width))
   val src_a = Aligned(UInt(config.width))
   val src_b = Aligned(UInt(config.width))

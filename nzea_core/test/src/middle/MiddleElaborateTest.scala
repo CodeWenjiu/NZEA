@@ -1,7 +1,7 @@
 package nzea_core.middle
 
 import nzea_core.{BypassLevel, CoreConfig}
-import nzea_core.back.OpWindow
+import nzea_core.back.{BpUpdate, OpWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Srcs}
 import nzea_rtl.{RtlFlow, StatScope, TestFlow}
 import nzea_rtl.stdlib.*
@@ -59,6 +59,7 @@ object MiddleElaborateTest extends TestSuite:
           "decoded_bits_pc" -> width,
           "decoded_bits_next_pc" -> width,
           "decoded_bits_fall_through" -> width,
+          "decoded_bits_pht_count" -> BpUpdate.phtCountBits,
           "decoded_bits_imm" -> width,
           "decoded_bits_rd_index" -> Gpr.indexWidth,
           "decoded_bits_rs1_index" -> Gpr.indexWidth,
@@ -74,6 +75,7 @@ object MiddleElaborateTest extends TestSuite:
           "issue_bits_pc" -> width,
           "issue_bits_next_pc" -> width,
           "issue_bits_fall_through" -> width,
+          "issue_bits_pht_count" -> BpUpdate.phtCountBits,
           "issue_bits_imm" -> width,
           "issue_bits_src_a" -> width,
           "issue_bits_src_b" -> width,

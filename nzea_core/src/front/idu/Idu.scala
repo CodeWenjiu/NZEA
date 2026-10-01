@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.CoreConfig
-import nzea_core.back.OpWindow
+import nzea_core.back.{BpUpdate, OpWindow}
 import nzea_core.front.ifu.FetchedInst
 import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
 import nzea_rtl.stdlib.*
@@ -27,6 +27,7 @@ class IduOut(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
   val next_pc = Aligned(UInt(config.width))
   val fall_through = Aligned(UInt(config.width))
+  val pht_count = Aligned(UInt(BpUpdate.phtCountBits))
   val imm = Aligned(UInt(config.width))
   val rd_index = Aligned(UInt(Gpr.indexWidth))
   val rs1_index = Aligned(UInt(Gpr.indexWidth))
@@ -108,6 +109,7 @@ object Idu extends Generator[IduParameter, IduLayers, IduIO, IduProbe]:
     io.out.bits.pc := io.in.bits.pc
     io.out.bits.next_pc := io.in.bits.next_pc
     io.out.bits.fall_through := io.in.bits.fall_through
+    io.out.bits.pht_count := io.in.bits.pht_count
     io.out.bits.imm := imm
     io.out.bits.rd_index := rdIndex
     io.out.bits.rs1_index := rs1Index

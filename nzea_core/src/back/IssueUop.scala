@@ -26,12 +26,14 @@ import nzea_core.isa.{Backend, CsrType, Gpr}
   * and carried beside it: a predictor changes the first and never the second. The branch unit resolves against the
   * prediction (`taken ? target : fall_through` is the actual stream, which the write-back stage compares against the
   * prediction to find a mispredict), and the units that need the architectural continuation — the link value, the
-  * not-taken path — read it here instead of rebuilding an adder of their own.
+  * not-taken path — read it here instead of rebuilding an adder of their own. `pht_count` is the direction counter the
+  * fetch's prediction read; it rides the whole way only to become the predictor's training data at resolution.
   */
 class IssueUop(config: CoreConfig) extends Bundle:
   val pc = Aligned(UInt(config.width))
   val next_pc = Aligned(UInt(config.width))
   val fall_through = Aligned(UInt(config.width))
+  val pht_count = Aligned(UInt(BpUpdate.phtCountBits))
   val imm = Aligned(UInt(config.width))
   val src_a = Aligned(UInt(config.width))
   val src_b = Aligned(UInt(config.width))

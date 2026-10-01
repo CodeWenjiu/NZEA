@@ -204,16 +204,21 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
       val updatePc = Reg(UInt(width))
       val updateTaken = Reg(Bool())
       val updateTarget = Reg(UInt(width))
+      val updateCount = Reg(UInt(BpUpdate.phtCountBits))
       when(branchResolved) {
         updatePc := u.pc
         updateTaken := bru.io.taken
         updateTarget := bru.io.target
+        // The counter the fetch's prediction read, carried down the pipeline: the table's update writes the bumped value,
+        // and it cannot read the old one back (a synchronous-read memory hands its read to the fetch, not to this path).
+        updateCount := u.pht_count
       }
       updateValid := branchResolved
       io.bp_update.valid := updateValid
       io.bp_update.bits.pc := updatePc
       io.bp_update.bits.taken := updateTaken
       io.bp_update.bits.target := updateTarget
+      io.bp_update.bits.pht_count := updateCount
 
     bpTraining()
 

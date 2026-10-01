@@ -1,5 +1,6 @@
 package nzea_core.front.ifu
 
+import nzea_core.back.BpUpdate
 import utest.*
 
 /** The user-field layout is what the fetcher and any ibus peer agree on, so it is pinned here rather than left implicit
@@ -8,7 +9,7 @@ import utest.*
 object IbusUserTest extends TestSuite:
 
   val tests = Tests:
-    test("the user field is the epoch column plus the fall-through, next-pc and pc columns"):
+    test("the user field is the epoch column plus the fall-through, next-pc, pc and counter columns"):
       for addrWidth <- Seq(32, 64) do
         val user = IbusUser.layout(addrWidth)
         assert(user.offset("epoch") == 0)
@@ -19,7 +20,9 @@ object IbusUserTest extends TestSuite:
         assert(user.fieldWidth("fall_through") == addrWidth)
         assert(user.offset("pc") == IbusUser.epochBits + 2 * addrWidth)
         assert(user.fieldWidth("pc") == addrWidth)
-        assert(user.width == 3 * addrWidth + IbusUser.epochBits)
+        assert(user.offset("pht_count") == IbusUser.epochBits + 3 * addrWidth)
+        assert(user.fieldWidth("pht_count") == BpUpdate.phtCountBits)
+        assert(user.width == 3 * addrWidth + IbusUser.epochBits + BpUpdate.phtCountBits)
         assert(IbusUser.userWidth(addrWidth) == user.width)
 
     test("the epoch is a generation counter, not a single bit"):

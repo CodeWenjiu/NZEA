@@ -25,7 +25,7 @@ class BtbIO(parameter: BtbParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
 
-  /** The pc being predicted: a combinational lookup, answered in the same cycle. */
+  /** The pc being predicted: the read is issued with it, and the answer is out a cycle later. */
   val lookup_pc = Flipped(UInt(width))
   val pred_hit = Aligned(Bool())
   val pred_target = Aligned(UInt(width))
@@ -37,12 +37,17 @@ class BtbIO(parameter: BtbParameter) extends HWBundle(parameter):
 
 class BtbProbe(parameter: BtbParameter) extends DVBundle[BtbParameter, BtbLayers](parameter)
 
-/** Target buffer: a pc-indexed slot per entry, each holding {valid, tag, target} — where a taken transfer goes.
+/** Target buffer: a pc-indexed slot per entry, each holding `{tag, target}` — where a taken transfer goes.
   *
   * The buffer is written by taken resolutions only, and a lookup hits only when the slot's tag names the pc being
   * predicted. That pair is what makes a redirect from here safe: an entry only ever holds a pc that resolved taken, and
   * `index ## tag` is the entry's whole pc, so a pc whose instruction is not a taken branch cannot hit — a non-branch
   * fetch is never steered anywhere. Aliasing between branches costs a displacement, never a false hit.
+  *
+  * `{tag, target}` lives in a [[nzea_rtl.stdlib.SyncRam]] (synchronous read, write-only updates); the entry's *valid*
+  * bit does not — it stays in flops, because it is state that must start defined: it resets to zero, and a fresh buffer
+  * misses without consulting the read data at all. The tag compare and the valid read are addressed by the pc the
+  * outstanding read was issued with, which is also what a hit is reported for.
   *
   * Only the target's word address is stored (the alignment bits are zero and rewritten on read), which is the widest
   * field in the entry and the reason a target buffer is the expensive structure beside the direction table.
@@ -60,35 +65,45 @@ object Btb extends Generator[BtbParameter, BtbLayers, BtbIO, BtbProbe]:
     val entries = parameter.entries
     val indexBits = log2Ceil(entries)
     val tagBits = width - indexBits - 2
+    val targetBits = width - 2
 
     def indexOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(indexBits + 1, 2).asUInt
     def tagOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(width - 1, indexBits + 2).asUInt
 
+    // The pc the outstanding read was issued with. It resets to the reset pc so the first cycle's valid read — and with
+    // it the first hit — is answered from the reset valids rather than from an undefined index.
+    val readPc = RegInit((BigInt(parameter.config.defaultPc) & ((BigInt(1) << width) - 1)).U(width))
+
     val valids = Reg(Vec(entries, Bool()))
-    val tags = Reg(Vec(entries, UInt(tagBits)))
-    val targets = Reg(Vec(entries, UInt(width - 2)))
     when(!io.resetN.asBool) {
-      for index <- 0 until entries do
-        valids(index) := false.B
-        tags(index) := 0.U(tagBits)
-        targets(index) := 0.U(width - 2)
+      for index <- 0 until entries do valids(index) := false.B
     }
 
-    val slot = indexOf(io.lookup_pc)
-    io.pred_hit := valids.ref(slot) & (tags.ref(slot) === tagOf(io.lookup_pc))
-    io.pred_target := (targets.ref(slot).asBits ## 0.B(2)).asUInt
+    val table = SyncRam.instantiate(
+      SyncRamParameter(tagBits + targetBits, entries, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.ReadFirst)
+    )
+    table.io.clock := io.clock
+    table.io.rEn := true.B
+    table.io.rAddr := indexOf(io.lookup_pc)
 
-    // The write: a flop array has no indexed write port — one enable per entry is the write port — so the slot is
-    // selected by a compare per entry, the way the register file writes. The written values are named outside the
-    // guards: a value's definition belongs to the block that creates it, and only the connects sit inside the `when`.
+    // The write: a taken resolution writes its own tag and target whole; the valid bit it sets is the flop beside the
+    // memory. The written values are named outside the guards: a value's definition belongs to the block that creates
+    // it, and only the connects sit inside the `when`.
     val write = indexOf(io.update_pc)
-    val updateTag = tagOf(io.update_pc)
+    val updateTag: Node[UInt] = tagOf(io.update_pc)
     val updateTarget: Node[UInt] = Node(io.update_target.asBits).bits(width - 1, 2).asUInt
+    table.io.wEn := io.update_valid
+    table.io.wAddr := write
+    table.io.wData := (updateTag.asBits ## updateTarget.asBits).asUInt
     when(io.update_valid) {
-      for index <- 0 until entries do
-        when(write === index.U(indexBits)) {
-          valids(index) := true.B
-          tags(index) := updateTag
-          targets(index) := updateTarget
-        }
+      for index <- 0 until entries do when(write === index.U(indexBits)) { valids(index) := true.B }
     }
+
+    // The answer, for the pc the read was issued with: the stored tag against that pc's, gated by its valid bit, and
+    // the stored target with its alignment bits rewritten.
+    readPc := io.lookup_pc
+    val entry: Node[Bits] = Node(table.io.rData.asBits)
+    val storedTag: Node[UInt] = entry.bits(tagBits + targetBits - 1, targetBits).asUInt
+    val storedTarget: Node[UInt] = (entry.bits(targetBits - 1, 0) ## 0.B(2)).asUInt
+    io.pred_hit := valids.ref(indexOf(readPc)) & (storedTag === tagOf(readPc))
+    io.pred_target := storedTarget

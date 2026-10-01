@@ -95,6 +95,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       io.moved.pc := dec.pc
       io.moved.next_pc := dec.next_pc
       io.moved.fall_through := dec.fall_through
+      io.moved.pht_count := dec.pht_count
       io.moved.imm := dec.imm
       io.moved.src_a := io.src_a
       io.moved.src_b := io.src_b
@@ -114,6 +115,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
       uop.pc := slot.pc
       uop.next_pc := slot.next_pc
       uop.fall_through := slot.fall_through
+      uop.pht_count := slot.pht_count
       uop.imm := slot.imm
       uop.src_a := slot.src_a
       uop.src_b := slot.src_b

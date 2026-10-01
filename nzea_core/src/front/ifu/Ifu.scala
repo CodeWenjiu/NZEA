@@ -18,14 +18,16 @@ import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** One fetch result: the pc the word was read from, the word itself, the pc the fetch stream goes on with after it —
-  * the prediction the fetcher made for it (the fall-through at `Off`, the tables' answer on a predicted level) — and
-  * the instruction's own fall-through, both carried on the response rather than reconstructed later.
+  * the prediction the fetcher made for it (the fall-through at `Off`, the tables' answer on a predicted level) — the
+  * instruction's own fall-through, and the direction counter the prediction read, both carried on the response rather
+  * than reconstructed later.
   */
 class FetchedInst(width: Int) extends Bundle:
   val pc = Aligned(UInt(width))
   val inst = Aligned(UInt(32))
   val next_pc = Aligned(UInt(width))
   val fall_through = Aligned(UInt(width))
+  val pht_count = Aligned(UInt(BpUpdate.phtCountBits))
 
 case class IfuParameter(isa: Isa, defaultPc: Long, bpu: BpuLevel) extends Parameter:
   val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -54,11 +56,12 @@ class IfuProbe(parameter: IfuParameter) extends DVBundle[IfuParameter, IfuLayers
   * on reset: it asks and lets the slave refuse (a slave that is not ready does not accept), so the pc only moves on a
   * real transfer.
   *
-  * The prediction is the predictor's ([[Bpu]]), and this module only carries it: every cycle the predictor answers for
-  * the pc register's *next* value and the answer is registered, so the register holds the prediction for the pc it will
-  * hold next and the answer's depth spends the cycle in between. The prediction then rides the request's user field and
-  * comes back on the response with the instruction, so every stage below reads it off the instruction instead of
-  * recomputing it.
+  * The prediction is the predictor's ([[Bpu]]), and this module only carries it: every cycle the predictor is addressed
+  * with the pc register's *next* value — the same signal that updates the register — and answers a cycle later, out of
+  * its own registers, for the pc the register will hold then. That answer is both the register's next value and the
+  * prediction the request carries, and the training the fetch gathered for the instruction — the direction counter the
+  * prediction read — rides the request's user field beside them, so every stage below reads all of it off the
+  * instruction instead of recomputing it.
   */
 @generator
 object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
@@ -84,15 +87,11 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     val epoch = RegInit(0.U(IbusUser.epochBits))
 
     // The prediction the request carries for the instruction at `pc`, and the pc register's next value, in one
-    // structure at every level: the predictor answers for the pc's *next* value — the prediction for the next fetch is
-    // computed while this one is on the bus — and the answer is registered, so the register holds the prediction for
-    // the pc the register will hold next, and the tables' read depth spends the cycle in between. At `Off` the answer
-    // is the fall-through alone, so this loop is a mux and the level only decides what the answer is worth.
+    // structure at every level: the predictor is addressed with the pc's *next* value — the prediction for the next
+    // fetch is computed while this one is on the bus — and answers it from its own registers a cycle later, which is
+    // exactly when that value is the pc. At `Off` the answer is the fall-through alone, so the level only decides what
+    // the answer is worth.
     val bpu = Bpu.instantiate(BpuParameter(parameter.config.isa, parameter.config.defaultPc, parameter.bpu))
-    // It resets to the reset pc's own fall-through: the first fetch is predicted the sequential way, until the tables
-    // have seen a resolution.
-    val predReset = (BigInt(parameter.config.defaultPc) + 4) & ((BigInt(1) << width) - 1)
-    val predNow = RegInit(predReset.U(width))
 
     val epochNext = (epoch.asBits.asUInt + 1.U(IbusUser.epochBits)).asBits.bits(IbusUser.epochBits - 1, 0).asUInt
 
@@ -100,7 +99,7 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
       pc,
       Seq[(Referable[Bool], Referable[UInt])](
         io.redirect.valid -> io.redirect.bits,
-        io.ibus.req.fire -> predNow
+        io.ibus.req.fire -> bpu.io.pred_next_pc
       )
     )
     pc := nextPc
@@ -110,7 +109,6 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     bpu.io.update :<= io.bp_update
     // The read address is the pc register's next value: next cycle's register, one cycle early.
     bpu.io.lookup_pc := nextPc
-    predNow := bpu.io.pred_next_pc
 
     when(io.redirect.valid) {
       epoch := epochNext
@@ -137,9 +135,9 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     io.ibus.req.valid := io.out.ready
     io.ibus.req.bits.addr := wordAddr
     // The request carries the fetch's whole context: which pc it is, the pc the stream goes on with (the prediction),
-    // the instruction's own fall-through — made here, on the port's own path, so no stage below rebuilds it — and the
-    // epoch that says whether it is still wanted.
-    io.ibus.req.bits.user := IbusUser.pack(pc, predNow, pcPlus4(pc, width), epoch)
+    // the instruction's own fall-through — made here, on the port's own path, so no stage below rebuilds it — the
+    // direction counter the prediction read (training evidence), and the epoch that says whether it is still wanted.
+    io.ibus.req.bits.user := IbusUser.pack(pc, bpu.io.pred_next_pc, pcPlus4(pc, width), epoch, bpu.io.pred_count)
     io.ibus.req.bits.id := 0.U(Ifu.busIdWidth)
 
     // `out.ready` is the only condition on accepting a response: a fetch from a killed stream is consumed and digested
@@ -150,3 +148,4 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     io.out.bits.inst := inst
     io.out.bits.next_pc := respNextPc
     io.out.bits.fall_through := IbusUser.fallThroughOf(io.ibus.resp.bits.user, width)
+    io.out.bits.pht_count := IbusUser.phtCountOf(io.ibus.resp.bits.user, width)

@@ -1,6 +1,7 @@
 package nzea_core.front
 
 import nzea_core.{BpuLevel, CoreConfig}
+import nzea_core.back.BpUpdate
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
@@ -59,12 +60,14 @@ object FrontElaborateTest extends TestSuite:
           "bp_update_bits_pc" -> width,
           "bp_update_bits_taken" -> 1,
           "bp_update_bits_target" -> width,
+          "bp_update_bits_pht_count" -> BpUpdate.phtCountBits,
           "flush" -> 1,
           "out_valid" -> 1,
           "out_ready" -> 1,
           "out_bits_pc" -> width,
           "out_bits_next_pc" -> width,
           "out_bits_fall_through" -> width,
+          "out_bits_pht_count" -> BpUpdate.phtCountBits,
           "out_bits_imm" -> width,
           "out_bits_rd_index" -> Gpr.indexWidth,
           "out_bits_rs1_index" -> Gpr.indexWidth,

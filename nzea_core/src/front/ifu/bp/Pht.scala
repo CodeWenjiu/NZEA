@@ -7,6 +7,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.CoreConfig
+import nzea_core.back.BpUpdate
 import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -23,16 +24,17 @@ class PhtLayers(parameter: PhtParameter) extends LayerInterface(parameter):
 class PhtIO(parameter: PhtParameter) extends HWBundle(parameter):
   private val width = parameter.config.width
   val clock = Flipped(Clock())
-  val resetN = Flipped(Reset())
 
-  /** The pc being predicted: a combinational lookup, answered in the same cycle. */
+  /** The pc being predicted: the read is issued with it, and the answer is out a cycle later. */
   val lookup_pc = Flipped(UInt(width))
   val pred_taken = Aligned(Bool())
+  val count = Aligned(UInt(BpUpdate.phtCountBits))
 
-  /** One resolution to train on: the branch's pc and its outcome. */
+  /** One resolution to train on: the branch's pc, its outcome, and the counter its fetch read. */
   val update_valid = Flipped(Bool())
   val update_pc = Flipped(UInt(width))
   val update_taken = Flipped(Bool())
+  val update_count = Flipped(UInt(BpUpdate.phtCountBits))
 
 class PhtProbe(parameter: PhtParameter) extends DVBundle[PhtParameter, PhtLayers](parameter)
 
@@ -43,9 +45,15 @@ class PhtProbe(parameter: PhtParameter) extends DVBundle[PhtParameter, PhtLayers
   * making. A no-history table on purpose: it is the base the tagged levels grow above, and it already carries the cases
   * that need no history at all — loops and strongly biased branches.
   *
-  * Reads are combinational (the fetch needs the answer inside the lookup cycle, which the caller registers); an update
-  * lands at the end of the resolution cycle. A read and an update of the same slot in one cycle are both fine and only
-  * cost the read one resolution of staleness, which the prediction's own tolerance covers.
+  * The storage is a [[nzea_rtl.stdlib.SyncRam]]: the read is synchronous (issued a cycle before its answer is used) and
+  * the update is a plain write — the counter's new value is computed from the counter the branch's own fetch read
+  * ([[BpUpdate.pht_count]]), not from a read back through a port the prediction is using. What that trades away is
+  * freshness under aliasing: two aliasing branches in flight together each write the value their own fetch read, so one
+  * of the two increments is lost — a slower learn on conflicting slots, never a wrong prediction. The read and the
+  * write in the same cycle are the classic read-first pair: the read gets the entry as it was.
+  *
+  * Nothing here is reset — a memory entry has no reset value. A fresh table therefore predicts what its storage starts
+  * as, which in the two-state simulation this design is verified in is zero: not-taken, exactly the empty table.
   */
 @generator
 object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
@@ -54,7 +62,6 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
   def architecture(parameter: PhtParameter) =
     val io = summon[Interface[PhtIO]]
     given ClockScope = ClockScope.posedge(io.clock)
-    given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val entries = parameter.entries
     val indexBits = log2Ceil(entries)
@@ -62,24 +69,23 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
     /** A pc's slot: the word-aligned pc's low bits, the same slice the legacy table used. */
     def indexOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(indexBits + 1, 2).asUInt
 
-    // Every slot starts defined — a counter at zero, which reads as not-taken — so the four-state simulation sees the
-    // same reset state as the tables' empty state implies.
-    val counters = Reg(Vec(entries, UInt(2)))
-    when(!io.resetN.asBool) {
-      for index <- 0 until entries do counters(index) := 0.U(2)
-    }
+    /** The counter's next value: one step toward the outcome, saturated at either end. */
+    def saturating(count: Referable[UInt], taken: Referable[Bool]): Referable[UInt] =
+      val bumped = (count + 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
+      val dropped = (count - 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
+      val max = ((1 << BpUpdate.phtCountBits) - 1).U(BpUpdate.phtCountBits)
+      val onTaken: Referable[UInt] = (count === max) ? (max, bumped)
+      val onNotTaken: Referable[UInt] = (count === 0.U(BpUpdate.phtCountBits)) ? (0.U(BpUpdate.phtCountBits), dropped)
+      taken ? (onTaken, onNotTaken)
 
-    io.pred_taken := counters.ref(indexOf(io.lookup_pc)).asBits.bit(1)
-
-    // The update: the counter is read back and written saturated. A flop array has no indexed write port — one enable
-    // per slot is the write port — so the slot is selected by a compare per entry, the way the register file writes.
-    val writeIndex = indexOf(io.update_pc)
-    val slot = counters.ref(writeIndex)
-    val bumped = (slot + 1.U(2)).asBits.bits(1, 0).asUInt
-    val dropped = (slot - 1.U(2)).asBits.bits(1, 0).asUInt
-    val onTaken: Referable[UInt] = (slot === 3.U(2)) ? (3.U(2), bumped)
-    val onNotTaken: Referable[UInt] = (slot === 0.U(2)) ? (0.U(2), dropped)
-    val saturating: Referable[UInt] = io.update_taken ? (onTaken, onNotTaken)
-    when(io.update_valid) {
-      for index <- 0 until entries do when(writeIndex === index.U(indexBits)) { counters(index) := saturating }
-    }
+    val table = SyncRam.instantiate(
+      SyncRamParameter(BpUpdate.phtCountBits, entries, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.ReadFirst)
+    )
+    table.io.clock := io.clock
+    table.io.rEn := true.B
+    table.io.rAddr := indexOf(io.lookup_pc)
+    io.pred_taken := Node(table.io.rData.asBits).bit(1)
+    io.count := table.io.rData
+    table.io.wEn := io.update_valid
+    table.io.wAddr := indexOf(io.update_pc)
+    table.io.wData := saturating(io.update_count, io.update_taken)

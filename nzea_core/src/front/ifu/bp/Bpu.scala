@@ -27,9 +27,14 @@ class BpuIO(parameter: BpuParameter) extends HWBundle(parameter):
   val clock = Flipped(Clock())
   val resetN = Flipped(Reset())
 
-  /** The address whose prediction is wanted; the answer is combinational, and the caller registers it. */
+  /** The address whose prediction is wanted: the read is issued with it, and the answer — [[pred_next_pc]] and the
+    * training evidence beside it — is out a cycle later.
+    */
   val lookup_pc = Flipped(UInt(width))
   val pred_next_pc = Aligned(UInt(width))
+
+  /** The direction counter the prediction read, for the fetch to carry back as the branch's training evidence. */
+  val pred_count = Aligned(UInt(BpUpdate.phtCountBits))
 
   /** The resolutions to train on. */
   val update = Flipped(Valid(new BpUpdate(width)))
@@ -38,14 +43,21 @@ class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers
 
 /** The fetch-side predictor: the level's tables and the composition that turns them into a next pc.
   *
-  * The lookup is combinational and addressed by the pc the caller is *about to* fetch — the caller registers the
-  * answer, which keeps the tables' read depth out of the pc register's own loop. The composition adds no edges of its
-  * own: a redirect out of the tables comes off the buffer's target, and the answer is the looked-up address's
-  * fall-through otherwise.
+  * The lookup is a read issued a cycle before its answer is used: the caller addresses the predictor with the pc
+  * register's *next* value — the call that updates the register — and the answer is composed out of the tables' own
+  * output registers, so next cycle, when that value is the pc, the answer is the prediction for it. The fall-through
+  * half of the composition is the registered fall-through of the address the read was issued with, so no adder sits in
+  * the answer's path. A redirect needs both the direction's "taken" and a target to go to; everything else continues at
+  * the fall-through.
   *
   * The level decides what exists, inside this unit: a level that names no table builds none, and its answer is the
-  * fall-through alone — exactly the sequential fetch's prediction. The unit is therefore the one place the prediction
-  * is made, at every level; a caller states the level and nothing else about it.
+  * fall-through alone — exactly the sequential fetch's prediction, registered the same way. The unit is therefore the
+  * one place the prediction is made, at every level; a caller states the level and nothing else about it.
+  *
+  * The tables hold no reset: a memory entry has no reset value, and what a fresh table predicts is the empty table —
+  * the storages start as the simulator initializes them (zero, in the two-state model this design is verified in), and
+  * a never-written slot reads as not-taken with no buffer hit. The reset here only seeds the fall-through register, so
+  * the very first fetch is predicted the sequential way.
   */
 @generator
 object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
@@ -57,6 +69,14 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val width = parameter.config.width
+    // The platform's reset pc, masked to the register width: a BigInt shift, because `1L << 64` wraps around in a Long.
+    val mask = (BigInt(1) << width) - 1
+    val pcReset = BigInt(parameter.config.defaultPc) & mask
+
+    // The answer's fall-through, registered with the read it belongs to: it resets to the reset pc's own fall-through,
+    // so the first fetch is predicted the sequential way, until the tables have seen a resolution.
+    val fallThrough = RegInit(((pcReset + 4) & mask).U(width))
+    fallThrough := pcPlus4(io.lookup_pc, width)
 
     parameter.level match
       case BpuLevel.Bimodal(phtEntries, btbEntries) =>
@@ -64,11 +84,11 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
         val btb = Btb.instantiate(BtbParameter(parameter.isa, parameter.defaultPc, btbEntries))
 
         pht.io.clock := io.clock
-        pht.io.resetN := io.resetN
         pht.io.lookup_pc := io.lookup_pc
         pht.io.update_valid := io.update.valid
         pht.io.update_pc := io.update.bits.pc
         pht.io.update_taken := io.update.bits.taken
+        pht.io.update_count := io.update.bits.pht_count
 
         btb.io.clock := io.clock
         btb.io.resetN := io.resetN
@@ -79,9 +99,10 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
 
         // The composition: a redirect needs both the direction's "taken" and a target to go to; everything else
         // continues at the fall-through of the address being predicted.
-        val fallThrough = pcPlus4(io.lookup_pc, width)
         io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, fallThrough)
+        io.pred_count := pht.io.count
 
       case BpuLevel.Off =>
         // No table exists, so the only answer is the fall-through — the sequential fetch, made by the same structure.
-        io.pred_next_pc := pcPlus4(io.lookup_pc, width)
+        io.pred_next_pc := fallThrough
+        io.pred_count := 0.U(BpUpdate.phtCountBits)
