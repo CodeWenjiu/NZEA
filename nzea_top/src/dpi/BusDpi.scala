@@ -7,7 +7,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.back.mem.{DbusUser, MemPath}
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.Isa

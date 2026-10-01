@@ -10,7 +10,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BpuLevel, CoreConfig}
+import nzea_core.config.{BpuLevel, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.front.idu.{Idu, IduOut, IduParameter}
 import nzea_core.front.ifu.{FetchedInst, Ifu, IfuParameter}

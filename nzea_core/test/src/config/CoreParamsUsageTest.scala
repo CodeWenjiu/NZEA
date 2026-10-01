@@ -1,10 +1,9 @@
-package nzea_core
+package nzea_core.config
 
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{CoreConfig, CoreParams, OpProducer}
 import nzea_core.back.int.IntOp
 import nzea_core.back.mem.MemOp
 import nzea_core.isa.{Backend, Isa}

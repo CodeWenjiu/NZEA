@@ -103,7 +103,7 @@ object nzea_rtl extends ZaoziModule {
 }
 
 /** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). Its configuration is defined inside it
-  * (the ISA under `isa`, the bypass links beside the read network, the cross-stage numbers in `CoreParams`), so it
+  * (the ISA under `isa`, the knobs and stage levels under `config`, the cross-stage numbers in `CoreParams`), so it
   * depends on the shared RTL only; the aggregation lives above, in `nzea_config`.
   */
 object nzea_core extends ZaoziModule {

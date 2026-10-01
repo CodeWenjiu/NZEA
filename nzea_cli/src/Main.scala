@@ -1,7 +1,7 @@
 package nzea_cli
 
 import nzea_config.NzeaCoreParameter
-import nzea_core.{BpuLevel, BypassLevel}
+import nzea_core.config.{BpuLevel, BypassLevel}
 import nzea_core.isa.Isa
 import nzea_rtl.{Elaborate, RtlFlow, StatRegistry, StatSchema, StatScope}
 import nzea_rtl.stdlib.SyncRam

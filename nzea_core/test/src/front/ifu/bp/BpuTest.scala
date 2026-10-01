@@ -1,6 +1,6 @@
 package nzea_core.front.ifu.bp
 
-import nzea_core.BpuLevel
+import nzea_core.config.BpuLevel
 import nzea_core.front.{Front, FrontParameter}
 import nzea_core.isa.Isa
 import nzea_rtl.TestFlow

@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BpuLevel, BypassLevel, CoreConfig}
+import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
 import nzea_core.isa.{Backend, Isa}

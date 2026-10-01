@@ -17,7 +17,7 @@ Status: **M2a 已落地并验证，时序已完成二轮整形（2026-09-30）**
   预测的"产生"全部在 `Bpu` 里：取指只把"pc 的下一值"递进去、把答案寄存——`Off` 的 `Bpu` 就是一条顺延加法器，
   取指回路对档位一无所知。
 - **尺寸随档位显式携带**（`case Bimodal(phtEntries, btbEntries)`），选择写死在 `Main.scala` 一行（与 `bypass` 同规）。
-  配置的定义随消费它的模块走：`BpuLevel` 放在 `nzea_core` 根（`BypassLevel` 同址），结构与表放在 `front/ifu/bp/`。
+  配置的定义随消费它的模块走：`BpuLevel` 放在 `nzea_core.config`（`BypassLevel` 同址），结构与表放在 `front/ifu/bp/`。
 - **预测是提前一拍查的**（predict-ahead）：每拍拿"pc 的下一值"去查表（它同时就是 pc 的更新值）——表的读在
   该拍发出，答案下一拍从表自己的输出寄存器里出来，正好是该 pc（不变：`readAddr ≡ pc 的下一值`，无需 staleness
   处理）——答案既更新 pc、又随请求发给总线。表内部（SyncRam）的读寄存器就是这里的"寄存一拍"，取指回路里因此

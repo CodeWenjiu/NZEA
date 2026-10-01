@@ -1,7 +1,7 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.{BitPat, BitSet, TruthTable}
-import nzea_core.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.back.OpWindow
 import nzea_core.back.int.IntOp
 import nzea_core.front.idu.inst.*

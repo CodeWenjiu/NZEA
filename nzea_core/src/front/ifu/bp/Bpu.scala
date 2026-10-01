@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BpuLevel, CoreConfig}
+import nzea_core.config.{BpuLevel, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.isa.Isa
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}

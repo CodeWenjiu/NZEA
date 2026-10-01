@@ -2,7 +2,7 @@ package nzea_config
 
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.{BpuLevel, BypassLevel, CoreConfig}
+import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.{RtlFlow, StatScope}
 

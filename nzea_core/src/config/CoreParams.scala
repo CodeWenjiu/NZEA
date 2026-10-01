@@ -1,4 +1,4 @@
-package nzea_core
+package nzea_core.config
 
 /** What one op producer declares about itself: a name for reports, the dispatch id it answers to, and the window it
   * needs in the shared op field.

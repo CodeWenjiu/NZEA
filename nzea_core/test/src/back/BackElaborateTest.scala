@@ -4,7 +4,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.back.int.{AluOp, BruOp, IntOp, MulOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.{Backend, Isa}

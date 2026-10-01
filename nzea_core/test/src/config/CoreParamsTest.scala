@@ -1,4 +1,4 @@
-package nzea_core
+package nzea_core.config
 
 import nzea_core.isa.Isa
 

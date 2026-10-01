@@ -1,6 +1,6 @@
 package nzea_config
 
-import nzea_core.{BpuLevel, BypassLevel}
+import nzea_core.config.{BpuLevel, BypassLevel}
 import nzea_core.isa.Isa
 import nzea_rtl.{RtlFlow, StatScope}
 import utest.*

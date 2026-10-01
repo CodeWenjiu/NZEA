@@ -1,6 +1,6 @@
 package nzea_core.back
 
-import nzea_core.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.back.int.IntOp
 import nzea_core.back.mem.MemOp
 

@@ -35,10 +35,10 @@ flowchart TD
     cli --> top
 ```
 `nzea_cli` 依赖 `nzea_top`、`nzea_core`、`nzea_config`、`nzea_rtl` 用于参数解析和目标分发。
-`nzea_config` 是**汇总层**：配置的定义随消费它的模块走（ISA/宽度在 `nzea_core.isa`，bypass 链接在 `nzea_core`，flow 在 `nzea_rtl`），`nzea_config` 只把它们组装成各层 Top 的 parameter，因此它依赖各模块、而不被各模块依赖。后续的 `nzea_device` / `nzea_cache` / `nzea_tile` / `nzea_fpga` / `nzea_sim` 按同一形状接入：引擎待在 `nzea_rtl` 之上、`nzea_config` 之下，各层的 Top（连同它的 parameter）在 `nzea_config` 之上。
+`nzea_config` 是**汇总层**：配置的定义随消费它的模块走（ISA/宽度在 `nzea_core.isa`，bypass 链接在 `nzea_core.config`，flow 在 `nzea_rtl`），`nzea_config` 只把它们组装成各层 Top 的 parameter，因此它依赖各模块、而不被各模块依赖。后续的 `nzea_device` / `nzea_cache` / `nzea_tile` / `nzea_fpga` / `nzea_sim` 按同一形状接入：引擎待在 `nzea_rtl` 之上、`nzea_config` 之下，各层的 Top（连同它的 parameter）在 `nzea_config` 之上。
 
 ### 设计原则
-1. 配置的定义随消费它的模块走（`nzea_core.isa`、`nzea_core.Bypass`、`nzea_rtl.RtlFlow`）；`nzea_config` 只做汇总，不重复定义。
+1. 配置的定义随消费它的模块走（`nzea_core.isa`、`nzea_core.config.BypassLevel`、`nzea_rtl.RtlFlow`）；`nzea_config` 只做汇总，不重复定义。
 2. 保持作用域明确：`CoreConfig`（`isa` + `defaultPc`）随 `CoreParameter` 显式传给硬件模块；非核心流程选项（平台、时钟等）留在各层自己的 parameter 里。
 3. 将 CLI 关注点与硬件生成分离，使生成过程能被测试和工具复用。
 4. 优先使用职责明确的小模块，而非多功能大文件。

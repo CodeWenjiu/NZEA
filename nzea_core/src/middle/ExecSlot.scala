@@ -3,7 +3,7 @@ package nzea_core.middle
 import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.back.{BpUpdate, OpWindow}
 import nzea_core.isa.{Backend, Gpr}
 

@@ -1,6 +1,6 @@
 package nzea_core.front
 
-import nzea_core.{BpuLevel, CoreConfig}
+import nzea_core.config.{BpuLevel, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.{IbusUser, Ifu}

@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.isa.{CsrType, Isa}
 import nzea_core.middle.CommitMsg
 import nzea_rtl.stdlib.*

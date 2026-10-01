@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import me.jiuyang.stdlib.Decoupled
-import nzea_core.{BpuLevel, CoreConfig}
+import nzea_core.config.{BpuLevel, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.front.ifu.bp.{Bpu, BpuParameter}
 import nzea_core.isa.Isa

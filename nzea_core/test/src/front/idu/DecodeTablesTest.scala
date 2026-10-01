@@ -1,7 +1,7 @@
 package nzea_core.front.idu
 
 import me.jiuyang.decoder.PLA
-import nzea_core.CoreConfig
+import nzea_core.config.CoreConfig
 import nzea_core.back.OpWindow
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}

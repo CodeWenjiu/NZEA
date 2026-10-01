@@ -1,6 +1,6 @@
 package nzea_core.stats
 
-import nzea_core.{BpuLevel, BypassLevel}
+import nzea_core.config.{BpuLevel, BypassLevel}
 import nzea_core.{Core, CoreParameter}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.isa.Isa
