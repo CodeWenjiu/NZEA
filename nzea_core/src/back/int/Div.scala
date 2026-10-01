@@ -37,19 +37,24 @@ class DivIO(parameter: DivParameter) extends HWBundle(parameter):
 
 class DivProbe(parameter: DivParameter) extends DVBundle[DivParameter, DivLayers](parameter)
 
-/** Multi-cycle restoring divider: one shift-subtract iteration per cycle over the operands' magnitudes.
+/** Multi-cycle restoring divider: one shift, one borrow scan and one conditional subtract per cycle over the operands'
+  * magnitudes — the legacy `DIV` FU's FSM (`legacy/nzea_core/src/back/int/DIV.scala`), rebuilt on today's issue/done
+  * contract and with the arithmetic rearranged so the iteration holds one carry network instead of a comparator chained
+  * into a subtractor.
   *
-  * The working register is `{remainder, quotient}`; each step shifts it left and subtracts the divisor when the
-  * remainder holds, which is also the quotient bit. RISC-V divides magnitudes and takes the result's sign from the
-  * operands, so both are negated up front and the sign is applied to the result; the two special cases — division by
-  * zero, and the signed overflow INT_MIN / -1 — are answered from the operands without running the loop.
+  * The loop's operands are latched at issue: the divisor's magnitude, the two signs and the op the result will be read
+  * under are registers for the whole residence, so nothing in the iteration waits on operand decode — the deficit of
+  * the old shape, where the divide cone started at the issue register's own op field. The sign fix and the op select are
+  * deferred to the completion cycle and run on the loop's registered raw pair, so the iteration and the result select
+  * never share a path: the loop's worst path is shift, borrow, mux.
+  *
+  * The unit takes no flush: the middle holds the uop until the completion is reported, so a uop that disappears means
+  * the completion was consumed (or abandoned) and the FSM returns to idle either way. RISC-V's special cases (a zero
+  * divisor, and the signed overflow) are answered from the operands at issue and skip the loop.
   *
   * The word forms ([[DivOp]]'s block of them, only where the registers are 64 bits wide) divide the low 32 bits with
   * that width's own sign rules; the XLEN-wide loop over operands extended the same way produces that low word, and each
   * special case answers with the word's extension.
-  *
-  * The unit takes no flush: the middle holds the uop until the completion is reported, so a uop that disappears means
-  * the completion was consumed (or abandoned) and the FSM returns to idle either way.
   */
 @generator
 object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
@@ -63,159 +68,150 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
         val width = parameter.config.width
         val ops = DivOp.set(parameter.config.isa)
         val hasWord = ops.contains(DivOp.Divw)
-        val workingWidth = 2 * width
         val countWidth = log2Ceil(width + 1)
 
         val sIdle = 0.U(2)
         val sCalc = 1.U(2)
         val sDone = 2.U(2)
 
-        val state = RegInit(sIdle)
-        val count = Reg(UInt(countWidth))
-        val rq = Reg(UInt(workingWidth))
-        val resultReg = Reg(UInt(width))
+        /** `-x` as its own prefix network: `~x + 1`. */
+        def negate(x: Referable[UInt]): Node[UInt] =
+            val xBits: Node[Bits] = Node(x.asBits)
+            prefixAdder((~xBits).asUInt, BigInt(0).U(width), true.B, width)
 
-        val op: Referable[UInt] = io.issue.bits.op
-        val a = io.issue.bits.opA
-        val b = io.issue.bits.opB
+        /** The issue-time picture of one divide, sampled into registers on `first`. */
+        val u = io.issue.bits
+        val aBits: Node[Bits] = Node(u.opA.asBits)
+        val bBits: Node[Bits] = Node(u.opB.asBits)
 
-        def is(v: DivOp): Node[Bool] = op === v.lit.U(ops.width)
-
+        def is(v: DivOp): Node[Bool] = u.op === v.lit.U(ops.width)
         val wordSigned: Referable[Bool] = if hasWord then (is(DivOp.Divw) | is(DivOp.Remw)) else false.B
         val signed: Referable[Bool] = is(DivOp.Div) | is(DivOp.Rem) | wordSigned
         val isWord: Referable[Bool] = if hasWord then (wordSigned | is(DivOp.Divuw) | is(DivOp.Remuw)) else false.B
 
-        /** The operands, with a word form reading the low 32 bits of each, extended by the op's signedness. */
-        def extendedOperands() =
-            def wordIn(v: Referable[UInt]): Referable[UInt] =
-                val low: Node[Bits] = v.asBits.bits(31, 0)
-                val signExtended: Node[Bits] = fill(width - 32, low.bit(31)) ## low
-                wordSigned ? (signExtended.asUInt, (BigInt(0).B(width - 32) ## low).asUInt)
-            val aIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(a), a)) else a
-            val bIn: Referable[UInt] = if hasWord then (isWord ? (wordIn(b), b)) else b
-            (aIn, bIn)
+        /** A word form reads the low 32 bits of each operand, extended by the op's signedness. */
+        def wordIn(v: Node[Bits]): Node[UInt] =
+            val low: Node[Bits] = v.bits(31, 0)
+            val signExtended: Node[Bits] = fill(width - 32, low.bit(31)) ## low
+            (wordSigned ? (signExtended, BigInt(0).B(width - 32) ## low)).asUInt
 
-        val (aIn, bIn) = extendedOperands()
+        val aIn: Node[UInt] = if hasWord then (isWord ? (wordIn(aBits), aBits.asUInt)) else aBits.asUInt
+        val bIn: Node[UInt] = if hasWord then (isWord ? (wordIn(bBits), bBits.asUInt)) else bBits.asUInt
 
-        /** The sign each operand brings, taken before the magnitudes are formed. */
-        def signs(aIn: Referable[UInt], bIn: Referable[UInt]) =
-            (Node(aIn.asBits).bit(width - 1), Node(bIn.asBits).bit(width - 1))
+        val aNeg: Node[Bool] = Node(aIn.asBits).bit(width - 1)
+        val bNeg: Node[Bool] = Node(bIn.asBits).bit(width - 1)
 
-        val (aNeg, bNeg) = signs(aIn, bIn)
-
-        /** The magnitudes the loop divides, with the unsigned forms passing the operands through. */
-        def magnitudes(aIn: Referable[UInt], bIn: Referable[UInt], aNeg: Referable[Bool], bNeg: Referable[Bool]) =
-            val aAbs = aNeg ? (subWrap(0.U(width), aIn, width), aIn)
-            val bAbs = bNeg ? (subWrap(0.U(width), bIn, width), bIn)
-            val divisor = signed ? (bAbs, bIn)
-            val dividend = signed ? (aAbs, aIn)
-            (dividend, divisor)
-
-        val (dividend, divisor) = magnitudes(aIn, bIn, aNeg, bNeg)
-
-        val divByZero = bIn === 0.U(width)
-        // The all-ones forms are built in BigInt: `(1 << width) - 1` on an `Int` wraps its shift amount and goes to zero
-        // from width 32 up, which would answer a zero divisor with zero instead of minus one.
-        val allOnes: Referable[UInt] = ((BigInt(1) << width) - 1).U(width)
-        val overflow = signed & (aIn === (BigInt(1) << (width - 1)).U(width)) & (bIn === allOnes)
-        val minInt: Referable[UInt] = (BigInt(1) << (width - 1)).U(width)
-
-        /** One shift-subtract step of the loop: shift `{remainder, quotient}` left and subtract the divisor where the
-          * remainder holds, which is also the shifted-in quotient bit. The last iteration's result comes from the value
-          * that iteration produces, not from the register it is held in.
-          */
-        def iterate(divisor: Referable[UInt]) =
-            val shifted = (rq.asBits << 1).bits(workingWidth - 1, 0)
-            val remHi = shifted.bits(workingWidth - 1, width).asUInt
-            val ge = remHi >= divisor
-            val newRem: Node[Bits] = (ge ? (subWrap(remHi, divisor, width), remHi)).asBits
-            (newRem ## shifted.bits(width - 1, 1) ## ge.asBits).asUInt
-
-        val newRq = iterate(divisor)
-        val last = count === (width - 1).U(countWidth)
-        val start = io.issue.valid & io.issue.first
-
-        /** The loop's fixed-up results: each op's ending, plus the two special cases, all with the sign rules applied.
-          * DIV/REM answer a zero divisor with all ones and the unsigned forms with the dividend; the signed overflow
-          * answers with INT_MIN for the quotient and zero for the remainder. A word form answers with the same,
-          * extended — `aIn` is already the extended dividend — and never takes the overflow path, whose operands cannot
-          * both hold.
-          */
-        def completions(aNeg: Referable[Bool], bNeg: Referable[Bool], aIn: Referable[UInt], divisor: Referable[UInt]) =
-            val quoAbs = Node(newRq.asBits).bits(width - 1, 0).asUInt
-            val remAbs = Node(newRq.asBits).bits(workingWidth - 1, width).asUInt
-            val quo = (signed & (aNeg ^ bNeg)) ? (subWrap(0.U(width), quoAbs, width), quoAbs)
-            val rem = (signed & aNeg) ? (subWrap(0.U(width), remAbs, width), remAbs)
-            def byZero(v: DivOp): Referable[UInt] = v match
-                case DivOp.Div | DivOp.Divu | DivOp.Divw | DivOp.Divuw => allOnes
-                case DivOp.Rem | DivOp.Remu | DivOp.Remw | DivOp.Remuw => aIn
-            def onOverflow(v: DivOp): Referable[UInt] = v match
-                case DivOp.Div | DivOp.Divw   => minInt
-                case DivOp.Divu | DivOp.Divuw => allOnes
-                case DivOp.Rem | DivOp.Remw   => 0.U(width)
-                case DivOp.Remu | DivOp.Remuw => aIn
-            def result(v: DivOp): Referable[UInt] = v match
-                case DivOp.Div | DivOp.Divw   => quo
-                case DivOp.Divu | DivOp.Divuw => quoAbs
-                case DivOp.Rem | DivOp.Remw   => rem
-                case DivOp.Remu | DivOp.Remuw => remAbs
-            (
-                mux1H(op, ops.variants.map(result), width),
-                mux1H(op, ops.variants.map(byZero), width),
-                mux1H(op, ops.variants.map(onOverflow), width)
-            )
-
-        val (resultValue, byZeroValue, onOverflowValue) = completions(aNeg, bNeg, aIn, divisor)
+        // The loop divides magnitudes: the signed forms pre-negate, the unsigned ones pass through.
+        val aAbs: Node[UInt] = aNeg ? (negate(aIn), aIn)
+        val bAbs: Node[UInt] = bNeg ? (negate(bIn), bIn)
+        val dividend: Node[UInt] = signed ? (aAbs, aIn)
+        val divisor: Referable[UInt] = signed ? (bAbs, bIn)
 
         // The two special cases are mutually exclusive (the divisor cannot be both zero and minus one) and both answer
-        // without running the loop. Their tests stay on the value path: the state register's enables are only `start`,
-        // `last` and the state decode.
-        val special = divByZero | overflow
-        val specialValue: Referable[UInt] = divByZero ? (byZeroValue, onOverflowValue)
+        // without running the loop.
+        val divByZero = bIn === 0.U(width)
+        val allOnes: Referable[UInt] = ((BigInt(1) << width) - 1).U(width)
+        val minInt: Referable[UInt] = (BigInt(1) << (width - 1)).U(width)
+        val overflow = signed & (aIn === minInt) & (bIn === allOnes)
 
-        /** The FSM: idle until `start`, one iteration per cycle, then the one-cycle completion state. */
-        def fsm(
-            start: Referable[Bool],
-            last: Referable[Bool],
-            special: Referable[Bool],
-            specialValue: Referable[UInt],
-            resultValue: Referable[UInt]
-        ): Unit =
+        def byZero(v: DivOp): Referable[UInt] = v match
+            case DivOp.Div | DivOp.Divu | DivOp.Divw | DivOp.Divuw => allOnes
+            case DivOp.Rem | DivOp.Remu | DivOp.Remw | DivOp.Remuw => aIn
+
+        def onOverflow(v: DivOp): Referable[UInt] = v match
+            case DivOp.Div | DivOp.Divw   => minInt
+            case DivOp.Divu | DivOp.Divuw => allOnes
+            case DivOp.Rem | DivOp.Remw   => 0.U(width)
+            case DivOp.Remu | DivOp.Remuw => aIn
+
+        val special = divByZero | overflow
+        val specialValue: Node[UInt] = divByZero ? (
+            mux1H(u.op, ops.variants.map(byZero), width),
+            mux1H(u.op, ops.variants.map(onOverflow), width)
+        )
+
+        val state = RegInit(sIdle)
+        val count = Reg(UInt(countWidth))
+        val rq = Reg(UInt(2 * width))
+        val divReg = Reg(UInt(width))
+        val opReg = Reg(UInt(ops.width))
+        val quoNeg = Reg(Bool())
+        val remNeg = Reg(Bool())
+        val specialReg = Reg(Bool())
+        val specialValueReg = Reg(UInt(width))
+
+        val start = io.issue.valid & io.issue.first
+        val last = count === (width - 1).U(countWidth)
+
+        /** The FSM, with the loop's operands latched at issue and the whole line cleared when the uop disappears. */
+        def fsm(): Unit =
             when(!io.issue.valid) {
                 state := sIdle
             }.otherwise {
                 when(state === sIdle) {
                     when(start) {
-                        rq := (0.B(width) ## dividend.asBits).asUInt
+                        divReg := divisor
+                        opReg := u.op
+                        quoNeg := signed & (aNeg ^ bNeg)
+                        remNeg := signed & aNeg
+                        specialReg := special
+                        specialValueReg := specialValue
+                        rq := (BigInt(0).B(width) ## dividend.asBits).asUInt
                         count := 0.U(countWidth)
-                        // Both completions write the result here; the loop overwrites it when its last iteration lands.
-                        resultReg := specialValue
                         state := special ? (sDone, sCalc)
                     }
                 }
                 when(state === sCalc) {
+                    // One borrow scan per iteration: the difference and the borrow come out of the same network.
+                    val shifted: Node[UInt] = (rq.asBits << 1).bits(2 * width - 1, 0).asUInt
+                    val remHi: Node[UInt] = Node(shifted.asBits).bits(2 * width - 1, width).asUInt
+                    val (difference, borrow) = prefixSub(remHi, divReg, width)
+                    val newRem: Node[UInt] = borrow ? (remHi, difference)
+                    val shiftedLow: Node[Bits] = Node(shifted.asBits).bits(width - 1, 1)
+                    val newRq: Node[UInt] = (newRem.asBits ## shiftedLow ## (!borrow).asBits).asUInt
                     rq := newRq
                     count := addWrap(count, 1.U(countWidth), countWidth)
-                    when(last) {
-                        resultReg := resultValue
-                        state := sDone
-                    }
+                    // The completion state lasts exactly one cycle — the FSM leaves it on its own — so `done` is a
+                    // pulse by construction, with nothing to clear for the next divide.
+                    when(last) { state := sDone }
                 }
-                // The completion state lasts exactly one cycle — the FSM leaves it on its own — so `done` is a pulse by
-                // construction, with nothing to clear for the next divide.
-                when(state === sDone) { state := sIdle }
+                when(state === sDone) {
+                    state := sIdle
+                }
             }
 
-        fsm(start, last, special, specialValue, resultValue)
+        fsm()
 
-        io.done := state === sDone
+        /** The completion cycle's fixup: the loop's raw magnitude pair, sign and op interpretation applied here, one
+          * cycle after the loop — never on the iteration's path.
+          */
+        def fixup(): Unit =
+            val quoAbs: Node[UInt] = Node(rq.asBits).bits(width - 1, 0).asUInt
+            val remAbs: Node[UInt] = Node(rq.asBits).bits(2 * width - 1, width).asUInt
+            val quo: Node[UInt] = quoNeg ? (negate(quoAbs), quoAbs)
+            val rem: Node[UInt] = remNeg ? (negate(remAbs), remAbs)
 
-        /** The register's value in the width the op answers with: a word form is the register's low word, extended. */
-        def resultWord(): Referable[UInt] =
-            if hasWord then
-                val word: Node[UInt] =
-                    (fill(width - 32, resultReg.asBits.bit(31)) ## resultReg.asBits.bits(31, 0)).asUInt
-                isWord ? (word, resultReg)
-            else resultReg
+            def result(v: DivOp): Referable[UInt] = v match
+                case DivOp.Div | DivOp.Divw   => quo
+                case DivOp.Divu | DivOp.Divuw => quoAbs
+                case DivOp.Rem | DivOp.Remw   => rem
+                case DivOp.Remu | DivOp.Remuw => remAbs
 
-        io.data := resultWord()
+            val fixed: Node[UInt] = mux1H(opReg, ops.variants.map(result), width)
+            val selected: Node[UInt] = specialReg ? (specialValueReg, fixed)
+            val out: Node[UInt] =
+                if hasWord then
+                    val opR = opReg
+                    val isWordReg =
+                        (opR === DivOp.Divw.lit.U(ops.width)) | (opR === DivOp.Remw.lit.U(ops.width)) |
+                            (opR === DivOp.Divuw.lit.U(ops.width)) | (opR === DivOp.Remuw.lit.U(ops.width))
+                    val selectedBits: Node[Bits] = Node(selected.asBits)
+                    val word: Node[UInt] =
+                        (fill(width - 32, selectedBits.bit(31)) ## selectedBits.bits(31, 0)).asUInt
+                    isWordReg ? (word, selected)
+                else selected
+            io.data := out
+
+            io.done := state === sDone
+
+        fixup()

@@ -50,8 +50,11 @@ class MemPathProbe(parameter: MemPathParameter) extends DVBundle[MemPathParamete
   *
   * The path keeps no queue — the held uop is all the state it needs. The request is driven while the uop is there and
   * dropped when it goes away, and every response is consumed, with only a tag match turning one into a completion, so a
-  * response for an abandoned request drains instead of completing the next uop. Byte or half accesses are aligned by
-  * the bus itself: the request carries the word address, and the path selects inside the word with the offset it holds.
+  * response for an abandoned request drains instead of completing the next uop. A store's answer is only that
+  * acknowledgment, so a store completes on the request's own acceptance — the first cycle the bus takes it — and gives
+  * the execute slot back a cycle early; a load completes when its tagged response lands. Byte or half accesses are
+  * aligned by the bus itself: the request carries the word address, and the path selects inside the word with the offset
+  * it holds.
   */
 @generator
 object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, MemPathProbe]:
@@ -109,8 +112,9 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
             muxTree(offset, (0 until lanes).map(i => (storeData << (i * 8)).bits(width - 1, 0)))
 
         /** One request per uop, presented in the uop's first cycle — address, data and strobe are combinational from
-          * the held uop and already valid then — and held until the bus accepts it. The tag advances on that same first
-          * cycle, so the request carries its own tag and `curTag` keeps it for the response match.
+          * the held uop and already valid then — and held until the bus accepts it. `fire` is that acceptance: a store
+          * needs nothing beyond it, while a load's completion waits for its tagged response. The tag advances on that
+          * same first cycle, so the request carries its own tag and `curTag` keeps it for the response match.
           */
         def holdRequest(wdata: Referable[UInt], wstrb: Referable[UInt]) =
             val uopFirst = io.issue.first
@@ -127,6 +131,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
             when(asking & !io.dbus.req.ready) { held := true.B }
             when(!uopValid | io.dbus.req.ready) { held := false.B }
             val reqTag: Node[UInt] = uopFirst ? (tag, curTag)
+            val fire: Node[Bool] = asking & io.dbus.req.ready
 
             io.dbus.req.valid := asking
             io.dbus.req.bits.addr := (addrBits.bits(width - 1, offsetWidth) ## 0.B(offsetWidth)).asUInt
@@ -135,11 +140,11 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
             io.dbus.req.bits.wstrb := wstrb
             io.dbus.req.bits.user := DbusUser.pack(reqTag)
             io.dbus.req.bits.id := 0.U(busIdWidth)
-            reqTag
+            (reqTag, fire)
 
         val wstrb = writeStrobe()
         val wdata = storeWord()
-        val reqTag = holdRequest(wdata.asUInt, wstrb)
+        val (reqTag, reqFire) = holdRequest(wdata.asUInt, wstrb)
         io.dbus.resp.ready := true.B
         val hit = io.dbus.resp.valid & uopValid & (DbusUser.tagOf(io.dbus.resp.bits.user) === reqTag)
 
@@ -179,11 +184,12 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
 
         val isMmio = mmioAddress()
 
-        /** The one-shot result of the uop: a store answers zero, a load its extended word, and the redirect is the
-          * branch's alone.
+        /** The one-shot result of the uop: a store completes the cycle the bus takes its request — its answer is only
+          * the acknowledgment, which drains — while a load completes on the tagged response that carries its data. The
+          * redirect is the branch's alone.
           */
         def result(): Unit =
-            io.done := hit
+            io.done := isStore ? (reqFire, hit)
             io.result.data := (isStore ? (0.U(width), loadData.asUInt))
             io.result.next_pc := u.next_pc
             io.result.csr_type := CsrType.None.lit.U(CsrType.width)

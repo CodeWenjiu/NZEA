@@ -56,6 +56,20 @@ def prefixAdder(a: Referable[UInt], b: Referable[UInt], cin: Referable[Bool], wi
     sourcecode.Name.Machine,
     InstanceContext
 ): Node[UInt] =
+    prefixAdderCarry(a, b, cin, width)._1
+
+/** [[prefixAdder]]'s network with its carry out exposed: `(a + b + cin, carry past bit width - 1)`. One scan answers
+  * both, so a caller that needs the borrow of a subtraction ([[prefixSub]]) does not chain a compare and a subtract.
+  */
+def prefixAdderCarry(a: Referable[UInt], b: Referable[UInt], cin: Referable[Bool], width: Int)(using
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): (Node[UInt], Node[Bool]) =
     require(width >= 2, s"prefixAdder needs width >= 2, got $width")
     val aBits: Node[Bits] = Node(a.asBits)
     val bBits: Node[Bits] = Node(b.asBits)
@@ -83,8 +97,30 @@ def prefixAdder(a: Referable[UInt], b: Referable[UInt], cin: Referable[Bool], wi
         propagate = Node(propagate & previousPropagate)
         level += 1
 
-    // The carry into bit k is generate[k - 1]; bit 0 takes cin.
-    Node(half ^ Node(generate.bits(width - 2, 0) ## cin.asBits)).asUInt
+    // The carry into bit k is generate[k - 1]; bit 0 takes cin. The carry out of the top is generate[width - 1], whose
+    // span reaches past every bit the adder has.
+    (
+        Node(half ^ Node(generate.bits(width - 2, 0) ## cin.asBits)).asUInt,
+        Node(generate.bit(width - 1))
+    )
+
+/** `(a - b, a < b)` out of one borrow scan: the difference and the borrow of the same subtraction, so a restoring
+  * divider's iteration — shift, compare, conditionally subtract — reads both from one network instead of chaining a
+  * comparator and a subtractor. The borrow is the carry out of `a + ~b + 1` inverted, which the shared scan already
+  * produces.
+  */
+def prefixSub(a: Referable[UInt], b: Referable[UInt], width: Int)(using
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): (Node[UInt], Node[Bool]) =
+    val bBits: Node[Bits] = Node(b.asBits)
+    val (difference, carryOut) = prefixAdderCarry(a, Node(~bBits).asUInt, true.B, width)
+    (difference, Node(!carryOut))
 
 /** Unsigned `a < b` as a Kogge-Stone borrow scan, not the `<` primitive.
   *
