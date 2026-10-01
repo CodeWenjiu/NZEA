@@ -41,7 +41,7 @@ nzea_core/src/
   译码只出"指令是什么"；ARF 读与操作数槽位解析在中端发射拍完成（`Srcs.resolve`），读到的就是文件当时的内容。
 - 中端→后端 `IssueUop`（**就绪操作数**）：三个槽位 + `pc`/`next_pc`/`fall_through`/`imm`（结构用途）+ `backend`
   + `op` 窗口 + `csr_type`/`csr_rdata`。`next_pc` 是取指预测的下一 pc（基线 = 顺延），`fall_through` 是该指令自己的
-  `pc + 4`（`pcPlus4`，取指端算好后经 user 字段随响应回送）——两者都随取指携带，后端任何阶段都不重建 `pc+4`。
+  `pc + 4`（`constAdder(pc, 4)`，取指端算好后经 user 字段随响应回送）——两者都随取指携带，后端任何阶段都不重建 `pc+4`。
   后端不做源选择，只按自己的 op 读槽位：
   ALU 读 a/b；BRU 比较 a/b、JALR 用 a 当目标基址；SYSU 的写数据与"零源不写"判定读 a；MUL/DIV 读 a/b；
   LSU 地址 = a+b、store 数据 = c。
