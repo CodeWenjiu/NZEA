@@ -60,10 +60,12 @@ class OperandReadProbe(parameter: OperandReadParameter)
   *
   * The file answers the two indexes the payload names, the bypass network's answer wins where it is valid (it is the
   * younger producer), and the operand form places the result — with the immediate, the pc and zero — into the three
-  * slots the units read. The pace back to ID/IS is this read's own: a payload that names a writer still in flight waits
-  * for it, unless the bypass level reaches the writer's stage. That is the one wait the network cannot answer for a
-  * consumer — a writer younger than its sources is one it does not carry — so the test lives here, beside the read that
-  * takes the answers.
+  * slots the units read. The network's answer does not feed that placement: a slot whose form reads Rs1/Rs2 takes the
+  * answer straight, past the resolve, so the forwarding path is [network answer, one mux] instead of [answer, a mux,
+  * the resolve]. The pace back to ID/IS is this read's own: a payload that names a writer still in flight waits for it,
+  * unless the bypass level reaches the writer's stage. That is the one wait the network cannot answer for a consumer —
+  * a writer younger than its sources is one it does not carry — so the test lives here, beside the read that takes the
+  * answers.
   */
 @generator
 object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, OperandReadIO, OperandReadProbe]:
@@ -84,18 +86,33 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
       val dec = io.decoded
       io.rs1_index := dec.rs1_index
       io.rs2_index := dec.rs2_index
-      val rs1 = io.bypass_rs1.valid ? (io.bypass_rs1.bits, io.rs1_data)
-      val rs2 = io.bypass_rs2.valid ? (io.bypass_rs2.bits, io.rs2_data)
-      Srcs.resolve(
+      // The file's answer feeds the form resolve; the network's answer does not — a slot whose form reads Rs1/Rs2 takes
+      // it straight. The hit terms are the forms that read that register in that slot: one OR of form bits each, off
+      // the decode's register, so the forwarding path is [network answer, one mux] and the resolve stays off it.
+      val srcsBits: Node[Bits] = Node(dec.srcs.asBits)
+      def readsSlot(pick: Srcs => Operand, target: Operand): Referable[Bool] =
+        Srcs.variants.zipWithIndex
+          .collect { case (form, bit) if pick(form) == target => bit }
+          .map(srcsBits.bit)
+          .reduce(_ | _)
+      val (srcA, srcB, srcC) = Srcs.resolve(
         dec.srcs,
         Seq[(Operand, Referable[UInt])](
-          Operand.Rs1 -> rs1,
-          Operand.Rs2 -> rs2,
+          Operand.Rs1 -> io.rs1_data,
+          Operand.Rs2 -> io.rs2_data,
           Operand.Imm -> dec.imm,
           Operand.Pc -> dec.pc,
           Operand.Zero -> 0.U(width)
         ),
         width
+      )
+      val bypassA = readsSlot(_.a, Operand.Rs1) & io.bypass_rs1.valid
+      val bypassB = readsSlot(_.b, Operand.Rs2) & io.bypass_rs2.valid
+      val bypassC = readsSlot(_.c, Operand.Rs2) & io.bypass_rs2.valid
+      (
+        bypassA ? (io.bypass_rs1.bits, srcA),
+        bypassB ? (io.bypass_rs2.bits, srcB),
+        bypassC ? (io.bypass_rs2.bits, srcC)
       )
 
     /** The read is placeable when no in-flight writer blocks it: the operand form once more, for the registers each
