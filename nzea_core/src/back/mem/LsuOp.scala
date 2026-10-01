@@ -16,42 +16,42 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * RV32 codes do not move when the configuration does not have them.
   */
 enum LsuOp extends Encoding.OneHot:
-  case LB
-  case LH
-  case LW
-  case LBU
-  case LHU
-  case SB
-  case SH
-  case SW
-  case LD
-  case SD
-  case LWU
+    case LB
+    case LH
+    case LW
+    case LBU
+    case LHU
+    case SB
+    case SH
+    case SW
+    case LD
+    case SD
+    case LWU
 
-  def exists(isa: Isa): Boolean = this match
-    case LB | LH | LW | LBU | LHU | SB | SH | SW => true
-    case LD | SD | LWU                           => isa.xlen == Xlen.Rv64
+    def exists(isa: Isa): Boolean = this match
+        case LB | LH | LW | LBU | LHU | SB | SH | SW => true
+        case LD | SD | LWU                           => isa.xlen == Xlen.Rv64
 
 object LsuOp:
-  /** The ops this configuration has: the word-wide forms need 64-bit registers. */
-  def set(isa: Isa): OneHotSet[LsuOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
+    /** The ops this configuration has: the word-wide forms need 64-bit registers. */
+    def set(isa: Isa): OneHotSet[LsuOp] = OneHotSet.of(values.toSeq)(_.exists(isa))
 
-  /** True for the store ops; a field that selects no store is treated as a load, like the legacy decoder. */
-  def isStore(v: LsuOp): Boolean = v match
-    case SB | SH | SW | SD => true
-    case _                 => false
+    /** True for the store ops; a field that selects no store is treated as a load, like the legacy decoder. */
+    def isStore(v: LsuOp): Boolean = v match
+        case SB | SH | SW | SD => true
+        case _                 => false
 
-  /** The hardware test: whether the field carries one of the stores this configuration has. */
-  def isStore[LHS <: Referable[UInt]](op: LHS, ops: OneHotSet[LsuOp])(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[Bool] =
-    ops.variants.filter(isStore).map(v => op === v.lit.U(ops.width)).reduce(_ | _)
+    /** The hardware test: whether the field carries one of the stores this configuration has. */
+    def isStore[LHS <: Referable[UInt]](op: LHS, ops: OneHotSet[LsuOp])(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[Bool] =
+        ops.variants.filter(isStore).map(v => op === v.lit.U(ops.width)).reduce(_ | _)
 
 /** The mem path's window in the issue uop's shared `op` field: one unit, so the union has a single case and no tag.
   *
@@ -60,11 +60,11 @@ object LsuOp:
   * arrive in the uop's operand slots.
   */
 enum MemOp extends Encoding.Union[Isa]:
-  case Lsu(payload: LsuOp) extends MemOp
+    case Lsu(payload: LsuOp) extends MemOp
 
-  def childWidth(isa: Isa): Int = LsuOp.set(isa).width
+    def childWidth(isa: Isa): Int = LsuOp.set(isa).width
 
 object MemOp:
-  val lsu = Lsu(LsuOp.LB)
+    val lsu = Lsu(LsuOp.LB)
 
-  def set(isa: Isa): Encoding.UnionSet[MemOp, Isa] = Encoding.UnionSet.of(isa)(Seq(lsu))(_ => true)
+    def set(isa: Isa): Encoding.UnionSet[MemOp, Isa] = Encoding.UnionSet.of(isa)(Seq(lsu))(_ => true)

@@ -12,132 +12,132 @@ import utest.*
   */
 object MiddleElaborateTest extends TestSuite:
 
-  private val width = 32
-  private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
+    private val width = 32
+    private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
 
-  private val module = Middle.moduleName(
-    MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, BypassLevel.Commit, StatScope.root)
-  )
-
-  private def lower(bypass: BypassLevel): String =
-    TestFlow.lower(
-      module,
-      cfg =>
-        Middle.main(
-          Array(
-            "config",
-            cfg.toString,
-            "--isa",
-            "riscv32i",
-            "--defaultPc",
-            "2147483648",
-            "--flow",
-            "yosys",
-            "--bypass",
-            bypass.name,
-            "--stats",
-            "root"
-          )
-        ),
-      cfg => Middle.main(Array("design", cfg.toString))
+    private val module = Middle.moduleName(
+        MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, BypassLevel.Commit, StatScope.root)
     )
 
-  private lazy val sv = lower(BypassLevel.Commit)
-
-  private lazy val ports = TestFlow.ports(sv, module)
-
-  val tests = Tests:
-    test("the middle's boundary is the decoded stream, the flush and the retire channels"):
-      assert(sv.contains(s"module $module("))
-      assert(
-        ports == Map(
-          "clock" -> 1,
-          "resetN" -> 1,
-          "flush" -> 1,
-          "decoded_valid" -> 1,
-          "decoded_ready" -> 1,
-          "decoded_bits_pc" -> width,
-          "decoded_bits_next_pc" -> width,
-          "decoded_bits_fall_through" -> width,
-          "decoded_bits_pht_count" -> BpUpdate.phtCountBits,
-          "decoded_bits_imm" -> width,
-          "decoded_bits_rd_index" -> Gpr.indexWidth,
-          "decoded_bits_rs1_index" -> Gpr.indexWidth,
-          "decoded_bits_rs2_index" -> Gpr.indexWidth,
-          "decoded_bits_srcs" -> Srcs.width,
-          "decoded_bits_backend" -> Backend.width,
-          "decoded_bits_op" -> OpWindow.width(config),
-          "decoded_bits_csr_addr" -> 12,
-          "redirect_valid" -> 1,
-          "redirect_bits" -> width,
-          "issue_valid" -> 1,
-          "issue_first" -> 1,
-          "issue_bits_pc" -> width,
-          "issue_bits_next_pc" -> width,
-          "issue_bits_fall_through" -> width,
-          "issue_bits_pht_count" -> BpUpdate.phtCountBits,
-          "issue_bits_imm" -> width,
-          "issue_bits_src_a" -> width,
-          "issue_bits_src_b" -> width,
-          "issue_bits_src_c" -> width,
-          "issue_bits_backend" -> Backend.width,
-          "issue_bits_op" -> OpWindow.width(config),
-          "issue_bits_csr_type" -> CsrType.width,
-          "issue_bits_csr_rdata" -> width,
-          "issue_bits_rd_index" -> Gpr.indexWidth,
-          "complete_valid" -> 1,
-          "complete_bits_data" -> width,
-          "complete_bits_next_pc" -> width,
-          "complete_bits_csr_type" -> CsrType.width,
-          "complete_bits_csr_data" -> width,
-          "complete_bits_is_mmio" -> 1,
-          "complete_bits_is_branch" -> 1,
-          "complete_bits_pred_next_pc" -> width,
-          "bypass_rs1_index" -> Gpr.indexWidth,
-          "bypass_rs2_index" -> Gpr.indexWidth,
-          "bypass_commit_valid" -> 1,
-          "bypass_commit_bits_rd_index" -> Gpr.indexWidth,
-          "bypass_commit_bits_data" -> width,
-          "bypass_rs1_valid" -> 1,
-          "bypass_rs1_bits" -> width,
-          "bypass_rs2_valid" -> 1,
-          "bypass_rs2_bits" -> width,
-          "commit_valid" -> 1,
-          "commit_bits_next_pc" -> width,
-          "commit_bits_rd_index" -> Gpr.indexWidth,
-          "commit_bits_rd_value" -> width,
-          "commit_bits_is_mmio" -> 1,
-          "commit_bits_csr_type" -> CsrType.width,
-          "commit_bits_csr_data" -> width
+    private def lower(bypass: BypassLevel): String =
+        TestFlow.lower(
+            module,
+            cfg =>
+                Middle.main(
+                    Array(
+                        "config",
+                        cfg.toString,
+                        "--isa",
+                        "riscv32i",
+                        "--defaultPc",
+                        "2147483648",
+                        "--flow",
+                        "yosys",
+                        "--bypass",
+                        bypass.name,
+                        "--stats",
+                        "root"
+                    )
+                ),
+            cfg => Middle.main(Array("design", cfg.toString))
         )
-      )
 
-    test("the middle instantiates the register file, the CSR file, the read unit and the issue unit"):
-      assert(sv.contains("module Arf"))
-      assert(sv.contains("module CsrFile"))
-      assert(sv.contains("module OperandRead"))
-      assert(sv.contains("module Isu"))
+    private lazy val sv = lower(BypassLevel.Commit)
 
-    // The read is the issue unit's, and the one producer it cannot see yet is the instruction in execute: a payload
-    // naming that register waits for the completion to pass, so the comparison runs against the IS/EX register's own
-    // destination field — `isex_rd_index` in the lowered RTL — rather than against the retiring instruction's.
-    test("a payload that reads the instruction in execute waits for it"):
-      assert(sv.contains("isex_rd_index"))
+    private lazy val ports = TestFlow.ports(sv, module)
 
-    // The stage registers are the middle's — the issue unit between them is combinational — so the names the event
-    // files address are in the middle's scope.
-    test("the middle carries the stage registers"):
-      assert(sv.contains("idisValid") && sv.contains("isexValid"))
+    val tests = Tests:
+        test("the middle's boundary is the decoded stream, the flush and the retire channels"):
+            assert(sv.contains(s"module $module("))
+            assert(
+                ports == Map(
+                    "clock" -> 1,
+                    "resetN" -> 1,
+                    "flush" -> 1,
+                    "decoded_valid" -> 1,
+                    "decoded_ready" -> 1,
+                    "decoded_bits_pc" -> width,
+                    "decoded_bits_next_pc" -> width,
+                    "decoded_bits_fall_through" -> width,
+                    "decoded_bits_pht_count" -> BpUpdate.phtCountBits,
+                    "decoded_bits_imm" -> width,
+                    "decoded_bits_rd_index" -> Gpr.indexWidth,
+                    "decoded_bits_rs1_index" -> Gpr.indexWidth,
+                    "decoded_bits_rs2_index" -> Gpr.indexWidth,
+                    "decoded_bits_srcs" -> Srcs.width,
+                    "decoded_bits_backend" -> Backend.width,
+                    "decoded_bits_op" -> OpWindow.width(config),
+                    "decoded_bits_csr_addr" -> 12,
+                    "redirect_valid" -> 1,
+                    "redirect_bits" -> width,
+                    "issue_valid" -> 1,
+                    "issue_first" -> 1,
+                    "issue_bits_pc" -> width,
+                    "issue_bits_next_pc" -> width,
+                    "issue_bits_fall_through" -> width,
+                    "issue_bits_pht_count" -> BpUpdate.phtCountBits,
+                    "issue_bits_imm" -> width,
+                    "issue_bits_src_a" -> width,
+                    "issue_bits_src_b" -> width,
+                    "issue_bits_src_c" -> width,
+                    "issue_bits_backend" -> Backend.width,
+                    "issue_bits_op" -> OpWindow.width(config),
+                    "issue_bits_csr_type" -> CsrType.width,
+                    "issue_bits_csr_rdata" -> width,
+                    "issue_bits_rd_index" -> Gpr.indexWidth,
+                    "complete_valid" -> 1,
+                    "complete_bits_data" -> width,
+                    "complete_bits_next_pc" -> width,
+                    "complete_bits_csr_type" -> CsrType.width,
+                    "complete_bits_csr_data" -> width,
+                    "complete_bits_is_mmio" -> 1,
+                    "complete_bits_is_branch" -> 1,
+                    "complete_bits_pred_next_pc" -> width,
+                    "bypass_rs1_index" -> Gpr.indexWidth,
+                    "bypass_rs2_index" -> Gpr.indexWidth,
+                    "bypass_commit_valid" -> 1,
+                    "bypass_commit_bits_rd_index" -> Gpr.indexWidth,
+                    "bypass_commit_bits_data" -> width,
+                    "bypass_rs1_valid" -> 1,
+                    "bypass_rs1_bits" -> width,
+                    "bypass_rs2_valid" -> 1,
+                    "bypass_rs2_bits" -> width,
+                    "commit_valid" -> 1,
+                    "commit_bits_next_pc" -> width,
+                    "commit_bits_rd_index" -> Gpr.indexWidth,
+                    "commit_bits_rd_value" -> width,
+                    "commit_bits_is_mmio" -> 1,
+                    "commit_bits_csr_type" -> CsrType.width,
+                    "commit_bits_csr_data" -> width
+                )
+            )
 
-    // The bypass network's answer is the read's to select: the middle carries the bus to the read, and the read takes
-    // the network's value where it is valid.
-    test("the bypass bus reaches the read unit"):
-      assert(sv.contains("bypass_rs1_valid") && sv.contains("bypass_rs2_valid"))
+        test("the middle instantiates the register file, the CSR file, the read unit and the issue unit"):
+            assert(sv.contains("module Arf"))
+            assert(sv.contains("module CsrFile"))
+            assert(sv.contains("module OperandRead"))
+            assert(sv.contains("module Isu"))
 
-    // The unit itself owns no state: the `Isu` module in the same lowering has no flop and no stage register.
-    test("the issue unit is purely combinational"):
-      val start = sv.indexOf("module Isu(")
-      assert(start >= 0)
-      val body = sv.substring(start, sv.indexOf("endmodule", start))
-      assert(!body.contains("always @(posedge"))
-      assert(!body.contains("idisValid") && !body.contains("isexValid"))
+        // The read is the issue unit's, and the one producer it cannot see yet is the instruction in execute: a payload
+        // naming that register waits for the completion to pass, so the comparison runs against the IS/EX register's own
+        // destination field — `isex_rd_index` in the lowered RTL — rather than against the retiring instruction's.
+        test("a payload that reads the instruction in execute waits for it"):
+            assert(sv.contains("isex_rd_index"))
+
+        // The stage registers are the middle's — the issue unit between them is combinational — so the names the event
+        // files address are in the middle's scope.
+        test("the middle carries the stage registers"):
+            assert(sv.contains("idisValid") && sv.contains("isexValid"))
+
+        // The bypass network's answer is the read's to select: the middle carries the bus to the read, and the read takes
+        // the network's value where it is valid.
+        test("the bypass bus reaches the read unit"):
+            assert(sv.contains("bypass_rs1_valid") && sv.contains("bypass_rs2_valid"))
+
+        // The unit itself owns no state: the `Isu` module in the same lowering has no flop and no stage register.
+        test("the issue unit is purely combinational"):
+            val start = sv.indexOf("module Isu(")
+            assert(start >= 0)
+            val body = sv.substring(start, sv.indexOf("endmodule", start))
+            assert(!body.contains("always @(posedge"))
+            assert(!body.contains("idisValid") && !body.contains("isexValid"))

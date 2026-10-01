@@ -13,28 +13,28 @@ import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class PhtParameter(isa: Isa, defaultPc: Long, entries: Int) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc)
-  require(entries > 0 && (entries & (entries - 1)) == 0, s"pht entries must be a power of two, got $entries")
+    val config: CoreConfig = CoreConfig(isa, defaultPc)
+    require(entries > 0 && (entries & (entries - 1)) == 0, s"pht entries must be a power of two, got $entries")
 
 given upickle.default.ReadWriter[PhtParameter] = upickle.default.macroRW
 
 class PhtLayers(parameter: PhtParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class PhtIO(parameter: PhtParameter) extends HWBundle(parameter):
-  private val width = parameter.config.width
-  val clock = Flipped(Clock())
+    private val width = parameter.config.width
+    val clock = Flipped(Clock())
 
-  /** The pc being predicted: the read is issued with it, and the answer is out a cycle later. */
-  val lookup_pc = Flipped(UInt(width))
-  val pred_taken = Aligned(Bool())
-  val count = Aligned(UInt(BpUpdate.phtCountBits))
+    /** The pc being predicted: the read is issued with it, and the answer is out a cycle later. */
+    val lookup_pc = Flipped(UInt(width))
+    val pred_taken = Aligned(Bool())
+    val count = Aligned(UInt(BpUpdate.phtCountBits))
 
-  /** One resolution to train on: the branch's pc, its outcome, and the counter its fetch read. */
-  val update_valid = Flipped(Bool())
-  val update_pc = Flipped(UInt(width))
-  val update_taken = Flipped(Bool())
-  val update_count = Flipped(UInt(BpUpdate.phtCountBits))
+    /** One resolution to train on: the branch's pc, its outcome, and the counter its fetch read. */
+    val update_valid = Flipped(Bool())
+    val update_pc = Flipped(UInt(width))
+    val update_taken = Flipped(Bool())
+    val update_count = Flipped(UInt(BpUpdate.phtCountBits))
 
 class PhtProbe(parameter: PhtParameter) extends DVBundle[PhtParameter, PhtLayers](parameter)
 
@@ -57,35 +57,36 @@ class PhtProbe(parameter: PhtParameter) extends DVBundle[PhtParameter, PhtLayers
   */
 @generator
 object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
-  override def moduleName(parameter: PhtParameter): String = "Pht"
+    override def moduleName(parameter: PhtParameter): String = "Pht"
 
-  def architecture(parameter: PhtParameter) =
-    val io = summon[Interface[PhtIO]]
-    given ClockScope = ClockScope.posedge(io.clock)
+    def architecture(parameter: PhtParameter) =
+        val io = summon[Interface[PhtIO]]
+        given ClockScope = ClockScope.posedge(io.clock)
 
-    val entries = parameter.entries
-    val indexBits = log2Ceil(entries)
+        val entries = parameter.entries
+        val indexBits = log2Ceil(entries)
 
-    /** A pc's slot: the word-aligned pc's low bits, the same slice the legacy table used. */
-    def indexOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(indexBits + 1, 2).asUInt
+        /** A pc's slot: the word-aligned pc's low bits, the same slice the legacy table used. */
+        def indexOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(indexBits + 1, 2).asUInt
 
-    /** The counter's next value: one step toward the outcome, saturated at either end. */
-    def saturating(count: Referable[UInt], taken: Referable[Bool]): Referable[UInt] =
-      val bumped = (count + 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
-      val dropped = (count - 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
-      val max = ((1 << BpUpdate.phtCountBits) - 1).U(BpUpdate.phtCountBits)
-      val onTaken: Referable[UInt] = (count === max) ? (max, bumped)
-      val onNotTaken: Referable[UInt] = (count === 0.U(BpUpdate.phtCountBits)) ? (0.U(BpUpdate.phtCountBits), dropped)
-      taken ? (onTaken, onNotTaken)
+        /** The counter's next value: one step toward the outcome, saturated at either end. */
+        def saturating(count: Referable[UInt], taken: Referable[Bool]): Referable[UInt] =
+            val bumped = (count + 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
+            val dropped = (count - 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
+            val max = ((1 << BpUpdate.phtCountBits) - 1).U(BpUpdate.phtCountBits)
+            val onTaken: Referable[UInt] = (count === max) ? (max, bumped)
+            val onNotTaken: Referable[UInt] =
+                (count === 0.U(BpUpdate.phtCountBits)) ? (0.U(BpUpdate.phtCountBits), dropped)
+            taken ? (onTaken, onNotTaken)
 
-    val table = SyncRam.instantiate(
-      SyncRamParameter(BpUpdate.phtCountBits, entries, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.ReadFirst)
-    )
-    table.io.clock := io.clock
-    table.io.rEn := true.B
-    table.io.rAddr := indexOf(io.lookup_pc)
-    io.pred_taken := Node(table.io.rData.asBits).bit(1)
-    io.count := table.io.rData
-    table.io.wEn := io.update_valid
-    table.io.wAddr := indexOf(io.update_pc)
-    table.io.wData := saturating(io.update_count, io.update_taken)
+        val table = SyncRam.instantiate(
+            SyncRamParameter(BpUpdate.phtCountBits, entries, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.ReadFirst)
+        )
+        table.io.clock := io.clock
+        table.io.rEn := true.B
+        table.io.rAddr := indexOf(io.lookup_pc)
+        io.pred_taken := Node(table.io.rData.asBits).bit(1)
+        io.count := table.io.rData
+        table.io.wEn := io.update_valid
+        table.io.wAddr := indexOf(io.update_pc)
+        table.io.wData := saturating(io.update_count, io.update_taken)

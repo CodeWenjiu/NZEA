@@ -19,30 +19,30 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   */
 object DbusUser:
 
-  val tagWidth: Int = 2
+    val tagWidth: Int = 2
 
-  /** The user field: the request tag, the whole payload. */
-  object Layout extends Encoding.Aggregate:
-    val fields: Seq[(String, Int)] = Seq("tag" -> tagWidth)
+    /** The user field: the request tag, the whole payload. */
+    object Layout extends Encoding.Aggregate:
+        val fields: Seq[(String, Int)] = Seq("tag" -> tagWidth)
 
-  def userWidth: Int = Layout.width
+    def userWidth: Int = Layout.width
 
-  def pack[T <: Referable[UInt]](tag: T)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] = Node(tag.asBits).pad(userWidth).asUInt
+    def pack[T <: Referable[UInt]](tag: T)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] = Node(tag.asBits).pad(userWidth).asUInt
 
-  def tagOf[T <: Referable[UInt]](user: T)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] = Layout.read("tag", user)
+    def tagOf[T <: Referable[UInt]](user: T)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] = Layout.read("tag", user)

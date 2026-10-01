@@ -12,5 +12,5 @@ import nzea_core.isa.Isa
   */
 case class CoreConfig(isa: Isa, defaultPc: Long):
 
-  /** Data/address width derived from ISA (e.g. riscv32 -> 32, riscv64 -> 64). */
-  val width: Int = isa.xlen.bits
+    /** Data/address width derived from ISA (e.g. riscv32 -> 32, riscv64 -> 64). */
+    val width: Int = isa.xlen.bits

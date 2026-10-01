@@ -6,9 +6,9 @@ package nzea_rtl
   */
 object FileList:
 
-  /** Append `names` to `dir`'s file list, one per line, continuing whatever list is already there. */
-  def append(dir: os.Path, names: Seq[String]): Unit =
-    val file = dir / "filelist.f"
-    val listed = if os.exists(file) then os.read(file) else ""
-    val terminated = if listed.isEmpty || listed.endsWith("\n") then listed else s"$listed\n"
-    os.write.over(file, terminated ++ names.map(_ + "\n").mkString)
+    /** Append `names` to `dir`'s file list, one per line, continuing whatever list is already there. */
+    def append(dir: os.Path, names: Seq[String]): Unit =
+        val file = dir / "filelist.f"
+        val listed = if os.exists(file) then os.read(file) else ""
+        val terminated = if listed.isEmpty || listed.endsWith("\n") then listed else s"$listed\n"
+        os.write.over(file, terminated ++ names.map(_ + "\n").mkString)

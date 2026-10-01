@@ -19,22 +19,22 @@ import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class FrontParameter(isa: Isa, defaultPc: Long, bpu: BpuLevel) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc)
+    val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[FrontParameter] = upickle.default.macroRW
 
 class FrontLayers(parameter: FrontParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
-  private val width = parameter.config.width
-  val clock = Flipped(Clock())
-  val resetN = Flipped(Reset())
-  val flush = Flipped(Bool())
-  val ibus = Aligned(Ifu.busType(parameter.config))
-  val redirect = Flipped(Valid(UInt(width)))
-  val bp_update = Flipped(Valid(new BpUpdate(width)))
-  val out = Aligned(Decoupled(new IduOut(parameter.config)))
+    private val width = parameter.config.width
+    val clock = Flipped(Clock())
+    val resetN = Flipped(Reset())
+    val flush = Flipped(Bool())
+    val ibus = Aligned(Ifu.busType(parameter.config))
+    val redirect = Flipped(Valid(UInt(width)))
+    val bp_update = Flipped(Valid(new BpUpdate(width)))
+    val out = Aligned(Decoupled(new IduOut(parameter.config)))
 
 class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, FrontLayers](parameter)
 
@@ -48,26 +48,26 @@ class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, Fro
   */
 @generator
 object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]:
-  override def moduleName(parameter: FrontParameter): String = "Front"
+    override def moduleName(parameter: FrontParameter): String = "Front"
 
-  def architecture(parameter: FrontParameter) =
-    val io = summon[Interface[FrontIO]]
-    given ClockScope = ClockScope.posedge(io.clock)
-    given ResetScope = ResetScope.syncActiveLow(io.resetN)
+    def architecture(parameter: FrontParameter) =
+        val io = summon[Interface[FrontIO]]
+        given ClockScope = ClockScope.posedge(io.clock)
+        given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    val c = parameter.config
-    val ifu = Ifu.instantiate(IfuParameter(c.isa, c.defaultPc, parameter.bpu))
-    val idu = Idu.instantiate(IduParameter(c.isa, c.defaultPc))
+        val c = parameter.config
+        val ifu = Ifu.instantiate(IfuParameter(c.isa, c.defaultPc, parameter.bpu))
+        val idu = Idu.instantiate(IduParameter(c.isa, c.defaultPc))
 
-    ifu.io.clock := io.clock
-    ifu.io.resetN := io.resetN
-    idu.io.clock := io.clock
-    idu.io.resetN := io.resetN
+        ifu.io.clock := io.clock
+        ifu.io.resetN := io.resetN
+        idu.io.clock := io.clock
+        idu.io.resetN := io.resetN
 
-    io.ibus :<>= ifu.io.ibus
-    ifu.io.redirect :<>= io.redirect
-    ifu.io.bp_update :<>= io.bp_update
+        io.ibus :<>= ifu.io.ibus
+        ifu.io.redirect :<>= io.redirect
+        ifu.io.bp_update :<>= io.bp_update
 
-    pipelineConnect(ifu.io.out, idu.io.in, io.flush, "ifid", FlushHandover.Consume)
+        pipelineConnect(ifu.io.out, idu.io.in, io.flush, "ifid", FlushHandover.Consume)
 
-    io.out :<>= idu.io.out
+        io.out :<>= idu.io.out

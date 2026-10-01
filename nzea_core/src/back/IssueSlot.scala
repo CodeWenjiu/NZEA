@@ -12,6 +12,6 @@ import me.jiuyang.zaozi.valuetpe.*
   * the level's edge would miss every other instruction. Anything that latches, starts or counts keys on `first`.
   */
 class IssueSlot[T <: Data](_bits: T) extends Bundle:
-  val valid: BundleField[Bool] = Aligned(Bool())
-  val first: BundleField[Bool] = Aligned(Bool())
-  val bits: BundleField[T] = Aligned(_bits)
+    val valid: BundleField[Bool] = Aligned(Bool())
+    val first: BundleField[Bool] = Aligned(Bool())
+    val bits: BundleField[T] = Aligned(_bits)

@@ -14,34 +14,34 @@ import nzea_core.isa.Isa
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class BpuParameter(isa: Isa, defaultPc: Long, level: BpuLevel) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc)
+    val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[BpuParameter] = upickle.default.macroRW
 
 class BpuLayers(parameter: BpuParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class BpuIO(parameter: BpuParameter) extends HWBundle(parameter):
-  private val width = parameter.config.width
-  val clock = Flipped(Clock())
-  val resetN = Flipped(Reset())
+    private val width = parameter.config.width
+    val clock = Flipped(Clock())
+    val resetN = Flipped(Reset())
 
-  /** The address whose prediction is wanted: the read is issued with it, and the answer — [[pred_next_pc]] and the
-    * training evidence beside it — is out a cycle later.
-    */
-  val lookup_pc = Flipped(UInt(width))
+    /** The address whose prediction is wanted: the read is issued with it, and the answer — [[pred_next_pc]] and the
+      * training evidence beside it — is out a cycle later.
+      */
+    val lookup_pc = Flipped(UInt(width))
 
-  /** The fall-through of the address being predicted: the pc register's own `pc + 4`, made by the caller — the same
-    * value the request it packs carries — and the composition's default answer.
-    */
-  val fall_through = Flipped(UInt(width))
-  val pred_next_pc = Aligned(UInt(width))
+    /** The fall-through of the address being predicted: the pc register's own `pc + 4`, made by the caller — the same
+      * value the request it packs carries — and the composition's default answer.
+      */
+    val fall_through = Flipped(UInt(width))
+    val pred_next_pc = Aligned(UInt(width))
 
-  /** The direction counter the prediction read, for the fetch to carry back as the branch's training evidence. */
-  val pred_count = Aligned(UInt(BpUpdate.phtCountBits))
+    /** The direction counter the prediction read, for the fetch to carry back as the branch's training evidence. */
+    val pred_count = Aligned(UInt(BpUpdate.phtCountBits))
 
-  /** The resolutions to train on. */
-  val update = Flipped(Valid(new BpUpdate(width)))
+    /** The resolutions to train on. */
+    val update = Flipped(Valid(new BpUpdate(width)))
 
 class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers](parameter)
 
@@ -66,46 +66,46 @@ class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers
   */
 @generator
 object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
-  override def moduleName(parameter: BpuParameter): String = "Bpu"
+    override def moduleName(parameter: BpuParameter): String = "Bpu"
 
-  def architecture(parameter: BpuParameter) =
-    val io = summon[Interface[BpuIO]]
-    given ClockScope = ClockScope.posedge(io.clock)
-    given ResetScope = ResetScope.syncActiveLow(io.resetN)
+    def architecture(parameter: BpuParameter) =
+        val io = summon[Interface[BpuIO]]
+        given ClockScope = ClockScope.posedge(io.clock)
+        given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    val width = parameter.config.width
+        val width = parameter.config.width
 
-    // The answer's fall-through is the caller's — the pc register's own `pc + 4`. It is used live, off a register, so
-    // the +4 hangs beside the pc register and races the cycle's redirect and handshake controls instead of following the
-    // select that chooses the pc's next value. The registered copy it replaces held exactly this value every cycle: it
-    // was written from the read's own address, which is the pc register's next value — the pc register itself, one cycle
-    // later.
+        // The answer's fall-through is the caller's — the pc register's own `pc + 4`. It is used live, off a register, so
+        // the +4 hangs beside the pc register and races the cycle's redirect and handshake controls instead of following the
+        // select that chooses the pc's next value. The registered copy it replaces held exactly this value every cycle: it
+        // was written from the read's own address, which is the pc register's next value — the pc register itself, one cycle
+        // later.
 
-    parameter.level match
-      case BpuLevel.Bimodal(phtEntries, btbEntries) =>
-        val pht = Pht.instantiate(PhtParameter(parameter.isa, parameter.defaultPc, phtEntries))
-        val btb = Btb.instantiate(BtbParameter(parameter.isa, parameter.defaultPc, btbEntries))
+        parameter.level match
+            case BpuLevel.Bimodal(phtEntries, btbEntries) =>
+                val pht = Pht.instantiate(PhtParameter(parameter.isa, parameter.defaultPc, phtEntries))
+                val btb = Btb.instantiate(BtbParameter(parameter.isa, parameter.defaultPc, btbEntries))
 
-        pht.io.clock := io.clock
-        pht.io.lookup_pc := io.lookup_pc
-        pht.io.update_valid := io.update.valid
-        pht.io.update_pc := io.update.bits.pc
-        pht.io.update_taken := io.update.bits.taken
-        pht.io.update_count := io.update.bits.pht_count
+                pht.io.clock := io.clock
+                pht.io.lookup_pc := io.lookup_pc
+                pht.io.update_valid := io.update.valid
+                pht.io.update_pc := io.update.bits.pc
+                pht.io.update_taken := io.update.bits.taken
+                pht.io.update_count := io.update.bits.pht_count
 
-        btb.io.clock := io.clock
-        btb.io.resetN := io.resetN
-        btb.io.lookup_pc := io.lookup_pc
-        btb.io.update_valid := io.update.valid & io.update.bits.taken
-        btb.io.update_pc := io.update.bits.pc
-        btb.io.update_target := io.update.bits.target
+                btb.io.clock := io.clock
+                btb.io.resetN := io.resetN
+                btb.io.lookup_pc := io.lookup_pc
+                btb.io.update_valid := io.update.valid & io.update.bits.taken
+                btb.io.update_pc := io.update.bits.pc
+                btb.io.update_target := io.update.bits.target
 
-        // The composition: a redirect needs both the direction's "taken" and a target to go to; everything else
-        // continues at the fall-through of the address being predicted.
-        io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, io.fall_through)
-        io.pred_count := pht.io.count
+                // The composition: a redirect needs both the direction's "taken" and a target to go to; everything else
+                // continues at the fall-through of the address being predicted.
+                io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, io.fall_through)
+                io.pred_count := pht.io.count
 
-      case BpuLevel.Off =>
-        // No table exists, so the only answer is the fall-through — the sequential fetch, made by the same structure.
-        io.pred_next_pc := io.fall_through
-        io.pred_count := 0.U(BpUpdate.phtCountBits)
+            case BpuLevel.Off =>
+                // No table exists, so the only answer is the fall-through — the sequential fetch, made by the same structure.
+                io.pred_next_pc := io.fall_through
+                io.pred_count := 0.U(BpUpdate.phtCountBits)

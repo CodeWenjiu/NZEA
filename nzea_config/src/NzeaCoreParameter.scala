@@ -24,6 +24,6 @@ case class NzeaCoreParameter(
     bpu: BpuLevel,
     stats: StatScope
 ) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc)
+    val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[NzeaCoreParameter] = upickle.default.macroRW

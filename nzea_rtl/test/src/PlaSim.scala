@@ -10,19 +10,19 @@ import me.jiuyang.decoder.{PLA, TruthTable}
   */
 object PlaSim:
 
-  /** What the tables say a word decodes to: per table the matching entry's encoding, else the default's, concatenated
-    * with the first table in the high bits.
-    */
-  def reference(tables: Seq[TruthTable], word: BigInt): BigInt =
-    tables.foldLeft(BigInt(0)): (acc, table) =>
-      val encoded = table.table
-        .collectFirst { case (in, out) if (word & in.mask) == in.value => out }
-        .getOrElse(table.encoding(table.default))
-      (acc << table.outputBits) | encoded.value
+    /** What the tables say a word decodes to: per table the matching entry's encoding, else the default's, concatenated
+      * with the first table in the high bits.
+      */
+    def reference(tables: Seq[TruthTable], word: BigInt): BigInt =
+        tables.foldLeft(BigInt(0)): (acc, table) =>
+            val encoded = table.table
+                .collectFirst { case (in, out) if (word & in.mask) == in.value => out }
+                .getOrElse(table.encoding(table.default))
+            (acc << table.outputBits) | encoded.value
 
-  /** What the minimized PLA reports for the same word. */
-  def decode(pla: PLA, word: BigInt): BigInt =
-    val asserted = pla.table.foldLeft(BigInt(0)): (bits, row) =>
-      val (in, out) = row
-      if (word & in.mask) == in.value then bits | (out.value & out.mask) else bits
-    asserted ^ pla.default.value
+    /** What the minimized PLA reports for the same word. */
+    def decode(pla: PLA, word: BigInt): BigInt =
+        val asserted = pla.table.foldLeft(BigInt(0)): (bits, row) =>
+            val (in, out) = row
+            if (word & in.mask) == in.value then bits | (out.value & out.mask) else bits
+        asserted ^ pla.default.value

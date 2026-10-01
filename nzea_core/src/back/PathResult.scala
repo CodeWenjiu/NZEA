@@ -15,10 +15,10 @@ import nzea_core.isa.CsrType
   * int one leaves the flag clear.
   */
 class PathResult(width: Int) extends Bundle:
-  val data = Aligned(UInt(width))
-  val next_pc = Aligned(UInt(width))
-  val csr_type = Aligned(UInt(CsrType.width))
-  val csr_data = Aligned(UInt(width))
-  val is_mmio = Aligned(Bool())
-  val is_branch = Aligned(Bool())
-  val pred_next_pc = Aligned(UInt(width))
+    val data = Aligned(UInt(width))
+    val next_pc = Aligned(UInt(width))
+    val csr_type = Aligned(UInt(CsrType.width))
+    val csr_data = Aligned(UInt(width))
+    val is_mmio = Aligned(Bool())
+    val is_branch = Aligned(Bool())
+    val pred_next_pc = Aligned(UInt(width))

@@ -8,17 +8,17 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import org.llvm.circt.scalalib.dialect.firrtl.operation.{ConnectApi, given}
 import org.llvm.mlir.scalalib.capi.ir.{
-  Attribute,
-  Block,
-  Context,
-  Location,
-  LocationApi,
-  NamedAttribute,
-  NamedAttributeApi,
-  Operation,
-  OperationApi,
-  Value,
-  given
+    Attribute,
+    Block,
+    Context,
+    Location,
+    LocationApi,
+    NamedAttribute,
+    NamedAttributeApi,
+    Operation,
+    OperationApi,
+    Value,
+    given
 }
 
 /** DPI-C calls, expressed as the FIRRTL `int.dpi.call` intrinsic.
@@ -49,35 +49,35 @@ private def dpiCall(
     sourcecode.File,
     sourcecode.Line
 ): Option[Value] =
-  require(
-    inputNames.forall(_.size == inputs.size),
-    s"$functionName: ${inputNames.map(_.size).getOrElse(0)} input names for ${inputs.size} operands"
-  )
+    require(
+        inputNames.forall(_.size == inputs.size),
+        s"$functionName: ${inputNames.map(_.size).getOrElse(0)} input names for ${inputs.size} operands"
+    )
 
-  val namedAttributeApi = summon[NamedAttributeApi]
-  def attribute(name: String, value: Attribute): NamedAttribute =
-    namedAttributeApi.namedAttributeGet(name.identifierGet, value)
+    val namedAttributeApi = summon[NamedAttributeApi]
+    def attribute(name: String, value: Attribute): NamedAttribute =
+        namedAttributeApi.namedAttributeGet(name.identifierGet, value)
 
-  val attributes =
-    Seq(attribute("functionName", functionName.stringAttrGet)) ++
-      inputNames.map(names => attribute("inputNames", names.map(_.stringAttrGet).arrayAttrGet)) ++
-      outputName.map(name => attribute("outputName", name.stringAttrGet)) ++
-      // AttrSizedOperandSegments: clock?, enable?, inputs*
-      Seq(attribute("operandSegmentSizes", Seq(clock.size, enable.size, inputs.size).denseI32ArrayGet))
+    val attributes =
+        Seq(attribute("functionName", functionName.stringAttrGet)) ++
+            inputNames.map(names => attribute("inputNames", names.map(_.stringAttrGet).arrayAttrGet)) ++
+            outputName.map(name => attribute("outputName", name.stringAttrGet)) ++
+            // AttrSizedOperandSegments: clock?, enable?, inputs*
+            Seq(attribute("operandSegmentSizes", Seq(clock.size, enable.size, inputs.size).denseI32ArrayGet))
 
-  val operation = summon[OperationApi].operationCreate(
-    name = "firrtl.int.dpi.call",
-    location = summon[LocationApi].locationFileLineColGet(
-      summon[sourcecode.File].value,
-      summon[sourcecode.Line].value,
-      0
-    ),
-    namedAttributes = attributes,
-    operands = clock.map(_.refer).toSeq ++ enable.map(_.refer).toSeq ++ inputs.map(_.refer),
-    resultsTypes = result.map(r => Seq(r.toMlirType))
-  )
-  operation.appendToBlock()
-  if result.isDefined then Some(operation.getResult(0)) else None
+    val operation = summon[OperationApi].operationCreate(
+        name = "firrtl.int.dpi.call",
+        location = summon[LocationApi].locationFileLineColGet(
+            summon[sourcecode.File].value,
+            summon[sourcecode.Line].value,
+            0
+        ),
+        namedAttributes = attributes,
+        operands = clock.map(_.refer).toSeq ++ enable.map(_.refer).toSeq ++ inputs.map(_.refer),
+        resultsTypes = result.map(r => Seq(r.toMlirType))
+    )
+    operation.appendToBlock()
+    if result.isDefined then Some(operation.getResult(0)) else None
 
 /** Call a DPI function combinationally: the returned wire follows `inputs` whenever `enable` is set (and is undefined
   * otherwise). Use this for side-effect-free functions such as memory reads.
@@ -97,15 +97,15 @@ def dpiUnclockedCall[T <: Data](
     sourcecode.Name.Machine,
     InstanceContext
 ): Wire[T] =
-  val value = dpiCall(functionName, inputNames, outputName, None, Some(enable), inputs, Some(result)).get
-  val wire = Wire(result)
-  val connect = summon[ConnectApi].op(
-    value,
-    wire.refer,
-    summon[LocationApi].locationFileLineColGet(summon[sourcecode.File].value, summon[sourcecode.Line].value, 0)
-  )
-  connect.operation.appendToBlock()
-  wire
+    val value = dpiCall(functionName, inputNames, outputName, None, Some(enable), inputs, Some(result)).get
+    val wire = Wire(result)
+    val connect = summon[ConnectApi].op(
+        value,
+        wire.refer,
+        summon[LocationApi].locationFileLineColGet(summon[sourcecode.File].value, summon[sourcecode.Line].value, 0)
+    )
+    connect.operation.appendToBlock()
+    wire
 
 /** Call a DPI function on the clock edge, guarded by `enable`. Use this for functions with side effects, such as a
   * write or a trace push: the call is issued once per enabled clock edge rather than continuously.
@@ -121,5 +121,5 @@ def dpiClockedCall(
     sourcecode.File,
     sourcecode.Line
 ): Unit =
-  dpiCall(functionName, inputNames, None, Some(clock), Some(enable), inputs, None)
-  ()
+    dpiCall(functionName, inputNames, None, Some(clock), Some(enable), inputs, None)
+    ()

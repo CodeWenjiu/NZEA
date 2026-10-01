@@ -12,28 +12,28 @@ import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class BtbParameter(isa: Isa, defaultPc: Long, entries: Int) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc)
-  require(entries > 0 && (entries & (entries - 1)) == 0, s"btb entries must be a power of two, got $entries")
+    val config: CoreConfig = CoreConfig(isa, defaultPc)
+    require(entries > 0 && (entries & (entries - 1)) == 0, s"btb entries must be a power of two, got $entries")
 
 given upickle.default.ReadWriter[BtbParameter] = upickle.default.macroRW
 
 class BtbLayers(parameter: BtbParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class BtbIO(parameter: BtbParameter) extends HWBundle(parameter):
-  private val width = parameter.config.width
-  val clock = Flipped(Clock())
-  val resetN = Flipped(Reset())
+    private val width = parameter.config.width
+    val clock = Flipped(Clock())
+    val resetN = Flipped(Reset())
 
-  /** The pc being predicted: the read is issued with it, and the answer is out a cycle later. */
-  val lookup_pc = Flipped(UInt(width))
-  val pred_hit = Aligned(Bool())
-  val pred_target = Aligned(UInt(width))
+    /** The pc being predicted: the read is issued with it, and the answer is out a cycle later. */
+    val lookup_pc = Flipped(UInt(width))
+    val pred_hit = Aligned(Bool())
+    val pred_target = Aligned(UInt(width))
 
-  /** One taken resolution to record: where the transfer left from and where it went. */
-  val update_valid = Flipped(Bool())
-  val update_pc = Flipped(UInt(width))
-  val update_target = Flipped(UInt(width))
+    /** One taken resolution to record: where the transfer left from and where it went. */
+    val update_valid = Flipped(Bool())
+    val update_pc = Flipped(UInt(width))
+    val update_target = Flipped(UInt(width))
 
 class BtbProbe(parameter: BtbParameter) extends DVBundle[BtbParameter, BtbLayers](parameter)
 
@@ -54,56 +54,56 @@ class BtbProbe(parameter: BtbParameter) extends DVBundle[BtbParameter, BtbLayers
   */
 @generator
 object Btb extends Generator[BtbParameter, BtbLayers, BtbIO, BtbProbe]:
-  override def moduleName(parameter: BtbParameter): String = "Btb"
+    override def moduleName(parameter: BtbParameter): String = "Btb"
 
-  def architecture(parameter: BtbParameter) =
-    val io = summon[Interface[BtbIO]]
-    given ClockScope = ClockScope.posedge(io.clock)
-    given ResetScope = ResetScope.syncActiveLow(io.resetN)
+    def architecture(parameter: BtbParameter) =
+        val io = summon[Interface[BtbIO]]
+        given ClockScope = ClockScope.posedge(io.clock)
+        given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    val width = parameter.config.width
-    val entries = parameter.entries
-    val indexBits = log2Ceil(entries)
-    val tagBits = width - indexBits - 2
-    val targetBits = width - 2
+        val width = parameter.config.width
+        val entries = parameter.entries
+        val indexBits = log2Ceil(entries)
+        val tagBits = width - indexBits - 2
+        val targetBits = width - 2
 
-    def indexOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(indexBits + 1, 2).asUInt
-    def tagOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(width - 1, indexBits + 2).asUInt
+        def indexOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(indexBits + 1, 2).asUInt
+        def tagOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(width - 1, indexBits + 2).asUInt
 
-    // The pc the outstanding read was issued with. It resets to the reset pc so the first cycle's valid read — and with
-    // it the first hit — is answered from the reset valids rather than from an undefined index.
-    val readPc = RegInit((BigInt(parameter.config.defaultPc) & ((BigInt(1) << width) - 1)).U(width))
+        // The pc the outstanding read was issued with. It resets to the reset pc so the first cycle's valid read — and with
+        // it the first hit — is answered from the reset valids rather than from an undefined index.
+        val readPc = RegInit((BigInt(parameter.config.defaultPc) & ((BigInt(1) << width) - 1)).U(width))
 
-    val valids = Reg(Vec(entries, Bool()))
-    when(!io.resetN.asBool) {
-      for index <- 0 until entries do valids(index) := false.B
-    }
+        val valids = Reg(Vec(entries, Bool()))
+        when(!io.resetN.asBool) {
+            for index <- 0 until entries do valids(index) := false.B
+        }
 
-    val table = SyncRam.instantiate(
-      SyncRamParameter(tagBits + targetBits, entries, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.ReadFirst)
-    )
-    table.io.clock := io.clock
-    table.io.rEn := true.B
-    table.io.rAddr := indexOf(io.lookup_pc)
+        val table = SyncRam.instantiate(
+            SyncRamParameter(tagBits + targetBits, entries, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.ReadFirst)
+        )
+        table.io.clock := io.clock
+        table.io.rEn := true.B
+        table.io.rAddr := indexOf(io.lookup_pc)
 
-    // The write: a taken resolution writes its own tag and target whole; the valid bit it sets is the flop beside the
-    // memory. The written values are named outside the guards: a value's definition belongs to the block that creates
-    // it, and only the connects sit inside the `when`.
-    val write = indexOf(io.update_pc)
-    val updateTag: Node[UInt] = tagOf(io.update_pc)
-    val updateTarget: Node[UInt] = Node(io.update_target.asBits).bits(width - 1, 2).asUInt
-    table.io.wEn := io.update_valid
-    table.io.wAddr := write
-    table.io.wData := (updateTag.asBits ## updateTarget.asBits).asUInt
-    when(io.update_valid) {
-      for index <- 0 until entries do when(write === index.U(indexBits)) { valids(index) := true.B }
-    }
+        // The write: a taken resolution writes its own tag and target whole; the valid bit it sets is the flop beside the
+        // memory. The written values are named outside the guards: a value's definition belongs to the block that creates
+        // it, and only the connects sit inside the `when`.
+        val write = indexOf(io.update_pc)
+        val updateTag: Node[UInt] = tagOf(io.update_pc)
+        val updateTarget: Node[UInt] = Node(io.update_target.asBits).bits(width - 1, 2).asUInt
+        table.io.wEn := io.update_valid
+        table.io.wAddr := write
+        table.io.wData := (updateTag.asBits ## updateTarget.asBits).asUInt
+        when(io.update_valid) {
+            for index <- 0 until entries do when(write === index.U(indexBits)) { valids(index) := true.B }
+        }
 
-    // The answer, for the pc the read was issued with: the stored tag against that pc's, gated by its valid bit, and
-    // the stored target with its alignment bits rewritten.
-    readPc := io.lookup_pc
-    val entry: Node[Bits] = Node(table.io.rData.asBits)
-    val storedTag: Node[UInt] = entry.bits(tagBits + targetBits - 1, targetBits).asUInt
-    val storedTarget: Node[UInt] = (entry.bits(targetBits - 1, 0) ## 0.B(2)).asUInt
-    io.pred_hit := valids.ref(indexOf(readPc)) & (storedTag === tagOf(readPc))
-    io.pred_target := storedTarget
+        // The answer, for the pc the read was issued with: the stored tag against that pc's, gated by its valid bit, and
+        // the stored target with its alignment bits rewritten.
+        readPc := io.lookup_pc
+        val entry: Node[Bits] = Node(table.io.rData.asBits)
+        val storedTag: Node[UInt] = entry.bits(tagBits + targetBits - 1, targetBits).asUInt
+        val storedTarget: Node[UInt] = (entry.bits(targetBits - 1, 0) ## 0.B(2)).asUInt
+        io.pred_hit := valids.ref(indexOf(readPc)) & (storedTag === tagOf(readPc))
+        io.pred_target := storedTarget

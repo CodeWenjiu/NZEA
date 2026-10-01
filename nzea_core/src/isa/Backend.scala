@@ -12,8 +12,8 @@ import nzea_rtl.stdlib.*
   * backend, so its op only has to be as wide as the widest backend needs (`nzea_core.back.OpWindow`).
   */
 enum Backend extends Encoding.Sequential:
-  case INT
-  case MEM
+    case INT
+    case MEM
 
 object Backend:
-  val width: Int = Encoding.width(values)
+    val width: Int = Encoding.width(values)

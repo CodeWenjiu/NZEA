@@ -14,45 +14,45 @@ import nzea_rtl.stdlib.*
   * wiring.
   */
 enum IntOp extends Encoding.Union[Isa]:
-  case Alu(payload: AluOp) extends IntOp
-  case Bru(payload: BruOp) extends IntOp
-  case Mul(payload: MulOp) extends IntOp
-  case Div(payload: DivOp) extends IntOp
-  case Sysu(payload: SysuOp) extends IntOp
+    case Alu(payload: AluOp) extends IntOp
+    case Bru(payload: BruOp) extends IntOp
+    case Mul(payload: MulOp) extends IntOp
+    case Div(payload: DivOp) extends IntOp
+    case Sysu(payload: SysuOp) extends IntOp
 
-  /** Whether this configuration has this case — the unit *and* the member the case carries. A unit's op set can gate
-    * its members on the ISA (the multiplier's word form), so a case is only as present as the member in it: a unit
-    * added without an answer does not go unnoticed either, since the compiler names the pattern the match would fail
-    * on, and [set] asks every declared case.
-    */
-  def exists(isa: Isa): Boolean = this match
-    case Alu(op) => AluOp.set(isa).contains(op)
-    case Bru(_)  => true
-    case Mul(op) => MulOp.set(isa).contains(op)
-    case Div(op) => DivOp.set(isa).contains(op)
-    case Sysu(_) => true
+    /** Whether this configuration has this case — the unit *and* the member the case carries. A unit's op set can gate
+      * its members on the ISA (the multiplier's word form), so a case is only as present as the member in it: a unit
+      * added without an answer does not go unnoticed either, since the compiler names the pattern the match would fail
+      * on, and [set] asks every declared case.
+      */
+    def exists(isa: Isa): Boolean = this match
+        case Alu(op) => AluOp.set(isa).contains(op)
+        case Bru(_)  => true
+        case Mul(op) => MulOp.set(isa).contains(op)
+        case Div(op) => DivOp.set(isa).contains(op)
+        case Sysu(_) => true
 
-  /** The bits this case needs in the payload column: its unit's op set under the configuration. */
-  def childWidth(isa: Isa): Int = this match
-    case Alu(_)  => AluOp.set(isa).width
-    case Bru(_)  => BruOp.width
-    case Mul(_)  => MulOp.set(isa).width
-    case Div(_)  => DivOp.set(isa).width
-    case Sysu(_) => SysuOp.width
+    /** The bits this case needs in the payload column: its unit's op set under the configuration. */
+    def childWidth(isa: Isa): Int = this match
+        case Alu(_)  => AluOp.set(isa).width
+        case Bru(_)  => BruOp.width
+        case Mul(_)  => MulOp.set(isa).width
+        case Div(_)  => DivOp.set(isa).width
+        case Sysu(_) => SysuOp.width
 
 object IntOp:
 
-  /** One representative per case, each an ungated member: the tag tests read the case, and [set] asks [IntOp.exists] of
-    * the representative, so it must be a member the case has whenever the case is there at all.
-    */
-  val alu = Alu(AluOp.Add)
-  val bru = Bru(BruOp.JAL)
-  val mul = Mul(MulOp.Mul)
-  val div = Div(DivOp.Div)
-  val sysu = Sysu(SysuOp.ECALL)
+    /** One representative per case, each an ungated member: the tag tests read the case, and [set] asks [IntOp.exists]
+      * of the representative, so it must be a member the case has whenever the case is there at all.
+      */
+    val alu = Alu(AluOp.Add)
+    val bru = Bru(BruOp.JAL)
+    val mul = Mul(MulOp.Mul)
+    val div = Div(DivOp.Div)
+    val sysu = Sysu(SysuOp.ECALL)
 
-  /** The units this configuration has, in declaration order: without M the multiplier and divider are never built, so
-    * their codes go with them instead of leaving holes in the tag column.
-    */
-  def set(isa: Isa): Encoding.UnionSet[IntOp, Isa] =
-    Encoding.UnionSet.of(isa)(Seq(alu, bru, mul, div, sysu))(_.exists(isa))
+    /** The units this configuration has, in declaration order: without M the multiplier and divider are never built, so
+      * their codes go with them instead of leaving holes in the tag column.
+      */
+    def set(isa: Isa): Encoding.UnionSet[IntOp, Isa] =
+        Encoding.UnionSet.of(isa)(Seq(alu, bru, mul, div, sysu))(_.exists(isa))

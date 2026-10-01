@@ -14,13 +14,13 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** `ceil(log2(x))`, `0` for `x <= 1`. */
 def log2Ceil(x: Int): Int =
-  require(x >= 1, s"log2Ceil expects a positive value, got $x")
-  var value = x - 1
-  var bits = 0
-  while value > 0 do
-    value = value >> 1
-    bits += 1
-  bits
+    require(x >= 1, s"log2Ceil expects a positive value, got $x")
+    var value = x - 1
+    var bits = 0
+    while value > 0 do
+        value = value >> 1
+        bits += 1
+    bits
 
 /** `a + b` kept to `width` bits (Chisel's `+%`): FIRRTL's `add` is one bit wider than its operands, so a wrap-around
   * add has to say so.
@@ -57,9 +57,9 @@ def regNext[T <: Data & Connectable](ref: Referable[T])(using
     sourcecode.Name.Machine,
     InstanceContext
 ): Reg[T] =
-  val delayed = Reg(ref.getType)
-  delayed :<= ref
-  delayed
+    val delayed = Reg(ref.getType)
+    delayed :<= ref
+    delayed
 
 /** One-cycle delayed copy of `ref`, reset to `init` (Chisel's two-argument `RegNext`). */
 def regNext[T <: Data & Connectable](ref: Referable[T], init: Const[T])(using
@@ -73,9 +73,9 @@ def regNext[T <: Data & Connectable](ref: Referable[T], init: Const[T])(using
     sourcecode.Name.Machine,
     InstanceContext
 ): Reg[T] =
-  val delayed = RegInit(init)
-  delayed :<= ref
-  delayed
+    val delayed = RegInit(init)
+    delayed :<= ref
+    delayed
 
 /** Replicate a 1-bit value `n` times (Chisel `Fill`); `n >= 1`. */
 def fill(n: Int, bit: Referable[Bool])(using
@@ -87,8 +87,8 @@ def fill(n: Int, bit: Referable[Bool])(using
     sourcecode.Name.Machine,
     InstanceContext
 ): Node[Bits] =
-  require(n >= 1, s"fill expects n >= 1, got $n")
-  // `##` propagates `Const` statically; pin the accumulator to a plain node so the fold type-checks
-  // regardless of whether the caller passed a constant or a dynamic bit.
-  val one: Node[Bits] = Node(bit.asBits)
-  (1 until n).foldLeft(one)((acc, _) => one ## acc)
+    require(n >= 1, s"fill expects n >= 1, got $n")
+    // `##` propagates `Const` statically; pin the accumulator to a plain node so the fold type-checks
+    // regardless of whether the caller passed a constant or a dynamic bit.
+    val one: Node[Bits] = Node(bit.asBits)
+    (1 until n).foldLeft(one)((acc, _) => one ## acc)

@@ -9,6 +9,6 @@ import nzea_rtl.StatRegion
   */
 object Regions:
 
-  val Throughput = StatRegion("throughput", "Retire throughput")
-  val Fetch = StatRegion("fetch", "Instruction fetch")
-  val Bp = StatRegion("bp", "Branch prediction")
+    val Throughput = StatRegion("throughput", "Retire throughput")
+    val Fetch = StatRegion("fetch", "Instruction fetch")
+    val Bp = StatRegion("bp", "Branch prediction")

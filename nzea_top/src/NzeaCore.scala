@@ -16,31 +16,31 @@ import nzea_core.middle.CommitMsg
 import nzea_rtl.{LiteBusRO, LiteBusRW}
 import nzea_rtl.stdlib.*
 import nzea_top.dpi.{
-  CommitDpiBridge,
-  CommitDpiBridgeParameter,
-  DbusDpiBridge,
-  DbusDpiBridgeParameter,
-  IbusDpiBridge,
-  IbusDpiBridgeParameter
+    CommitDpiBridge,
+    CommitDpiBridgeParameter,
+    DbusDpiBridge,
+    DbusDpiBridgeParameter,
+    IbusDpiBridge,
+    IbusDpiBridgeParameter
 }
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 class NzeaCoreLayers(parameter: NzeaCoreParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class NzeaCoreIO(parameter: NzeaCoreParameter) extends HWBundle(parameter):
-  private val width = parameter.config.width
-  val clock = Flipped(Clock())
-  val reset = Flipped(Reset())
+    private val width = parameter.config.width
+    val clock = Flipped(Clock())
+    val reset = Flipped(Reset())
 
-  val ibus: Option[BundleField[LiteBusRO]] =
-    Option.when(!parameter.flow.bridges)(Aligned(Ifu.busType(parameter.config)))
+    val ibus: Option[BundleField[LiteBusRO]] =
+        Option.when(!parameter.flow.bridges)(Aligned(Ifu.busType(parameter.config)))
 
-  val dbus: Option[BundleField[LiteBusRW]] =
-    Option.when(!parameter.flow.bridges)(Aligned(MemPath.dbusType(parameter.config)))
+    val dbus: Option[BundleField[LiteBusRW]] =
+        Option.when(!parameter.flow.bridges)(Aligned(MemPath.dbusType(parameter.config)))
 
-  val commit_msg: Option[BundleField[ValidIO[CommitMsg]]] =
-    Option.when(!parameter.flow.bridges)(Aligned(ValidIO(new CommitMsg(width))))
+    val commit_msg: Option[BundleField[ValidIO[CommitMsg]]] =
+        Option.when(!parameter.flow.bridges)(Aligned(ValidIO(new CommitMsg(width))))
 
 class NzeaCoreProbe(parameter: NzeaCoreParameter) extends DVBundle[NzeaCoreParameter, NzeaCoreLayers](parameter)
 
@@ -55,46 +55,46 @@ class NzeaCoreProbe(parameter: NzeaCoreParameter) extends DVBundle[NzeaCoreParam
   */
 @generator
 object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO, NzeaCoreProbe]:
-  override def moduleName(parameter: NzeaCoreParameter): String = "NzeaCore"
+    override def moduleName(parameter: NzeaCoreParameter): String = "NzeaCore"
 
-  def architecture(parameter: NzeaCoreParameter) =
-    val io = summon[Interface[NzeaCoreIO]]
-    given ClockScope = ClockScope.posedge(io.clock)
+    def architecture(parameter: NzeaCoreParameter) =
+        val io = summon[Interface[NzeaCoreIO]]
+        given ClockScope = ClockScope.posedge(io.clock)
 
-    val c = parameter.config
-    val resetN: Node[Reset] = (!io.reset.asBool).asReset
+        val c = parameter.config
+        val resetN: Node[Reset] = (!io.reset.asBool).asReset
 
-    val core =
-      Core.instantiate(
-        CoreParameter(
-          c.isa,
-          c.defaultPc,
-          parameter.flow,
-          parameter.mmioRanges,
-          parameter.bypass,
-          parameter.bpu,
-          parameter.stats.child(Core.Source)
-        )
-      )
-    core.io.clock := io.clock
-    core.io.resetN := resetN
+        val core =
+            Core.instantiate(
+                CoreParameter(
+                    c.isa,
+                    c.defaultPc,
+                    parameter.flow,
+                    parameter.mmioRanges,
+                    parameter.bypass,
+                    parameter.bpu,
+                    parameter.stats.child(Core.Source)
+                )
+            )
+        core.io.clock := io.clock
+        core.io.resetN := resetN
 
-    if parameter.flow.bridges then
-      val ibus = IbusDpiBridge.instantiate(IbusDpiBridgeParameter(c.isa, c.defaultPc))
-      val dbus = DbusDpiBridge.instantiate(DbusDpiBridgeParameter(c.isa, c.defaultPc))
-      val commit = CommitDpiBridge.instantiate(CommitDpiBridgeParameter(c.isa, c.defaultPc))
+        if parameter.flow.bridges then
+            val ibus = IbusDpiBridge.instantiate(IbusDpiBridgeParameter(c.isa, c.defaultPc))
+            val dbus = DbusDpiBridge.instantiate(DbusDpiBridgeParameter(c.isa, c.defaultPc))
+            val commit = CommitDpiBridge.instantiate(CommitDpiBridgeParameter(c.isa, c.defaultPc))
 
-      ibus.io.clock := io.clock
-      ibus.io.resetN := resetN
-      dbus.io.clock := io.clock
-      dbus.io.resetN := resetN
-      commit.io.clock := io.clock
-      commit.io.resetN := resetN
+            ibus.io.clock := io.clock
+            ibus.io.resetN := resetN
+            dbus.io.clock := io.clock
+            dbus.io.resetN := resetN
+            commit.io.clock := io.clock
+            commit.io.resetN := resetN
 
-      ibus.io.bus :<>= core.io.ibus
-      dbus.io.bus :<>= core.io.dbus
-      commit.io.commit_msg :<= core.io.commit_msg
-    else
-      io.ibus.get :<>= core.io.ibus
-      io.dbus.get :<>= core.io.dbus
-      io.commit_msg.get :<= core.io.commit_msg
+            ibus.io.bus :<>= core.io.ibus
+            dbus.io.bus :<>= core.io.dbus
+            commit.io.commit_msg :<= core.io.commit_msg
+        else
+            io.ibus.get :<>= core.io.ibus
+            io.dbus.get :<>= core.io.dbus
+            io.commit_msg.get :<= core.io.commit_msg

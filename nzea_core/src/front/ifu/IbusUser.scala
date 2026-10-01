@@ -28,104 +28,104 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   */
 object IbusUser:
 
-  val epochBits: Int = 4
+    val epochBits: Int = 4
 
-  /** The user field for one address width: the epoch low-anchored, then the stream's next pc, the instruction's
-    * fall-through, the fetch's pc and the direction counter the prediction read.
-    */
-  private final class Layout(addrWidth: Int) extends Encoding.Aggregate:
+    /** The user field for one address width: the epoch low-anchored, then the stream's next pc, the instruction's
+      * fall-through, the fetch's pc and the direction counter the prediction read.
+      */
+    private final class Layout(addrWidth: Int) extends Encoding.Aggregate:
 
-    val fields: Seq[(String, Int)] =
-      Seq(
-        "epoch" -> epochBits,
-        "next_pc" -> addrWidth,
-        "fall_through" -> addrWidth,
-        "pc" -> addrWidth,
-        "pht_count" -> BpUpdate.phtCountBits
-      )
+        val fields: Seq[(String, Int)] =
+            Seq(
+                "epoch" -> epochBits,
+                "next_pc" -> addrWidth,
+                "fall_through" -> addrWidth,
+                "pc" -> addrWidth,
+                "pht_count" -> BpUpdate.phtCountBits
+            )
 
-  /** Host-side, so one instance per call costs nothing; the layout is the declaration the accessors below read. */
-  def layout(addrWidth: Int): Encoding.Aggregate = new Layout(addrWidth)
+    /** Host-side, so one instance per call costs nothing; the layout is the declaration the accessors below read. */
+    def layout(addrWidth: Int): Encoding.Aggregate = new Layout(addrWidth)
 
-  def userWidth(addrWidth: Int): Int = layout(addrWidth).width
+    def userWidth(addrWidth: Int): Int = layout(addrWidth).width
 
-  def pack[
-      PC <: Referable[UInt],
-      N <: Referable[UInt],
-      F <: Referable[UInt],
-      E <: Referable[UInt],
-      C <: Referable[UInt]
-  ](
-      pc: PC,
-      nextPc: N,
-      fallThrough: F,
-      epoch: E,
-      phtCount: C
-  )(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] =
-    val pcBits: Node[Bits] = Node(pc.asBits)
-    val nextBits: Node[Bits] = Node(nextPc.asBits)
-    val fallBits: Node[Bits] = Node(fallThrough.asBits)
-    val epochBits: Node[Bits] = Node(epoch.asBits)
-    val countBits: Node[Bits] = Node(phtCount.asBits)
-    // Packed highest-first — `pht_count`, `pc`, `fall_through`, `next_pc`, `epoch` — the mirror of the layout's
-    // low-anchored field order: the two sides of this field are one declaration and must be changed together.
-    val packed: Node[Bits] = Node(countBits ## pcBits ## fallBits ## nextBits ## epochBits)
-    packed.asUInt
+    def pack[
+        PC <: Referable[UInt],
+        N <: Referable[UInt],
+        F <: Referable[UInt],
+        E <: Referable[UInt],
+        C <: Referable[UInt]
+    ](
+        pc: PC,
+        nextPc: N,
+        fallThrough: F,
+        epoch: E,
+        phtCount: C
+    )(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] =
+        val pcBits: Node[Bits] = Node(pc.asBits)
+        val nextBits: Node[Bits] = Node(nextPc.asBits)
+        val fallBits: Node[Bits] = Node(fallThrough.asBits)
+        val epochBits: Node[Bits] = Node(epoch.asBits)
+        val countBits: Node[Bits] = Node(phtCount.asBits)
+        // Packed highest-first — `pht_count`, `pc`, `fall_through`, `next_pc`, `epoch` — the mirror of the layout's
+        // low-anchored field order: the two sides of this field are one declaration and must be changed together.
+        val packed: Node[Bits] = Node(countBits ## pcBits ## fallBits ## nextBits ## epochBits)
+        packed.asUInt
 
-  def epochOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] = layout(addrWidth).read("epoch", user)
+    def epochOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] = layout(addrWidth).read("epoch", user)
 
-  def pcOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] = layout(addrWidth).read("pc", user)
+    def pcOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] = layout(addrWidth).read("pc", user)
 
-  def nextPcOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] = layout(addrWidth).read("next_pc", user)
+    def nextPcOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] = layout(addrWidth).read("next_pc", user)
 
-  def fallThroughOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] = layout(addrWidth).read("fall_through", user)
+    def fallThroughOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] = layout(addrWidth).read("fall_through", user)
 
-  def phtCountOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
-      Arena,
-      Context,
-      Block,
-      sourcecode.File,
-      sourcecode.Line,
-      sourcecode.Name.Machine,
-      InstanceContext
-  ): Node[UInt] = layout(addrWidth).read("pht_count", user)
+    def phtCountOf[U <: Referable[UInt]](user: U, addrWidth: Int)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Node[UInt] = layout(addrWidth).read("pht_count", user)

@@ -17,45 +17,45 @@ import upickle.default.{readwriter, ReadWriter}
   * that removes a link removes the logic with it.
   */
 enum BypassLevel(val report: String):
-  /** The file only: a read sees what the file has already been written with. */
-  case None extends BypassLevel("none")
+    /** The file only: a read sees what the file has already been written with. */
+    case None extends BypassLevel("none")
 
-  /** The commit port: the write the committing instruction makes this cycle is visible to the same cycle's read. */
-  case Commit extends BypassLevel("commit -> register read")
+    /** The commit port: the write the committing instruction makes this cycle is visible to the same cycle's read. */
+    case Commit extends BypassLevel("commit -> register read")
 
-  /** The completion channel: the completing instruction's result is visible to the same cycle's read, before it reaches
-    * the commit port.
-    */
-  case Execute extends BypassLevel("execute -> register read")
+    /** The completion channel: the completing instruction's result is visible to the same cycle's read, before it
+      * reaches the commit port.
+      */
+    case Execute extends BypassLevel("execute -> register read")
 
-  /** The write the commit makes this cycle is visible to the same cycle's read. */
-  def commit: Boolean = ordinal >= BypassLevel.Commit.ordinal
+    /** The write the commit makes this cycle is visible to the same cycle's read. */
+    def commit: Boolean = ordinal >= BypassLevel.Commit.ordinal
 
-  /** The completing instruction's result is visible to the same cycle's read. */
-  def execute: Boolean = ordinal >= BypassLevel.Execute.ordinal
+    /** The completing instruction's result is visible to the same cycle's read. */
+    def execute: Boolean = ordinal >= BypassLevel.Execute.ordinal
 
-  /** The level's spelling: one token for the config file and the generator's flag. */
-  def name: String = toString.toLowerCase
+    /** The level's spelling: one token for the config file and the generator's flag. */
+    def name: String = toString.toLowerCase
 
 object BypassLevel:
 
-  given ReadWriter[BypassLevel] =
-    readwriter[String].bimap(
-      _.name,
-      name => parseOrThrow(name)
-    )
+    given ReadWriter[BypassLevel] =
+        readwriter[String].bimap(
+            _.name,
+            name => parseOrThrow(name)
+        )
 
-  def parse(token: String): Either[String, BypassLevel] =
-    values
-      .find(_.name.equalsIgnoreCase(token.trim))
-      .toRight(s"unknown bypass level '$token'; known: ${values.map(_.name).mkString(", ")}")
+    def parse(token: String): Either[String, BypassLevel] =
+        values
+            .find(_.name.equalsIgnoreCase(token.trim))
+            .toRight(s"unknown bypass level '$token'; known: ${values.map(_.name).mkString(", ")}")
 
-  def parseOrThrow(token: String): BypassLevel =
-    parse(token).fold(error => throw new IllegalArgumentException(error), identity)
+    def parseOrThrow(token: String): BypassLevel =
+        parse(token).fold(error => throw new IllegalArgumentException(error), identity)
 
-  /** The generator framework's reader: the flag takes the same token [[parse]] takes. */
-  given TokensReader.Simple[BypassLevel] with
-    def shortName = values.map(_.name).mkString("|")
+    /** The generator framework's reader: the flag takes the same token [[parse]] takes. */
+    given TokensReader.Simple[BypassLevel] with
+        def shortName = values.map(_.name).mkString("|")
 
-    def read(strs: Seq[String]): Either[String, BypassLevel] =
-      strs.lastOption.map(parse).getOrElse(Left("bypass requires a value"))
+        def read(strs: Seq[String]): Either[String, BypassLevel] =
+            strs.lastOption.map(parse).getOrElse(Left("bypass requires a value"))

@@ -19,16 +19,16 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   */
 object StatBox:
 
-  /** Width of every box's ports: the schema's maximum, so one port bundle serves counters of any declared width. */
-  val Width: Int = 64
+    /** Width of every box's ports: the schema's maximum, so one port bundle serves counters of any declared width. */
+    val Width: Int = 64
 
-  /** SystemVerilog body of one counter's box. A pure function, so tests can pin the text.
-    *
-    * The register carries the counter's own name because that is the leaf name a simulator finds it under; the module
-    * wraps exactly it, so [[StatRegistry.boxModuleName]] names the module after the counter too.
-    */
-  def verilog(moduleName: String, counter: StatCounter): String =
-    s"""module $moduleName(
+    /** SystemVerilog body of one counter's box. A pure function, so tests can pin the text.
+      *
+      * The register carries the counter's own name because that is the leaf name a simulator finds it under; the module
+      * wraps exactly it, so [[StatRegistry.boxModuleName]] names the module after the counter too.
+      */
+    def verilog(moduleName: String, counter: StatCounter): String =
+        s"""module $moduleName(
        |  input clock,
        |  input resetN,
        |  input en,
@@ -52,14 +52,14 @@ case class StatBoxParameter(name: String, width: Int) extends Parameter
 given upickle.default.ReadWriter[StatBoxParameter] = upickle.default.macroRW
 
 class StatBoxLayers(parameter: StatBoxParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class StatBoxIO(parameter: StatBoxParameter) extends HWBundle(parameter):
-  val clock = Flipped(Clock())
-  val resetN = Flipped(Bool())
-  val en = Flipped(Bool())
-  val data = Flipped(UInt(StatBox.Width))
-  val value = Aligned(UInt(StatBox.Width))
+    val clock = Flipped(Clock())
+    val resetN = Flipped(Bool())
+    val en = Flipped(Bool())
+    val data = Flipped(UInt(StatBox.Width))
+    val value = Aligned(UInt(StatBox.Width))
 
 class StatBoxProbe(parameter: StatBoxParameter) extends DVBundle[StatBoxParameter, StatBoxLayers](parameter)
 
@@ -68,13 +68,13 @@ case class StatBoxVerilogParameter() extends VerilogParameter
 @generator
 object StatBoxModule
     extends VerilogWrapper[StatBoxParameter, StatBoxLayers, StatBoxIO, StatBoxProbe, StatBoxVerilogParameter]:
-  /** The module is the counter's own box, so it is named after the counter: unique by construction (counter names are),
-    * and what the emitted file is called.
-    */
-  override def verilogModuleName(parameter: StatBoxParameter): String = parameter.name
+    /** The module is the counter's own box, so it is named after the counter: unique by construction (counter names
+      * are), and what the emitted file is called.
+      */
+    override def verilogModuleName(parameter: StatBoxParameter): String = parameter.name
 
-  override def moduleName(parameter: StatBoxParameter): String = parameter.name
+    override def moduleName(parameter: StatBoxParameter): String = parameter.name
 
-  /** No Verilog parameters: the register name is what a counter varies in, and a name cannot be a parameter.
-    */
-  def verilogParameter(parameter: StatBoxParameter): StatBoxVerilogParameter = StatBoxVerilogParameter()
+    /** No Verilog parameters: the register name is what a counter varies in, and a name cannot be a parameter.
+      */
+    def verilogParameter(parameter: StatBoxParameter): StatBoxVerilogParameter = StatBoxVerilogParameter()

@@ -21,17 +21,17 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * takes `int`s, and the widths of the generated call's arguments are the declared ones.
   */
 case class CommitDpiBridgeParameter(isa: Isa, defaultPc: Long) extends Parameter:
-  val config: CoreConfig = CoreConfig(isa, defaultPc)
+    val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CommitDpiBridgeParameter] = upickle.default.macroRW
 
 class CommitDpiBridgeLayers(parameter: CommitDpiBridgeParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class CommitDpiBridgeIO(parameter: CommitDpiBridgeParameter) extends HWBundle(parameter):
-  val clock = Flipped(Clock())
-  val resetN = Flipped(Reset())
-  val commit_msg = Flipped(ValidIO(new CommitMsg(parameter.config.width)))
+    val clock = Flipped(Clock())
+    val resetN = Flipped(Reset())
+    val commit_msg = Flipped(ValidIO(new CommitMsg(parameter.config.width)))
 
 class CommitDpiBridgeProbe(parameter: CommitDpiBridgeParameter)
     extends DVBundle[CommitDpiBridgeParameter, CommitDpiBridgeLayers](parameter)
@@ -39,26 +39,26 @@ class CommitDpiBridgeProbe(parameter: CommitDpiBridgeParameter)
 @generator
 object CommitDpiBridge
     extends Generator[CommitDpiBridgeParameter, CommitDpiBridgeLayers, CommitDpiBridgeIO, CommitDpiBridgeProbe]:
-  override def moduleName(parameter: CommitDpiBridgeParameter): String = "CommitDpiBridge"
+    override def moduleName(parameter: CommitDpiBridgeParameter): String = "CommitDpiBridge"
 
-  def architecture(parameter: CommitDpiBridgeParameter) =
-    val io = summon[Interface[CommitDpiBridgeIO]]
-    given ClockScope = ClockScope.posedge(io.clock)
-    given ResetScope = ResetScope.syncActiveLow(io.resetN)
+    def architecture(parameter: CommitDpiBridgeParameter) =
+        val io = summon[Interface[CommitDpiBridgeIO]]
+        given ClockScope = ClockScope.posedge(io.clock)
+        given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-    val (csrAddr, csrValid) = CsrType.toImmValid(io.commit_msg.bits.csr_type)
+        val (csrAddr, csrValid) = CsrType.toImmValid(io.commit_msg.bits.csr_type)
 
-    dpiClockedCall(
-      "commit_trace",
-      Some(Seq("next_pc", "csr_valid", "csr_addr", "csr_data", "gpr_addr", "gpr_data", "is_mmio"))
-    )(
-      io.clock,
-      io.commit_msg.valid,
-      io.commit_msg.bits.next_pc,
-      csrValid,
-      csrAddr.asBits.pad(32),
-      io.commit_msg.bits.csr_data,
-      io.commit_msg.bits.rd_index.asBits.pad(32),
-      io.commit_msg.bits.rd_value,
-      io.commit_msg.bits.is_mmio
-    )
+        dpiClockedCall(
+            "commit_trace",
+            Some(Seq("next_pc", "csr_valid", "csr_addr", "csr_data", "gpr_addr", "gpr_data", "is_mmio"))
+        )(
+            io.clock,
+            io.commit_msg.valid,
+            io.commit_msg.bits.next_pc,
+            csrValid,
+            csrAddr.asBits.pad(32),
+            io.commit_msg.bits.csr_data,
+            io.commit_msg.bits.rd_index.asBits.pad(32),
+            io.commit_msg.bits.rd_value,
+            io.commit_msg.bits.is_mmio
+        )

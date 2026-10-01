@@ -20,7 +20,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *     consumes it, which costs the stream a cycle.
   */
 enum FlushHandover:
-  case Refuse, Consume
+    case Refuse, Consume
 
 /** One-entry pipeline register between a producer's output (`in`) and a consumer's input (`out`).
   *
@@ -53,25 +53,25 @@ def pipelineConnect[T <: HardwareDataType](
     sourcecode.Line,
     InstanceContext
 ): Unit =
-  val valid =
-    given sourcecode.Name.Machine = sourcecode.Name.Machine(s"${name}Valid")
-    RegInit(false.B)
-  val bitsReg =
-    given sourcecode.Name.Machine = sourcecode.Name.Machine(name)
-    Reg(in.bits.getType)
+    val valid =
+        given sourcecode.Name.Machine = sourcecode.Name.Machine(s"${name}Valid")
+        RegInit(false.B)
+    val bitsReg =
+        given sourcecode.Name.Machine = sourcecode.Name.Machine(name)
+        Reg(in.bits.getType)
 
-  val ready = !valid | out.ready
-  in.ready := (onFlush match
-    case FlushHandover.Refuse  => ready & !flush
-    case FlushHandover.Consume => ready
-  )
-  out.valid := valid & !flush
-  out.bits :<= bitsReg
+    val ready = !valid | out.ready
+    in.ready := (onFlush match
+        case FlushHandover.Refuse  => ready & !flush
+        case FlushHandover.Consume => ready
+    )
+    out.valid := valid & !flush
+    out.bits :<= bitsReg
 
-  val fire = in.valid & in.ready
-  when(fire) {
-    bitsReg :<= in.bits
-  }
+    val fire = in.valid & in.ready
+    when(fire) {
+        bitsReg :<= in.bits
+    }
 
-  // First match wins: a flush clears, an accepted input fills, a consumed output drains, otherwise hold.
-  valid := muxCase(valid, Seq((flush, false.B), (fire, true.B), (out.valid & out.ready, false.B)))
+    // First match wins: a flush clears, an accepted input fills, a consumed output drains, otherwise hold.
+    valid := muxCase(valid, Seq((flush, false.B), (fire, true.B), (out.valid & out.ready, false.B)))

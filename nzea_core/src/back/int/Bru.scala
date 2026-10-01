@@ -15,22 +15,22 @@ case class BruParameter(width: Int, bpu: BpuLevel) extends Parameter
 given upickle.default.ReadWriter[BruParameter] = upickle.default.macroRW
 
 class BruLayers(parameter: BruParameter) extends LayerInterface(parameter):
-  def layers = Seq.empty
+    def layers = Seq.empty
 
 class BruIO(parameter: BruParameter) extends HWBundle(parameter):
-  val op = Flipped(UInt(BruOp.width))
-  val pc = Flipped(UInt(parameter.width))
-  val predNextPc = Flipped(UInt(parameter.width))
+    val op = Flipped(UInt(BruOp.width))
+    val pc = Flipped(UInt(parameter.width))
+    val predNextPc = Flipped(UInt(parameter.width))
 
-  /** The pc's own fall-through, for the paths the prediction did not take. */
-  val fallThrough = Flipped(UInt(parameter.width))
-  val offset = Flipped(UInt(parameter.width))
-  val rs1 = Flipped(UInt(parameter.width))
-  val rs2 = Flipped(UInt(parameter.width))
-  val taken = Aligned(Bool())
-  val mispredict = Aligned(Bool())
-  val nextPc = Aligned(UInt(parameter.width))
-  val target = Aligned(UInt(parameter.width))
+    /** The pc's own fall-through, for the paths the prediction did not take. */
+    val fallThrough = Flipped(UInt(parameter.width))
+    val offset = Flipped(UInt(parameter.width))
+    val rs1 = Flipped(UInt(parameter.width))
+    val rs2 = Flipped(UInt(parameter.width))
+    val taken = Aligned(Bool())
+    val mispredict = Aligned(Bool())
+    val nextPc = Aligned(UInt(parameter.width))
+    val target = Aligned(UInt(parameter.width))
 
 class BruProbe(parameter: BruParameter) extends DVBundle[BruParameter, BruLayers](parameter)
 
@@ -45,42 +45,42 @@ class BruProbe(parameter: BruParameter) extends DVBundle[BruParameter, BruLayers
   */
 @generator
 object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
-  override def moduleName(parameter: BruParameter): String = "Bru"
+    override def moduleName(parameter: BruParameter): String = "Bru"
 
-  def architecture(parameter: BruParameter) =
-    val io = summon[Interface[BruIO]]
+    def architecture(parameter: BruParameter) =
+        val io = summon[Interface[BruIO]]
 
-    val width = parameter.width
-    val op: Referable[UInt] = io.op
-    val rs1Bits: Node[Bits] = Node(io.rs1.asBits)
-    val rs2Bits: Node[Bits] = Node(io.rs2.asBits)
+        val width = parameter.width
+        val op: Referable[UInt] = io.op
+        val rs1Bits: Node[Bits] = Node(io.rs1.asBits)
+        val rs2Bits: Node[Bits] = Node(io.rs2.asBits)
 
-    // JALR bases its target on its register operand; every other jump and branch bases on the pc.
-    val isJalr = op === BruOp.JALR.lit.U(BruOp.width)
-    val target = prefixAdder(isJalr ? (io.rs1, io.pc), io.offset, false.B, width)
-    // The orderings are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a
-    // one-gate-per-bit borrow ripple (see `lessThan`), and four of the eight outcomes ride it — the same cone the ALU
-    // already took off its compares. Signed shares the unsigned scan (when the signs differ, the negative side is the
-    // smaller), and equality is one compare with its negation beside it.
-    val lessU = lessThan(io.rs1, io.rs2, width)
-    val signDiff: Referable[Bool] = rs1Bits.bit(width - 1) ^ rs2Bits.bit(width - 1)
-    val lessS: Referable[Bool] = signDiff ? (rs1Bits.bit(width - 1), lessU)
-    val equal: Referable[Bool] = io.rs1 === io.rs2
-    val taken = mux1H(
-      op,
-      Seq(true.B, true.B, equal, !equal, lessS, !lessS, lessU, !lessU)
-    )
+        // JALR bases its target on its register operand; every other jump and branch bases on the pc.
+        val isJalr = op === BruOp.JALR.lit.U(BruOp.width)
+        val target = prefixAdder(isJalr ? (io.rs1, io.pc), io.offset, false.B, width)
+        // The orderings are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a
+        // one-gate-per-bit borrow ripple (see `lessThan`), and four of the eight outcomes ride it — the same cone the ALU
+        // already took off its compares. Signed shares the unsigned scan (when the signs differ, the negative side is the
+        // smaller), and equality is one compare with its negation beside it.
+        val lessU = lessThan(io.rs1, io.rs2, width)
+        val signDiff: Referable[Bool] = rs1Bits.bit(width - 1) ^ rs2Bits.bit(width - 1)
+        val lessS: Referable[Bool] = signDiff ? (rs1Bits.bit(width - 1), lessU)
+        val equal: Referable[Bool] = io.rs1 === io.rs2
+        val taken = mux1H(
+            op,
+            Seq(true.B, true.B, equal, !equal, lessS, !lessS, lessU, !lessU)
+        )
 
-    io.taken := taken
-    io.target := target
-    io.nextPc := taken ? (target, io.fallThrough)
+        io.taken := taken
+        io.target := target
+        io.nextPc := taken ? (target, io.fallThrough)
 
-    // The prediction check, `predNextPc =/= nextPc`: where the stream went against where the branch resolved. The
-    // flush's own copy of the test is the write-back stage's (`is_branch & next_pc =/= pred_next_pc`, made against its
-    // registers); this output is what the resolve-side counters report on. At `Off` the prediction is the fall-through,
-    // which folds the check into the offset not being 4 for the pc-relative forms — instruction-static, the sequential
-    // baseline's own mispredict. JALR bases its target on a register, so it always counts as a redirect there.
-    val mispredict: Referable[Bool] =
-      if parameter.bpu.predicted then io.nextPc =/= io.predNextPc
-      else taken & (isJalr | (io.offset =/= 4.U(width)))
-    io.mispredict := mispredict
+        // The prediction check, `predNextPc =/= nextPc`: where the stream went against where the branch resolved. The
+        // flush's own copy of the test is the write-back stage's (`is_branch & next_pc =/= pred_next_pc`, made against its
+        // registers); this output is what the resolve-side counters report on. At `Off` the prediction is the fall-through,
+        // which folds the check into the offset not being 4 for the pc-relative forms — instruction-static, the sequential
+        // baseline's own mispredict. JALR bases its target on a register, so it always counts as a redirect there.
+        val mispredict: Referable[Bool] =
+            if parameter.bpu.predicted then io.nextPc =/= io.predNextPc
+            else taken & (isJalr | (io.offset =/= 4.U(width)))
+        io.mispredict := mispredict

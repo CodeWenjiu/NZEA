@@ -37,6 +37,6 @@ def forwardRead(
     sourcecode.Name.Machine,
     InstanceContext
 ): Referable[UInt] =
-  sources.foldRight(from: Referable[UInt]) { (source, earliest) =>
-    (source.armed & (source.index === index)) ? (source.data, earliest)
-  }
+    sources.foldRight(from: Referable[UInt]) { (source, earliest) =>
+        (source.armed & (source.index === index)) ? (source.data, earliest)
+    }

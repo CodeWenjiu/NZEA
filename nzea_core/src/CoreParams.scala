@@ -26,42 +26,42 @@ case class CoreParams(
     declared: Seq[OpProducer]
 ):
 
-  require(dispatchWidth >= 1, s"dispatch width must be positive, got $dispatchWidth")
-  require(declared.nonEmpty, "no op producer declared")
+    require(dispatchWidth >= 1, s"dispatch width must be positive, got $dispatchWidth")
+    require(declared.nonEmpty, "no op producer declared")
 
-  require(
-    declared.map(_.name).distinct.size == declared.size,
-    s"duplicate producer names: ${declared.map(_.name).mkString(", ")}"
-  )
+    require(
+        declared.map(_.name).distinct.size == declared.size,
+        s"duplicate producer names: ${declared.map(_.name).mkString(", ")}"
+    )
 
-  require(
-    declared.map(_.dispatch).distinct.size == declared.size,
-    s"duplicate dispatch ids: ${declared.map(_.dispatch).mkString(", ")}"
-  )
+    require(
+        declared.map(_.dispatch).distinct.size == declared.size,
+        s"duplicate dispatch ids: ${declared.map(_.dispatch).mkString(", ")}"
+    )
 
-  require(
-    declared.forall(_.opWidth >= 1),
-    s"op windows must be positive: ${declared.map(p => s"${p.name}=${p.opWidth}").mkString(", ")}"
-  )
+    require(
+        declared.forall(_.opWidth >= 1),
+        s"op windows must be positive: ${declared.map(p => s"${p.name}=${p.opWidth}").mkString(", ")}"
+    )
 
-  private val outOfField = declared.filter(p => p.dispatch < 0 || (p.dispatch >> dispatchWidth) != 0)
+    private val outOfField = declared.filter(p => p.dispatch < 0 || (p.dispatch >> dispatchWidth) != 0)
 
-  require(
-    outOfField.isEmpty,
-    s"dispatch id does not fit the $dispatchWidth-bit field: ${outOfField.map(p => s"${p.name}=${p.dispatch}").mkString(", ")}"
-  )
+    require(
+        outOfField.isEmpty,
+        s"dispatch id does not fit the $dispatchWidth-bit field: ${outOfField.map(p => s"${p.name}=${p.dispatch}").mkString(", ")}"
+    )
 
-  /** The shared op field: the longest declared window. Every producer pays for the widest one. */
-  val opWidth: Int = declared.map(_.opWidth).max
+    /** The shared op field: the longest declared window. Every producer pays for the widest one. */
+    val opWidth: Int = declared.map(_.opWidth).max
 
-  /** The producer that sized the op field: whoever adds the widest window moves this number, and reports say who. */
-  val widestOp: String = declared.maxBy(_.opWidth).name
+    /** The producer that sized the op field: whoever adds the widest window moves this number, and reports say who. */
+    val widestOp: String = declared.maxBy(_.opWidth).name
 
-  /** Architectural widths, read once here instead of re-derived from the ISA string downstream. */
-  val dataWidth: Int = config.width
-  val pcWidth: Int = config.width
+    /** Architectural widths, read once here instead of re-derived from the ISA string downstream. */
+    val dataWidth: Int = config.width
+    val pcWidth: Int = config.width
 
-  /** One line for elaboration output and bug reports. */
-  def report: String =
-    val windows = declared.map(p => s"${p.name}=${p.opWidth}").mkString(" ")
-    s"core params: op=$opWidth ($widestOp), dispatch=$dispatchWidth, width=$dataWidth | declared: $windows"
+    /** One line for elaboration output and bug reports. */
+    def report: String =
+        val windows = declared.map(p => s"${p.name}=${p.opWidth}").mkString(" ")
+        s"core params: op=$opWidth ($widestOp), dispatch=$dispatchWidth, width=$dataWidth | declared: $windows"

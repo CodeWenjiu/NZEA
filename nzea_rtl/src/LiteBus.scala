@@ -8,31 +8,31 @@ import me.jiuyang.stdlib.Decoupled
 /** Request payload: addr, wdata, wen, wstrb, user, id. */
 class LiteReq(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int)(using TypeImpl, ConstructorApi)
     extends Bundle:
-  val addr = Aligned(UInt(addrWidth))
-  val wdata = Aligned(UInt(dataWidth))
-  val wen = Aligned(Bool())
-  val wstrb = Aligned(UInt(dataWidth / 8))
-  val user = Aligned(UInt(userWidth))
-  val id = Aligned(UInt(idWidth))
+    val addr = Aligned(UInt(addrWidth))
+    val wdata = Aligned(UInt(dataWidth))
+    val wen = Aligned(Bool())
+    val wstrb = Aligned(UInt(dataWidth / 8))
+    val user = Aligned(UInt(userWidth))
+    val id = Aligned(UInt(idWidth))
 
 /** Response payload: data, user, id. */
 class LiteResp(dataWidth: Int, userWidth: Int, idWidth: Int)(using TypeImpl, ConstructorApi) extends Bundle:
-  val data = Aligned(UInt(dataWidth))
-  val user = Aligned(UInt(userWidth))
-  val id = Aligned(UInt(idWidth))
+    val data = Aligned(UInt(dataWidth))
+    val user = Aligned(UInt(userWidth))
+    val id = Aligned(UInt(idWidth))
 
 /** Read-only request payload: address + user + id, no write fields. */
 class LiteReqRO(addrWidth: Int, userWidth: Int, idWidth: Int)(using TypeImpl, ConstructorApi) extends Bundle:
-  val addr = Aligned(UInt(addrWidth))
-  val user = Aligned(UInt(userWidth))
-  val id = Aligned(UInt(idWidth))
+    val addr = Aligned(UInt(addrWidth))
+    val user = Aligned(UInt(userWidth))
+    val id = Aligned(UInt(idWidth))
 
 /** Interface widths, shared by the bus flavours and the fabric modules built on them. */
 trait LiteBusLike:
-  def addrWidth: Int
-  def dataWidth: Int
-  def userWidth: Int
-  def idWidth: Int
+    def addrWidth: Int
+    def dataWidth: Int
+    def userWidth: Int
+    def idWidth: Int
 
 /** Unified read-write bus with a request ID for outstanding support.
   *
@@ -44,11 +44,11 @@ class LiteBusRW(val addrWidth: Int, val dataWidth: Int, val userWidth: Int, val 
     ConstructorApi
 ) extends Bundle
     with LiteBusLike:
-  require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
-  require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
+    require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
+    require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
 
-  val req = Aligned(Decoupled(new LiteReq(addrWidth, dataWidth, userWidth, idWidth)))
-  val resp = Flipped(Decoupled(new LiteResp(dataWidth, userWidth, idWidth)))
+    val req = Aligned(Decoupled(new LiteReq(addrWidth, dataWidth, userWidth, idWidth)))
+    val resp = Flipped(Decoupled(new LiteResp(dataWidth, userWidth, idWidth)))
 
 /** Read-only bus: the request has no write fields, so "never writes" is a type-level guarantee instead of a `wen :=
   * false.B` convention. Used by fetch-side masters (I-Fetch, I-Cache).
@@ -58,8 +58,8 @@ class LiteBusRO(val addrWidth: Int, val dataWidth: Int, val userWidth: Int, val 
     ConstructorApi
 ) extends Bundle
     with LiteBusLike:
-  require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
-  require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
+    require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
+    require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
 
-  val req = Aligned(Decoupled(new LiteReqRO(addrWidth, userWidth, idWidth)))
-  val resp = Flipped(Decoupled(new LiteResp(dataWidth, userWidth, idWidth)))
+    val req = Aligned(Decoupled(new LiteReqRO(addrWidth, userWidth, idWidth)))
+    val resp = Flipped(Decoupled(new LiteResp(dataWidth, userWidth, idWidth)))
