@@ -128,14 +128,14 @@ object CountersTest extends TestSuite:
         )
 
     val tests = Tests:
-        test("the middle declares its throughput counters and the rule over them"):
+        test("the middle's stages declare its throughput counters and the rule over them"):
             assert(
                 middleRun.schema.counters.map(c => (c.name, c.source)) ==
                     Seq(
-                        "stat_middle_cycle" -> "middle",
-                        "stat_middle_inst_commit" -> "middle",
                         "stat_middle_operand_wait" -> "middle",
                         "stat_middle_slot_busy" -> "middle",
+                        "stat_middle_cycle" -> "middle",
+                        "stat_middle_inst_commit" -> "middle",
                         "stat_middle_flush" -> "middle"
                     )
             )

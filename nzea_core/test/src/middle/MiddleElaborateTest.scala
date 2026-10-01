@@ -8,7 +8,8 @@ import nzea_rtl.stdlib.*
 import utest.*
 
 /** Structural checks: the middle's boundary is the decoded stream it consumes, the three things it hands the front and
-  * the top (flush, redirect, commit), the uop it issues, and the completion it latches into write-back.
+  * the top (flush, redirect, commit), the uop it issues, and the completion it latches into write-back — it holds the
+  * two files both stages face, and its stages hold the register pairs and the units between them.
   */
 object MiddleElaborateTest extends TestSuite:
 
@@ -112,7 +113,9 @@ object MiddleElaborateTest extends TestSuite:
                 )
             )
 
-        test("the middle instantiates the register file, the CSR file, the read unit and the issue unit"):
+        test("the middle instantiates its two stages and the two files it shares"):
+            assert(sv.contains("module IssueStage"))
+            assert(sv.contains("module Wbu"))
             assert(sv.contains("module Arf"))
             assert(sv.contains("module CsrFile"))
             assert(sv.contains("module OperandRead"))
@@ -124,9 +127,9 @@ object MiddleElaborateTest extends TestSuite:
         test("a payload that reads the instruction in execute waits for it"):
             assert(sv.contains("isex_rd_index"))
 
-        // The stage registers are the middle's — the issue unit between them is combinational — so the names the event
-        // files address are in the middle's scope.
-        test("the middle carries the stage registers"):
+        // The stage registers are the issue stage's — the issue unit between them is combinational — and the event
+        // files address them through that stage.
+        test("the issue stage carries the stage registers"):
             assert(sv.contains("idisValid") && sv.contains("isexValid"))
 
         // The bypass network's answer is the read's to select: the middle carries the bus to the read, and the read takes

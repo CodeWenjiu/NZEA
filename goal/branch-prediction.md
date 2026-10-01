@@ -75,7 +75,7 @@ enum BpuLevel(val name: String):
 - **顺延值随取指携带**：`Ifu` 在打包请求时用 `pcPlus4(pc)`（`nzea_rtl.stdlib.Arith`：Kogge-Stone AND 前缀，
   O(log n)；通用加法器的常数 +4 会被综合展开成 ~1.2ns 的串行链，实测）算好一条指令自己的 `pc + 4`，经
   `IbusUser` 的 `fall_through` 字段回送进 `FetchedInst`，随后一路带到 IS/EX。**任何后端阶段都不再重建 `pc + 4`**。
-- **误预测比较在写回级**：`PathResult` 携带 `is_branch` 与 `pred_next_pc`（取指带下的预测），`Middle` 的写回寄存器
+- **误预测比较在写回级**：`PathResult` 携带 `is_branch` 与 `pred_next_pc`（取指带下的预测），`Wbu` 的写回寄存器
   用 `is_branch & (next_pc =/= pred_next_pc)` 做比较——两端都是寄存器，比较器整体离开后端组合锥；冲洗周期数与
   首轮相同（完成拍 C 捕获、C+1 冲洗）。`Bru.mispredict` 只剩统计消费者（sim 档保留、yosys 档剪除）。
 - **重定向目标 = `wb.next_pc`**（实际去向；预测 taken 而实际不 taken 时指回顺延值）。`Bru` 收到 `fallThrough` 输入：

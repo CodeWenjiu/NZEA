@@ -1,0 +1,15 @@
+-- Write-back stage's retire events, relative to its scope (TOP.NzeaCore.core.middle.wbu).
+--
+-- These are the events the retire counters cannot answer: the counters say how many, these say when and in what order.
+-- The issue-stage events live beside it, `nzea_core/src/middle/isu/issue.pulse`; bind both when the question spans the
+-- read and the commit:
+--   pulse property --event nzea_core/src/middle/wbu/retire.pulse <WB> Wbu \
+--       --eval 'Wbu.commit_fire || Wbu.redirect' --cycles 0-500
+
+-- One instruction retired: register write-back, CSR write and the commit trace all ride this pulse.
+commit_fire = commit_valid
+
+-- A mispredicted branch: the write-back register's resolved `next_pc` disagrees with the prediction it was fetched
+-- under (`wb_is_branch & wb_next_pc =/= wb_pred_next_pc`, the test `flushing` starts from), so the stage sources a
+-- flush that cancels the younger stages and the front restarts from `wb_next_pc`.
+redirect = flushing

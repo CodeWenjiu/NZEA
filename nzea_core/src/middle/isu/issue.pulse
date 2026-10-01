@@ -1,11 +1,12 @@
--- Issue-stage events, relative to the middle's scope (TOP.NzeaCore.core.middle).
+-- Issue-stage events, relative to the issue stage's scope (TOP.NzeaCore.core.middle.issueStage).
 --
 -- These are the events the retire counters cannot answer: the counters say how many, these say when and in what order.
--- The two stage registers are the middle's, so the issue events share its scope with the retire file; bind both, e.g.
--- for the redirect each issue turns into (the window is the read/write-back distance, so it is not a fixed number):
---   pulse property --event nzea_core/src/middle/issue.pulse <MIDDLE> Middle \
---       --event nzea_core/src/middle/retire.pulse <MIDDLE> Core \
---       --eval 'Middle.uop_issue ->1 Core.redirect'
+-- The two stage registers are the issue stage's, and the write-back stage's events live beside it
+-- (`nzea_core/src/middle/wbu/retire.pulse`); bind both, e.g. for the redirect each issue turns into (the window is the
+-- read/write-back distance, so it is not a fixed number):
+--   pulse property --event nzea_core/src/middle/isu/issue.pulse <ISSUE> Issue \
+--       --event nzea_core/src/middle/wbu/retire.pulse <WB> Wbu \
+--       --eval 'Issue.uop_issue ->1 Wbu.redirect'
 
 -- There is an instruction in the issue stage: the uop the units work on, or a payload waiting for its operands.
 inflight = isexValid || idisValid
@@ -18,4 +19,4 @@ uop_issue = slotFirst
 -- instruction that is finishing below it, and the write it waits for lands a cycle later. `decoded_ready` is the
 -- register's accept side; while `idisValid` holds and no flush is up it is the read's own ready, which is where the
 -- operand check lives.
-operand_wait = idisValid && !decoded_ready && (!isexValid || complete_valid) && !flushing
+operand_wait = idisValid && !decoded_ready && (!isexValid || complete) && !flush

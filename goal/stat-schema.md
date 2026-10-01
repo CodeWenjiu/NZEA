@@ -246,7 +246,7 @@ throughput`, `stat bp`) filters them; the reader rejects `schema = 1`, a missing
 | `nzea_rtl/src/StatExpr.scala` | grammar + evaluator (the normative reference for §5) |
 | `nzea_rtl/src/StatBox.scala` | the black box of **one** counter: `public_flat_rd` register, module named after the counter (that is what the instantiation and the emitted file are called) |
 | `nzea_rtl/src/StatScope.scala` | `StatScope` (the block's path, handed down in the parameter), `StatHandle.stat/rule` (one call declares, instantiates and registers), `StatRegistry` (what a dump reads back and emits) |
-| `nzea_core/src/middle/Middle.scala`, `nzea_core/src/back/int/IntPath.scala` | declarations at the call site, beside the events they observe: `stat("cycle", …)`, `stat("bp_branch", …)` under the scope the parent passed |
+| `nzea_core/src/middle/wbu/Wbu.scala`, `nzea_core/src/middle/isu/IssueStage.scala`, `nzea_core/src/back/int/IntPath.scala` | declarations at the call site, beside the events they observe: `stat("cycle", …)`, `stat("operand_wait", …)`, `stat("bp_branch", …)` under the scope the parent passed |
 | `nzea_core/src/{Core,back/Back}.scala` | `val Source` names and `stats.child(Source)` — the one place the nesting is written |
 | `nzea_core/src/stats/Regions.scala` | the subjects (`throughput`, `bp`), shared across blocks |
 | `nzea_cli/src/Main.scala` | `StatRegistry.emitBoxes(...)` + `StatSchema.emit(...)` on simulation dumps |

@@ -1,4 +1,4 @@
-package nzea_core.middle
+package nzea_core.middle.rf
 
 import nzea_core.isa.Gpr
 import nzea_rtl.TestFlow
