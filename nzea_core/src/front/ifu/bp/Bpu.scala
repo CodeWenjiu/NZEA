@@ -11,7 +11,6 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.{BpuLevel, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.isa.Isa
-import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class BpuParameter(isa: Isa, defaultPc: Long, level: BpuLevel) extends Parameter:
@@ -31,6 +30,11 @@ class BpuIO(parameter: BpuParameter) extends HWBundle(parameter):
     * training evidence beside it — is out a cycle later.
     */
   val lookup_pc = Flipped(UInt(width))
+
+  /** The fall-through of the address being predicted: the pc register's own `pc + 4`, made by the caller — the same
+    * value the request it packs carries — and the composition's default answer.
+    */
+  val fall_through = Flipped(UInt(width))
   val pred_next_pc = Aligned(UInt(width))
 
   /** The direction counter the prediction read, for the fetch to carry back as the branch's training evidence. */
@@ -46,9 +50,10 @@ class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers
   * The lookup is a read issued a cycle before its answer is used: the caller addresses the predictor with the pc
   * register's *next* value — the call that updates the register — and the answer is composed out of the tables' own
   * output registers, so next cycle, when that value is the pc, the answer is the prediction for it. The fall-through
-  * half of the composition is the registered fall-through of the address the read was issued with, so no adder sits in
-  * the answer's path. A redirect needs both the direction's "taken" and a target to go to; everything else continues at
-  * the fall-through.
+  * half of the composition is the caller's `pc + 4` of the address being predicted — taken live off the pc register, so
+  * the +4 races the cycle's redirect and handshake controls instead of sitting after the select that chooses the pc's
+  * next value. A redirect needs both the direction's "taken" and a target to go to; everything else continues at the
+  * fall-through.
   *
   * The level decides what exists, inside this unit: a level that names no table builds none, and its answer is the
   * fall-through alone — exactly the sequential fetch's prediction, registered the same way. The unit is therefore the
@@ -56,8 +61,8 @@ class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers
   *
   * The tables hold no reset: a memory entry has no reset value, and what a fresh table predicts is the empty table —
   * the storages start as the simulator initializes them (zero, in the two-state model this design is verified in), and
-  * a never-written slot reads as not-taken with no buffer hit. The reset here only seeds the fall-through register, so
-  * the very first fetch is predicted the sequential way.
+  * a never-written slot reads as not-taken with no buffer hit. The composition itself holds no state — the fall-through
+  * is the pc register's live `pc + 4` — so the very first fetch is predicted the sequential way by construction.
   */
 @generator
 object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
@@ -69,14 +74,12 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
     given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
     val width = parameter.config.width
-    // The platform's reset pc, masked to the register width: a BigInt shift, because `1L << 64` wraps around in a Long.
-    val mask = (BigInt(1) << width) - 1
-    val pcReset = BigInt(parameter.config.defaultPc) & mask
 
-    // The answer's fall-through, registered with the read it belongs to: it resets to the reset pc's own fall-through,
-    // so the first fetch is predicted the sequential way, until the tables have seen a resolution.
-    val fallThrough = RegInit(((pcReset + 4) & mask).U(width))
-    fallThrough := pcPlus4(io.lookup_pc, width)
+    // The answer's fall-through is the caller's — the pc register's own `pc + 4`. It is used live, off a register, so
+    // the +4 hangs beside the pc register and races the cycle's redirect and handshake controls instead of following the
+    // select that chooses the pc's next value. The registered copy it replaces held exactly this value every cycle: it
+    // was written from the read's own address, which is the pc register's next value — the pc register itself, one cycle
+    // later.
 
     parameter.level match
       case BpuLevel.Bimodal(phtEntries, btbEntries) =>
@@ -99,10 +102,10 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
 
         // The composition: a redirect needs both the direction's "taken" and a target to go to; everything else
         // continues at the fall-through of the address being predicted.
-        io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, fallThrough)
+        io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, io.fall_through)
         io.pred_count := pht.io.count
 
       case BpuLevel.Off =>
         // No table exists, so the only answer is the fall-through — the sequential fetch, made by the same structure.
-        io.pred_next_pc := fallThrough
+        io.pred_next_pc := io.fall_through
         io.pred_count := 0.U(BpUpdate.phtCountBits)

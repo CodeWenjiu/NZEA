@@ -6,7 +6,9 @@ Status: **M2a 已落地并验证，时序已完成二轮整形（2026-09-30）**
 里那一个预测值"。首轮落地把三个大锥塞进了核内回路（后端的 `pc+4` 重建、一般化误预测比较、纯组合的
 `bp_update` 训练总线），32i 最差路径 1.185 → 1.330；二轮把三者分别改为**取指携带顺延值、写回级比较、寄存的训练
 总线**后，行为逐拍不变，专项锥全部消失（见§四）。**三：两张表迁入 `nzea_rtl.stdlib.SyncRam`**（2026-09-30）——
-同步读、写更新、方向计数随取指携带回来（`BpUpdate.pht_count`），预测档行为逐拍不变，STA 见§四。
+同步读、写更新、方向计数随取指携带回来（`BpUpdate.pht_count`），预测档行为逐拍不变，STA 见§四。**四：顺延值
+改为调用方活值 `pcPlus4(pc)`**（2026-10-01）——`Bpu` 的去寄存化，+4 与 select 并行，行为逐位不变，32i 1.379 →
+1.202、64i 1.495 → 1.436，见§四。
 
 ## 一、为什么是这套形状
 
@@ -53,8 +55,9 @@ enum BpuLevel(val name: String):
 - `Btb`：`{tag, target[31:2]}` 条目存 `SyncRam`（同上），**valid 位留在触发器**（`RegInit(false)`）：它是必须
   从复位开始有定义的那一位，空表命中恒假，读数据里的 X 因此被挡在合成之外。读的命中比较和 valid 读取都用
   "上一拍发出的地址"寻址。写只在 taken 解析时发生。
-- 合成预测：`phtTaken && btbHit ? btbTarget : fallThroughOf(addr)`（legacy 同款保守合成）；顺延值由 `Bpu` 寄存
-  （与读同拍发出、下一拍用），不在答案路径上现算。安全性：条目只由 taken 分支写、且 `tag+index = 完整 pc`，
+- 合成预测：`phtTaken && btbHit ? btbTarget : fallThroughOf(addr)`（legacy 同款保守合成）；顺延值是调用方的活值
+  `pcPlus4(pc)`（`Ifu` 侧算一次，与请求打包共用），+4 因此挂在 pc 寄存器旁、与重定向/握手控制并行，而不是排在
+  选"pc 下一值"的 select 之后。安全性：条目只由 taken 分支写、且 `tag+index = 完整 pc`，
   所以"把非分支重定向走"不会发生——非分支永远 BTB miss，预测即顺延。
 
 ### 取指结构（`Ifu`，全档共用）
@@ -136,6 +139,23 @@ hello_world 64im 与四条 difftest 全过。
 复现命令：`just dump --target core --isa riscv32i --flow yosys`（+64i）→ `mill nzea_core.test` →
 remu 探针与 microbench（命令同 `nzea_core/test/asm/branch_loop.S` 头注）→ `just sta --target core --isa riscv32i`（+64i）。
 
+### 取指环整形（2026-10-01，顺延值的 +4 离开 select 之后）
+
+`Bpu` 的顺延值寄存器删除：合成的默认臂改为调用方传入的活值 `pcPlus4(pc)`——恒等（旧寄存器每拍写的是"读地址的
++4"，而读地址就是 pc 寄存器的下一值，即下一拍的 pc），行为逐位不变；+4 从"选择 pc 下一值"的 select 之后，挪到
+pc 寄存器旁与控制锥并行。
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| STA 32i 最差 | 1.379 ns（`src_b` / `bpu.fallThrough` / commit 三族） | **1.202 ns**（commit / `src_b`；`bpu.fallThrough` 族退出前 5） |
+| STA 64i 最差 | 1.495 ns（`bpu.fallThrough`×3 / `src_a` / `src_b`） | **1.436 ns**（`src_b`×4 / commit） |
+| 面积 / DFF（32i） | 27181.56 µm² / 2448 | 27199.48 µm² / 2416 |
+| 面积 / DFF（64i） | — | 52143.28 µm² / 4602 |
+
+- 行为：`branch_loop` 251 / 0.6653 / 误预测 3、`dep_chain` 138 / 0.9638 逐位一致；microbench 32im 0.6120 /
+  13.85%（记录口径 0.6119 / 13.85%）全 PASS；hello_world 64im 通过；`nzea_core.test` 全绿。
+- 未改动的族也随 ABC 全图重映射移动（32i commit 1.373 → 1.202、64i `src` 1.492 → 1.436），方向有利。
+
 ## 五、分步与验收
 
 | 步 | 内容 | 验收 |
@@ -156,9 +176,9 @@ remu 探针与 microbench（命令同 `nzea_core/test/asm/branch_loop.S` 头注�
 - **表不复位（4 态仿真）**：条目随仿真器初始化而空（verilator 两态 = 零，与旧复位态逐位一致）；4 态仿真下未写
   过的槽是 X，PHT 计数会一路 X 下去。当前没有 4 态消费者（iverilog 的 tile 未移植）；上 tile 仿真前需给 PHT
   加一次初始化（开机扫零一遍，或在体里加 `initial`），BTB 的 valid 触发器已经把 X 挡在合成之外。
-- **迁移的时序账**：新最差族是 `bpu.fallThrough`（下一拍顺延值的 +4 寄存器），见§四；修法候选：把 +4 拆到
-  `btbTarget`/`fallThrough` 两个寄存器前（预计算 `+4`，代价是两枚 32 位 KS 加法器与 64 个触发器），或先修
-  `nextPc` 的 fire/redirect select 链。都不影响功能，待下一轮时序整形。
+- **迁移的时序账（已结清）**：`bpu.fallThrough` 族已由"顺延值取活值 `pcPlus4(pc)`"结清（2026-10-01，见§四）：
+  +4 与 select 并行，行为逐位不变。剩下的取指侧候选是 `nextPc` 的 fire/redirect select 链本身（读地址仍要等
+  锁/握手控制），尚未开工。
 - 预测经 `IbusUser` 回送（无状态），user 宽度随字段增加（epoch + next_pc + fall_through + pc + pht_count）。
   顺延值在取指端组合算出（`pcPlus4(pc)` 直接进 user 打包，恒等于该请求的 pc+4；响应按同一字段回读），代价只落在
   "pc → 输出口"这条无约束路径上，不进任何寄存器回路。备选（已在二轮试过并回退）：把顺延值另寄存一拍或放中端

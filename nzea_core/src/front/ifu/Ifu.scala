@@ -109,6 +109,11 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     bpu.io.update :<= io.bp_update
     // The read address is the pc register's next value: next cycle's register, one cycle early.
     bpu.io.lookup_pc := nextPc
+    // The instruction's own fall-through, made once on this side: the request packs it (below) and the predictor's
+    // composition defaults to it, so the two can never disagree and the +4 exists once. Live off the pc register, it
+    // sits beside the pc, not after the select that computes the pc's next value.
+    val pcFallThrough: Node[UInt] = pcPlus4(pc, width)
+    bpu.io.fall_through := pcFallThrough
 
     when(io.redirect.valid) {
       epoch := epochNext
@@ -137,7 +142,7 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
     // The request carries the fetch's whole context: which pc it is, the pc the stream goes on with (the prediction),
     // the instruction's own fall-through — made here, on the port's own path, so no stage below rebuilds it — the
     // direction counter the prediction read (training evidence), and the epoch that says whether it is still wanted.
-    io.ibus.req.bits.user := IbusUser.pack(pc, bpu.io.pred_next_pc, pcPlus4(pc, width), epoch, bpu.io.pred_count)
+    io.ibus.req.bits.user := IbusUser.pack(pc, bpu.io.pred_next_pc, pcFallThrough, epoch, bpu.io.pred_count)
     io.ibus.req.bits.id := 0.U(Ifu.busIdWidth)
 
     // `out.ready` is the only condition on accepting a response: a fetch from a killed stream is consumed and digested
