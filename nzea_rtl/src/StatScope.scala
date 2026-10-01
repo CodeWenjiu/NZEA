@@ -166,8 +166,5 @@ object StatRegistry:
       os.write.over(dir / file, StatBox.verilog(moduleName, counter))
       file
     }
-    val filelist = dir / "filelist.f"
-    val listed = if os.exists(filelist) then os.read(filelist) else ""
-    val terminated = if listed.isEmpty || listed.endsWith("\n") then listed else s"$listed\n"
-    os.write.over(filelist, terminated ++ names.map(_ + "\n").mkString)
+    FileList.append(dir, names)
     names

@@ -4,6 +4,7 @@ import nzea_config.NzeaCoreParameter
 import nzea_core.{BpuLevel, BypassLevel}
 import nzea_core.isa.Isa
 import nzea_rtl.{Elaborate, RtlFlow, StatRegistry, StatSchema, StatScope}
+import nzea_rtl.stdlib.SyncRam
 import nzea_top.NzeaCore
 
 /** Elaborate one design to Verilog.
@@ -91,6 +92,9 @@ object Main:
         cfg => NzeaCore.main(Array("design", cfg.toString))
       ): circuit =>
         Elaborate.verilogInto(circuit, outDir, lowering(flow))
+        // The hand-written bodies the design instantiates (its sync rams) travel with the RTL they belong to, like
+        // the counters do.
+        SyncRam.emitModules(outDir)
         // The counters and the schema that describes them travel with the RTL they belong to: a simulator reads the
         // counters through VPI and interprets them through the schema.
         if flow.counters then

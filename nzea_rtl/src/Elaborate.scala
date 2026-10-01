@@ -1,5 +1,7 @@
 package nzea_rtl
 
+import nzea_rtl.stdlib.SyncRam
+
 /** The design flow, shared by the dump recipe and the tests: a generator's `config` and `design` steps write one
   * `.mlirbc` per module into the working directory, `firld` joins those into a single circuit, and `firtool` lowers
   * that circuit to Verilog.
@@ -21,8 +23,10 @@ object Elaborate:
   ): T =
     val config = scratch / "config.json"
     val before = intermediates
-    // The stats a lowering declares are read back after it: start from an empty set so each run reports its own.
+    // The hand-written bodies a lowering has to emit (stat boxes, sync rams) are read back after it: start from an
+    // empty set so each run reports its own.
     StatRegistry.reset()
+    SyncRam.reset()
     try
       writeConfig(config)
       design(config)
