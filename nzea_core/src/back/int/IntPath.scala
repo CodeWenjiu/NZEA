@@ -246,12 +246,12 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
                     "share of resolved branches that were taken, the bias a predictor exploits"
                 )
                 parameter.stats.rule(
-                    "mispredict_rate",
-                    s"${mispred.name} / ${branch.name} * 100",
+                    "accuracy",
+                    s"(${branch.name} - ${mispred.name}) / ${branch.name} * 100",
                     Regions.Bp,
                     "%",
                     2,
-                    "share of resolved branches predicted wrongly"
+                    "share of resolved branches predicted correctly"
                 )
 
         counters()

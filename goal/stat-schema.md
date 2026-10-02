@@ -152,7 +152,7 @@ for d in derived:                                                  # file order,
 | R4 | `stat` (no argument) prints every counter, then every derived entry, in **file order**; the order is deterministic across runs. | Two consecutive `stat` invocations print identical ordering. |
 | R5 | `stat raw` prints counters only. | — |
 | R6 | `stat <query>` resolves an exact counter or derived name first, then a region name; unknown queries fail with an error listing the available names and regions. | `stat ipc`, `stat throughput`, `stat bp`, `stat nosuch` (error). |
-| R7 | A region query prints that region's counters (file order) followed by that region's derived entries (file order). | `stat bp` shows that region's two counters + `mispredict_rate`. |
+| R7 | A region query prints that region's counters (file order) followed by that region's derived entries (file order). | `stat bp` shows that region's counters + `taken_rate` / `accuracy`. |
 | R8 | Derived values are formatted from `digits` + `unit`; unavailable entries print `n/a` plus a reason (missing counter name / division by zero), never `0`, `inf` or `NaN`. | Force a counter to 0 (or a missing counter in a scratch schema) and check `n/a`. |
 | R9 | A counter declared in the schema but absent from the VPI set is a hard error naming the counter (build mismatch). | Scratch schema with a bogus counter → error. |
 | R10 | A `stat_*` register found in VPI but not declared in the schema produces a warning naming it (exposed but undeclared). | Scratch RTL/schema pair. |
@@ -201,7 +201,7 @@ re-confirmed after it):
 
 | command | expected |
 |---|---|
-| `just run-app hello_world riscv32i -- --platform nzea --difftest remu --batch --startup "{ continue } and { stat print }" --sim-opt watchdog=3x30` | `stat_core_middle_cycle` 1057, `stat_core_middle_inst_commit` 392, `stat_core_back_int_bp_branch` 84, `stat_core_back_int_bp_mispred` 67, `ipc` 0.3709, `mispredict_rate` 79.76% |
+| `just run-app hello_world riscv32i -- --platform nzea --difftest remu --batch --startup "{ continue } and { stat print }" --sim-opt watchdog=3x30` | `stat_core_middle_cycle` 1057, `stat_core_middle_inst_commit` 392, `stat_core_back_int_bp_branch` 84, `stat_core_back_int_bp_mispred` 67, `ipc` 0.3709, `accuracy` 20.24% |
 | `just run-app microbench riscv32im -- --platform nzea --difftest remu --batch --startup "{ continue } and { stat print }" --app-args test --sim-opt watchdog=3x30` | `ipc` 0.3412 (`stat_core_middle_cycle`/`stat_core_middle_inst_commit` around 1980000/675700) |
 
 `hello_world` reproduces bit-exactly. On longer runs the totals drift slightly — they depend on how far the DUT is

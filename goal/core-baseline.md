@@ -90,7 +90,7 @@ nzea_core/src/
 - 总线纯 Decoupled：取消/甄别全在 master 侧（取指用 epoch、LSU 用请求 tag）；reset 期间的流量拒绝是 fabric 的职责。
 - 异常/中断：**不做**。`--flow verilator` 时每个计数器一个 `public_flat_rd` 黑盒（模块名即计数器名），名字由声明处的
   scope 拼成：`stat_core_middle_cycle` / `stat_core_middle_inst_commit`（`Wbu`）与 `stat_core_back_int_bp_branch` /
-  `stat_core_back_int_bp_mispred`（IntPath），派生 `ipc` / `mispredict_rate`，schema 随 dump 一起产出（见
+  `stat_core_back_int_bp_mispred`（IntPath），派生 `ipc` / `accuracy`，schema 随 dump 一起产出（见
   `stat-schema.md`）。
 
 ## 基线测量（2026-09-29）

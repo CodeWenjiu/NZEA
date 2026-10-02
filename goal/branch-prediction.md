@@ -162,7 +162,7 @@ pc 寄存器旁与控制锥并行。
 |---|---|---|
 | M2a | `Pht` + `Btb` + 通道 + BRU 改造 | ✅ 见上：Off 逐拍复现；Bimodal 误预测 31 → 3、microbench +51%、difftest 全过、两 ISA STA 达标 |
 | M2b | RAS（decode 分类 `is_call/is_ret`、BTB 带分类位、pop 侧论证） | ret 密集探针 + microbench |
-| M3 | `Tage`（多表 + provider/alternate + u 分配） | 四档 A/B（IPC / mispredict_rate / 面积 / WNS） |
+| M3 | `Tage`（多表 + provider/alternate + u 分配） | 四档 A/B（IPC / accuracy / 面积 / WNS） |
 
 每步固定口径：`just dump --target core --isa riscv32i --flow yosys`（+64i）→ `mill nzea_core.test` →
 `dep_chain` / `branch_loop` 探针 → microbench difftest → `just sta`（面积与最差路径，报 BP 自身 flops）。

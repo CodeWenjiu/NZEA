@@ -152,7 +152,14 @@ object CountersTest extends TestSuite:
                     .map(_.name) == Seq("stat_int_bp_branch", "stat_int_bp_taken", "stat_int_bp_mispred")
             )
             assert(intRun.schema.counters.map(_.source).distinct == Seq("int"))
-            assert(intRun.schema.derived.map(_.name) == Seq("taken_rate", "mispredict_rate"))
+            assert(intRun.schema.derived.map(_.name) == Seq("taken_rate", "accuracy"))
+            assert(
+                intRun.schema.derived.map(_.expr) ==
+                    Seq(
+                        "stat_int_bp_taken / stat_int_bp_branch * 100",
+                        "(stat_int_bp_branch - stat_int_bp_mispred) / stat_int_bp_branch * 100"
+                    )
+            )
             assert(intRun.schema.regions.map(_.name) == Seq("bp"))
             intRun.schema.validate()
 
