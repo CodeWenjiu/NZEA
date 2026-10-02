@@ -8,7 +8,6 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_config.{NzeaCoreParameter, given}
 import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.ifu.Ifu
@@ -29,15 +28,15 @@ class NzeaCoreLayers(parameter: NzeaCoreParameter) extends LayerInterface(parame
     def layers = Seq.empty
 
 class NzeaCoreIO(parameter: NzeaCoreParameter) extends HWBundle(parameter):
-    private val width = parameter.config.width
+    private val width = parameter.config.core.width
     val clock = Flipped(Clock())
     val reset = Flipped(Reset())
 
     val ibus: Option[BundleField[LiteBusRO]] =
-        Option.when(!parameter.flow.bridges)(Aligned(Ifu.busType(parameter.config)))
+        Option.when(!parameter.flow.bridges)(Aligned(Ifu.busType(parameter.config.core)))
 
     val dbus: Option[BundleField[LiteBusRW]] =
-        Option.when(!parameter.flow.bridges)(Aligned(MemPath.dbusType(parameter.config)))
+        Option.when(!parameter.flow.bridges)(Aligned(MemPath.dbusType(parameter.config.core)))
 
     val commit_msg: Option[BundleField[ValidIO[CommitMsg]]] =
         Option.when(!parameter.flow.bridges)(Aligned(ValidIO(new CommitMsg(width))))
@@ -61,7 +60,7 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
         val io = summon[Interface[NzeaCoreIO]]
         given ClockScope = ClockScope.posedge(io.clock)
 
-        val c = parameter.config
+        val c = parameter.config.core
         val resetN: Node[Reset] = (!io.reset.asBool).asReset
 
         val core =

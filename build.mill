@@ -1,4 +1,5 @@
 //| mill-jvm-version: system
+//| mill-jvm-version: system
 import mill._
 import mill.scalalib._
 
@@ -79,18 +80,6 @@ trait ZaoziModule extends Scala3Module {
   }
 }
 
-/** System configuration: the per-module configs, assembled into the bundle a level top is generated from. The
-  * definitions live with the modules that consume them; this module is where a level names them together, so it depends
-  * on the modules instead of the other way around.
-  */
-object nzea_config extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl)
-
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = utestDeps
-  }
-}
-
 object nzea_rtl extends ZaoziModule {
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
@@ -104,7 +93,7 @@ object nzea_rtl extends ZaoziModule {
 
 /** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). Its configuration is defined inside it
   * (the ISA under `isa`, the knobs and stage levels under `config`, the cross-stage numbers in `CoreParams`), so it
-  * depends on the shared RTL only; the aggregation lives above, in `nzea_config`.
+  * depends on the shared RTL only; the level top above (`nzea_top`) holds the parameter that names them together.
   */
 object nzea_core extends ZaoziModule {
   override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
@@ -124,13 +113,18 @@ object nzea_core extends ZaoziModule {
 /** Level tops: how a level is presented for a dump flow — its interfaces as ports, or wired to the simulation bridges.
   *
   * A level owns the RTL it is ([[nzea_core]]); how that RTL is attached upwards is a wiring decision, so it lives here
-  * rather than inside the level. One top per level, each a thin shell around the level's engine.
+  * rather than inside the level. One top per level, each a thin shell around the level's engine — and each holding its
+  * own parameter, configuration tree and flag mirror (`NzeaCoreParameter`, `TopConfig`, `TopConfigArgs`).
   */
 object nzea_top extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_config)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl)
+
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = utestDeps
+  }
 }
 
 /** Command line: the one place that turns flags into an elaboration (which module, which platform, where it goes). */
 object nzea_cli extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_top, nzea_core, nzea_rtl, nzea_config)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_top, nzea_core, nzea_rtl)
 }

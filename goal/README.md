@@ -2,7 +2,7 @@
 
 Status: **规则已生效（2026-09-14）** — 本文件是本目录的索引和执行规则。历史堆积清理后（删 4 份已完成文档、合并 3 份为 `roadmap.md`），goal/ 只保留四类文件。
 
-迁移状态（2026-09-27）：`nzea_rtl` / `nzea_config` / `nzea_core` 已重写到 Scala 3 + zaozi，现状见 `core-baseline.md`；tile / fpga / sim 侧仍是 `legacy/` 里的冻结实现。
+迁移状态（2026-09-27）：`nzea_rtl` / `nzea_core` / `nzea_top` 已重写到 Scala 3 + zaozi，现状见 `core-baseline.md`；tile / fpga / sim 侧仍是 `legacy/` 里的冻结实现。
 
 ## 文件分类与生命周期
 

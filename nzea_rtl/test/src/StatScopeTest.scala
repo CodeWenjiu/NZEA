@@ -18,6 +18,11 @@ object StatScopeTest extends TestSuite:
             assert(reader.read(Seq("core.back.int")) == Right(StatScope(Seq("core", "back", "int"))))
             assert(reader.read(Seq.empty).isLeft)
 
+        test("the scope's spelling inverts the reader"):
+            assert(StatScope.root.name == "root")
+            assert(StatScope(Seq("core", "back", "int")).name == "core.back.int")
+            assert(reader.read(Seq(StatScope(Seq("core", "middle")).name)) == Right(StatScope(Seq("core", "middle"))))
+
         test("the scope round-trips through the parameter JSON"):
             val scope = StatScope(Seq("core", "middle"))
             val text = upickle.default.write(scope)

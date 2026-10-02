@@ -71,6 +71,11 @@ final case class StatScope(path: Seq[String]):
     /** The scope of a block inside this one: the segment is the block's own name. */
     def child(segment: String): StatScope = StatScope(path :+ segment)
 
+    /** The scope's spelling: the path segments joined by dots, or `root` for the design's own scope — the inverse of
+      * the flag's reader, so a re-serialized scope parses back to the same one.
+      */
+    def name: String = if path.isEmpty then "root" else path.mkString(".")
+
     /** Declare a counter, instantiate its box where the caller stands, and hand back the handle that drives it. */
     def stat(local: String, region: StatRegion, doc: String, width: Int = StatBox.Width)(using
         ClockScope,

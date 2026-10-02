@@ -1,19 +1,18 @@
-package nzea_config
+package nzea_top
 
-import nzea_core.config.{BpuLevel, BypassLevel}
+import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.{RtlFlow, StatScope}
 import utest.*
 
-/** The aggregate's contract: it carries each module's own config unchanged, derives the one thing it owns (the core
-  * config), and round-trips through the config file the generator reads.
+/** The top's parameter: it carries the design tree and each module's own config unchanged, and round-trips through the
+  * config file the generator reads.
   */
 object NzeaCoreParameterTest extends TestSuite:
 
     private val parameter =
         NzeaCoreParameter(
-            Isa("riscv32im"),
-            0x80000000L,
+            TopConfig(CoreConfig(Isa("riscv32im"), 0x80000000L)),
             RtlFlow.Yosys,
             Seq("0x10000000:8"),
             BypassLevel.Commit,
@@ -22,9 +21,9 @@ object NzeaCoreParameterTest extends TestSuite:
         )
 
     val tests = Tests:
-        test("the aggregate derives the core config and keeps the modules' own"):
-            assert(parameter.config.width == 32)
-            assert(parameter.config.defaultPc == 0x80000000L)
+        test("the parameter carries the tree and keeps the modules' own"):
+            assert(parameter.config.core.width == 32)
+            assert(parameter.config.core.defaultPc == 0x80000000L)
             assert(parameter.bypass.commit)
             assert(parameter.bpu.predicted)
             assert(parameter.bpu.name == "bimodal:128:8")

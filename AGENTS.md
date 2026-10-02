@@ -2,7 +2,7 @@
 
 > **迁移进行中（2026-09-26）**：核心正在从 Chisel/Scala 2.13 重写到 Scala 3 + zaozi。旧实现冻结在 tag `legacy-baseline` / `legacy/`（不参与构建、不产生 LSP 目标，见 `legacy/README.md`）；下文「项目结构与模块组织」及命令表中的 `nzea_*` 路径与该批命令是**迁移前**形态，`just dump` / `just iv` / `just test <模块>` / FPGA 流程只在 oracle 工作区（`just legacy-oracle`）里有效。重写树用 `nix develop`（JDK 25 + CIRCT）与 `just zaozi-publish`，命令随模块落地逐条补回。
 >
-> **重写树已落地**：`nzea_rtl`、`nzea_config`、`nzea_core`（`Core` = 前端/中端/后端本体，总线与提交 trace 无条件为端口）、`nzea_top`（层级 Top：`sim` 接 DPI bridge，否则抬成本层端口；生成名 = 层级名）、`nzea_cli`（`just dump --target core`）。
+> **重写树已落地**：`nzea_rtl`、`nzea_core`（`Core` = 前端/中端/后端本体，总线与提交 trace 无条件为端口）、`nzea_top`（层级 Top 及其 parameter/配置树 `NzeaCoreParameter`/`TopConfig`：`sim` 接 DPI bridge，否则抬成本层端口；生成名 = 层级名）、`nzea_cli`（`just dump --target core`）。
 
 ## 项目结构与模块组织
 
@@ -12,7 +12,7 @@
 | `nzea_device/src` | 可复用设备 IP（UART、定时器等），不依赖任何业务模块 |
 | `nzea_cache/src` | Cache 实现（I-Cache、D-Cache），依赖 `nzea_rtl` |
 | `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |
-| `nzea_config/src` | 汇总层：把各模块自己定义的配置组装成各层 Top 的 parameter（当前只有 `NzeaCoreParameter`）。配置的定义随消费它的模块走，这里不重复定义 |
+| `nzea_top/src` | 层级 Top 及其 parameter/配置树（`NzeaCoreParameter`、`TopConfig`）、随基线的旗标镜像（`TopConfigArgs`、`CoreConfigArgs`）与生成门面（`NzeaCoreElaborate`）；生成名 = 层级名 |
 | `nzea_tile/src` | Tile 级 SoC 封装（NzeaTile + FabricBus crossbar + 平台设备） |
 | `nzea_fpga/src` | FPGA 板级包装：板级顶层、引脚约束、综合后处理 |
 | `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |
@@ -24,26 +24,22 @@
 ```mermaid
 flowchart TD
     rtl[nzea_rtl] --> core[nzea_core]
-    config[nzea_config] --> rtl
-    config --> core
-    top[nzea_top] --> rtl
-    top --> core
-    top --> config
-    cli[nzea_cli] --> rtl
-    cli --> core
-    cli --> config
-    cli --> top
+    rtl --> top[nzea_top]
+    core --> top
+    rtl --> cli[nzea_cli]
+    core --> cli
+    top --> cli
 ```
-`nzea_cli` 依赖 `nzea_top`、`nzea_core`、`nzea_config`、`nzea_rtl` 用于参数解析和目标分发。
-`nzea_config` 是**汇总层**：配置的定义随消费它的模块走（ISA/宽度在 `nzea_core.isa`，bypass 链接在 `nzea_core.config`，flow 在 `nzea_rtl`），`nzea_config` 只把它们组装成各层 Top 的 parameter，因此它依赖各模块、而不被各模块依赖。后续的 `nzea_device` / `nzea_cache` / `nzea_tile` / `nzea_fpga` / `nzea_sim` 按同一形状接入：引擎待在 `nzea_rtl` 之上、`nzea_config` 之下，各层的 Top（连同它的 parameter）在 `nzea_config` 之上。
+`nzea_cli` 依赖 `nzea_top`、`nzea_core`、`nzea_rtl` 用于参数解析和目标分发。
+配置的定义随消费它的模块走（ISA/宽度在 `nzea_core.isa`，bypass 链接在 `nzea_core.config`，flow 在 `nzea_rtl`），各层 Top 连同它的 parameter 与配置树在自己的模块里汇总（`nzea_top.NzeaCoreParameter`/`TopConfig`），没有中心汇总模块。后续的 `nzea_device` / `nzea_cache` / `nzea_tile` / `nzea_fpga` / `nzea_sim` 按同一形状接入：引擎待在 `nzea_rtl` 之上，各层的 Top 定义自己的 parameter，把子模块的 config 组装成自己的配置树。
 
 ### 设计原则
-1. 配置的定义随消费它的模块走（`nzea_core.isa`、`nzea_core.config.BypassLevel`、`nzea_rtl.RtlFlow`）；`nzea_config` 只做汇总，不重复定义。
+1. 配置的定义随消费它的模块走（`nzea_core.isa`、`nzea_core.config.BypassLevel`、`nzea_rtl.RtlFlow`）；各层 Top 在自己的 parameter/配置树里汇总（`nzea_top.TopConfig`），不重复定义。
 2. 保持作用域明确：`CoreConfig`（`isa` + `defaultPc`）随 `CoreParameter` 显式传给硬件模块；非核心流程选项（平台、时钟等）留在各层自己的 parameter 里。
 3. 将 CLI 关注点与硬件生成分离，使生成过程能被测试和工具复用。
 4. 优先使用职责明确的小模块，而非多功能大文件。
 5. 版本常量（`scalaV`、`chiselV` 等）在 `build.mill` 中统一定义，各模块复用。
-6. **禁止关键参数有默认值**。跨模块传递的配置参数（`clockHz`、`cache`、`sim` 等）不得有 Scala 默认值；编译器必须强制每个调用点显式传参。`case class` 的默认值仅允许用于 CLI 入口层（`CliArgs`），且必须与所有下游签名保持一致（一处修改，全链路报错）。
+6. **禁止关键参数有默认值**。跨模块传递的配置参数（`clockHz`、`cache`、`sim` 等）不得有 Scala 默认值；编译器必须强制每个调用点显式传参。`case class` 的默认值仅允许用于入口层的旗标类型（`CliArgs` 及随基线的镜像 `TopConfigArgs`/`CoreConfigArgs`），且必须与所有下游签名保持一致（一处修改，全链路报错）。
 
 ## 工作基线
 构建或验证前先执行 `nix develop`。该 flake 锁定 `mill`、`scalafmt`、`yosys`、`ieda`、JDK 和 Rust nightly，并导出 `PDK_PATH`。
