@@ -1,8 +1,9 @@
-package nzea_rtl
+package nzea_rtl.stat
 
 import java.lang.foreign.Arena
 import scala.collection.mutable
 
+import nzea_rtl.FileList
 import mainargs.TokensReader
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*

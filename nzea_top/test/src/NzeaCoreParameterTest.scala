@@ -2,7 +2,8 @@ package nzea_top
 
 import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
-import nzea_rtl.{RtlFlow, StatScope}
+import nzea_rtl.RtlFlow
+import nzea_rtl.stat.StatScope
 import utest.*
 
 /** The top's parameter: it carries the design tree and each module's own config unchanged, and round-trips through the

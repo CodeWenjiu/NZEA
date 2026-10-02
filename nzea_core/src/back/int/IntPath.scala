@@ -12,7 +12,8 @@ import nzea_core.config.{BpuLevel, CoreConfig}
 import nzea_core.back.{BpUpdate, IssueSlot, IssueUop, PathResult}
 import nzea_core.isa.{CsrType, Isa}
 import nzea_core.stats.Regions
-import nzea_rtl.{RtlFlow, StatScope}
+import nzea_rtl.RtlFlow
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 

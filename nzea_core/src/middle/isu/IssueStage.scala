@@ -15,7 +15,8 @@ import nzea_core.isa.{Gpr, Isa}
 import nzea_core.middle.ExecSlot
 import nzea_core.middle.rf.ArfReadPort
 import nzea_core.stats.Regions
-import nzea_rtl.{RtlFlow, StatScope}
+import nzea_rtl.RtlFlow
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 

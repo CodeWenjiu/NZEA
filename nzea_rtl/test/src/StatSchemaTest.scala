@@ -2,6 +2,7 @@ package nzea_rtl
 
 import java.nio.file.{Files, Paths}
 
+import nzea_rtl.stat.*
 import utest.*
 
 /** Schema contract tests: expression grammar, in-order rule resolution, TOML emission. */

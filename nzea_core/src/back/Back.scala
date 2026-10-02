@@ -12,7 +12,8 @@ import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
 import nzea_core.isa.{Backend, Isa}
-import nzea_rtl.{RtlFlow, StatScope}
+import nzea_rtl.RtlFlow
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 

@@ -3,7 +3,8 @@ package nzea_core.middle
 import nzea_core.config.{BypassLevel, CoreConfig}
 import nzea_core.back.{BpUpdate, OpWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Srcs}
-import nzea_rtl.{RtlFlow, StatScope, TestFlow}
+import nzea_rtl.{RtlFlow, TestFlow}
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import utest.*
 

@@ -1,5 +1,6 @@
 package nzea_rtl
 
+import nzea_rtl.stat.StatRegistry
 import nzea_rtl.stdlib.SyncRam
 
 /** The design flow, shared by the dump recipe and the tests: a generator's `config` and `design` steps write one

@@ -1,4 +1,4 @@
-package nzea_rtl
+package nzea_rtl.stat
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}

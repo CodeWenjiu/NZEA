@@ -12,7 +12,7 @@ import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.ifu.Ifu
 import nzea_core.middle.CommitMsg
-import nzea_rtl.{LiteBusRO, LiteBusRW}
+import nzea_rtl.bus.{LiteBusRO, LiteBusRW}
 import nzea_rtl.stdlib.*
 import nzea_top.dpi.{
     CommitDpiBridge,

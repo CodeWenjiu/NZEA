@@ -5,6 +5,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import me.jiuyang.stdlib.*
+import nzea_rtl.bus.*
 import nzea_rtl.stdlib.*
 import utest.*
 

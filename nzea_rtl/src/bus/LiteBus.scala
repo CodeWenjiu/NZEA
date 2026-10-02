@@ -1,4 +1,4 @@
-package nzea_rtl
+package nzea_rtl.bus
 
 import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}

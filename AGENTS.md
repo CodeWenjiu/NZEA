@@ -8,7 +8,7 @@
 
 | 模块 | 用途 |
 |--------|---------|
-| `nzea_rtl/src` | 共享 RTL 工具（FabricBus、LiteBus、crossbar、arbiter、Pipe、MuxTree） |
+| `nzea_rtl/src` | 共享 RTL 工具：`bus/`（LiteBus、AddressMap、crossbar）、`stat/`（计数器/schema/scope）、`stdlib/`（Arith、Mux、Pipe、SyncRam 等）与根下的生成流程（`Elaborate`/`FileList`/`RtlFlow`） |
 | `nzea_device/src` | 可复用设备 IP（UART、定时器等），不依赖任何业务模块 |
 | `nzea_cache/src` | Cache 实现（I-Cache、D-Cache），依赖 `nzea_rtl` |
 | `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |

@@ -3,7 +3,8 @@ package nzea_core.back
 import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.back.mem.{DbusUser, MemPath, MmioWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
-import nzea_rtl.{RtlFlow, StatScope, TestFlow}
+import nzea_rtl.{RtlFlow, TestFlow}
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import utest.*
 

@@ -5,7 +5,8 @@ import nzea_core.{Core, CoreParameter}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.isa.Isa
 import nzea_core.middle.{Middle, MiddleParameter}
-import nzea_rtl.{RtlFlow, StatBox, StatSchema, StatScope, TestFlow}
+import nzea_rtl.{RtlFlow, TestFlow}
+import nzea_rtl.stat.{StatBox, StatSchema, StatScope}
 import utest.*
 
 /** The contract between a counter declared at its call site and what a dump emits from it: the registered set is the
@@ -20,7 +21,7 @@ object CountersTest extends TestSuite:
 
     private def run(lower: => String): Run =
         val sv = lower
-        Run(sv, nzea_rtl.StatRegistry.schema)
+        Run(sv, nzea_rtl.stat.StatRegistry.schema)
 
     private lazy val middleRun = run(
         TestFlow.lower(

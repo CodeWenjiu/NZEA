@@ -1,4 +1,4 @@
-package nzea_rtl
+package nzea_rtl.stat
 
 /** Closed arithmetic grammar for [[StatDerived.expr]]:
   *

@@ -13,7 +13,7 @@ import nzea_core.config.{BpuLevel, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.front.ifu.bp.{Bpu, BpuParameter}
 import nzea_core.isa.Isa
-import nzea_rtl.LiteBusRO
+import nzea_rtl.bus.LiteBusRO
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 

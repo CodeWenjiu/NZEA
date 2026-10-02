@@ -11,7 +11,7 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
 import nzea_core.back.{IssueSlot, IssueUop, PathResult}
 import nzea_core.isa.{CsrType, Isa}
-import nzea_rtl.LiteBusRW
+import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -53,8 +53,8 @@ class MemPathProbe(parameter: MemPathParameter) extends DVBundle[MemPathParamete
   * response for an abandoned request drains instead of completing the next uop. A store's answer is only that
   * acknowledgment, so a store completes on the request's own acceptance — the first cycle the bus takes it — and gives
   * the execute slot back a cycle early; a load completes when its tagged response lands. Byte or half accesses are
-  * aligned by the bus itself: the request carries the word address, and the path selects inside the word with the offset
-  * it holds.
+  * aligned by the bus itself: the request carries the word address, and the path selects inside the word with the
+  * offset it holds.
   */
 @generator
 object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, MemPathProbe]:

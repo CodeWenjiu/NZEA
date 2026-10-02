@@ -2,7 +2,8 @@ package nzea_cli
 
 import mainargs.{arg, main, ParserForClass}
 import nzea_core.config.CoreConfig
-import nzea_rtl.{Elaborate, RtlFlow, StatRegistry, StatSchema}
+import nzea_rtl.{Elaborate, RtlFlow}
+import nzea_rtl.stat.{StatRegistry, StatSchema}
 import nzea_rtl.stdlib.SyncRam
 import nzea_top.{NzeaCore, NzeaCoreElaborate, NzeaCoreParameter, TopConfig, TopConfigArgs}
 

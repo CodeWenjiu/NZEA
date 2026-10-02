@@ -1,6 +1,7 @@
 package nzea_rtl
 
 import mainargs.TokensReader
+import nzea_rtl.stat.StatScope
 import utest.*
 
 /** Scope contract: the path a parent hands a child is what the names and the schema's `source` are built from. */

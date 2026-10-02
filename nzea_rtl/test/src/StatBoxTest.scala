@@ -1,5 +1,6 @@
 package nzea_rtl
 
+import nzea_rtl.stat.*
 import utest.*
 
 /** Black-box contract of one counter's box, and the naming the emitter and the instantiating module have to agree on.

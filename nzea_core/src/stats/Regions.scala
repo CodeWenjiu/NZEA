@@ -1,6 +1,6 @@
 package nzea_core.stats
 
-import nzea_rtl.StatRegion
+import nzea_rtl.stat.StatRegion
 
 /** The subjects statistics are classified by: what a number measures, as opposed to which block declares it.
   *

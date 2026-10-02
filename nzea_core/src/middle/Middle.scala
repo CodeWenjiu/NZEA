@@ -15,7 +15,8 @@ import nzea_core.isa.Isa
 import nzea_core.middle.isu.{IssueStage, IssueStageParameter}
 import nzea_core.middle.rf.{Arf, ArfParameter, CsrFile, CsrFileParameter}
 import nzea_core.middle.wbu.{Wbu, WbuParameter}
-import nzea_rtl.{RtlFlow, StatScope}
+import nzea_rtl.RtlFlow
+import nzea_rtl.stat.StatScope
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class MiddleParameter(

@@ -4,7 +4,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
-import nzea_rtl.{RtlFlow, StatScope}
+import nzea_rtl.RtlFlow
+import nzea_rtl.stat.StatScope
 
 /** The core level top's parameter: the level's configuration tree plus the knobs that shape the dump.
   *
