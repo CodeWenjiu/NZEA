@@ -26,4 +26,27 @@ case class NzeaCoreParameter(
 ) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
 
+object NzeaCoreParameter:
+
+    /** The baseline configuration: what a caller starts from before it overrides anything — riscv32i at `0x80000000`,
+      * verilator-shaped RTL, the yosys platform's device windows, execute-level forwarding, the 64-entry bimodal
+      * predictor, and the counters hanging under the design's root scope.
+      *
+      * A caller changes what it means to change (`NzeaCoreParameter.default.copy(isa = …)`) and leaves the rest alone,
+      * so the knobs it has no opinion on — the forwarding level, the predictor, the counter scope — are written down
+      * once, here, instead of at every construction site. None of them is a CLI flag yet: a different design is a
+      * different value here.
+      */
+    def default: NzeaCoreParameter = NzeaCoreParameter(
+        isa = Isa("riscv32i"),
+        defaultPc = 0x80000000L,
+        flow = RtlFlow.Verilator,
+        // The yosys platform's device windows, RAM excluded (it is the one memory range): the addresses the core marks
+        // as MMIO in the commit trace. The tile owns this map once it lands.
+        mmioRanges = Seq("0x10000000:8", "0x00100000:4", "0x02000000:0xc000"),
+        bypass = BypassLevel.Execute,
+        bpu = BpuLevel.Bimodal(64, 4),
+        stats = StatScope.root
+    )
+
 given upickle.default.ReadWriter[NzeaCoreParameter] = upickle.default.macroRW
