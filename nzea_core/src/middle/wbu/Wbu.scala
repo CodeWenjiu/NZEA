@@ -11,12 +11,12 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
 import nzea_core.back.{BypassValue, PathResult}
 import nzea_core.isa.{CsrType, Gpr, Isa}
-import nzea_core.middle.CommitMsg
 import nzea_core.middle.rf.{ArfWrite, CsrWrite}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
+import nzea_sideband.CommitTrace
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class WbuParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, stats: StatScope) extends Parameter:
@@ -46,7 +46,7 @@ class WbuIO(parameter: WbuParameter) extends HWBundle(parameter):
     val flush = Aligned(Bool())
     val redirect = Aligned(Valid(UInt(width)))
     val bypass_commit = Aligned(ValidIO(new BypassValue(width)))
-    val commit = Aligned(ValidIO(new CommitMsg(width)))
+    val commit = Aligned(ValidIO(new CommitTrace(width, Gpr.indexWidth, CsrType.addrWidth)))
 
 class WbuProbe(parameter: WbuParameter) extends DVBundle[WbuParameter, WbuLayers](parameter)
 

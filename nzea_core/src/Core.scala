@@ -14,11 +14,12 @@ import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.MemPath
 import nzea_core.front.{Front, FrontParameter}
 import nzea_core.front.ifu.Ifu
-import nzea_core.isa.Isa
-import nzea_core.middle.{CommitMsg, Middle, MiddleParameter}
+import nzea_core.isa.{CsrType, Gpr, Isa}
+import nzea_core.middle.{Middle, MiddleParameter}
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
+import nzea_sideband.CommitTrace
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class CoreParameter(
@@ -43,7 +44,7 @@ class CoreIO(parameter: CoreParameter) extends HWBundle(parameter):
     val resetN = Flipped(Reset())
     val ibus = Aligned(Ifu.busType(parameter.config))
     val dbus = Aligned(MemPath.dbusType(parameter.config))
-    val commit_msg = Aligned(ValidIO(new CommitMsg(width)))
+    val commit_msg = Aligned(ValidIO(new CommitTrace(width, Gpr.indexWidth, CsrType.addrWidth)))
 
 class CoreProbe(parameter: CoreParameter) extends DVBundle[CoreParameter, CoreLayers](parameter)
 

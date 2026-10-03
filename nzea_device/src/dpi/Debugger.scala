@@ -9,21 +9,8 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.stdlib.*
+import nzea_sideband.CommitTrace
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
-
-/** The commit trace a debugger observes: the architectural facts of one retired instruction.
-  *
-  * Structurally the core's `CommitMsg`, declared here so the debugger needs no core types: the CSR is an architectural
-  * `(valid, addr)` pair, not the core's internal `CsrType` code.
-  */
-class CommitTrace(width: Int, gprIndexWidth: Int, csrAddrWidth: Int) extends Bundle:
-    val next_pc = Aligned(UInt(width))
-    val rd_index = Aligned(UInt(gprIndexWidth))
-    val rd_value = Aligned(UInt(width))
-    val is_mmio = Aligned(Bool())
-    val csr_valid = Aligned(Bool())
-    val csr_addr = Aligned(UInt(csrAddrWidth))
-    val csr_data = Aligned(UInt(width))
 
 case class DebuggerParameter(width: Int, gprIndexWidth: Int, csrAddrWidth: Int) extends Parameter:
     require(width >= 1, s"width must be >= 1, got $width")

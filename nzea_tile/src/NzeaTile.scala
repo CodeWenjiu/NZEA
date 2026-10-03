@@ -99,14 +99,8 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         val debugger = Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth))
         debugger.io.clock := io.clock
         debugger.io.resetN := resetN
-        debugger.io.trace.valid := core.io.commit_msg.valid
-        debugger.io.trace.bits.next_pc := core.io.commit_msg.bits.next_pc
-        debugger.io.trace.bits.rd_index := core.io.commit_msg.bits.rd_index
-        debugger.io.trace.bits.rd_value := core.io.commit_msg.bits.rd_value
-        debugger.io.trace.bits.is_mmio := core.io.commit_msg.bits.is_mmio
-        debugger.io.trace.bits.csr_valid := core.io.commit_msg.bits.csr_valid
-        debugger.io.trace.bits.csr_addr := core.io.commit_msg.bits.csr_addr
-        debugger.io.trace.bits.csr_data := core.io.commit_msg.bits.csr_data
+        // The debugger's trace is the shared commit-trace sideband, so the two connect as one bundle.
+        debugger.io.trace :<>= core.io.commit_msg
 
         // Each window's device, by name: the device owns whether it answers with its hardware or — in the bridge flow —
         // with the simulator, so the tile only connects the fabric to devices and never touches DPI itself.

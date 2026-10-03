@@ -12,7 +12,6 @@ import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.{DbusUser, MemPath}
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{CsrType, Gpr}
-import nzea_core.middle.CommitMsg
 import nzea_device.dpi.{
     BusDpiDevice,
     BusDpiDeviceParameter,
@@ -23,6 +22,7 @@ import nzea_device.dpi.{
 }
 import nzea_rtl.bus.{LiteBusRO, LiteBusRW}
 import nzea_rtl.stdlib.*
+import nzea_sideband.CommitTrace
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 class NzeaCoreLayers(parameter: NzeaCoreParameter) extends LayerInterface(parameter):
@@ -39,8 +39,10 @@ class NzeaCoreIO(parameter: NzeaCoreParameter) extends HWBundle(parameter):
     val dbus: Option[BundleField[LiteBusRW]] =
         Option.when(!parameter.flow.bridges)(Aligned(MemPath.dbusType(parameter.config.core)))
 
-    val commit_msg: Option[BundleField[ValidIO[CommitMsg]]] =
-        Option.when(!parameter.flow.bridges)(Aligned(ValidIO(new CommitMsg(width))))
+    val commit_msg: Option[BundleField[ValidIO[CommitTrace]]] =
+        Option.when(!parameter.flow.bridges)(
+            Aligned(ValidIO(new CommitTrace(width, Gpr.indexWidth, CsrType.addrWidth)))
+        )
 
 class NzeaCoreProbe(parameter: NzeaCoreParameter) extends DVBundle[NzeaCoreParameter, NzeaCoreLayers](parameter)
 
@@ -97,16 +99,8 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
 
             ibus.io.bus :<>= core.io.ibus
             dbus.io.bus :<>= core.io.dbus
-            // The debugger's trace is its own interface (structurally the core's commit bus), so the two are wired field by
-            // field — the one place a level names the trace's shape, and the reason the device needs no core types.
-            debugger.io.trace.valid := core.io.commit_msg.valid
-            debugger.io.trace.bits.next_pc := core.io.commit_msg.bits.next_pc
-            debugger.io.trace.bits.rd_index := core.io.commit_msg.bits.rd_index
-            debugger.io.trace.bits.rd_value := core.io.commit_msg.bits.rd_value
-            debugger.io.trace.bits.is_mmio := core.io.commit_msg.bits.is_mmio
-            debugger.io.trace.bits.csr_valid := core.io.commit_msg.bits.csr_valid
-            debugger.io.trace.bits.csr_addr := core.io.commit_msg.bits.csr_addr
-            debugger.io.trace.bits.csr_data := core.io.commit_msg.bits.csr_data
+            // The debugger's trace is the shared commit-trace sideband, so the two connect as one bundle.
+            debugger.io.trace :<>= core.io.commit_msg
         else
             io.ibus.get :<>= core.io.ibus
             io.dbus.get :<>= core.io.dbus

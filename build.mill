@@ -91,11 +91,18 @@ object nzea_rtl extends ZaoziModule {
   }
 }
 
+/** Sideband shapes crossing the core<->device boundary: a producer and its consumer agree on these without either
+  * depending on the other — the commit trace today, interrupts and debug traces later.
+  */
+object nzea_sideband extends ZaoziModule {
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+}
+
 /** Reusable device IP (RAM, UART, CLINT, finisher): the fabric's slaves, whose only dependency is the shared bus and
   * tools in [[nzea_rtl]].
   */
 object nzea_device extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_sideband)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
@@ -114,7 +121,7 @@ object nzea_device extends ZaoziModule {
   * depends on the shared RTL only; the level top above (`nzea_top`) holds the parameter that names them together.
   */
 object nzea_core extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_sideband)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
@@ -135,7 +142,7 @@ object nzea_core extends ZaoziModule {
   * own parameter, configuration tree and flag mirror (`NzeaCoreParameter`, `TopConfig`, `TopConfigArgs`).
   */
 object nzea_top extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device, nzea_sideband)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
@@ -147,7 +154,7 @@ object nzea_top extends ZaoziModule {
   * bridge — the shape the simulator loads.
   */
 object nzea_tile extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device, nzea_sideband)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps

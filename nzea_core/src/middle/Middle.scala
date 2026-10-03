@@ -11,12 +11,13 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BypassLevel, CoreConfig}
 import nzea_core.back.{BypassBus, IssueSlot, IssueUop, PathResult}
 import nzea_core.front.idu.IduOut
-import nzea_core.isa.Isa
+import nzea_core.isa.{CsrType, Gpr, Isa}
 import nzea_core.middle.isu.{IssueStage, IssueStageParameter}
 import nzea_core.middle.rf.{Arf, ArfParameter, CsrFile, CsrFileParameter}
 import nzea_core.middle.wbu.{Wbu, WbuParameter}
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
+import nzea_sideband.CommitTrace
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class MiddleParameter(
@@ -42,7 +43,7 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
     val issue = Aligned(new IssueSlot(new IssueUop(parameter.config)))
     val complete = Flipped(ValidIO(new PathResult(width)))
     val bypass = Aligned(new BypassBus(width))
-    val commit = Aligned(ValidIO(new CommitMsg(width)))
+    val commit = Aligned(ValidIO(new CommitTrace(width, Gpr.indexWidth, CsrType.addrWidth)))
     val flush = Aligned(Bool())
 
 class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, MiddleLayers](parameter)
