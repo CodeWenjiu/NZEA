@@ -30,11 +30,15 @@ given upickle.default.ReadWriter[SifiveTestFinisherParameter] = upickle.default.
 class SifiveTestFinisherLayers(parameter: SifiveTestFinisherParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
+/** The pins the finisher shows at a level's boundary: its `finished` flag. */
+class FinisherPins(using TypeImpl, ConstructorApi) extends Bundle:
+    val finished = Aligned(Bool())
+
 class SifiveTestFinisherIO(parameter: SifiveTestFinisherParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
     val bus = Flipped(new LiteBusRW(parameter.addrWidth, parameter.dataWidth, parameter.userWidth, parameter.idWidth))
-    val finished = Aligned(Bool())
+    val boundary = Aligned(new FinisherPins)
 
 class SifiveTestFinisherProbe(parameter: SifiveTestFinisherParameter)
     extends DVBundle[SifiveTestFinisherParameter, SifiveTestFinisherLayers](parameter)
@@ -76,7 +80,7 @@ object SifiveTestFinisher
             io.bus.resp.bits.data := 0.U(parameter.dataWidth)
             io.bus.resp.bits.user := respUser
             io.bus.resp.bits.id := respId
-            io.finished := finished
+            io.boundary.finished := finished
 
             when(reqFire) {
                 respUser := io.bus.req.bits.user
@@ -89,4 +93,4 @@ object SifiveTestFinisher
             when(busCycle === 3.U(2) & io.bus.resp.ready) { busCycle := 0.U(2) }
 
         // The hardware-only output: inert when the simulator answers the bus instead.
-        if parameter.flow.bridges then io.finished := false.B
+        if parameter.flow.bridges then io.boundary.finished := false.B

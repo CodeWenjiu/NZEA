@@ -5,7 +5,7 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.{AddrRange, SlaveKind, SlavePort}
+import nzea_rtl.bus.AddrRange
 import nzea_rtl.stat.StatScope
 
 /** The tile level's parameter: the core knobs it passes down and the platform's device list.
@@ -21,7 +21,7 @@ case class NzeaTileParameter(
     bypass: BypassLevel,
     bpu: BpuLevel,
     stats: StatScope,
-    devices: Seq[SlavePort]
+    devices: Seq[DeviceSpec]
 ) extends Parameter
 
 object NzeaTileParameter:
@@ -52,20 +52,20 @@ object NzeaTileParameter:
   */
 extension (flow: RtlFlow)
 
-    def devices: Seq[SlavePort] = flow match
+    def devices: Seq[DeviceSpec] = flow match
         case RtlFlow.Verilator =>
             // The bridge flow: the whole platform, every window answered by the simulator.
             Seq(
-                SlavePort("ram", AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)), SlaveKind.Memory),
-                SlavePort("uart16550", AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)), SlaveKind.Mmio),
-                SlavePort("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), SlaveKind.Mmio),
-                SlavePort("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), SlaveKind.Mmio)
+                DeviceSpec("ram", AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)), DeviceKind.Ram),
+                DeviceSpec("uart16550", AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)), DeviceKind.Uart),
+                DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
+                DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)
             )
         case RtlFlow.Yosys =>
             // The synthesis flow: what has hardware. The UART is left out (its hardware is not ported), and the RAM's
             // window is its storage — a window worth building, not the 128 MiB the simulator models.
             Seq(
-                SlavePort("ram", AddrRange(BigInt("80000000", 16), BigInt("00020000", 16)), SlaveKind.Memory),
-                SlavePort("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), SlaveKind.Mmio),
-                SlavePort("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), SlaveKind.Mmio)
+                DeviceSpec("ram", AddrRange(BigInt("80000000", 16), BigInt("00020000", 16)), DeviceKind.Ram),
+                DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
+                DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)
             )

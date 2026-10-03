@@ -3,7 +3,6 @@ package nzea_cli
 import mainargs.{arg, main, ParserForClass}
 import nzea_core.config.CoreConfig
 import nzea_rtl.{Elaborate, RtlFlow}
-import nzea_rtl.bus.SlavePort
 import nzea_rtl.stat.{StatRegistry, StatSchema}
 import nzea_rtl.stdlib.SyncRam
 import nzea_tile.*
@@ -25,7 +24,7 @@ case class CliArgs(
     @arg(doc = "the platform the RTL is shaped for") platform: String = "yosys",
     config: TopConfigArgs,
     @arg(doc = "verilator-shaped RTL or synthesis-shaped RTL") flow: RtlFlow = CliArgs.coreBaseline.flow,
-    @arg(doc = "the tile's devices (JSON, repeatable); defaults to the platform's") devices: Seq[SlavePort],
+    @arg(doc = "the tile's devices (JSON, repeatable); defaults to the platform's") devices: Seq[DeviceSpec],
     @arg(doc = "output dir; defaults to build/<target>/<platform>/<isa>/<flow>") outDir: String = ""
 ):
 

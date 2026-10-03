@@ -33,11 +33,15 @@ given upickle.default.ReadWriter[ClintParameter] = upickle.default.macroRW
 class ClintLayers(parameter: ClintParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
+/** The pins the CLINT shows at a level's boundary: its timer interrupt. */
+class ClintPins(using TypeImpl, ConstructorApi) extends Bundle:
+    val timer_interrupt = Aligned(Bool())
+
 class ClintIO(parameter: ClintParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
     val bus = Flipped(new LiteBusRW(parameter.addrWidth, parameter.dataWidth, parameter.userWidth, parameter.idWidth))
-    val timer_interrupt = Aligned(Bool())
+    val boundary = Aligned(new ClintPins)
 
 class ClintProbe(parameter: ClintParameter) extends DVBundle[ClintParameter, ClintLayers](parameter)
 
@@ -115,7 +119,7 @@ object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
 
             when(io.bus.resp.valid & io.bus.resp.ready) { busy := false.B }
 
-            io.timer_interrupt := (mtime >= mtimecmp) & (mtimecmp =/= 0.U(64))
+            io.boundary.timer_interrupt := (mtime >= mtimecmp) & (mtimecmp =/= 0.U(64))
 
         // The hardware-only output: inert when the simulator answers the bus instead.
-        if parameter.flow.bridges then io.timer_interrupt := false.B
+        if parameter.flow.bridges then io.boundary.timer_interrupt := false.B

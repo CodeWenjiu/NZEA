@@ -12,11 +12,7 @@ import nzea_core.config.CoreConfig
 import nzea_core.front.ifu.IbusUser
 import nzea_core.isa.{CsrType, Gpr}
 import nzea_device.connect
-import nzea_device.clint.{Clint, ClintParameter}
 import nzea_device.dpi.{Debugger, DebuggerParameter}
-import nzea_device.finisher.{SifiveTestFinisher, SifiveTestFinisherParameter}
-import nzea_device.ram.{RamFabricSlave, RamFabricSlaveParameter}
-import nzea_device.uart.{Uart, UartParameter}
 import nzea_rtl.bus.*
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -24,20 +20,26 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 class NzeaTileLayers(parameter: NzeaTileParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-class NzeaTileIO(parameter: NzeaTileParameter) extends HWBundle(parameter):
-    val clock = Flipped(Clock())
-    val reset = Flipped(Reset())
+class NzeaTileIO(parameter: NzeaTileParameter) extends HWRecord(parameter):
+    val clock = Flipped("clock", Clock())
+    val reset = Flipped("reset", Reset())
+
+    /** One field per device that shows pins, named by the device; the flow decides which those are, so the tile's shape
+      * is exactly its device list's.
+      */
+    val boundary =
+        parameter.devices.flatMap: d =>
+            d.kind.pins(parameter.flow).map(pins => Aligned(d.name, pins))
 
 class NzeaTileProbe(parameter: NzeaTileParameter) extends DVBundle[NzeaTileParameter, NzeaTileLayers](parameter)
 
-/** The tile level: a [[nzea_core.Core]] behind the bus fabric, with every slave answered by a simulation bridge.
+/** The tile level: a [[nzea_core.Core]] behind the bus fabric, with the platform's devices on its slave side.
   *
-  * This is the minimal shape — the one the simulator loads. The tile assembles the fabric from the core's two masters
-  * and the platform's device list, wires the core's instruction and data masters into it (the read-only side through
-  * [[LiteBusROToRW]]), answers every slave port with a `bus_read`/`bus_write` bridge, and lets the commit trace leave
-  * through `commit_trace`. No device RTL is instantiated: the platform's devices live outside the FPGA and are the
-  * simulator's to answer, which is exactly what the bridges reach. The interfaces-as-ports shape (a synthesis top) is a
-  * later step, so a flow that does not bridge is refused rather than silently mis-generated.
+  * The tile assembles the fabric from the core's two masters and its device list, wires the core's instruction and data
+  * masters into it (the read-only side through [[LiteBusROToRW]]), builds one device per window, and lets the commit
+  * trace leave to the debugger. Its ports are its device list's: `clock`/`reset`, plus one field per device that shows
+  * pins. So the synthesis shape carries the finisher's `finished` and the CLINT's interrupt, while the bridge flow —
+  * where the simulator answers every window — exposes nothing beyond `clock`/`reset`.
   */
 @generator
 object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO, NzeaTileProbe]:
@@ -45,12 +47,13 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
 
     def architecture(parameter: NzeaTileParameter) =
         val io = summon[Interface[NzeaTileIO]]
-        given ClockScope = ClockScope.posedge(io.clock)
+        val clock = io.field[Clock]("clock")
+        given ClockScope = ClockScope.posedge(clock)
 
         val c = parameter.config
         val map = fabricMap(c, parameter.devices)
         // The boundary is active-high (`NzeaCore`'s comment holds the why); the tree below is active-low.
-        val resetN: Node[Reset] = (!io.reset.asBool).asReset
+        val resetN: Node[Reset] = (!io.field[Reset]("reset").asBool).asReset
 
         val core = Core.instantiate(
             CoreParameter(
@@ -63,11 +66,11 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
                 parameter.stats.child(Core.Source)
             )
         )
-        core.io.clock := io.clock
+        core.io.clock := clock
         core.io.resetN := resetN
 
         val xbar = LiteBusCrossbar.instantiate(LiteBusCrossbarParameter(map, c.width, c.width, outstanding = 4))
-        xbar.io.clock := io.clock
+        xbar.io.clock := clock
         xbar.io.resetN := resetN
 
         // The instruction master is read-only; the fabric is uniform, so it enters through the adapter. Its payload is
@@ -93,60 +96,41 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         dbus.io.narrow :<>= core.io.dbus
         xbar.io.in(map, "dbus") :<>= dbus.io.wide
 
-        ibusSlice.io.clock := io.clock
+        ibusSlice.io.clock := clock
         ibusSlice.io.resetN := resetN
 
         // The debugger is the commit trace's consumer; what the flow makes of it — the simulator in the bridge flow,
         // nothing yet in a synthesis flow — is the device's own affair, so the tile only wires it.
         val debugger =
             Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth, parameter.flow))
-        debugger.io.clock := io.clock
+        debugger.io.clock := clock
         debugger.io.resetN := resetN
         // The debugger's trace is the shared commit-trace sideband, so the two connect as one bundle.
         debugger.io.trace :<>= core.io.commit_msg
 
-        // Each window's device, by name: the device owns whether it answers with its hardware or — in the bridge flow —
-        // with the simulator, so the tile only connects the fabric to devices and never touches DPI itself.
-        for slave <- map.slaves do
-            val base = slave.range.base.toLong
-            val device: Instance[?, ?] = slave.name match
-                case "ram" =>
-                    RamFabricSlave.instantiate(
-                        RamFabricSlaveParameter(
-                            c.width,
-                            c.width,
-                            map.userWidth,
-                            map.idWidth,
-                            base,
-                            slave.range.size.toLong,
-                            parameter.flow
-                        )
-                    )
-                case "uart16550" =>
-                    Uart.instantiate(UartParameter(c.width, c.width, map.userWidth, map.idWidth, base, parameter.flow))
-                case "finisher" =>
-                    SifiveTestFinisher.instantiate(
-                        SifiveTestFinisherParameter(c.width, c.width, map.userWidth, map.idWidth, parameter.flow)
-                    )
-                case "clint" =>
-                    Clint.instantiate(
-                        ClintParameter(c.width, c.width, map.userWidth, map.idWidth, base, parameter.flow)
-                    )
-                case other =>
-                    throw new IllegalArgumentException(s"no device is ported for the '$other' window")
-            device.connect(io.clock, resetN, xbar.io.out(map, slave.name))
+        // Each window's device, by kind: the device owns whether it answers with its hardware or — in the bridge flow —
+        // with the simulator, so the tile only builds it, connects the fabric to it, and raises the pins it shows.
+        for d <- parameter.devices do
+            val device = d.kind.instantiate(
+                parameter.flow,
+                DeviceContext(c.width, c.width, map.userWidth, map.idWidth, d.range.base.toLong, d.range.size.toLong)
+            )
+            device.connect(clock, resetN, xbar.io.out(map, d.name))
+            d.kind.pins(parameter.flow) match
+                case Some(_) => io.field[Bundle](d.name) :<= device.io.field[Bundle]("boundary")
+                case None    => ()
 
     /** The tile's address map: the core's two masters over the platform's device list.
       *
       * The masters are the tile's own — they are the core's buses, so their payload widths follow the core, not a
       * caller — and the devices are what a platform supplies.
       */
-    def fabricMap(config: CoreConfig, devices: Seq[SlavePort]): AddressMap = AddressMap(
+    def fabricMap(config: CoreConfig, devices: Seq[DeviceSpec]): AddressMap = AddressMap(
         masters = Seq(
             MasterPort("ibus", IbusUser.userWidth(config.width), 1),
             MasterPort("dbus", DbusUser.userWidth, 1)
         ),
-        slaves = devices
+        slaves = devices.map(d => SlavePort(d.name, d.range, d.kind.slaveKind, d.outstanding))
     )
 
     /** The core's MMIO windows as the commit trace's spelling (`base:size`, hex): the map's windows with side effects.
