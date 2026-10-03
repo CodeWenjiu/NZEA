@@ -166,12 +166,17 @@ object SyncRam:
     /** Forget what the previous elaboration instantiated: one elaboration reports its own modules. */
     def reset(): Unit = instantiated.clear()
 
-    /** SystemVerilog body of one module. A pure function, so tests can pin the text. */
+    /** SystemVerilog body of one module. A pure function, so tests can pin the text.
+      *
+      * The body is marked `blackbox`: a memory is a macro, not gate-level logic, so synthesis keeps the instance as a
+      * cell instead of expanding it into flops (a large array swamps the mapper). Simulation ignores the attribute and
+      * runs the body, which is why the body still travels with the RTL.
+      */
     def verilog(moduleName: String, parameter: SyncRamParameter): String =
         val readData = parameter.readUnderWrite match
             case SyncRamReadUnderWrite.ReadFirst  => "mem[r_addr]"
             case SyncRamReadUnderWrite.WriteFirst => "(w_en && (w_addr == r_addr)) ? w_data : mem[r_addr]"
-        s"""module $moduleName(
+        s"""(* blackbox *) module $moduleName(
        |  input clock,
        |  input r_en,
        |  input [${parameter.addressWidth - 1}:0] r_addr,
