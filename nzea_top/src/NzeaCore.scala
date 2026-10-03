@@ -9,19 +9,20 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.{Core, CoreParameter}
-import nzea_core.back.mem.MemPath
-import nzea_core.front.ifu.Ifu
+import nzea_core.back.mem.{DbusUser, MemPath}
+import nzea_core.front.ifu.{IbusUser, Ifu}
+import nzea_core.isa.{CsrType, Gpr}
 import nzea_core.middle.CommitMsg
+import nzea_device.dpi.{
+    BusDpiDevice,
+    BusDpiDeviceParameter,
+    Debugger,
+    DebuggerParameter,
+    IbusDpiDevice,
+    IbusDpiDeviceParameter
+}
 import nzea_rtl.bus.{LiteBusRO, LiteBusRW}
 import nzea_rtl.stdlib.*
-import nzea_top.dpi.{
-    CommitDpiBridge,
-    CommitDpiBridgeParameter,
-    DbusDpiBridge,
-    DbusDpiBridgeParameter,
-    IbusDpiBridge,
-    IbusDpiBridgeParameter
-}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 class NzeaCoreLayers(parameter: NzeaCoreParameter) extends LayerInterface(parameter):
@@ -79,20 +80,33 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
         core.io.resetN := resetN
 
         if parameter.flow.bridges then
-            val ibus = IbusDpiBridge.instantiate(IbusDpiBridgeParameter(c.isa, c.defaultPc))
-            val dbus = DbusDpiBridge.instantiate(DbusDpiBridgeParameter(c.isa, c.defaultPc))
-            val commit = CommitDpiBridge.instantiate(CommitDpiBridgeParameter(c.isa, c.defaultPc))
+            val ibus = IbusDpiDevice.instantiate(
+                IbusDpiDeviceParameter(c.width, c.width, IbusUser.userWidth(c.width), Ifu.busIdWidth)
+            )
+            val dbus = BusDpiDevice.instantiate(
+                BusDpiDeviceParameter(c.width, c.width, DbusUser.userWidth, MemPath.busIdWidth)
+            )
+            val debugger = Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth))
 
             ibus.io.clock := io.clock
             ibus.io.resetN := resetN
             dbus.io.clock := io.clock
             dbus.io.resetN := resetN
-            commit.io.clock := io.clock
-            commit.io.resetN := resetN
+            debugger.io.clock := io.clock
+            debugger.io.resetN := resetN
 
             ibus.io.bus :<>= core.io.ibus
             dbus.io.bus :<>= core.io.dbus
-            commit.io.commit_msg :<= core.io.commit_msg
+            // The debugger's trace is its own interface (structurally the core's commit bus), so the two are wired field by
+            // field — the one place a level names the trace's shape, and the reason the device needs no core types.
+            debugger.io.trace.valid := core.io.commit_msg.valid
+            debugger.io.trace.bits.next_pc := core.io.commit_msg.bits.next_pc
+            debugger.io.trace.bits.rd_index := core.io.commit_msg.bits.rd_index
+            debugger.io.trace.bits.rd_value := core.io.commit_msg.bits.rd_value
+            debugger.io.trace.bits.is_mmio := core.io.commit_msg.bits.is_mmio
+            debugger.io.trace.bits.csr_valid := core.io.commit_msg.bits.csr_valid
+            debugger.io.trace.bits.csr_addr := core.io.commit_msg.bits.csr_addr
+            debugger.io.trace.bits.csr_data := core.io.commit_msg.bits.csr_data
         else
             io.ibus.get :<>= core.io.ibus
             io.dbus.get :<>= core.io.dbus

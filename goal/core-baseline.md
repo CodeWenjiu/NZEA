@@ -30,7 +30,6 @@ nzea_core/src/
     mem/                MemPath（LSU：请求保持 + 响应 tag 匹配）/ LsuOp（LsuOp 与 MemOp 窗口）/ DbusUser
   isa/                  跨段 ISA 级类型：Backend / CsrType / Gpr / Operands（操作数形态 Srcs）
   stats/                仿真计数器声明与 schema（CoreStats / Counters）
-  dpi/                  ibus / dbus / commit 的 DPI 桥
 ```
 
 - 编码机制在 `nzea_rtl/src/stdlib/Encoding.scala`：`Encoding` 是"字段编码"，`Encoding.OneHot` / `Encoding.Sequential`
@@ -52,7 +51,9 @@ nzea_core/src/
   比较（`is_branch & next_pc =/= pred_next_pc`）也在那个寄存器上做，不在后端的组合锥里。
 - 中端→前端：`redirect`（Valid，显式事件，同时是唯一让 `Ifu` 自增 epoch 的原因）+ `flush`（广播，给流水寄存器）。
 - 后端窗口：`IntOp` = `fuOp | fuType`，`MemOp` = `LsuOp`；二者低锚定、互相别名，共享 `op` 字段的宽度 = `OpWindow.Width`。
-- 中端→顶层 `commit`（`CommitMsg`）：架构状态变化的轨迹（`next_pc`/`rd_index`/`rd_value`/`is_mmio`/`csr_*`）。
+- 中端→顶层 `commit`（`CommitMsg`）：架构状态变化的轨迹（`next_pc`/`rd_index`/`rd_value`/`is_mmio`/`csr_valid`/
+  `csr_addr`/`csr_data`）。CSR 报的是**架构事实**（地址 + valid），不是内部的 `CsrType` 编码，所以消费者（debugger、
+  仿真器桥）不需要知道 core 的 ISA 类型；core 本身无 DPI。
 
 ## 基线行为
 

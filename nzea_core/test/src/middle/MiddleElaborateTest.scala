@@ -109,7 +109,8 @@ object MiddleElaborateTest extends TestSuite:
                     "commit_bits_rd_index" -> Gpr.indexWidth,
                     "commit_bits_rd_value" -> width,
                     "commit_bits_is_mmio" -> 1,
-                    "commit_bits_csr_type" -> CsrType.width,
+                    "commit_bits_csr_valid" -> 1,
+                    "commit_bits_csr_addr" -> CsrType.addrWidth,
                     "commit_bits_csr_data" -> width
                 )
             )

@@ -10,7 +10,7 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
 import nzea_core.back.{BypassValue, PathResult}
-import nzea_core.isa.{Gpr, Isa}
+import nzea_core.isa.{CsrType, Gpr, Isa}
 import nzea_core.middle.CommitMsg
 import nzea_core.middle.rf.{ArfWrite, CsrWrite}
 import nzea_core.stats.Regions
@@ -121,7 +121,11 @@ object Wbu extends Generator[WbuParameter, WbuLayers, WbuIO, WbuProbe]:
             io.commit.bits.rd_index := wbRd
             io.commit.bits.rd_value := wb.data
             io.commit.bits.is_mmio := wb.is_mmio
-            io.commit.bits.csr_type := wb.csr_type
+            // The trace reports the CSR as an architectural fact: resolve the internal type to `(addr, valid)` here,
+            // so no consumer of the commit bus has to know `CsrType`.
+            val (csrAddr, csrValid) = CsrType.toImmValid(wb.csr_type)
+            io.commit.bits.csr_valid := csrValid
+            io.commit.bits.csr_addr := csrAddr
             io.commit.bits.csr_data := wb.csr_data
 
             io.wb_valid := retire

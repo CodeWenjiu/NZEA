@@ -24,6 +24,9 @@ enum CsrType extends Encoding.Sequential:
 object CsrType:
     val width: Int = Encoding.width(values)
 
+    /** The CSR address width (RISC-V: 12 bits) — the trace's `csr_addr` field, distinct from the `csr_type` code. */
+    val addrWidth: Int = 12
+
     val MSTATUS_ADDR = 0x300
     val MTVEC_ADDR = 0x305
     val MSCRATCH_ADDR = 0x340

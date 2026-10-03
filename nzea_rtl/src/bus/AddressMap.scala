@@ -30,6 +30,21 @@ case class MasterPort(name: String, userWidth: Int, idWidth: Int)
 /** One slave on the fabric: its name, its window, what it is, and how many requests it may hold at once. */
 case class SlavePort(name: String, range: AddrRange, kind: SlaveKind, outstanding: Int = 1)
 
+object SlavePort:
+
+    given upickle.default.ReadWriter[SlavePort] = upickle.default.macroRW
+
+    /** The flag's spelling is one device's own JSON form — the map's serialization, so a device list round-trips. A
+      * `Seq[SlavePort]` flag is this repeated (`--devices <json> --devices <json>`).
+      */
+    given TokensReader.Simple[SlavePort] with
+        def shortName = "device-json"
+
+        def read(strs: Seq[String]): Either[String, SlavePort] =
+            strs.lastOption.toRight("a device requires a value").flatMap { text =>
+                scala.util.Try(upickle.default.read[SlavePort](text)).toEither.left.map(_.getMessage)
+            }
+
 /** A level's bus address map and port inventory.
   *
   * The single description the whole fabric derives from — the crossbar's port count, its address decode and the
@@ -105,4 +120,3 @@ given upickle.default.ReadWriter[SlaveKind] =
     upickle.default.readwriter[String].bimap(_.toString, name => SlaveKind.valueOf(name))
 
 given upickle.default.ReadWriter[MasterPort] = upickle.default.macroRW
-given upickle.default.ReadWriter[SlavePort] = upickle.default.macroRW

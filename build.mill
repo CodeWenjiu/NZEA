@@ -91,6 +91,24 @@ object nzea_rtl extends ZaoziModule {
   }
 }
 
+/** Reusable device IP (RAM, UART, CLINT, finisher): the fabric's slaves, whose only dependency is the shared bus and
+  * tools in [[nzea_rtl]].
+  */
+object nzea_device extends ZaoziModule {
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = utestDeps
+
+    // Reuse nzea_rtl's elaborate helper, and load libMLIR/libCIRCT through the FFM API.
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+
+    override def forkArgs = Task {
+      super.forkArgs() ++ zaoziJvmFlags
+    }
+  }
+}
+
 /** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). Its configuration is defined inside it
   * (the ISA under `isa`, the knobs and stage levels under `config`, the cross-stage numbers in `CoreParams`), so it
   * depends on the shared RTL only; the level top above (`nzea_top`) holds the parameter that names them together.
@@ -117,14 +135,33 @@ object nzea_core extends ZaoziModule {
   * own parameter, configuration tree and flag mirror (`NzeaCoreParameter`, `TopConfig`, `TopConfigArgs`).
   */
 object nzea_top extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device)
 
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = utestDeps
   }
 }
 
+/** The tile: a core behind the bus fabric, the level above the core. It owns its own parameter (the core knobs it passes
+  * down plus the platform's device list) and wires the core's masters into the fabric and each slave into a simulation
+  * bridge — the shape the simulator loads.
+  */
+object nzea_tile extends ZaoziModule {
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device)
+
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = utestDeps
+
+    // Reuse nzea_rtl's elaborate -> firtool helper, and load libMLIR/libCIRCT through the FFM API.
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+
+    override def forkArgs = Task {
+      super.forkArgs() ++ zaoziJvmFlags
+    }
+  }
+}
+
 /** Command line: the one place that turns flags into an elaboration (which module, which platform, where it goes). */
 object nzea_cli extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_top, nzea_core, nzea_rtl)
+  override def moduleDeps = super.moduleDeps ++ Seq(nzea_tile, nzea_top, nzea_core, nzea_rtl)
 }
