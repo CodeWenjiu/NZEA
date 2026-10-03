@@ -66,14 +66,15 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         core.io.clock := io.clock
         core.io.resetN := resetN
 
-        val xbar = LiteBusCrossbar.instantiate(LiteBusCrossbarParameter(map, c.width, c.width))
+        val xbar = LiteBusCrossbar.instantiate(LiteBusCrossbarParameter(map, c.width, c.width, outstanding = 4))
         xbar.io.clock := io.clock
         xbar.io.resetN := resetN
 
         // The instruction master is read-only; the fabric is uniform, so it enters through the adapter. Its payload is
         // the map's widest (the fetch carries the most), so no widening is needed on this side. The slice before the
-        // fabric holds the request off the fabric's arbitration: a fabric's grant couples a master's ready to every other
-        // master's valid, and the core fetches from a downstream ready, so without it the two masters close a loop.
+        // fabric holds the request off the fabric's arbitration: the fetch's request valid follows the pipeline's ready
+        // (the IDU, which a load's answer feeds through the bypass network), and a fabric's grant couples that to every
+        // other master's valid — so without the slice the two masters close a loop through the core.
         val ibus = LiteBusROToRW.instantiate(LiteBusROToRWParameter(c.width, c.width, map.userWidth, map.idWidth))
         val ibusSlice = LiteBusRegisterSlice.instantiate(
             LiteBusRegisterSliceParameter(c.width, c.width, map.userWidth, map.idWidth)
@@ -82,22 +83,18 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         ibusSlice.io.in :<>= ibus.io.rw
         xbar.io.in(map, "ibus") :<>= ibusSlice.io.out
 
-        // The data master speaks a narrow tag payload; it is widened to the fabric's width and held off the arbitration
-        // the same way.
+        // The data master speaks a narrow tag payload; it is widened to the fabric's width and enters the fabric
+        // directly. The LSU holds its request until the fabric takes it, so no register is needed to hold it off the
+        // arbitration — and a register here would be one more cycle on every load's round trip, which the in-order
+        // pipeline cannot hide.
         val dbus = LiteBusUserWiden.instantiate(
             LiteBusUserWidenParameter(c.width, c.width, DbusUser.userWidth, map.userWidth, map.idWidth)
         )
-        val dbusSlice = LiteBusRegisterSlice.instantiate(
-            LiteBusRegisterSliceParameter(c.width, c.width, map.userWidth, map.idWidth)
-        )
         dbus.io.narrow :<>= core.io.dbus
-        dbusSlice.io.in :<>= dbus.io.wide
-        xbar.io.in(map, "dbus") :<>= dbusSlice.io.out
+        xbar.io.in(map, "dbus") :<>= dbus.io.wide
 
         ibusSlice.io.clock := io.clock
         ibusSlice.io.resetN := resetN
-        dbusSlice.io.clock := io.clock
-        dbusSlice.io.resetN := resetN
 
         val debugger = Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth))
         debugger.io.clock := io.clock

@@ -22,7 +22,7 @@ object LiteBusCrossbarTest extends TestSuite:
         )
     )
 
-    private val parameter = LiteBusCrossbarParameter(map, addrWidth = 32, dataWidth = 32)
+    private val parameter = LiteBusCrossbarParameter(map, addrWidth = 32, dataWidth = 32, outstanding = 2)
     private val module = LiteBusCrossbar.moduleName(parameter)
 
     private lazy val sv = TestFlow.lower(
@@ -37,7 +37,9 @@ object LiteBusCrossbarTest extends TestSuite:
                     "--addrWidth",
                     "32",
                     "--dataWidth",
-                    "32"
+                    "32",
+                    "--outstanding",
+                    "2"
                 )
             ),
         cfg => LiteBusCrossbar.main(Array("design", cfg.toString))

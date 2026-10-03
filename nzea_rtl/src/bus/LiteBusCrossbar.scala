@@ -17,22 +17,27 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * `dataWidth` are common to both sides; the fabric's `userWidth` / `idWidth` are the map's widest, and a master that
   * speaks a narrower payload is adapted by its owner.
   *
-  * The baseline routes one outstanding request per master and per slave (the core's masters issue id 0). The per-slave
-  * `outstanding` in the map is where the owner table returns when a master needs more; it is checked to be 1 here so
-  * the limit is stated rather than silently applied.
+  * A master may hold `outstanding` requests in the fabric at once, so the fabric pipelines: a granted request is handed
+  * to the slave the same cycle, and the slave is fed again as soon as it is ready instead of waiting for the previous
+  * answer to come back. That is what keeps the fabric's bandwidth off its latency — one cycle per transaction once the
+  * pipe is full, not one per round trip. A slave is assumed to answer in order; its answers are routed to their owners
+  * through a per-slave [[ShiftFifo]] of owner ids.
   *
-  * Each master owns a one-entry response slot, and a slave's answer is deposited there the cycle it arrives — the slave
-  * frees immediately and never waits on the master to be ready. Without it a master that is slow to accept would stall
-  * the slave it used and, through it, every other master sharing that slave (head-of-line blocking). The slot is one
-  * deep because a master holds one request at a time; the multi-outstanding version turns it into a FIFO.
+  * Each master owns a [[ShiftFifo]] of answers, and a slave's answer is deposited there the cycle it arrives — the
+  * slave frees without waiting on the master to be ready, so a slow master cannot stall the slave it used and, through
+  * it, every other master sharing that slave (head-of-line blocking). An answer that finds the FIFO empty bypasses it
+  * and goes straight to the master, saving the deposit cycle. At most one answer lands per master per cycle: the miss
+  * (a decode miss is answered zero, immediately) outranks the slaves, and the lowest-index slave outranks the rest.
   */
-case class LiteBusCrossbarParameter(map: AddressMap, addrWidth: Int, dataWidth: Int) extends Parameter:
+case class LiteBusCrossbarParameter(map: AddressMap, addrWidth: Int, dataWidth: Int, outstanding: Int)
+    extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
     require(dataWidth >= 1, s"dataWidth must be >= 1, got $dataWidth")
+    require(outstanding >= 1, s"outstanding must be >= 1, got $outstanding")
 
     require(
-        map.slaves.forall(_.outstanding == 1),
-        s"the baseline crossbar holds one outstanding request per slave, got ${map.slaves.map(_.outstanding)}"
+        map.slaves.forall(_.outstanding <= outstanding),
+        s"a slave's outstanding must not exceed the crossbar's $outstanding, got ${map.slaves.map(_.outstanding)}"
     )
 
 given upickle.default.ReadWriter[LiteBusCrossbarParameter] = upickle.default.macroRW
@@ -61,6 +66,27 @@ object LiteBusCrossbar
     extends Generator[LiteBusCrossbarParameter, LiteBusCrossbarLayers, LiteBusCrossbarIO, LiteBusCrossbarProbe]:
     override def moduleName(parameter: LiteBusCrossbarParameter): String = "LiteBusCrossbar"
 
+    /** Which slave each master's address lands in — one row per master, one column per slave. */
+    private def decode(map: AddressMap, aw: Int, master: Seq[Ref[LiteBusRW]])(using
+        Arena,
+        Context,
+        Block,
+        TypeImpl,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Seq[Seq[Node[Bool]]] =
+        (0 until master.size).map { mm =>
+            val addr = master(mm).req.bits.addr
+            (0 until map.slaves.size).map { ss =>
+                val r = map.slaves(ss).range
+                val baseHit = addr >= r.base.U(aw)
+                val endHit = if r.endExclusive == (BigInt(1) << aw) then true.B else addr < r.endExclusive.U(aw)
+                baseHit & endHit
+            }
+        }
+
     def architecture(parameter: LiteBusCrossbarParameter) =
         val io = summon[Interface[LiteBusCrossbarIO]]
         given ClockScope = ClockScope.posedge(io.clock)
@@ -74,143 +100,116 @@ object LiteBusCrossbar
         val uw = map.userWidth
         val iw = map.idWidth
         val mIdxW = log2Ceil(m.max(2))
+        val depth = parameter.outstanding
+        val cntW = log2Ceil(depth + 1)
         val master = (0 until m).map(i => io.ins.ref(i))
         val slave = (0 until s).map(i => io.outs.ref(i))
 
-        // Per-slave state: a request latched from a master (`pending`), then accepted by the slave (`inflight`), each
-        // with the master it belongs to. One outstanding means one owner field, not a table.
-        val pending = Seq.tabulate(s)(_ => RegInit(false.B))
-        val inflight = Seq.tabulate(s)(_ => RegInit(false.B))
-        val owner = Seq.tabulate(s)(_ => RegInit(0.U(mIdxW)))
-        val latch = Seq.tabulate(s)(_ => Reg(new LiteReq(aw, dw, uw, iw)))
+        // Per slave: the queue of owners, oldest first — what routes an in-order answer back to the master that asked.
+        // Its count is the slave's outstanding, so no second counter is kept.
+        val owns = Seq.tabulate(s)(_ => new ShiftFifo(depth, Seq(mIdxW)))
         val rr = Seq.tabulate(s)(_ => RegInit(0.U(mIdxW)))
 
-        // Per-master response slot: one holding place for the answer to the master's outstanding request, whether it
-        // comes back from a slave or is a decode-miss answering zero. One deep: a master holds one request at a time.
-        val respValid = Seq.tabulate(m)(_ => RegInit(false.B))
-        val respData = Seq.tabulate(m)(_ => Reg(UInt(dw)))
-        val respUser = Seq.tabulate(m)(_ => Reg(UInt(uw)))
-        val respId = Seq.tabulate(m)(_ => Reg(UInt(iw)))
+        // Per master: how many requests it has in the fabric, and the FIFO of answers it has not taken yet.
+        val mOcc = Seq.tabulate(m)(_ => RegInit(0.U(cntW)))
+        val answers = Seq.tabulate(m)(_ => new ShiftFifo(depth, Seq(dw, uw, iw)))
 
-        // Decode: which slave each master's address lands in.
-        val hits: Seq[Seq[Node[Bool]]] = (0 until m).map { mm =>
-            val addr = master(mm).req.bits.addr
-            (0 until s).map { ss =>
-                val r = map.slaves(ss).range
-                val baseHit = addr >= r.base.U(aw)
-                val endHit = if r.endExclusive == (BigInt(1) << aw) then true.B else addr < r.endExclusive.U(aw)
-                baseHit & endHit
-            }
-        }
+        val hits = decode(map, aw, master)
         val hasHit = hits.map(_.reduce(_ | _))
 
-        // A master may hold one request in the fabric at a time.
-        val allBusy = (0 until s).map(ss => pending(ss) | inflight(ss))
-        def masterBusy(mm: Int): Node[Bool] =
-            respValid(mm) | (0 until s).map(ss => allBusy(ss) & (owner(ss) === mm.U(mIdxW))).reduce(_ | _)
+        // A full slave or a full master is not a candidate: it could not take the request or hold the answer.
+        def slaveFull(ss: Int): Node[Bool] = owns(ss).count === depth.U(cntW)
+        def masterFull(mm: Int): Node[Bool] = mOcc(mm) === depth.U(cntW)
+
+        // A miss is answered zero without a slave, so it never touches the owner queue.
+        val missAccept = (0 until m).map(mm => master(mm).req.valid & !hasHit(mm) & !masterFull(mm))
+
+        // Answers: a slave's answer goes to its owner's FIFO and pops the owner queue. One answer per master per cycle —
+        // a slave yields if a miss or an earlier slave already targets the same owner.
+        val owner = (0 until s).map(ss => owns(ss).head(0))
+        def ownerIs(mm: Int, ss: Int): Node[Bool] = owner(ss) === mm.U(mIdxW)
+        def missTo(ss: Int): Node[Bool] = (0 until m).map(mm => missAccept(mm) & ownerIs(mm, ss)).reduce(_ | _)
+        def ownerRoom(ss: Int): Node[Bool] =
+            (0 until m).map(mm => ownerIs(mm, ss) & (answers(mm).count =/= depth.U(cntW))).reduce(_ | _)
+        val slaveWants = (0 until s).map(ss => slave(ss).resp.valid & (owns(ss).count =/= 0.U(cntW)))
+        val resp = (0 until s).map { ss =>
+            val earlier = (0 until ss)
+                .map(ss2 => (owner(ss2) === owner(ss)) & slaveWants(ss2))
+                .reduceOption(_ | _)
+                .getOrElse(false.B)
+            slaveWants(ss) & !missTo(ss) & !earlier & ownerRoom(ss)
+        }
+
+        // Where each master's answer comes from this cycle: a decode miss, or the slave that owns one of its requests.
+        val fromSlave = (0 until m).map(mm => (0 until s).map(ss => resp(ss) & ownerIs(mm, ss)))
+        val incoming = (0 until m).map(mm => missAccept(mm) | fromSlave(mm).reduce(_ | _))
+        val bypassValid = (0 until m).map(mm => incoming(mm) & !answers(mm).nonEmpty)
+        // Bypass: an answer that finds an empty FIFO goes straight to the master instead of landing for a cycle first. The
+        // grant never reads it — only `mOcc`, a register — so this shortens the round trip without a combinational loop.
+        val bypass = (0 until m).map(mm => bypassValid(mm) & master(mm).resp.ready)
+        val push = (0 until m).map(mm => incoming(mm) & !bypass(mm))
+        val head = (0 until m).map(mm => answers(mm).nonEmpty)
+        val pop = (0 until m).map(mm => head(mm) & master(mm).resp.ready)
+        val take = (0 until m).map(mm => pop(mm) | bypass(mm))
 
         // Per-slave arbitration: candidates are masters that hit it and are free, granted round-robin from the pointer.
-        def lowestOneHot(cands: Seq[Referable[Bool]]): Seq[Referable[Bool]] =
-            var above: Referable[Bool] = false.B
-            cands.map { c =>
-                val grant = c & !above
-                above = above | c
-                grant
-            }
-
-        def oneHotBits(oh: Seq[Referable[Bool]]): Node[UInt] =
-            val bits: Seq[Node[Bits]] = oh.map(b => Node(b.asBits))
-            bits.reverse.reduceLeft((x, y) => x ## y).asUInt
-
-        def oneHotIndex(oh: Seq[Referable[Bool]]): Node[UInt] =
-            mux1H(oneHotBits(oh), (0 until oh.size).map(i => i.U(mIdxW)), mIdxW)
-
         val cand = (0 until s).map { ss =>
-            (0 until m).map(mm => master(mm).req.valid & hits(mm)(ss) & !allBusy(ss) & !masterBusy(mm))
+            (0 until m).map(mm => master(mm).req.valid & hits(mm)(ss) & !slaveFull(ss) & !masterFull(mm))
         }
-        val ge = (0 until s).map(ss => (0 until m).map(mm => cand(ss)(mm) & (mm.U(mIdxW) >= rr(ss))))
-        val lt = (0 until s).map(ss => (0 until m).map(mm => cand(ss)(mm) & (mm.U(mIdxW) < rr(ss))))
-        val anyAbove = ge.map(_.reduce(_ | _))
-        val grantOH =
-            (0 until s).map(ss => lowestOneHot(ge(ss)).zip(lowestOneHot(lt(ss))).map((a, b) => anyAbove(ss) ? (a, b)))
+        val grantOH = Arbiter.grants(cand, rr, mIdxW)
         val grantValid = grantOH.map(_.reduce(_ | _))
-        val grantIdx = grantOH.map(oneHotIndex)
+        val grantIdx = grantOH.map(oh => Arbiter.index(oh, mIdxW))
 
-        // Latch the granted request and hand it to the slave; the master's ready is its grant, so nothing downstream
-        // depends on the master holding its request. The pointer advances past whoever just won.
+        // The granted request goes straight to the slave, and the master holds until the slave takes it — so a slave that
+        // is ready every cycle is fed every cycle, and the pointer advances only on a real transfer.
+        val send = (0 until s).map(ss => grantValid(ss) & slave(ss).req.ready)
         for ss <- 0 until s do
-            val sel = oneHotBits(grantOH(ss))
-            val pick = mux1H(sel, (0 until m).map(mm => master(mm).req.bits.addr), aw)
-            val wdata = mux1H(sel, (0 until m).map(mm => master(mm).req.bits.wdata), dw)
-            val wen = mux1H(sel, (0 until m).map(mm => master(mm).req.bits.wen))
-            val wstrb = mux1H(sel, (0 until m).map(mm => master(mm).req.bits.wstrb), dw / 8)
-            val user = mux1H(sel, (0 until m).map(mm => master(mm).req.bits.user), uw)
-            val id = mux1H(sel, (0 until m).map(mm => master(mm).req.bits.id), iw)
-
-            when(grantValid(ss)) {
-                latch(ss).addr := pick
-                latch(ss).wdata := wdata
-                latch(ss).wen := wen
-                latch(ss).wstrb := wstrb
-                latch(ss).user := user
-                latch(ss).id := id
-                owner(ss) := grantIdx(ss)
-                pending(ss) := true.B
+            val sel = Arbiter.bits(grantOH(ss))
+            slave(ss).req.valid := grantValid(ss)
+            slave(ss).req.bits.addr := mux1H(sel, (0 until m).map(mm => master(mm).req.bits.addr), aw)
+            slave(ss).req.bits.wdata := mux1H(sel, (0 until m).map(mm => master(mm).req.bits.wdata), dw)
+            slave(ss).req.bits.wen := mux1H(sel, (0 until m).map(mm => master(mm).req.bits.wen))
+            slave(ss).req.bits.wstrb := mux1H(sel, (0 until m).map(mm => master(mm).req.bits.wstrb), dw / 8)
+            slave(ss).req.bits.user := mux1H(sel, (0 until m).map(mm => master(mm).req.bits.user), uw)
+            slave(ss).req.bits.id := mux1H(sel, (0 until m).map(mm => master(mm).req.bits.id), iw)
+            when(send(ss)) {
                 rr(ss) := (grantIdx(ss) === (m - 1).U(mIdxW)) ? (0.U(mIdxW), addWrap(grantIdx(ss), 1.U(mIdxW), mIdxW))
             }
+            owns(ss).pop(resp(ss))
+            owns(ss).push(send(ss), resp(ss), Seq(grantIdx(ss)))
+            owns(ss).updateCount(send(ss), resp(ss))
+            slave(ss).resp.ready := resp(ss)
 
-            slave(ss).req.valid := pending(ss)
-            slave(ss).req.bits.addr := latch(ss).addr
-            slave(ss).req.bits.wdata := latch(ss).wdata
-            slave(ss).req.bits.wen := latch(ss).wen
-            slave(ss).req.bits.wstrb := latch(ss).wstrb
-            slave(ss).req.bits.user := latch(ss).user
-            slave(ss).req.bits.id := latch(ss).id
-
-            when(pending(ss) & slave(ss).req.ready) {
-                pending(ss) := false.B
-                inflight(ss) := true.B
-            }
-
-        // A master's readiness: it was granted a slave, or its address missed and the miss is taken now.
-        val missAccept = (0 until m).map(mm => master(mm).req.valid & !hasHit(mm) & !masterBusy(mm))
+        // A master's readiness: the slave it was granted to took it, or its address missed and the miss is taken now.
+        val accepted = (0 until m).map { mm =>
+            (0 until s).map(ss => grantValid(ss) & (grantIdx(ss) === mm.U(mIdxW)) & slave(ss).req.ready).reduce(_ | _)
+        }
         for mm <- 0 until m do
-            val granted = (0 until s).map(ss => grantValid(ss) & (grantIdx(ss) === mm.U(mIdxW))).reduce(_ | _)
-            master(mm).req.ready := granted | missAccept(mm)
-            when(missAccept(mm)) {
-                respValid(mm) := true.B
-                respData(mm) := 0.U(dw)
-                respUser(mm) := master(mm).req.bits.user
-                respId(mm) := master(mm).req.bits.id
-            }
+            val granted = accepted(mm) | missAccept(mm)
+            master(mm).req.ready := granted
+            mOcc(mm) := subWrap(
+                addWrap(mOcc(mm), granted ? (1.U(cntW), 0.U(cntW)), cntW),
+                take(mm) ? (1.U(cntW), 0.U(cntW)),
+                cntW
+            )
 
-        // The master offers whatever its slot holds and clears the slot when taken.
+        // The answer FIFOs: deposit what was not bypassed, pop the head the master takes.
         for mm <- 0 until m do
-            master(mm).resp.valid := respValid(mm)
-            master(mm).resp.bits.data := respData(mm)
-            master(mm).resp.bits.user := respUser(mm)
-            master(mm).resp.bits.id := respId(mm)
-            when(respValid(mm) & master(mm).resp.ready) {
-                respValid(mm) := false.B
-            }
+            val pushData = muxCase(0.U(dw), (0 until s).map(ss => (fromSlave(mm)(ss), slave(ss).resp.bits.data)))
+            val pushUser = muxCase(
+                master(mm).req.bits.user,
+                (0 until s).map(ss => (fromSlave(mm)(ss), slave(ss).resp.bits.user))
+            )
+            val pushId =
+                muxCase(master(mm).req.bits.id, (0 until s).map(ss => (fromSlave(mm)(ss), slave(ss).resp.bits.id)))
+            answers(mm).pop(pop(mm))
+            answers(mm).push(push(mm), pop(mm), Seq(pushData, pushUser, pushId))
+            answers(mm).updateCount(push(mm), pop(mm))
 
-        // A slave's answer is absorbed into its owner's slot the cycle it arrives, so the slave frees without waiting on
-        // the master. The owner's slot is free by construction — a master with a full slot holds no request — so the
-        // readiness below is really just `inflight`; the check is kept so the invariant is stated, not assumed.
-        for ss <- 0 until s do
-            val slotFull = (0 until m).map(mm => (owner(ss) === mm.U(mIdxW)) & respValid(mm)).reduce(_ | _)
-            slave(ss).resp.ready := inflight(ss) & !slotFull
-            val take = inflight(ss) & slave(ss).resp.valid & !slotFull
-            when(take) {
-                inflight(ss) := false.B
-                for mm <- 0 until m do
-                    when(owner(ss) === mm.U(mIdxW)) {
-                        respValid(mm) := true.B
-                        respData(mm) := slave(ss).resp.bits.data
-                        respUser(mm) := slave(ss).resp.bits.user
-                        respId(mm) := slave(ss).resp.bits.id
-                    }
-            }
+            master(mm).resp.valid := head(mm) | bypassValid(mm)
+            master(mm).resp.bits.data := head(mm) ? (answers(mm).head(0), pushData)
+            master(mm).resp.bits.user := head(mm) ? (answers(mm).head(1), pushUser)
+            master(mm).resp.bits.id := head(mm) ? (answers(mm).head(2), pushId)
 
 /** Named ports of a crossbar: the address map turns a name into the position, so no caller counts an index. */
 extension (io: Interface[LiteBusCrossbarIO])
