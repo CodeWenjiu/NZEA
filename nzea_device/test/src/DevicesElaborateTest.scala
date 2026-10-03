@@ -60,7 +60,7 @@ object DevicesElaborateTest extends TestSuite:
     )
 
     private lazy val ram = TestFlow.lower(
-        RamFabricSlave.moduleName(RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, RtlFlow.Yosys)),
+        RamFabricSlave.moduleName(RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, RtlFlow.Yosys)),
         cfg =>
             RamFabricSlave.main(
                 Array(
@@ -76,6 +76,8 @@ object DevicesElaborateTest extends TestSuite:
                     "1",
                     "--base",
                     "2147483648",
+                    "--size",
+                    "131072",
                     "--flow",
                     "yosys"
                 )
@@ -85,7 +87,7 @@ object DevicesElaborateTest extends TestSuite:
 
     /** The RAM built for the bridge flow: its memory is the simulator's, so no hardware is built. */
     private lazy val ramBridged = TestFlow.lower(
-        RamFabricSlave.moduleName(RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, RtlFlow.Verilator)),
+        RamFabricSlave.moduleName(RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, RtlFlow.Verilator)),
         cfg =>
             RamFabricSlave.main(
                 Array(
@@ -101,6 +103,8 @@ object DevicesElaborateTest extends TestSuite:
                     "1",
                     "--base",
                     "2147483648",
+                    "--size",
+                    "131072",
                     "--flow",
                     "verilator"
                 )
@@ -173,7 +177,7 @@ object DevicesElaborateTest extends TestSuite:
     )
 
     private lazy val debugger = TestFlow.lower(
-        Debugger.moduleName(DebuggerParameter(32, 5, 12)),
+        Debugger.moduleName(DebuggerParameter(32, 5, 12, RtlFlow.Verilator)),
         cfg =>
             Debugger.main(
                 Array(
@@ -184,7 +188,9 @@ object DevicesElaborateTest extends TestSuite:
                     "--gprIndexWidth",
                     "5",
                     "--csrAddrWidth",
-                    "12"
+                    "12",
+                    "--flow",
+                    "verilator"
                 )
             ),
         cfg => Debugger.main(Array("design", cfg.toString))

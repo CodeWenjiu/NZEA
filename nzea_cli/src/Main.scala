@@ -6,7 +6,7 @@ import nzea_rtl.{Elaborate, RtlFlow}
 import nzea_rtl.bus.SlavePort
 import nzea_rtl.stat.{StatRegistry, StatSchema}
 import nzea_rtl.stdlib.SyncRam
-import nzea_tile.{NzeaTile, NzeaTileElaborate, NzeaTileParameter}
+import nzea_tile.*
 import nzea_top.{NzeaCore, NzeaCoreElaborate, NzeaCoreParameter, TopConfig, TopConfigArgs}
 
 /** The flag surface of a dump: one field per flag, the doc string its help text.
@@ -49,7 +49,7 @@ case class CliArgs(
         base.copy(
             config = CoreConfig(isa = config.core.isa, defaultPc = config.core.defaultPc),
             flow = flow,
-            devices = if devices.isEmpty then base.devices else devices
+            devices = if devices.isEmpty then flow.devices else devices
         )
 
 object CliArgs:

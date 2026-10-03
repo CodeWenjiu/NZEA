@@ -6,17 +6,14 @@ import nzea_rtl.Elaborate
   *
   * The two-step protocol (`config` writes the parameter out, `design` reads it back and elaborates, `firld` joins the
   * modules) is [[nzea_top.NzeaCoreElaborate]]'s; a level top spells its own parameter's flags and nothing else. The
-  * tile has one shape so far — the bridge flow the simulator loads — so any other flow is refused here rather than
-  * generated into RTL that would not work.
+  * tile's shape follows the flow: the bridge flow attaches every window to the simulator, a synthesis flow builds the
+  * devices that have hardware. What a flow can build is the platform's device list, the `devices` extension on
+  * [[nzea_rtl.RtlFlow]].
   */
 object NzeaTileElaborate:
 
     /** Serialize `parameter`, elaborate the tile, and hand the linked circuit to `lower`. */
     def withLinked[T](parameter: NzeaTileParameter)(lower: os.Path => T): T =
-        require(
-            parameter.flow.bridges,
-            "the tile is generated for the DPI bridge flow only (--flow verilator); the ports shape is not ported yet"
-        )
         val scratch = os.temp.dir(prefix = "nzea-dump")
         try
             Elaborate.withLinked(

@@ -88,7 +88,8 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
             val dbus = BusDpiDevice.instantiate(
                 BusDpiDeviceParameter(c.width, c.width, DbusUser.userWidth, MemPath.busIdWidth)
             )
-            val debugger = Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth))
+            val debugger =
+                Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth, parameter.flow))
 
             ibus.io.clock := io.clock
             ibus.io.resetN := resetN

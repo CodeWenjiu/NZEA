@@ -27,6 +27,7 @@ case class RamFabricSlaveParameter(
     userWidth: Int,
     idWidth: Int,
     base: Long,
+    size: Long,
     flow: RtlFlow
 ) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
@@ -34,6 +35,13 @@ case class RamFabricSlaveParameter(
     require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
     require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
     require(base >= 0, s"base must be >= 0, got $base")
+    require(size > 0, s"size must be > 0, got $size")
+
+    /** The memory's word count: the window's size in words, a power of two. */
+    val depth: Int =
+        val words = size / (dataWidth / 8)
+        require(words > 0 && (words & (words - 1)) == 0, s"size must be a power-of-two number of words, got $size")
+        words.toInt
 
 given upickle.default.ReadWriter[RamFabricSlaveParameter] = upickle.default.macroRW
 
@@ -67,11 +75,11 @@ object RamFabricSlave
             parameter.userWidth,
             parameter.idWidth
         ):
-            // The window is 128 KiB and byte-addressed, so the word index drops the word's byte offset from the byte
-            // index and the word count is the rest — four lanes leave 32 Ki words, eight leave 16 Ki.
+            // The window is byte-addressed; the word index drops the word's byte offset from the byte index, and the
+            // word count is the window's size in words.
             val wordBytes = parameter.dataWidth / 8
             val wordOffsetBits = log2Ceil(wordBytes)
-            val depth = 1 << (17 - wordOffsetBits)
+            val wordAddrBits = log2Ceil(parameter.depth)
 
             val busCycle = RegInit(0.U(2))
             val isRead = RegInit(false.B)
@@ -90,7 +98,7 @@ object RamFabricSlave
 
             val localByteAddr =
                 subWrap(io.bus.req.bits.addr, BigInt(parameter.base).U(parameter.addrWidth), parameter.addrWidth)
-            val wordAddr = Node(localByteAddr.asBits).bits(16, wordOffsetBits).asUInt
+            val wordAddr = Node(localByteAddr.asBits).bits(wordAddrBits + wordOffsetBits - 1, wordOffsetBits).asUInt
             val wenClean = reqFire & io.bus.req.bits.wen
             val renClean = reqFire & !io.bus.req.bits.wen
 
@@ -99,7 +107,7 @@ object RamFabricSlave
 
             val bytes = (0 until wordBytes).map { i =>
                 val mem = SyncRam.instantiate(
-                    SyncRamParameter(8, depth, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.WriteFirst)
+                    SyncRamParameter(8, parameter.depth, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.WriteFirst)
                 )
                 mem.io.clock := io.clock
                 mem.io.rEn := renClean

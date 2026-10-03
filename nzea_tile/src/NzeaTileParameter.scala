@@ -27,7 +27,7 @@ case class NzeaTileParameter(
 object NzeaTileParameter:
 
     /** The baseline: riscv32i at `0x80000000`, verilator-shaped RTL, execute-level forwarding, the 64-entry bimodal
-      * predictor, the counters under the design's root, and the yosys platform's devices.
+      * predictor, the counters under the design's root, and the bridge flow's devices.
       */
     def default: NzeaTileParameter = NzeaTileParameter(
         config = CoreConfig(Isa("riscv32i"), 0x80000000L),
@@ -35,17 +35,37 @@ object NzeaTileParameter:
         bypass = BypassLevel.Execute,
         bpu = BpuLevel.Bimodal(64, 4),
         stats = StatScope.root,
-        devices = yosysDevices
-    )
-
-    /** The yosys platform's devices: RAM at `0x8000_0000` and the three windows the platform answers outside memory, in
-      * the order the platform lays them out.
-      */
-    def yosysDevices: Seq[SlavePort] = Seq(
-        SlavePort("ram", AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)), SlaveKind.Memory),
-        SlavePort("uart16550", AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)), SlaveKind.Mmio),
-        SlavePort("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), SlaveKind.Mmio),
-        SlavePort("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), SlaveKind.Mmio)
+        devices = RtlFlow.Verilator.devices
     )
 
     given upickle.default.ReadWriter[NzeaTileParameter] = upickle.default.macroRW
+
+/** The platform's devices for a flow.
+  *
+  * A flow builds what it can, so the inventory is the flow's: the bridge flow gets every window — the simulator answers
+  * them all, so a device with no hardware yet is still a window (the UART) — while a synthesis flow gets what has
+  * hardware, in windows it can build. The two diverge on purpose; a caller that wants its own list says so.
+  *
+  * The inventory is the platform's, so it is stated here as an extension rather than on `RtlFlow`: the flow exposes
+  * shape predicates (`bridges`, `counters`), and the address map belongs to the layer that owns the map. This keeps the
+  * call site reading `flow.devices` without moving platform addresses into `nzea_rtl`.
+  */
+extension (flow: RtlFlow)
+
+    def devices: Seq[SlavePort] = flow match
+        case RtlFlow.Verilator =>
+            // The bridge flow: the whole platform, every window answered by the simulator.
+            Seq(
+                SlavePort("ram", AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)), SlaveKind.Memory),
+                SlavePort("uart16550", AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)), SlaveKind.Mmio),
+                SlavePort("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), SlaveKind.Mmio),
+                SlavePort("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), SlaveKind.Mmio)
+            )
+        case RtlFlow.Yosys =>
+            // The synthesis flow: what has hardware. The UART is left out (its hardware is not ported), and the RAM's
+            // window is its storage — a window worth building, not the 128 MiB the simulator models.
+            Seq(
+                SlavePort("ram", AddrRange(BigInt("80000000", 16), BigInt("00020000", 16)), SlaveKind.Memory),
+                SlavePort("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), SlaveKind.Mmio),
+                SlavePort("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), SlaveKind.Mmio)
+            )

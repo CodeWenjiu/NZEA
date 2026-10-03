@@ -96,7 +96,10 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         ibusSlice.io.clock := io.clock
         ibusSlice.io.resetN := resetN
 
-        val debugger = Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth))
+        // The debugger is the commit trace's consumer; what the flow makes of it — the simulator in the bridge flow,
+        // nothing yet in a synthesis flow — is the device's own affair, so the tile only wires it.
+        val debugger =
+            Debugger.instantiate(DebuggerParameter(c.width, Gpr.indexWidth, CsrType.addrWidth, parameter.flow))
         debugger.io.clock := io.clock
         debugger.io.resetN := resetN
         // The debugger's trace is the shared commit-trace sideband, so the two connect as one bundle.
@@ -109,7 +112,15 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
             val device: Instance[?, ?] = slave.name match
                 case "ram" =>
                     RamFabricSlave.instantiate(
-                        RamFabricSlaveParameter(c.width, c.width, map.userWidth, map.idWidth, base, parameter.flow)
+                        RamFabricSlaveParameter(
+                            c.width,
+                            c.width,
+                            map.userWidth,
+                            map.idWidth,
+                            base,
+                            slave.range.size.toLong,
+                            parameter.flow
+                        )
                     )
                 case "uart16550" =>
                     Uart.instantiate(UartParameter(c.width, c.width, map.userWidth, map.idWidth, base, parameter.flow))
