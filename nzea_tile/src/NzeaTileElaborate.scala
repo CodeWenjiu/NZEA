@@ -40,4 +40,5 @@ object NzeaTileElaborate:
             "--stats",
             parameter.stats.name
         ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
+            ++ parameter.icache.toSeq.flatMap(icache => Seq("--icache", icache.name))
             ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))

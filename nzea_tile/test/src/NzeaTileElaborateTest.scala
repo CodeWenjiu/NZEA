@@ -28,6 +28,7 @@ object NzeaTileElaborateTest extends TestSuite:
                     "--stats",
                     parameter.stats.name
                 ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
+                    ++ parameter.icache.toSeq.flatMap(icache => Seq("--icache", icache.name))
                     ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
             ),
         cfg => NzeaTile.main(Array("design", cfg.toString))
@@ -37,22 +38,24 @@ object NzeaTileElaborateTest extends TestSuite:
         test("the top's only ports are clock and reset — the bridges are the tile's interface here"):
             assert(TestFlow.ports(sv, "NzeaTile") == Map("clock" -> 1, "reset" -> 1))
 
-        test("the design is the core, the fabric adapters, one device per window and the debugger"):
-            val modules = Seq(
+        test("the design is the core, the cache, the fabric adapters, one device per window and the debugger"):
+            val exact = Seq(
                 "Core",
+                "ICache",
                 "LiteBusCrossbar",
-                "LiteBusROToRW",
                 "LiteBusUserWiden",
                 "LiteBusROSkidBuffer",
                 "LiteBusRegisterSlice",
-                "LiteBusTiming",
                 "RamFabricSlave",
                 "Uart",
                 "SifiveTestFinisher",
                 "Clint",
                 "Debugger"
             )
-            assert(modules.filterNot(module => sv.contains(s"module $module(")).isEmpty)
+            // Parameterized bodies carry their shape in the name, so the check is on the prefix.
+            val prefixed = Seq("LiteBusTiming_", "CacheStorage_", "CacheRefill_")
+            assert(exact.filterNot(module => sv.contains(s"module $module(")).isEmpty)
+            assert(prefixed.filterNot(prefix => sv.contains(s"module $prefix")).isEmpty)
 
         test("the commit trace leaves the design on the DPI boundary"):
             assert(sv.contains("commit_trace"))

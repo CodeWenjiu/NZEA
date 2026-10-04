@@ -1,7 +1,9 @@
 package nzea_tile
 
+import mainargs.TokensReader
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_cache.{CacheConfig, CacheStorageKind}
 import nzea_device.DeviceKind
 import nzea_core.config.{BpuConfig, BpuStrategy, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
@@ -22,20 +24,49 @@ case class NzeaTileParameter(
     flow: RtlFlow,
     bypass: BypassLevel,
     bpu: Option[BpuConfig],
+    icache: Option[CacheConfig],
     stats: StatScope,
     devices: Seq[DeviceSpec]
 ) extends Parameter
 
+/** The tile's `--icache` flag: which instruction cache to build, or none.
+  *
+  * The parameter's field is an `Option` — a knob that can be absent — and a flag cannot be absent and explicit at the
+  * same time: this type says both in one token, so the baseline geometry is a value like any other.
+  */
+enum ICacheChoice:
+    case Off
+    case Geometry(config: CacheConfig)
+
+object ICacheChoice:
+
+    given TokensReader.Simple[ICacheChoice] with
+        def shortName = "none|setsxwaysxlineBytes:replacement:storage"
+
+        def read(strs: Seq[String]): Either[String, ICacheChoice] =
+            strs.lastOption match
+                case None                                            => Left("icache requires a value")
+                case Some(token) if token.trim.toLowerCase == "none" => Right(Off)
+                case Some(token)                                     => CacheConfig.parse(token).map(Geometry.apply)
+
+    /** The parameter's own value as the flag spells it. */
+    def of(icache: Option[CacheConfig]): ICacheChoice = icache.fold(Off)(Geometry.apply)
+
+    def toOption(choice: ICacheChoice): Option[CacheConfig] = choice match
+        case Off         => None
+        case Geometry(c) => Some(c)
+
 object NzeaTileParameter:
 
     /** The baseline: riscv32i at `0x80000000`, verilator-shaped RTL, execute-level forwarding, the 64-entry bimodal
-      * predictor, the counters under the design's root, and the bridge flow's devices.
+      * predictor, the 4 KiB instruction cache, the counters under the design's root, and the bridge flow's devices.
       */
     def default: NzeaTileParameter = NzeaTileParameter(
         config = CoreConfig(Isa("riscv32i"), 0x80000000L),
         flow = RtlFlow.Verilator,
         bypass = BypassLevel.Execute,
         bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
+        icache = Some(CacheConfig.baseline(CacheStorageKind.Registers)),
         stats = StatScope.root,
         devices = RtlFlow.Verilator.devices
     )

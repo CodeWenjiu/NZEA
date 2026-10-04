@@ -6,10 +6,11 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_cache.{ICache, ICacheParameter}
 import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.DbusUser
 import nzea_core.config.CoreConfig
-import nzea_core.front.ifu.IbusUser
+import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{CsrType, Gpr}
 import nzea_device.DeviceContext
 import nzea_device.connect
@@ -74,13 +75,33 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         xbar.io.clock := clock
         xbar.io.resetN := resetN
 
-        // The instruction master is read-only; the fabric is uniform, so it enters through the adapter. Its payload is
-        // the map's widest (the fetch carries the most), so no widening is needed on this side. The request is already
-        // registered at the core's boundary (the core's own buffer), so what the fabric's arbitration sees is the
-        // core's state, not its live pipeline — no slice is needed here.
-        val ibus = LiteBusROToRW.instantiate(LiteBusROToRWParameter(c.width, c.width, map.userWidth, map.idWidth))
-        ibus.io.ro :<>= core.io.ibus
-        xbar.io.in(map, "ibus") :<>= ibus.io.rw
+        // The instruction cache, when the platform has one, sits between the fetch and the fabric; without one the
+        // read-only fetch enters the uniform read-write fabric through the adapter. The cache's memory side is the
+        // fabric's shape — its refill engine is a read-write master — so a cached fetch needs no adapter.
+        parameter.icache match
+            case Some(config) =>
+                val icache = ICache.instantiate(
+                    ICacheParameter(
+                        c.width,
+                        c.width,
+                        IbusUser.userWidth(c.width),
+                        Ifu.busIdWidth,
+                        config,
+                        map.slaves.filter(_.kind == SlaveKind.Memory).map(_.range),
+                        outstanding = 4,
+                        parameter.flow,
+                        parameter.stats.child("icache")
+                    )
+                )
+                icache.io.clock := clock
+                icache.io.resetN := resetN
+                icache.io.top :<>= core.io.ibus
+                xbar.io.in(map, "ibus") :<>= icache.io.bottom
+            case None =>
+                val ibus =
+                    LiteBusROToRW.instantiate(LiteBusROToRWParameter(c.width, c.width, map.userWidth, map.idWidth))
+                ibus.io.ro :<>= core.io.ibus
+                xbar.io.in(map, "ibus") :<>= ibus.io.rw
 
         // The data master speaks a narrow tag payload; it is widened to the fabric's width and enters the fabric
         // directly. The LSU holds its request until the fabric takes it, so no register is needed to hold it off the

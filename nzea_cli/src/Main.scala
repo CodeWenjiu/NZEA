@@ -25,6 +25,8 @@ case class CliArgs(
     config: TopConfigArgs,
     @arg(doc = "verilator-shaped RTL or synthesis-shaped RTL") flow: RtlFlow = CliArgs.coreBaseline.flow,
     @arg(doc = "the tile's devices (JSON, repeatable); defaults to the platform's") devices: Seq[DeviceSpec],
+    @arg(doc = "instruction cache: a geometry, or 'none'") icache: ICacheChoice =
+        ICacheChoice.of(CliArgs.tileBaseline.icache),
     @arg(doc = "output dir; defaults to build/<target>/<platform>/<isa>/<flow>") outDir: String = ""
 ):
 
@@ -48,6 +50,7 @@ case class CliArgs(
         base.copy(
             config = CoreConfig(isa = config.core.isa, defaultPc = config.core.defaultPc),
             flow = flow,
+            icache = ICacheChoice.toOption(icache),
             devices = if devices.isEmpty then flow.devices else devices
         )
 

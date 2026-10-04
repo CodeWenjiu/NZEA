@@ -1,37 +1,38 @@
 //| mill-jvm-version: system
-//| mill-jvm-version: system
+
 import mill._
 import mill.scalalib._
 
-val scalaV    = "3.8.4"
-val zaoziV    = "0.0.1-SNAPSHOT"
-val utestV    = "0.8.4"
+val scalaV = "3.8.4"
+val zaoziV = "0.0.1-SNAPSHOT"
+val utestV = "0.8.4"
 val mainargsV = "0.7.6"
-val upickleV  = "4.0.2"
+val upickleV = "4.0.2"
 
 /** JVM flags the DSL needs at run time: the FFM bindings load libMLIR/libCIRCT by name. */
 def zaoziJvmFlags: Seq[String] =
-  val libraryPaths = Seq("MLIR_INSTALL_PATH", "CIRCT_INSTALL_PATH")
-    .flatMap(sys.env.get)
-    .map(_ + "/lib")
-    .mkString(":")
-  Seq("--enable-native-access=ALL-UNNAMED", s"-Djava.library.path=$libraryPaths")
+    val libraryPaths = Seq("MLIR_INSTALL_PATH", "CIRCT_INSTALL_PATH")
+        .flatMap(sys.env.get)
+        .map(_ + "/lib")
+        .mkString(":")
+    Seq("--enable-native-access=ALL-UNNAMED", s"-Djava.library.path=$libraryPaths")
 
 def utestDeps: Seq[Dep] = Seq(mvn"com.lihaoyi::utest:$utestV")
 
 /** Common Scala 3 setup: JDK 25 output and SemanticDB for the language server. */
 trait Scala3Module extends ScalaModule {
-  override def scalaVersion = scalaV
+    override def scalaVersion = scalaV
 
-  override def scalacOptions = Task {
-    super.scalacOptions() ++ Seq(
-      "-java-output-version",
-      "25",
-      "-Xsemanticdb",
-      "-sourceroot",
-      mill.api.BuildCtx.workspaceRoot.toString
-    )
-  }
+    override def scalacOptions = Task {
+        super.scalacOptions() ++ Seq(
+            "-java-output-version",
+            "25",
+            "-Xsemanticdb",
+            "-sourceroot",
+            mill.api.BuildCtx.workspaceRoot.toString
+        )
+    }
+
 }
 
 /** Modules that build hardware with the zaozi DSL.
@@ -40,80 +41,107 @@ trait Scala3Module extends ScalaModule {
   * published `.zaozi` submodule (`just zaozi-publish`).
   */
 trait ZaoziModule extends Scala3Module {
-  override def scalacOptions = Task {
-    super.scalacOptions() ++ Seq("-experimental") ++ zaoziPluginArgs()
-  }
 
-  override def mvnDeps = Task {
-    super.mvnDeps() ++ Seq(
-      mvn"me.jiuyang::zaozi:$zaoziV",
-      mvn"me.jiuyang::stdlib:$zaoziV",
-      mvn"com.lihaoyi::mainargs:$mainargsV",
-      mvn"com.lihaoyi::upickle:$upickleV"
-    )
-  }
+    override def scalacOptions = Task {
+        super.scalacOptions() ++ Seq("-experimental") ++ zaoziPluginArgs()
+    }
 
-  override def forkArgs = Task {
-    super.forkArgs() ++ zaoziJvmFlags
-  }
+    override def mvnDeps = Task {
+        super.mvnDeps() ++ Seq(
+            mvn"me.jiuyang::zaozi:$zaoziV",
+            mvn"me.jiuyang::stdlib:$zaoziV",
+            mvn"com.lihaoyi::mainargs:$mainargsV",
+            mvn"com.lihaoyi::upickle:$upickleV"
+        )
+    }
 
-  /** The zaozi SemanticDB-enhancer compiler plugin.
-    *
-    * Bundle fields reached through `scala.Dynamic` (`io.<field>`) get no use-site occurrences from a plain scalac
-    * run, so go-to/references on them would land on the access itself (or on `selectDynamic`). The plugin's batch
-    * phase injects those occurrences into the emitted SemanticDB, and its interactive phase steers the language
-    * server's presentation compiler to the field declaration.
-    */
-  override def scalacPluginMvnDeps = Task {
-    super.scalacPluginMvnDeps() ++ Seq(mvn"me.jiuyang::zaozi-compiler-plugin:$zaoziV")
-  }
+    override def forkArgs = Task {
+        super.forkArgs() ++ zaoziJvmFlags
+    }
 
-  /** The plugin as scalac options: `scalacOptions` is what the language server reads over BSP, while Mill's own plugin
-    * classpath is invisible there. Taken from the resolved plugin classpath (filtered by artifact name, since it also
-    * carries scala-library) and hashed into the compile inputs through `scalacPluginClasspath`.
-    */
-  private def zaoziPluginArgs = Task {
-    scalacPluginClasspath()
-      .map(_.path)
-      .filter(_.last.startsWith("zaozi-compiler-plugin"))
-      .map(path => s"-Xplugin:$path")
-  }
+    /** The zaozi SemanticDB-enhancer compiler plugin.
+      *
+      * Bundle fields reached through `scala.Dynamic` (`io.<field>`) get no use-site occurrences from a plain scalac
+      * run, so go-to/references on them would land on the access itself (or on `selectDynamic`). The plugin's batch
+      * phase injects those occurrences into the emitted SemanticDB, and its interactive phase steers the language
+      * server's presentation compiler to the field declaration.
+      */
+    override def scalacPluginMvnDeps = Task {
+        super.scalacPluginMvnDeps() ++ Seq(mvn"me.jiuyang::zaozi-compiler-plugin:$zaoziV")
+    }
+
+    /** The plugin as scalac options: `scalacOptions` is what the language server reads over BSP, while Mill's own
+      * plugin classpath is invisible there. Taken from the resolved plugin classpath (filtered by artifact name, since
+      * it also carries scala-library) and hashed into the compile inputs through `scalacPluginClasspath`.
+      */
+    private def zaoziPluginArgs = Task {
+        scalacPluginClasspath()
+            .map(_.path)
+            .filter(_.last.startsWith("zaozi-compiler-plugin"))
+            .map(path => s"-Xplugin:$path")
+    }
+
 }
 
 object nzea_rtl extends ZaoziModule {
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = utestDeps
 
-    // Elaboration tests load libMLIR/libCIRCT through the FFM API.
-    override def forkArgs = Task {
-      super.forkArgs() ++ zaoziJvmFlags
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
+
+        // Elaboration tests load libMLIR/libCIRCT through the FFM API.
+        override def forkArgs = Task {
+            super.forkArgs() ++ zaoziJvmFlags
+        }
+
     }
-  }
+
 }
 
 /** Sideband shapes crossing the core<->device boundary: a producer and its consumer agree on these without either
   * depending on the other — the commit trace today, interrupts and debug traces later.
   */
 object nzea_sideband extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
 }
 
 /** Reusable device IP (RAM, UART, CLINT, finisher): the fabric's slaves, whose only dependency is the shared bus and
   * tools in [[nzea_rtl]].
   */
 object nzea_device extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_sideband)
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_sideband)
 
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = utestDeps
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
 
-    // Reuse nzea_rtl's elaborate helper, and load libMLIR/libCIRCT through the FFM API.
-    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+        // Reuse nzea_rtl's elaborate helper, and load libMLIR/libCIRCT through the FFM API.
+        override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
 
-    override def forkArgs = Task {
-      super.forkArgs() ++ zaoziJvmFlags
+        override def forkArgs = Task {
+            super.forkArgs() ++ zaoziJvmFlags
+        }
+
     }
-  }
+
+}
+
+/** Set-associative caches between a core's masters and the fabric: the storage, the replacement state and the refill
+  * machinery the I- and D-caches share. Depends on the shared bus and tools in [[nzea_rtl]] only.
+  */
+object nzea_cache extends ZaoziModule {
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
+
+        // Reuse nzea_rtl's elaborate helper, and load libMLIR/libCIRCT through the FFM API.
+        override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+
+        override def forkArgs = Task {
+            super.forkArgs() ++ zaoziJvmFlags
+        }
+
+    }
+
 }
 
 /** The core: front (IFU/IDU), middle (register reads, CSR) and back (FUs, LSU). Its configuration is defined inside it
@@ -121,18 +149,20 @@ object nzea_device extends ZaoziModule {
   * depends on the shared RTL only; the level top above (`nzea_top`) holds the parameter that names them together.
   */
 object nzea_core extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_sideband)
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl, nzea_sideband)
 
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = utestDeps
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
 
-    // Reuse nzea_rtl's elaborate -> firtool helper, and load libMLIR/libCIRCT through the FFM API.
-    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+        // Reuse nzea_rtl's elaborate -> firtool helper, and load libMLIR/libCIRCT through the FFM API.
+        override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
 
-    override def forkArgs = Task {
-      super.forkArgs() ++ zaoziJvmFlags
+        override def forkArgs = Task {
+            super.forkArgs() ++ zaoziJvmFlags
+        }
+
     }
-  }
+
 }
 
 /** Level tops: how a level is presented for a dump flow — its interfaces as ports, or wired to the simulation bridges.
@@ -142,33 +172,36 @@ object nzea_core extends ZaoziModule {
   * own parameter, configuration tree and flag mirror (`NzeaCoreParameter`, `TopConfig`, `TopConfigArgs`).
   */
 object nzea_top extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device, nzea_sideband)
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device, nzea_sideband)
 
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = utestDeps
-  }
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
+    }
+
 }
 
-/** The tile: a core behind the bus fabric, the level above the core. It owns its own parameter (the core knobs it passes
-  * down plus the platform's device list) and wires the core's masters into the fabric and each slave into a simulation
-  * bridge — the shape the simulator loads.
+/** The tile: a core behind the bus fabric, the level above the core. It owns its own parameter (the core knobs it
+  * passes down plus the platform's device list) and wires the core's masters into the fabric and each slave into a
+  * simulation bridge — the shape the simulator loads.
   */
 object nzea_tile extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_core, nzea_rtl, nzea_device, nzea_sideband)
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_cache, nzea_core, nzea_rtl, nzea_device, nzea_sideband)
 
-  object test extends ScalaTests with TestModule.Utest {
-    def mvnDeps = utestDeps
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
 
-    // Reuse nzea_rtl's elaborate -> firtool helper, and load libMLIR/libCIRCT through the FFM API.
-    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+        // Reuse nzea_rtl's elaborate -> firtool helper, and load libMLIR/libCIRCT through the FFM API.
+        override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
 
-    override def forkArgs = Task {
-      super.forkArgs() ++ zaoziJvmFlags
+        override def forkArgs = Task {
+            super.forkArgs() ++ zaoziJvmFlags
+        }
+
     }
-  }
+
 }
 
 /** Command line: the one place that turns flags into an elaboration (which module, which platform, where it goes). */
 object nzea_cli extends ZaoziModule {
-  override def moduleDeps = super.moduleDeps ++ Seq(nzea_tile, nzea_top, nzea_core, nzea_rtl)
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_tile, nzea_top, nzea_core, nzea_rtl)
 }

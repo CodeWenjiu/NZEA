@@ -64,7 +64,13 @@ class LiteBusTimingProbe(parameter: LiteBusTimingParameter)
 @generator
 object LiteBusTiming
     extends Generator[LiteBusTimingParameter, LiteBusTimingLayers, LiteBusTimingIO, LiteBusTimingProbe]:
-    override def moduleName(parameter: LiteBusTimingParameter): String = "LiteBusTiming"
+
+    /** The module is named by its whole interface — the timing is the body — so one name is one body: several devices
+      * with different timings must not share a module.
+      */
+    override def moduleName(parameter: LiteBusTimingParameter): String =
+        val t = parameter.timing
+        s"LiteBusTiming_latency${t.latency}_jitterEvery${t.jitterEvery}_jitterSpan${t.jitterSpan}"
 
     def architecture(parameter: LiteBusTimingParameter) =
         val io = summon[Interface[LiteBusTimingIO]]

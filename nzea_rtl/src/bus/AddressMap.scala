@@ -116,6 +116,26 @@ object AddressMap:
 
 given upickle.default.ReadWriter[AddrRange] = upickle.default.macroRW
 
+/** The flag's spelling: `base:size`, hex with a `0x` prefix or decimal — one window, the shape a cache's cacheable list
+  * is stated in. A `Seq[AddrRange]` flag is this repeated.
+  */
+given TokensReader.Simple[AddrRange] with
+    def shortName = "base:size"
+
+    def read(strs: Seq[String]): Either[String, AddrRange] =
+        strs.lastOption
+            .toRight("a range requires a value")
+            .flatMap: text =>
+                text.split(":", 2) match
+                    case Array(base, size) =>
+                        for b <- rangeNumber(base); s <- rangeNumber(size) yield AddrRange(b, s)
+                    case _ => Left(s"expected 'base:size', got '$text'")
+
+/** Hex with a `0x` prefix, decimal otherwise — the same decode the address-map spellings use. */
+private def rangeNumber(text: String): Either[String, BigInt] =
+    try Right(if text.startsWith("0x") || text.startsWith("0X") then BigInt(text.drop(2), 16) else BigInt(text))
+    catch case _: NumberFormatException => Left(s"'$text' is not a number (hex needs 0x)")
+
 given upickle.default.ReadWriter[SlaveKind] =
     upickle.default.readwriter[String].bimap(_.toString, name => SlaveKind.valueOf(name))
 

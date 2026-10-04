@@ -184,12 +184,12 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
 
         val isMmio = mmioAddress()
 
-        /** The one-shot result of the uop: a store completes the cycle the bus takes its request — its answer is only
-          * the acknowledgment, which drains — while a load completes on the tagged response that carries its data. The
-          * redirect is the branch's alone.
+        /** The one-shot result of the uop: every access completes on its own tagged response — a load's carries its
+          * data, a store's is the acknowledgment — so one request is in flight at a time and the tag cannot be claimed
+          * by an older answer. The redirect is the branch's alone.
           */
         def result(): Unit =
-            io.done := isStore ? (reqFire, hit)
+            io.done := hit
             io.result.data := (isStore ? (0.U(width), loadData.asUInt))
             io.result.next_pc := u.next_pc
             io.result.csr_type := CsrType.None.lit.U(CsrType.width)
