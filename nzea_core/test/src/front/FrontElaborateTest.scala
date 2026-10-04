@@ -1,6 +1,6 @@
 package nzea_core.front
 
-import nzea_core.config.{BpuLevel, CoreConfig}
+import nzea_core.config.CoreConfig
 import nzea_core.back.BpUpdate
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.{IbusUser, Ifu}
@@ -15,7 +15,7 @@ import utest.*
 object FrontElaborateTest extends TestSuite:
 
     private val width = 32
-    private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L, BpuLevel.Off))
+    private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L, None))
 
     private lazy val sv = TestFlow.lower(
         module,
@@ -27,9 +27,7 @@ object FrontElaborateTest extends TestSuite:
                     "--isa",
                     "riscv32i",
                     "--defaultPc",
-                    "2147483648",
-                    "--bpu",
-                    "off"
+                    "2147483648"
                 )
             ),
         cfg => Front.main(Array("design", cfg.toString))

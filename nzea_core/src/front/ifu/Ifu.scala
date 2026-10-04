@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import me.jiuyang.stdlib.Decoupled
-import nzea_core.config.{BpuLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.front.ifu.bp.{Bpu, BpuParameter}
 import nzea_core.isa.Isa
@@ -29,7 +29,7 @@ class FetchedInst(width: Int) extends Bundle:
     val fall_through = Aligned(UInt(width))
     val pht_count = Aligned(UInt(BpUpdate.phtCountBits))
 
-case class IfuParameter(isa: Isa, defaultPc: Long, bpu: BpuLevel) extends Parameter:
+case class IfuParameter(isa: Isa, defaultPc: Long, bpu: Option[BpuConfig]) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[IfuParameter] = upickle.default.macroRW
@@ -43,7 +43,7 @@ class IfuIO(parameter: IfuParameter) extends HWBundle(parameter):
     val ibus = Aligned(Ifu.busType(parameter.config))
     val redirect = Flipped(Valid(UInt(parameter.config.width)))
 
-    /** The resolved branches the predictor trains on; unused (and folded away) at `Off`. */
+    /** The resolved branches the predictor trains on; unused (and folded away) with no predictor. */
     val bp_update = Flipped(Valid(new BpUpdate(parameter.config.width)))
     val out = Aligned(Decoupled(new FetchedInst(parameter.config.width)))
 
@@ -89,8 +89,8 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
         // The prediction the request carries for the instruction at `pc`, and the pc register's next value, in one
         // structure at every level: the predictor is addressed with the pc's *next* value — the prediction for the next
         // fetch is computed while this one is on the bus — and answers it from its own registers a cycle later, which is
-        // exactly when that value is the pc. At `Off` the answer is the fall-through alone, so the level only decides what
-        // the answer is worth.
+        // exactly when that value is the pc. With no predictor the answer is the fall-through alone, so the config
+        // only decides what the answer is worth.
         val bpu = Bpu.instantiate(BpuParameter(parameter.config.isa, parameter.config.defaultPc, parameter.bpu))
 
         val nextPc: Referable[UInt] = muxCase(

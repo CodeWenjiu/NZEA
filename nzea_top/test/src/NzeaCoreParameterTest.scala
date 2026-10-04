@@ -1,6 +1,6 @@
 package nzea_top
 
-import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, BpuStrategy, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
@@ -17,7 +17,7 @@ object NzeaCoreParameterTest extends TestSuite:
             RtlFlow.Yosys,
             Seq("0x10000000:8"),
             BypassLevel.Commit,
-            BpuLevel.Bimodal(128, 8),
+            Some(BpuConfig(BpuStrategy.Bimodal(128, 8), None)),
             StatScope.root
         )
 
@@ -26,10 +26,12 @@ object NzeaCoreParameterTest extends TestSuite:
             assert(parameter.config.core.width == 32)
             assert(parameter.config.core.defaultPc == 0x80000000L)
             assert(parameter.bypass.commit)
-            assert(parameter.bpu.predicted)
-            assert(parameter.bpu.name == "bimodal:128:8")
+            assert(parameter.bpu.map(_.name) == Some("bimodal:128:8"))
             assert(!parameter.flow.bridges)
 
         test("it round-trips through the config file"):
             val text = upickle.default.write(parameter)
             assert(upickle.default.read[NzeaCoreParameter](text) == parameter)
+            // No predictor is the field's absence: it round-trips as one too.
+            val none = parameter.copy(bpu = None)
+            assert(upickle.default.read[NzeaCoreParameter](upickle.default.write(none)) == none)

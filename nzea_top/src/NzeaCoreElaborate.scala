@@ -29,7 +29,8 @@ object NzeaCoreElaborate:
         finally os.remove.all(scratch)
 
     /** The generator's `config` flags for `parameter`: the level's serialized form, one flag per knob. The config file
-      * this writes is what the `design` step reads back, so every knob has to be spelled here.
+      * this writes is what the `design` step reads back, so every knob has to be spelled here — and a knob whose value
+      * is absent (no predictor) is spelled by the flag's absence, not by a token.
       */
     private def configFlags(parameter: NzeaCoreParameter): Seq[String] =
         Seq(
@@ -41,8 +42,7 @@ object NzeaCoreElaborate:
             parameter.flow.segment,
             "--bypass",
             parameter.bypass.name,
-            "--bpu",
-            parameter.bpu.name,
             "--stats",
             parameter.stats.name
-        ) ++ parameter.mmioRanges.flatMap(window => Seq("--mmioRanges", window))
+        ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
+            ++ parameter.mmioRanges.flatMap(window => Seq("--mmioRanges", window))

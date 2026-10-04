@@ -3,7 +3,7 @@ package nzea_tile
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_device.DeviceKind
-import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, BpuStrategy, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.RtlFlow
 import nzea_rtl.bus.AddrRange
@@ -21,7 +21,7 @@ case class NzeaTileParameter(
     config: CoreConfig,
     flow: RtlFlow,
     bypass: BypassLevel,
-    bpu: BpuLevel,
+    bpu: Option[BpuConfig],
     stats: StatScope,
     devices: Seq[DeviceSpec]
 ) extends Parameter
@@ -35,7 +35,7 @@ object NzeaTileParameter:
         config = CoreConfig(Isa("riscv32i"), 0x80000000L),
         flow = RtlFlow.Verilator,
         bypass = BypassLevel.Execute,
-        bpu = BpuLevel.Bimodal(64, 4),
+        bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
         stats = StatScope.root,
         devices = RtlFlow.Verilator.devices
     )

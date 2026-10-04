@@ -6,11 +6,11 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.config.BpuLevel
+import nzea_core.config.BpuConfig
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class BruParameter(width: Int, bpu: BpuLevel) extends Parameter
+case class BruParameter(width: Int, bpu: Option[BpuConfig]) extends Parameter
 
 given upickle.default.ReadWriter[BruParameter] = upickle.default.macroRW
 
@@ -81,6 +81,6 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         // which folds the check into the offset not being 4 for the pc-relative forms — instruction-static, the sequential
         // baseline's own mispredict. JALR bases its target on a register, so it always counts as a redirect there.
         val mispredict: Referable[Bool] =
-            if parameter.bpu.predicted then io.nextPc =/= io.predNextPc
+            if parameter.bpu.isDefined then io.nextPc =/= io.predNextPc
             else taken & (isJalr | (io.offset =/= 4.U(width)))
         io.mispredict := mispredict

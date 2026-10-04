@@ -1,6 +1,6 @@
 package nzea_core.back
 
-import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, BpuStrategy, BypassLevel, CoreConfig}
 import nzea_core.back.mem.{DbusUser, MemPath, MmioWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
 import nzea_rtl.{RtlFlow, TestFlow}
@@ -24,7 +24,7 @@ object BackPathTest extends TestSuite:
                 RtlFlow.Yosys,
                 Seq(window),
                 BypassLevel.Commit,
-                BpuLevel.Bimodal(128, 8),
+                Some(BpuConfig(BpuStrategy.Bimodal(128, 8), None)),
                 StatScope.root
             )
         )

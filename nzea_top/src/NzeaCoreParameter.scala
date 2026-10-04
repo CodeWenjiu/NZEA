@@ -2,7 +2,7 @@ package nzea_top
 
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, BpuStrategy, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
@@ -21,7 +21,7 @@ case class NzeaCoreParameter(
     flow: RtlFlow,
     mmioRanges: Seq[String],
     bypass: BypassLevel,
-    bpu: BpuLevel,
+    bpu: Option[BpuConfig],
     stats: StatScope
 ) extends Parameter
 
@@ -43,7 +43,7 @@ object NzeaCoreParameter:
         // as MMIO in the commit trace. The tile owns this map once it lands.
         mmioRanges = Seq("0x10000000:8", "0x00100000:4", "0x02000000:0xc000"),
         bypass = BypassLevel.Execute,
-        bpu = BpuLevel.Bimodal(64, 4),
+        bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
         stats = StatScope.root
     )
 

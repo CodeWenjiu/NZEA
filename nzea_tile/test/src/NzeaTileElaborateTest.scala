@@ -25,11 +25,10 @@ object NzeaTileElaborateTest extends TestSuite:
                     parameter.flow.segment,
                     "--bypass",
                     parameter.bypass.name,
-                    "--bpu",
-                    parameter.bpu.name,
                     "--stats",
                     parameter.stats.name
-                ) ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
+                ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
+                    ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
             ),
         cfg => NzeaTile.main(Array("design", cfg.toString))
     )

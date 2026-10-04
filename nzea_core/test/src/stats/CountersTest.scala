@@ -1,6 +1,6 @@
 package nzea_core.stats
 
-import nzea_core.config.{BpuLevel, BypassLevel}
+import nzea_core.config.BypassLevel
 import nzea_core.{Core, CoreParameter}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.isa.Isa
@@ -61,8 +61,6 @@ object CountersTest extends TestSuite:
                         "2147483648",
                         "--flow",
                         "verilator",
-                        "--bpu",
-                        "off",
                         "--stats",
                         "int"
                     )
@@ -87,8 +85,6 @@ object CountersTest extends TestSuite:
                         "verilator",
                         "--bypass",
                         "commit",
-                        "--bpu",
-                        "off",
                         "--mmioRanges",
                         "0x10000000:0x1000",
                         "--stats",
@@ -112,7 +108,7 @@ object CountersTest extends TestSuite:
 
     private lazy val intPath =
         IntPath.moduleName(
-            IntPathParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, StatScope(Seq("int")), BpuLevel.Off)
+            IntPathParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Verilator, StatScope(Seq("int")), None)
         )
 
     private lazy val core =
@@ -123,7 +119,7 @@ object CountersTest extends TestSuite:
                 RtlFlow.Verilator,
                 Seq("0x10000000:0x1000"),
                 BypassLevel.Commit,
-                BpuLevel.Off,
+                None,
                 StatScope(Seq("core"))
             )
         )

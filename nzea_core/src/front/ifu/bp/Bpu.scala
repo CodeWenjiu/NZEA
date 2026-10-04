@@ -8,12 +8,12 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.config.{BpuLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, BpuStrategy, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.isa.Isa
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class BpuParameter(isa: Isa, defaultPc: Long, level: BpuLevel) extends Parameter:
+case class BpuParameter(isa: Isa, defaultPc: Long, bpu: Option[BpuConfig]) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[BpuParameter] = upickle.default.macroRW
@@ -45,7 +45,7 @@ class BpuIO(parameter: BpuParameter) extends HWBundle(parameter):
 
 class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers](parameter)
 
-/** The fetch-side predictor: the level's tables and the composition that turns them into a next pc.
+/** The fetch-side predictor: the configured strategy's tables and the composition that turns them into a next pc.
   *
   * The lookup is a read issued a cycle before its answer is used: the caller addresses the predictor with the pc
   * register's *next* value — the call that updates the register — and the answer is composed out of the tables' own
@@ -55,9 +55,9 @@ class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers
   * next value. A redirect needs both the direction's "taken" and a target to go to; everything else continues at the
   * fall-through.
   *
-  * The level decides what exists, inside this unit: a level that names no table builds none, and its answer is the
-  * fall-through alone — exactly the sequential fetch's prediction, registered the same way. The unit is therefore the
-  * one place the prediction is made, at every level; a caller states the level and nothing else about it.
+  * The config decides what exists, inside this unit: `None` builds no predictor, and its answer is the fall-through
+  * alone — exactly the sequential fetch's prediction, registered the same way. The unit is therefore the one place the
+  * prediction is made, at every configuration; a caller states the config and nothing else about it.
   *
   * The tables hold no reset: a memory entry has no reset value, and what a fresh table predicts is the empty table —
   * the storages start as the simulator initializes them (zero, in the two-state model this design is verified in), and
@@ -81,31 +81,38 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
         // was written from the read's own address, which is the pc register's next value — the pc register itself, one cycle
         // later.
 
-        parameter.level match
-            case BpuLevel.Bimodal(phtEntries, btbEntries) =>
-                val pht = Pht.instantiate(PhtParameter(parameter.isa, parameter.defaultPc, phtEntries))
-                val btb = Btb.instantiate(BtbParameter(parameter.isa, parameter.defaultPc, btbEntries))
+        parameter.bpu match
+            case Some(config) =>
+                // The return-address stack is in the config language but not in the hardware yet: reject it loudly
+                // rather than build a predictor that silently ignores it.
+                require(config.ras.isEmpty, "the return-address stack is not built yet; leave ras empty")
 
-                pht.io.clock := io.clock
-                pht.io.lookup_pc := io.lookup_pc
-                pht.io.update_valid := io.update.valid
-                pht.io.update_pc := io.update.bits.pc
-                pht.io.update_taken := io.update.bits.taken
-                pht.io.update_count := io.update.bits.pht_count
+                config.strategy match
+                    case BpuStrategy.Bimodal(phtEntries, btbEntries) =>
+                        val pht = Pht.instantiate(PhtParameter(parameter.isa, parameter.defaultPc, phtEntries))
+                        val btb = Btb.instantiate(BtbParameter(parameter.isa, parameter.defaultPc, btbEntries))
 
-                btb.io.clock := io.clock
-                btb.io.resetN := io.resetN
-                btb.io.lookup_pc := io.lookup_pc
-                btb.io.update_valid := io.update.valid & io.update.bits.taken
-                btb.io.update_pc := io.update.bits.pc
-                btb.io.update_target := io.update.bits.target
+                        pht.io.clock := io.clock
+                        pht.io.lookup_pc := io.lookup_pc
+                        pht.io.update_valid := io.update.valid
+                        pht.io.update_pc := io.update.bits.pc
+                        pht.io.update_taken := io.update.bits.taken
+                        pht.io.update_count := io.update.bits.pht_count
 
-                // The composition: a redirect needs both the direction's "taken" and a target to go to; everything else
-                // continues at the fall-through of the address being predicted.
-                io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, io.fall_through)
-                io.pred_count := pht.io.count
+                        btb.io.clock := io.clock
+                        btb.io.resetN := io.resetN
+                        btb.io.lookup_pc := io.lookup_pc
+                        btb.io.update_valid := io.update.valid & io.update.bits.taken
+                        btb.io.update_pc := io.update.bits.pc
+                        btb.io.update_target := io.update.bits.target
 
-            case BpuLevel.Off =>
-                // No table exists, so the only answer is the fall-through — the sequential fetch, made by the same structure.
+                        // The composition: a redirect needs both the direction's "taken" and a target to go to;
+                        // everything else continues at the fall-through of the address being predicted.
+                        io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, io.fall_through)
+                        io.pred_count := pht.io.count
+
+            case None =>
+                // No predictor exists, so the only answer is the fall-through — the sequential fetch, made by the same
+                // structure.
                 io.pred_next_pc := io.fall_through
                 io.pred_count := 0.U(BpUpdate.phtCountBits)

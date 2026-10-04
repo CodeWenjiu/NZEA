@@ -24,7 +24,9 @@ object NzeaTileElaborate:
             )(lower)
         finally os.remove.all(scratch)
 
-    /** The tile's `config` flags, one per knob the parameter carries. */
+    /** The tile's `config` flags, one per knob the parameter carries; a knob whose value is absent (no predictor) is
+      * spelled by the flag's absence.
+      */
     private def configFlags(parameter: NzeaTileParameter): Seq[String] =
         Seq(
             "--isa",
@@ -35,8 +37,7 @@ object NzeaTileElaborate:
             parameter.flow.segment,
             "--bypass",
             parameter.bypass.name,
-            "--bpu",
-            parameter.bpu.name,
             "--stats",
             parameter.stats.name
-        ) ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
+        ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
+            ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))

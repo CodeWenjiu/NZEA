@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, BypassLevel, CoreConfig}
 import nzea_core.stats.Regions
 import nzea_core.back.{Back, BackParameter}
 import nzea_core.back.mem.{DbusUser, MemPath}
@@ -34,7 +34,7 @@ case class CoreParameter(
     flow: RtlFlow,
     mmioRanges: Seq[String],
     bypass: BypassLevel,
-    bpu: BpuLevel,
+    bpu: Option[BpuConfig],
     stats: StatScope
 ) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)

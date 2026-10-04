@@ -8,7 +8,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.config.{BpuLevel, CoreConfig}
+import nzea_core.config.{BpuConfig, CoreConfig}
 import nzea_core.back.{BpUpdate, IssueSlot, IssueUop, PathResult}
 import nzea_core.isa.{CsrType, Isa}
 import nzea_core.stats.Regions
@@ -17,7 +17,7 @@ import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, stats: StatScope, bpu: BpuLevel)
+case class IntPathParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, stats: StatScope, bpu: Option[BpuConfig])
     extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
 
