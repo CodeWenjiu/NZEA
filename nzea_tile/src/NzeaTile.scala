@@ -75,17 +75,12 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         xbar.io.resetN := resetN
 
         // The instruction master is read-only; the fabric is uniform, so it enters through the adapter. Its payload is
-        // the map's widest (the fetch carries the most), so no widening is needed on this side. The slice before the
-        // fabric holds the request off the fabric's arbitration: the fetch's request valid follows the pipeline's ready
-        // (the IDU, which a load's answer feeds through the bypass network), and a fabric's grant couples that to every
-        // other master's valid — so without the slice the two masters close a loop through the core.
+        // the map's widest (the fetch carries the most), so no widening is needed on this side. The request is already
+        // registered at the core's boundary (the core's own buffer), so what the fabric's arbitration sees is the
+        // core's state, not its live pipeline — no slice is needed here.
         val ibus = LiteBusROToRW.instantiate(LiteBusROToRWParameter(c.width, c.width, map.userWidth, map.idWidth))
-        val ibusSlice = LiteBusRegisterSlice.instantiate(
-            LiteBusRegisterSliceParameter(c.width, c.width, map.userWidth, map.idWidth)
-        )
         ibus.io.ro :<>= core.io.ibus
-        ibusSlice.io.in :<>= ibus.io.rw
-        xbar.io.in(map, "ibus") :<>= ibusSlice.io.out
+        xbar.io.in(map, "ibus") :<>= ibus.io.rw
 
         // The data master speaks a narrow tag payload; it is widened to the fabric's width and enters the fabric
         // directly. The LSU holds its request until the fabric takes it, so no register is needed to hold it off the
@@ -96,9 +91,6 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         )
         dbus.io.narrow :<>= core.io.dbus
         xbar.io.in(map, "dbus") :<>= dbus.io.wide
-
-        ibusSlice.io.clock := clock
-        ibusSlice.io.resetN := resetN
 
         // The debugger is the commit trace's consumer; what the flow makes of it — the simulator in the bridge flow,
         // nothing yet in a synthesis flow — is the device's own affair, so the tile only wires it.

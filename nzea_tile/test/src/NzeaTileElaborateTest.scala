@@ -44,6 +44,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 "LiteBusCrossbar",
                 "LiteBusROToRW",
                 "LiteBusUserWiden",
+                "LiteBusROSkidBuffer",
                 "LiteBusRegisterSlice",
                 "RamFabricSlave",
                 "Uart",

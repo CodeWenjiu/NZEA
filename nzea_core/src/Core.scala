@@ -11,12 +11,18 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.stats.Regions
 import nzea_core.back.{Back, BackParameter}
-import nzea_core.back.mem.MemPath
+import nzea_core.back.mem.{DbusUser, MemPath}
 import nzea_core.front.{Front, FrontParameter}
-import nzea_core.front.ifu.Ifu
+import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{CsrType, Gpr, Isa}
 import nzea_core.middle.{Middle, MiddleParameter}
 import nzea_rtl.RtlFlow
+import nzea_rtl.bus.{
+    LiteBusROSkidBuffer,
+    LiteBusROSkidBufferParameter,
+    LiteBusRegisterSlice,
+    LiteBusRegisterSliceParameter
+}
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import nzea_sideband.CommitTrace
@@ -110,8 +116,31 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
         middle.io.complete :<= back.io.complete
         back.io.bypass :<>= middle.io.bypass
 
-        io.ibus :<>= front.io.ibus
-        io.dbus :<>= back.io.dbus
+        // The instruction request is registered at the core's own boundary, and the register is a skid: the fetch's
+        // request valid follows the decode's ready and its pc advances on the request's acceptance, so a host wiring
+        // the port live into a fabric would let the fabric's ready reach back into the pc/predictor path. The skid's
+        // ready is its own state (`!full`), so nothing downstream reaches the fetch, and the elastic handover keeps one
+        // request per cycle at steady state; the response channel stays combinational.
+        val ibusBuffer = LiteBusROSkidBuffer.instantiate(
+            LiteBusROSkidBufferParameter(c.width, c.width, IbusUser.userWidth(c.width), Ifu.busIdWidth)
+        )
+        ibusBuffer.io.clock := io.clock
+        ibusBuffer.io.resetN := io.resetN
+        ibusBuffer.io.in :<>= front.io.ibus
+        io.ibus :<>= ibusBuffer.io.out
+
+        // The data request is registered too: the LSU's address and data are live off the execute register, so a host
+        // wiring them straight into a fabric would extend that cone through the fabric's arbitration. The one-deep
+        // slice costs a cycle on every access's request path — the load latency the in-order pipeline pays — and in
+        // exchange the fabric sees state.
+        val dbusBuffer = LiteBusRegisterSlice.instantiate(
+            LiteBusRegisterSliceParameter(c.width, c.width, DbusUser.userWidth, MemPath.busIdWidth)
+        )
+        dbusBuffer.io.clock := io.clock
+        dbusBuffer.io.resetN := io.resetN
+        dbusBuffer.io.in :<>= back.io.dbus
+        io.dbus :<>= dbusBuffer.io.out
+
         io.commit_msg :<= middle.io.commit
 
         /** The instruction port's bandwidth and what it buys: the port accepts one request and offers one response per
