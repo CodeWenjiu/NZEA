@@ -26,9 +26,10 @@ if {[info exists env(SRAM_CLK_PERIOD_NS)]} {
   set SRAM_CLK_PERIOD_NS $::env(SRAM_CLK_PERIOD_NS)
 }
 
-# Only the tile has a memory clock; the core target's netlist has no such port, so the constraint is added only when
-# the port exists.
-if {![catch {get_ports $SRAM_CLK_PORT_NAME} sram_clk_ports] && [llength $sram_clk_ports] > 0} {
-  create_clock -name ram_clock -period $SRAM_CLK_PERIOD_NS $sram_clk_ports
+# Only the tile has a memory clock; the core target's netlist has no such port. iEDA's `get_ports` aborts the run
+# when the pattern matches nothing — it is not a catchable Tcl error — so the design's shape is stated by the flow
+# through this name: an empty name means "no memory clock", and the block is skipped without a query.
+if {$SRAM_CLK_PORT_NAME ne ""} {
+  create_clock -name ram_clock -period $SRAM_CLK_PERIOD_NS [get_ports $SRAM_CLK_PORT_NAME]
   set_clock_groups -asynchronous -group {core_clock} -group {ram_clock}
 }

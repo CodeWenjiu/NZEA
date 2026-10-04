@@ -20,6 +20,11 @@ def main [
   let netlist_v = $synth_dir | path join $"($design).netlist.v"
   let sdc_file  = $sta_dir | path join "default.sdc"
 
+  # The one thing about the design's shape the SDC cannot discover for itself: iEDA's `get_ports` aborts the run
+  # when a pattern matches nothing, so whether the design shows the memory clock is stated here. Empty means the
+  # core, whose netlist has no such port, and the SDC skips the block without querying.
+  $env.SRAM_CLK_PORT_NAME = (if $target == "tile" { "ram_clock" } else { "" })
+
   if not ($netlist_v | path exists) {
     print -e $"Error: ($netlist_v) not found. Run: just synth --isa ($isa)"
     exit 1
