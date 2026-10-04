@@ -92,10 +92,22 @@ case class SyncRamParameter(width: Int, depth: Int, ports: SyncRamPorts, readUnd
     extends Parameter:
     require(width >= 1, s"SyncRam width must be positive, got $width")
     require(depth >= 2, s"SyncRam depth must be at least 2, got $depth")
-    require(ports == SyncRamPorts.OneR1W, s"only SyncRamPorts.OneR1W is implemented so far, got ${ports.name}")
+
+    require(
+        ports == SyncRamPorts.OneR1W || ports == SyncRamPorts.OneRW,
+        s"only SyncRamPorts.OneR1W and OneRW are implemented so far, got ${ports.name}"
+    )
+
+    require(
+        ports != SyncRamPorts.OneRW || width % 8 == 0,
+        s"SyncRamPorts.OneRW is byte-strobed, so its width must be a whole number of bytes, got $width"
+    )
 
     /** Number of bits of every port's address. */
     def addressWidth: Int = BigInt(depth - 1).bitLength
+
+    /** The [[SyncRamPorts.OneRW]] port's write-enable granularity: one bit per byte of [[width]]. */
+    def maskWidth: Int = width / 8
 
 given upickle.default.ReadWriter[SyncRamParameter] = upickle.default.macroRW
 
@@ -109,27 +121,44 @@ class SyncRamLayers(parameter: SyncRamParameter) extends LayerInterface(paramete
   */
 class SyncRamIO(parameter: SyncRamParameter) extends HWRecord(parameter):
     Flipped("clock", Clock())
-    Flipped("r_en", Bool())
-    Flipped("r_addr", UInt(parameter.addressWidth))
-    Aligned("r_data", UInt(parameter.width))
-    Flipped("w_en", Bool())
-    Flipped("w_addr", UInt(parameter.addressWidth))
-    Flipped("w_data", UInt(parameter.width))
+
+    parameter.ports match
+        case SyncRamPorts.OneR1W =>
+            Flipped("r_en", Bool())
+            Flipped("r_addr", UInt(parameter.addressWidth))
+            Aligned("r_data", UInt(parameter.width))
+            Flipped("w_en", Bool())
+            Flipped("w_addr", UInt(parameter.addressWidth))
+            Flipped("w_data", UInt(parameter.width))
+        case SyncRamPorts.OneRW =>
+            Flipped("addr", UInt(parameter.addressWidth))
+            Flipped("w_en", Bool())
+            Flipped("w_data", UInt(parameter.width))
+            Flipped("w_mask", UInt(parameter.maskWidth))
+            Aligned("r_data", UInt(parameter.width))
+        case other =>
+            throw new IllegalArgumentException(s"SyncRam port shape ${other.name} has no interface")
 
 /** Typed access to the shape's fields; a `Record`'s fields are reached by name, and these are the names. */
 extension (io: Interface[SyncRamIO])
     /** The one clock every port samples on. */
     def clock: Ref[Clock] = io.field[Clock]("clock")
 
-    /** Read port: enable, address, and the data the address held a cycle ago. */
+    /** The two-port shape's read port: enable, address, and the data the address held a cycle ago. */
     def rEn: Ref[Bool] = io.field[Bool]("r_en")
     def rAddr: Ref[UInt] = io.field[UInt]("r_addr")
-    def rData: Ref[UInt] = io.field[UInt]("r_data")
 
-    /** Write port: enable, address, and the data to store. */
+    /** The write port both shapes have: enable, address, and the data to store. */
     def wEn: Ref[Bool] = io.field[Bool]("w_en")
     def wAddr: Ref[UInt] = io.field[UInt]("w_addr")
     def wData: Ref[UInt] = io.field[UInt]("w_data")
+
+    /** The single-port shape's shared address and its byte write strobe. */
+    def addr: Ref[UInt] = io.field[UInt]("addr")
+    def wMask: Ref[UInt] = io.field[UInt]("w_mask")
+
+    /** The read data both shapes have. */
+    def rData: Ref[UInt] = io.field[UInt]("r_data")
 
 class SyncRamProbe(parameter: SyncRamParameter) extends DVBundle[SyncRamParameter, SyncRamLayers](parameter)
 
@@ -151,7 +180,7 @@ object SyncRamModule
     /** No Verilog parameters: the interface is baked into the body, not passed to it. */
     def verilogParameter(parameter: SyncRamParameter): SyncRamVerilogParameter = SyncRamVerilogParameter()
 
-/** A synchronous memory: a black box whose body is emitted beside the dump, one `.sv` per instantiated parameter set.
+/** A synchronous memory: a body emitted beside the dump, one `.sv` per instantiated parameter set.
   *
   * The body is the classic synchronous-read pattern (`mem[addr]` sampled on the edge, no reset — a memory entry has no
   * reset value) that synthesis tools infer as a RAM macro, so a dump carries the body in its file list and every tool
@@ -168,32 +197,67 @@ object SyncRam:
 
     /** SystemVerilog body of one module. A pure function, so tests can pin the text.
       *
-      * The body is marked `blackbox`: a memory is a macro, not gate-level logic, so synthesis keeps the instance as a
-      * cell instead of expanding it into flops (a large array swamps the mapper). Simulation ignores the attribute and
-      * runs the body, which is why the body still travels with the RTL.
+      * The body is plain RTL, not a black box: synthesis has to see the memory array to map it onto a macro, so the
+      * synchronous-read pattern is what the memory pass reads. The array is small enough that a mapper only expands it
+      * when no macro fits (the tables), and the fabric RAM is mapped by `memory_libmap` before `synth`'s fine stage
+      * can.
       */
     def verilog(moduleName: String, parameter: SyncRamParameter): String =
+        parameter.ports match
+            case SyncRamPorts.OneR1W => oneR1WVerilog(moduleName, parameter)
+            case SyncRamPorts.OneRW  => oneRWVerilog(moduleName, parameter)
+            case other => throw new IllegalArgumentException(s"SyncRam port shape ${other.name} has no body")
+
+    private def oneR1WVerilog(moduleName: String, parameter: SyncRamParameter): String =
         val readData = parameter.readUnderWrite match
             case SyncRamReadUnderWrite.ReadFirst  => "mem[r_addr]"
             case SyncRamReadUnderWrite.WriteFirst => "(w_en && (w_addr == r_addr)) ? w_data : mem[r_addr]"
-        s"""(* blackbox *) module $moduleName(
-       |  input clock,
-       |  input r_en,
-       |  input [${parameter.addressWidth - 1}:0] r_addr,
-       |  output [${parameter.width - 1}:0] r_data,
-       |  input w_en,
-       |  input [${parameter.addressWidth - 1}:0] w_addr,
-       |  input [${parameter.width - 1}:0] w_data
-       |);
-       |  reg [${parameter.width - 1}:0] mem [0:${parameter.depth - 1}];
-       |  reg [${parameter.width - 1}:0] r_data_reg;
-       |  assign r_data = r_data_reg;
-       |  always @(posedge clock) begin
-       |    if (w_en) mem[w_addr] <= w_data;
-       |    if (r_en) r_data_reg <= $readData;
-       |  end
-       |endmodule
-       |""".stripMargin
+        s"""module $moduleName(
+           |  input clock,
+           |  input r_en,
+           |  input [${parameter.addressWidth - 1}:0] r_addr,
+           |  output [${parameter.width - 1}:0] r_data,
+           |  input w_en,
+           |  input [${parameter.addressWidth - 1}:0] w_addr,
+           |  input [${parameter.width - 1}:0] w_data
+           |);
+           |  reg [${parameter.width - 1}:0] mem [0:${parameter.depth - 1}];
+           |  reg [${parameter.width - 1}:0] r_data_reg;
+           |  assign r_data = r_data_reg;
+           |  always @(posedge clock) begin
+           |    if (w_en) mem[w_addr] <= w_data;
+           |    if (r_en) r_data_reg <= $readData;
+           |  end
+           |endmodule
+           |""".stripMargin
+
+    private def oneRWVerilog(moduleName: String, parameter: SyncRamParameter): String =
+        val readData = parameter.readUnderWrite match
+            case SyncRamReadUnderWrite.ReadFirst  => "mem[addr]"
+            case SyncRamReadUnderWrite.WriteFirst => "w_en ? w_data : mem[addr]"
+        val byteWrites = (0 until parameter.maskWidth).map: i =>
+            val hi = 8 * i + 7
+            val lo = 8 * i
+            s"    if (w_mask[$i]) mem[addr][$hi:$lo] <= w_data[$hi:$lo];"
+        s"""module $moduleName(
+           |  input clock,
+           |  input [${parameter.addressWidth - 1}:0] addr,
+           |  input w_en,
+           |  input [${parameter.width - 1}:0] w_data,
+           |  input [${parameter.maskWidth - 1}:0] w_mask,
+           |  output [${parameter.width - 1}:0] r_data
+           |);
+           |  reg [${parameter.width - 1}:0] mem [0:${parameter.depth - 1}];
+           |  reg [${parameter.width - 1}:0] r_data_reg;
+           |  assign r_data = r_data_reg;
+           |  always @(posedge clock) begin
+           |    if (w_en) begin
+           |${byteWrites.mkString("\n")}
+           |    end
+           |    r_data_reg <= $readData;
+           |  end
+           |endmodule
+           |""".stripMargin
 
     /** Write one file per instantiated module into `dir` and add them to its file list. Returns the file names written.
       */

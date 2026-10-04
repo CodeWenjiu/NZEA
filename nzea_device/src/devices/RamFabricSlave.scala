@@ -1,4 +1,4 @@
-package nzea_device.ram
+package nzea_device.devices
 
 import java.lang.foreign.Arena
 
@@ -15,11 +15,12 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The fabric's RAM slave: a 128 KiB memory behind the bus, `dataWidth / 8` bytes per word.
   *
-  * One byte-wide synchronous memory per byte lane carries the byte strobe, and a write-first read policy lets a read on
-  * the write's own edge see the incoming data — the same shape a memory macro is inferred from. The width is the bus's
-  * (a 32-bit core gets four lanes, a 64-bit one eight), so the word count shrinks as the word grows and the window
-  * stays 128 KiB. A bus access takes a fixed four-cycle residency. In the bridge flow the memory is the simulator's, so
-  * [[HasDpiBus.answerBus]] answers the bus instead and the hardware below is not built.
+  * One word-wide synchronous memory carries the byte strobe as its write mask, and its port shape is the parameter's
+  * ([[SyncRamPorts]]) — a target whose macro is single-port builds one, and a target with a wider macro says so without
+  * touching this device. The width is the bus's (a 32-bit core gets a 32-bit memory, a 64-bit one 64), so the word
+  * count shrinks as the word grows and the window stays 128 KiB. A bus access takes a fixed four-cycle residency. In
+  * the bridge flow the memory is the simulator's, so [[HasDpiBus.answerBus]] answers the bus instead and the hardware
+  * below is not built.
   */
 case class RamFabricSlaveParameter(
     addrWidth: Int,
@@ -28,6 +29,7 @@ case class RamFabricSlaveParameter(
     idWidth: Int,
     base: Long,
     size: Long,
+    ports: SyncRamPorts,
     flow: RtlFlow
 ) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
@@ -100,27 +102,21 @@ object RamFabricSlave
                 subWrap(io.bus.req.bits.addr, BigInt(parameter.base).U(parameter.addrWidth), parameter.addrWidth)
             val wordAddr = Node(localByteAddr.asBits).bits(wordAddrBits + wordOffsetBits - 1, wordOffsetBits).asUInt
             val wenClean = reqFire & io.bus.req.bits.wen
-            val renClean = reqFire & !io.bus.req.bits.wen
 
-            val wrAddr = wordAddr
-            val wrEn = wenClean
-
-            val bytes = (0 until wordBytes).map { i =>
-                val mem = SyncRam.instantiate(
-                    SyncRamParameter(8, parameter.depth, SyncRamPorts.OneR1W, SyncRamReadUnderWrite.WriteFirst)
+            val mem = SyncRam.instantiate(
+                SyncRamParameter(
+                    parameter.dataWidth,
+                    parameter.depth,
+                    parameter.ports,
+                    SyncRamReadUnderWrite.ReadFirst
                 )
-                mem.io.clock := io.clock
-                mem.io.rEn := renClean
-                mem.io.rAddr := wordAddr
-                mem.io.wAddr := wrAddr
-                val reqByte = Node(io.bus.req.bits.wdata.asBits).bits(8 * i + 7, 8 * i).asUInt
-                mem.io.wData := reqByte
-                mem.io.wEn := wrEn & Node(io.bus.req.bits.wstrb.asBits).bit(i)
-                mem.io.rData
-            }
-
-            // Little-endian: lane 0 is the least significant byte, so the concatenation runs high lane to low.
-            readData := bytes.reverse.map(b => Node(b.asBits)).reduceLeft((hi, lo) => hi ## lo).asUInt
+            )
+            mem.io.clock := io.clock
+            mem.io.addr := wordAddr
+            mem.io.wEn := wenClean
+            mem.io.wData := io.bus.req.bits.wdata
+            mem.io.wMask := io.bus.req.bits.wstrb
+            readData := mem.io.rData
 
             when(reqFire) {
                 respUser := io.bus.req.bits.user

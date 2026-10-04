@@ -11,8 +11,9 @@ import nzea_core.back.mem.DbusUser
 import nzea_core.config.CoreConfig
 import nzea_core.front.ifu.IbusUser
 import nzea_core.isa.{CsrType, Gpr}
+import nzea_device.DeviceContext
 import nzea_device.connect
-import nzea_device.dpi.{Debugger, DebuggerParameter}
+import nzea_device.devices.{Debugger, DebuggerParameter}
 import nzea_rtl.bus.*
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}

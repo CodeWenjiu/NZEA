@@ -19,6 +19,9 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *
   * `answerBus` is the device's entry point: in the bridge flow it drives `bus` from the simulator, otherwise it runs
   * `hardware`. A device whose hardware-only outputs would be undriven in the bridge flow ties them off itself.
+  *
+  * A device with more than one hardware implementation writes its own `flow match` and calls [[bridgeAnswer]] for the
+  * bridge case: the rule stays here, once, and the device's match is the extension point.
   */
 trait HasDpiBus:
 
@@ -41,11 +44,15 @@ trait HasDpiBus:
         sourcecode.Name.Machine,
         InstanceContext
     ): Unit =
-        if flow.bridges then dpiForward(bus, resetN, dataWidth, userWidth, idWidth)
+        if flow.bridges then bridgeAnswer(bus, resetN, dataWidth, userWidth, idWidth)
         else hardware
 
-    /** The simulator's answer: one outstanding request, an elastic one-slot response register. */
-    private def dpiForward(
+    /** The simulator's answer: one outstanding request, an elastic one-slot response register.
+      *
+      * Uniform across devices, so [[answerBus]] is the entry a single-implementation device uses. A device that matches
+      * on the flow itself calls this for the bridge case.
+      */
+    def bridgeAnswer(
         bus: Referable[LiteBusRW],
         resetN: Referable[Bool],
         dataWidth: Int,

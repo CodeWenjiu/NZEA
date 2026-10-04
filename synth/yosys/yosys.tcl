@@ -6,6 +6,17 @@ set SYNTH_DIR  [expr {[info exists env(SYNTH_DIR)] ? $env(SYNTH_DIR) : "build/co
 set DESIGN     [expr {[info exists env(DESIGN)] ? $env(DESIGN) : "NzeaCore"}]
 set NETLIST_V  "$SYNTH_DIR/${DESIGN}.netlist.v"
 set PDK        "icsprout55"
+set SCRIPT_DIR [file dirname [info script]]
+
+# SRAM macro mapping: the design's synchronous RAMs are mapped onto the PDK macro by `memory_libmap` + a techmap
+# template (both in the repo), before `synth`'s fine stage can expand a large array into flops. The macro's Verilog
+# stub comes from SRAM_PATH and gives the netlist a module to instantiate.
+set SRAM_MEMLIB "$SCRIPT_DIR/../sram/ics55_sram.txt"
+set SRAM_MAP    "$SCRIPT_DIR/../sram/ics55_sram_map.v"
+set SRAM_STUB   ""
+if {[info exists env(SRAM_PATH)] && [file exists $env(SRAM_PATH)]} {
+  set SRAM_STUB "$env(SRAM_PATH)/verilog/ics55_ecos_sram_8192x32_m16_stub.v"
+}
 
 # PDK: when PDK_PATH set, load liberty for tech mapping
 set USE_PDK 0
@@ -56,6 +67,18 @@ hierarchy -check -top $DESIGN
 # Top's ibus_resp_*, dbus_resp_* are primary inputs; logic preserved
 
 synth -top $DESIGN -run :fine
+# Map the collected memories onto macros now: the coarse stage collected them (`memory -nomap`) but has not expanded
+# them to flops yet. A memory that fits the macro becomes a macro cell; one that does not (the predictor tables) is
+# left for the fine stage to expand.
+if {[file exists $SRAM_MEMLIB] && [file exists $SRAM_MAP]} {
+  memory_share
+  memory_collect
+  memory_libmap -lib $SRAM_MEMLIB
+  if {$SRAM_STUB ne "" && [file exists $SRAM_STUB]} {
+    read_verilog -lib $SRAM_STUB
+  }
+  techmap -map $SRAM_MAP
+}
 share
 onehot
 muxpack

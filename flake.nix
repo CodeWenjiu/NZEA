@@ -39,6 +39,20 @@
           rev = "ysyx";
           sha256 = "sha256-G7rYBZQ9l6kFy+u3Q1lvPbps/VJ6Oogv2+gJjRW+KYI=";
         };
+
+        # icsprout55 SRAM macro: a single-port 1RW 8192x32 (32 KiB) instance from the
+        # ECOS Factory compiler, shipped as a release asset of the PDK's sibling repo.
+        # Unpacked so the synthesis flow reads its Verilog (behavioural model and
+        # stub) and Liberty directly.
+        ics55Sram = pkgs.runCommand "ics55_ecos_sram_8192x32_m16" { } ''
+          mkdir -p $out
+          tar xzf ${
+            pkgs.fetchurl {
+              url = "https://github.com/openecos-projects/ics55_ecos_sram/releases/download/sram-v1-c7d505223a5a2d71fd3a6dc86704bb8fff55e82bfb8fa63abcaa3d2d48b14830/ics55_ecos_sram_8192x32_m16.tar.gz";
+              hash = "sha256-pDdox8pDR3s07WZXHq6/VwxDbdOKEzciE7AvVoryf1k=";
+            }
+          } -C $out --strip-components=1
+        '';
       in
       {
         devShells.default = pkgs.mkShell {
@@ -84,6 +98,7 @@
 
           env = {
             PDK_PATH = icsprout55;
+            SRAM_PATH = ics55Sram;
 
             CIRCT_INSTALL_PATH = "${zpkgs.circt-install}";
             MLIR_INSTALL_PATH = "${zpkgs.mlir-install}";

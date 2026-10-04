@@ -74,6 +74,16 @@ object SyncRamTest extends TestSuite:
             val v = SyncRam.verilog(SyncRamModule.moduleName(writeFirst), writeFirst)
             assert(v.contains("if (r_en) r_data_reg <= (w_en && (w_addr == r_addr)) ? w_data : mem[r_addr];"))
 
+        test("single-port body: a byte-strobed write at the shared address"):
+            val oneRW = SyncRamParameter(32, 64, SyncRamPorts.OneRW, SyncRamReadUnderWrite.ReadFirst)
+            val v = SyncRam.verilog(SyncRamModule.moduleName(oneRW), oneRW)
+            assert(v.contains("module SyncRam_dataWidth32_depth64_ports1rw_readUnderWriteReadFirst("))
+            assert(v.contains("input [5:0] addr"))
+            assert(v.contains("input [3:0] w_mask"))
+            assert(v.contains("if (w_mask[0]) mem[addr][7:0] <= w_data[7:0];"))
+            assert(v.contains("if (w_mask[3]) mem[addr][31:24] <= w_data[31:24];"))
+            assert(v.contains("r_data_reg <= mem[addr];"))
+
         test("the module name spells the whole interface"):
             assert(module == "SyncRam_dataWidth8_depth64_ports1r1w_readUnderWriteReadFirst")
 

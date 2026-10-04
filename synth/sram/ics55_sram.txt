@@ -1,0 +1,26 @@
+# yosys `memory_libmap` description of the ics55 ECOS SRAM macro
+# `ics55_ecos_sram_8192x32_m16` (single-port 1RW, 8192 words x 32 bits = 32 KiB).
+#
+# The block names the intermediate cell `memory_libmap` emits; `ics55_sram_map.v`
+# techmaps that cell onto the real macro. The geometry is the macro's:
+#   - abits 13   (8192 words)
+#   - width 32   (32-bit words)
+#   - byte  1    (per-bit write enable: the macro's WEB[31:0], so a narrower or
+#                 byte-strobed memory is emulated with the bits it needs)
+#   - port srsw  (synchronous read, synchronous write on one shared address)
+#
+# Only a memory that fits this shape is mapped: a 32-bit wide, power-of-two-deep
+# synchronous RAM. Wider or narrower memories (the branch predictor's tables) have
+# no candidate and fall back to flip-flops. A deeper one is tiled into several
+# macros automatically (128 KiB = 4 macros).
+ram block $__NZEA_SRAM_ {
+    abits 13;
+    width 32;
+    byte 1;
+    cost 1;
+    init no_undef;
+    port srsw "A" {
+        clock posedge;
+        rdwr old;
+    }
+}

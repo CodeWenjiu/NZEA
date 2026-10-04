@@ -12,7 +12,7 @@ import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.{DbusUser, MemPath}
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{CsrType, Gpr}
-import nzea_device.dpi.{
+import nzea_device.devices.{
     BusDpiDevice,
     BusDpiDeviceParameter,
     Debugger,

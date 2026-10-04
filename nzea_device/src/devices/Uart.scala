@@ -1,4 +1,4 @@
-package nzea_device.uart
+package nzea_device.devices
 
 import java.lang.foreign.Arena
 

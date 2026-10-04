@@ -1,4 +1,4 @@
-package nzea_device.clint
+package nzea_device.devices
 
 import java.lang.foreign.Arena
 

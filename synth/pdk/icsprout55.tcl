@@ -21,6 +21,13 @@ proc get_lef_path {VT} {
   return "$STDCELL_PATH/ics55_LLSC_H7C${VT}/lef/ics55_LLSC_H7C${VT}_ieda.lef"
 }
 set LIB_FILES           [lmap v $VTS {get_lib_path $v}]
+
+# The SRAM macro joins the cell libraries so the mapper and STA know its area and timing. It is a `dont_touch`
+# sequential cell, so the mapping passes leave it alone; only its area/timing are read. SRAM_PATH is set by the flake.
+if {[info exists env(SRAM_PATH)] && [file exists "$env(SRAM_PATH)/lib/ics55_ecos_sram_8192x32_m16_tt1p2v25cctyp.lib"]} {
+  lappend LIB_FILES "$env(SRAM_PATH)/lib/ics55_ecos_sram_8192x32_m16_tt1p2v25cctyp.lib"
+}
+
 set STDCELL_LEF_FILES   [lmap v $VTS {get_lef_path $v}]
 set TECH_LEF_FILE       "$FOUNDARY_PATH/prtech/techLEF/N551P6M_ieda.lef"
 

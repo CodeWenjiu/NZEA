@@ -2,11 +2,13 @@ package nzea_tile
 
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_device.DeviceKind
 import nzea_core.config.{BpuLevel, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.RtlFlow
 import nzea_rtl.bus.AddrRange
 import nzea_rtl.stat.StatScope
+import nzea_rtl.stdlib.SyncRamPorts
 
 /** The tile level's parameter: the core knobs it passes down and the platform's device list.
   *
@@ -56,7 +58,11 @@ extension (flow: RtlFlow)
         case RtlFlow.Verilator =>
             // The bridge flow: the whole platform, every window answered by the simulator.
             Seq(
-                DeviceSpec("ram", AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)), DeviceKind.Ram),
+                DeviceSpec(
+                    "ram",
+                    AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)),
+                    DeviceKind.Ram(SyncRamPorts.OneRW)
+                ),
                 DeviceSpec("uart16550", AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)), DeviceKind.Uart),
                 DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
                 DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)
@@ -65,7 +71,11 @@ extension (flow: RtlFlow)
             // The synthesis flow: what has hardware. The UART is left out (its hardware is not ported), and the RAM's
             // window is its storage — a window worth building, not the 128 MiB the simulator models.
             Seq(
-                DeviceSpec("ram", AddrRange(BigInt("80000000", 16), BigInt("00020000", 16)), DeviceKind.Ram),
+                DeviceSpec(
+                    "ram",
+                    AddrRange(BigInt("80000000", 16), BigInt("00020000", 16)),
+                    DeviceKind.Ram(SyncRamPorts.OneRW)
+                ),
                 DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
                 DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)
             )

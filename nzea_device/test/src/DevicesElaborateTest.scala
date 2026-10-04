@@ -1,11 +1,8 @@
 package nzea_device
 
 import nzea_rtl.{RtlFlow, TestFlow}
-import nzea_device.clint.*
-import nzea_device.dpi.*
-import nzea_device.finisher.*
-import nzea_device.ram.*
-import nzea_device.uart.*
+import nzea_rtl.stdlib.SyncRamPorts
+import nzea_device.devices.*
 import utest.*
 
 /** Each device elaborates through the real flow and carries the ports its platform wiring expects; in the bridge flow a
@@ -60,7 +57,9 @@ object DevicesElaborateTest extends TestSuite:
     )
 
     private lazy val ram = TestFlow.lower(
-        RamFabricSlave.moduleName(RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, RtlFlow.Yosys)),
+        RamFabricSlave.moduleName(
+            RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Yosys)
+        ),
         cfg =>
             RamFabricSlave.main(
                 Array(
@@ -78,6 +77,8 @@ object DevicesElaborateTest extends TestSuite:
                     "2147483648",
                     "--size",
                     "131072",
+                    "--ports",
+                    "1rw",
                     "--flow",
                     "yosys"
                 )
@@ -87,7 +88,9 @@ object DevicesElaborateTest extends TestSuite:
 
     /** The RAM built for the bridge flow: its memory is the simulator's, so no hardware is built. */
     private lazy val ramBridged = TestFlow.lower(
-        RamFabricSlave.moduleName(RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, RtlFlow.Verilator)),
+        RamFabricSlave.moduleName(
+            RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Verilator)
+        ),
         cfg =>
             RamFabricSlave.main(
                 Array(
@@ -105,6 +108,8 @@ object DevicesElaborateTest extends TestSuite:
                     "2147483648",
                     "--size",
                     "131072",
+                    "--ports",
+                    "1rw",
                     "--flow",
                     "verilator"
                 )
