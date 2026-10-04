@@ -7,9 +7,9 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_device.HasDpiBus
+import nzea_device.{DeviceTimings, HasDpiBus}
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.LiteBusRW
+import nzea_rtl.bus.{DeviceTiming, LiteBusRW}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -54,6 +54,9 @@ object SifiveTestFinisher
     with HasDpiBus:
     override def moduleName(parameter: SifiveTestFinisherParameter): String = "SifiveTestFinisher"
 
+    /** The test finisher: a short residency is enough. */
+    override def timing: DeviceTiming = DeviceTimings.finisher
+
     def architecture(parameter: SifiveTestFinisherParameter) =
         val io = summon[Interface[SifiveTestFinisherIO]]
         given ClockScope = ClockScope.posedge(io.clock)
@@ -63,6 +66,7 @@ object SifiveTestFinisher
             parameter.flow,
             io.bus,
             io.resetN.asBool,
+            parameter.addrWidth,
             parameter.dataWidth,
             parameter.userWidth,
             parameter.idWidth

@@ -7,9 +7,9 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_device.HasDpiBus
+import nzea_device.{DeviceTimings, HasDpiBus}
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.LiteBusRW
+import nzea_rtl.bus.{DeviceTiming, LiteBusRW}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -43,6 +43,9 @@ class UartProbe(parameter: UartParameter) extends DVBundle[UartParameter, UartLa
 object Uart extends Generator[UartParameter, UartLayers, UartIO, UartProbe] with HasDpiBus:
     override def moduleName(parameter: UartParameter): String = "Uart"
 
+    /** The UART's register file: slow, and rarely touched. */
+    override def timing: DeviceTiming = DeviceTimings.uart
+
     def architecture(parameter: UartParameter) =
         val io = summon[Interface[UartIO]]
         given ClockScope = ClockScope.posedge(io.clock)
@@ -52,6 +55,7 @@ object Uart extends Generator[UartParameter, UartLayers, UartIO, UartProbe] with
             parameter.flow,
             io.bus,
             io.resetN.asBool,
+            parameter.addrWidth,
             parameter.dataWidth,
             parameter.userWidth,
             parameter.idWidth
