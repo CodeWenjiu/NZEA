@@ -12,6 +12,7 @@ import nzea_device.devices.{
     FinisherPins,
     RamFabricSlave,
     RamFabricSlaveParameter,
+    RamPins,
     SifiveTestFinisher,
     SifiveTestFinisherParameter,
     UartParameter
@@ -44,13 +45,22 @@ enum DeviceKind:
         case Ram(_) => SlaveKind.Memory
         case _      => SlaveKind.Mmio
 
-    /** The pins this kind shows at the boundary for a flow; `None` when it shows none — on-chip storage, a device whose
-      * hardware is not ported, or the bridge flow, where the simulator answers it through DPI.
+    /** The pins this kind shows at the boundary for a flow; `None` when it shows none — a device whose hardware is not
+      * ported, or the bridge flow, where the simulator answers it through DPI. Storage shows the clock its memory runs
+      * on: the macro's cycle time is its own, so it is not the tile's clock.
       */
     def pins(flow: RtlFlow)(using TypeImpl, ConstructorApi): Option[Bundle] = this match
+        case Ram(_)   => if flow.bridges then None else Some(new RamPins)
         case Finisher => if flow.bridges then None else Some(new FinisherPins)
         case Clint    => if flow.bridges then None else Some(new ClintPins)
         case _        => None
+
+    /** Whether the boundary is the level's input (a clock the level supplies) or its output (a flag the device shows).
+      * Inputs flow down — `level :>= device.boundary` — outputs flow up.
+      */
+    def boundaryIsInput: Boolean = this match
+        case Ram(_) => true
+        case _      => false
 
     /** Build the device for its window. */
     def instantiate(flow: RtlFlow, ctx: DeviceContext)(using
@@ -89,6 +99,27 @@ enum DeviceKind:
             nzea_device.devices.Clint.instantiate(
                 ClintParameter(ctx.addrWidth, ctx.dataWidth, ctx.userWidth, ctx.idWidth, ctx.base, flow)
             )
+
+    /** Drive the boundary of a device the level does not expose.
+      *
+      * A boundary field may be an *input* (the RAM's memory clock), and an undriven input is an error in the emitted
+      * RTL. The bridge flow exposes no boundary and builds no hardware behind it, so the level's own clock is a fine
+      * stand-in — the port exists only so the device's interface is well-formed.
+      */
+    def tieUnexposedBoundary(device: Instance[?, ?], clock: Referable[Clock])(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Unit = this match
+        case Ram(_) =>
+            val stub = Wire(new RamPins)
+            stub.asRecord.field[Clock]("clock") := clock
+            stub :>= device.io.field[RamPins]("boundary")
+        case _ => ()
 
 object DeviceKind:
 

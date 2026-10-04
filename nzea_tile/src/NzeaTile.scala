@@ -118,8 +118,12 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
             )
             device.connect(clock, resetN, xbar.io.out(map, d.name))
             d.kind.pins(parameter.flow) match
-                case Some(_) => io.field[Bundle](d.name) :<= device.io.field[Bundle]("boundary")
-                case None    => ()
+                case Some(_) =>
+                    val field = io.field[Bundle](d.name)
+                    val boundary = device.io.field[Bundle]("boundary")
+                    // A boundary may carry an input (the RAM's memory clock): inputs flow down, outputs flow up.
+                    if d.kind.boundaryIsInput then field :>= boundary else field :<= boundary
+                case None => d.kind.tieUnexposedBoundary(device, clock)
 
     /** The tile's address map: the core's two masters over the platform's device list.
       *

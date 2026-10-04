@@ -18,9 +18,14 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * One word-wide synchronous memory carries the byte strobe as its write mask, and its port shape is the parameter's
   * ([[SyncRamPorts]]) — a target whose macro is single-port builds one, and a target with a wider macro says so without
   * touching this device. The width is the bus's (a 32-bit core gets a 32-bit memory, a 64-bit one 64), so the word
-  * count shrinks as the word grows and the window stays 128 KiB. A bus access takes a fixed four-cycle residency. In
-  * the bridge flow the memory is the simulator's, so [[HasDpiBus.answerBus]] answers the bus instead and the hardware
-  * below is not built.
+  * count shrinks as the word grows and the window stays 128 KiB.
+  *
+  * The memory runs on its **own clock** ([[RamPins.clock]], an input at the level's boundary): a memory macro's cycle
+  * time is a property of the macro, not of the logic around it — this one needs 3.03 ns — so clocking it from the tile
+  * would cap the tile at the macro's frequency. The two domains talk over a two-phase toggle handshake, and the request
+  * payload is held stable from the fire until the acknowledge returns, which is what makes the multi-bit crossing safe.
+  * A bus access therefore takes the handshake's latency, not a fixed residency. In the bridge flow the memory is the
+  * simulator's, so [[HasDpiBus.answerBus]] answers the bus instead and the hardware below is not built.
   */
 case class RamFabricSlaveParameter(
     addrWidth: Int,
@@ -50,10 +55,19 @@ given upickle.default.ReadWriter[RamFabricSlaveParameter] = upickle.default.macr
 class RamFabricSlaveLayers(parameter: RamFabricSlaveParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
+/** The pins the RAM shows at a level's boundary: the clock its memory runs on.
+  *
+  * An input, which is why the boundary connect is the bidirectional `:<>=`: the direction of a boundary field is the
+  * bundle's own, not "everything the device drives".
+  */
+class RamPins(using TypeImpl, ConstructorApi) extends Bundle:
+    val clock = Flipped(Clock())
+
 class RamFabricSlaveIO(parameter: RamFabricSlaveParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
     val bus = Flipped(new LiteBusRW(parameter.addrWidth, parameter.dataWidth, parameter.userWidth, parameter.idWidth))
+    val boundary = Aligned(new RamPins)
 
 class RamFabricSlaveProbe(parameter: RamFabricSlaveParameter)
     extends DVBundle[RamFabricSlaveParameter, RamFabricSlaveLayers](parameter)
@@ -83,47 +97,97 @@ object RamFabricSlave
             val wordOffsetBits = log2Ceil(wordBytes)
             val wordAddrBits = log2Ceil(parameter.depth)
 
+            val mem = SyncRam.instantiate(
+                SyncRamParameter(parameter.dataWidth, parameter.depth, parameter.ports, SyncRamReadUnderWrite.ReadFirst)
+            )
+
+            // ---- bus side: the tile's clock ----
             val busCycle = RegInit(0.U(2))
             val isRead = RegInit(false.B)
             val respUser = RegInit(0.U(parameter.userWidth))
             val respId = RegInit(0.U(parameter.idWidth))
-            val readData = RegInit(0.U(parameter.dataWidth))
+            val respData = RegInit(0.U(parameter.dataWidth))
 
             val reqReady = busCycle === 0.U(2)
             val reqFire = io.bus.req.valid & reqReady
 
             io.bus.req.ready := reqReady
             io.bus.resp.valid := busCycle === 3.U(2)
-            io.bus.resp.bits.data := isRead ? (readData, 0.U(parameter.dataWidth))
+            io.bus.resp.bits.data := isRead ? (respData, 0.U(parameter.dataWidth))
             io.bus.resp.bits.user := respUser
             io.bus.resp.bits.id := respId
 
             val localByteAddr =
                 subWrap(io.bus.req.bits.addr, BigInt(parameter.base).U(parameter.addrWidth), parameter.addrWidth)
             val wordAddr = Node(localByteAddr.asBits).bits(wordAddrBits + wordOffsetBits - 1, wordOffsetBits).asUInt
-            val wenClean = reqFire & io.bus.req.bits.wen
 
-            val mem = SyncRam.instantiate(
-                SyncRamParameter(
-                    parameter.dataWidth,
-                    parameter.depth,
-                    parameter.ports,
-                    SyncRamReadUnderWrite.ReadFirst
-                )
-            )
-            mem.io.clock := io.clock
-            mem.io.addr := wordAddr
-            mem.io.wEn := wenClean
-            mem.io.wData := io.bus.req.bits.wdata
-            mem.io.wMask := io.bus.req.bits.wstrb
-            readData := mem.io.rData
+            // The held request: stable from the fire until the acknowledge returns, so the memory side may sample it.
+            val reqAddr = RegInit(0.U(wordAddrBits))
+            val reqWdata = RegInit(0.U(parameter.dataWidth))
+            val reqWmask = RegInit(0.U(wordBytes))
+            val reqWen = RegInit(false.B)
+            val reqToggle = RegInit(false.B)
+
+            // The acknowledge, synchronized into the tile's domain.
+            val ackSync0 = RegInit(false.B)
+            val ackSync1 = RegInit(false.B)
+
+            // ---- memory side: the RAM's own clock ----
+            val (memAck, memRdata) = ClockScope.posedge(io.boundary.clock):
+                val reqSync0 = RegInit(false.B)
+                val reqSync1 = RegInit(false.B)
+                reqSync0 := reqToggle
+                reqSync1 := reqSync0
+
+                val memAck = RegInit(false.B)
+                val memRdata = RegInit(0.U(parameter.dataWidth))
+                val memState = RegInit(0.U(2))
+                val memAddr = RegInit(0.U(wordAddrBits))
+                val memWen = RegInit(false.B)
+                val memWdata = RegInit(0.U(parameter.dataWidth))
+                val memWmask = RegInit(0.U(wordBytes))
+
+                // The payload is latched in this domain (it has been stable since the toggle), the macro samples it the
+                // next cycle, and its output is captured the cycle after that — one macro access, no more.
+                when((reqSync1 =/= memAck) & (memState === 0.U(2))) {
+                    memAddr := reqAddr
+                    memWen := reqWen
+                    memWdata := reqWdata
+                    memWmask := reqWmask
+                    memState := 1.U(2)
+                }
+                when(memState === 1.U(2)) { memState := 2.U(2) }
+                when(memState === 2.U(2)) {
+                    memRdata := mem.io.rData
+                    memAck := !memAck
+                    memState := 0.U(2)
+                }
+
+                mem.io.addr := memAddr
+                mem.io.wEn := memWen & (memState === 1.U(2))
+                mem.io.wData := memWdata
+                mem.io.wMask := memWmask
+                (memAck, memRdata)
+
+            mem.io.clock := io.boundary.clock
+            ackSync0 := memAck
+            ackSync1 := ackSync0
 
             when(reqFire) {
+                reqAddr := wordAddr
+                reqWdata := io.bus.req.bits.wdata
+                reqWmask := io.bus.req.bits.wstrb
+                reqWen := io.bus.req.bits.wen
+                reqToggle := !reqToggle
                 respUser := io.bus.req.bits.user
                 respId := io.bus.req.bits.id
                 isRead := !io.bus.req.bits.wen
                 busCycle := 1.U(2)
             }
-            when(busCycle === 1.U(2)) { busCycle := 2.U(2) }
+            // The acknowledge is stable by the time its synchronized copy is seen, so the data register may be read here.
+            when(busCycle === 1.U(2) & (ackSync1 =/= reqToggle)) {
+                respData := memRdata
+                busCycle := 2.U(2)
+            }
             when(busCycle === 2.U(2)) { busCycle := 3.U(2) }
             when(busCycle === 3.U(2) & io.bus.resp.ready) { busCycle := 0.U(2) }
