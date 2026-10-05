@@ -33,6 +33,11 @@ case class ICacheParameter(
     require(config.tagBits(addrWidth) >= 1, s"the address has no room for a tag: ${config.tagBits(addrWidth)} bits")
     require(config.lineBeats(dataWidth) >= 1, s"a line of ${config.lineBytes} bytes has no beats of $dataWidth bits")
     require(cacheable.nonEmpty, "a cache needs at least one cacheable window")
+    require(
+        config.storage == CacheStorageKind.Registers,
+        s"the split read is a flop array's — a narrow tag port beside the row port; a macro reads whole rows on one " +
+            s"port, got ${config.storage.name}"
+    )
 
 given upickle.default.ReadWriter[ICacheParameter] = upickle.default.macroRW
 
@@ -56,11 +61,11 @@ class ICacheProbe(parameter: ICacheParameter) extends DVBundle[ICacheParameter, 
 
 /** The instruction cache: a set-associative line store in front of the fetch's memory side.
   *
-  * The hit path is a two-stage pipeline — a request's row is read as it is accepted, its tag compared a cycle later —
-  * and it accepts one request per cycle. The request side is a two-entry queue whose head's row is held on the
-  * storage's read port, so the read address depends only on the queue's registers, never on the tag compare the same
-  * cycle's row feeds: the compare's result goes into registers (the result stage, or the miss slot), not back into an
-  * address.
+  * The hit path is a two-stage pipeline that accepts one request per cycle: the head cycle reads the head's set on the
+  * storage's *tag* port and compares — a narrow mux, so the compare never chains behind the line's — and the result
+  * stage reads the same entry's set on the *row* port, where the way the compare settled picks the word. The head's
+  * address comes from the queue's registers, so the compare's result goes into registers (the result stage, or the miss
+  * slot), never back into an address.
   *
   * A miss freezes the queue — the in-order fetch cannot be answered around it — and hands the line's address to
   * [[CacheRefill]]; when the engine answers, the line is installed, the replacement state touched, and the missed word
@@ -89,7 +94,8 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         val rowWidth = c.rowWidth(aw)
         val padBits = rowWidth - tagBits - c.lineBits
 
-        val storage = CacheStorage.instantiate(CacheStorageParameter(c.sets, c.ways, rowWidth, c.storage))
+        val storage =
+            CacheStorage.instantiate(CacheStorageParameter(c.sets, c.ways, rowWidth, tagBits, c.lineBits, c.storage))
         storage.io.clock := io.clock
         storage.io.resetN := io.resetN
         val refill = CacheRefill.instantiate(
@@ -131,10 +137,11 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         val tailUser = Reg(UInt(parameter.userWidth))
         val tailId = Reg(UInt(parameter.idWidth))
 
-        // ── The result stage: the formed answer, held until the fetch takes it ──
+        // ── The result stage: the entry whose answer is being formed, held until the fetch takes it ──
         val t1Valid = RegInit(false.B)
         val t1Miss = RegInit(false.B)
-        val t1Data = Reg(UInt(wordBits))
+        val t1Addr = Reg(UInt(aw))
+        val t1Way = Reg(UInt(wayBits))
         val t1User = Reg(UInt(parameter.userWidth))
         val t1Id = Reg(UInt(parameter.idWidth))
 
@@ -154,10 +161,13 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         val touchSet = Reg(UInt(idxBits))
         val touchWay = Reg(UInt(wayBits))
 
+        // The answer's word: the row port reads the result stage's set, and the way the compare settled selects the
+        // line the word comes from — a chain that starts after the compare, not through it.
+        val t1Word = muxTree(t1Way, (0 until c.ways).map(w => lineOf(storage.io.rdRows.ref(w)).data.ref(addrOf(t1Addr).word)))
         val missReady = refill.io.done
         val respValid = t1Valid & (!t1Miss | missReady)
         io.top.resp.valid := respValid
-        io.top.resp.bits.data := t1Miss ? (refill.io.bypassData, t1Data)
+        io.top.resp.bits.data := t1Miss ? (refill.io.bypassData, t1Word)
         io.top.resp.bits.user := t1User
         io.top.resp.bits.id := t1Id
         val respFire = respValid & io.top.resp.ready
@@ -166,17 +176,16 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         val t1Free = !t1Valid | respFire
         val promote = headValid & t1Free
 
-        // The head, live: its set's rows and bits come out of the storage this cycle.
+        // The head, live: the tag port reads its set this cycle, so the compare never chains behind the line's mux.
         val head = addrOf(headAddr)
         val headSet = head.set
         val headTag = head.tag
         val headWordOff = head.word
         val headCacheable = cacheableOf(headAddr)
-        val headLines = (0 until c.ways).map(w => lineOf(storage.io.rdRows.ref(w)))
-        val headHits = (0 until c.ways).map(w => storage.io.vdBits.ref(w) & (headLines(w).tag === headTag))
+        val headTags = (0 until c.ways).map(w => storage.io.rdTags.ref(w))
+        val headHits = (0 until c.ways).map(w => storage.io.vdBits.ref(w) & (headTags(w) === headTag))
         val headHit = headHits.reduce(_ | _) & headCacheable
         val headWay = muxCase(0.U(wayBits), headHits.zipWithIndex.map((hit, w) => (hit, w.U(wayBits))))
-        val headWord = muxTree(headWay, headLines.map(_.data.ref(headWordOff)))
 
         // The victim: a free way first, the replacement state only once the set is full.
         val freeWay = muxCase(0.U(wayBits), (0 until c.ways).map(w => (!storage.io.vdBits.ref(w), w.U(wayBits))))
@@ -187,19 +196,12 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         io.top.req.ready := accept
         val acceptFire = io.top.req.valid & accept
 
-        // ── The storage's read port ──
-        // A macro's read has a cycle of latency, so the address is issued for the entry that will be the head next
-        // cycle — the tail shifting up, or the request entering the head or the tail — and, while the head is held (a
-        // stalled result stage or a refill), the head's own set, which is what keeps its row live on the port. Flops
-        // read combinationally, so there the address is simply the head's own set.
-        val tailOrIn = tailValid ? (tailAddr, io.top.req.bits.addr)
-        val headOrIn = headValid ? (headAddr, io.top.req.bits.addr)
-        val nextHeadAddr = promote ? (tailOrIn, headOrIn)
-        storage.io.rdEn := acceptFire
-        storage.io.rdSet := (c.storage match
-            case CacheStorageKind.Macro(_)  => addrOf(nextHeadAddr).set
-            case CacheStorageKind.Registers => headSet
-        )
+        // ── The storage's two read ports ──
+        // The tag port reads the head's set combinationally — the compare's own narrow path — and the row port reads the
+        // result stage's set, whose line the settled way selects a word from. One address each, no chain between.
+        storage.io.tagSet := headSet
+        storage.io.rdSet := addrOf(t1Addr).set
+        storage.io.rdEn := t1Valid
         storage.io.vdSet := headSet
 
         // ── The engine ──
@@ -268,7 +270,8 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         when(promote) {
             t1Valid := true.B
             t1Miss := !headHit
-            t1Data := headWord
+            t1Addr := headAddr
+            t1Way := headWay
             t1User := headUser
             t1Id := headId
         }.otherwise { when(respFire) { t1Valid := false.B } }
@@ -300,10 +303,14 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
 
         if parameter.flow.counters then counters()
 
-        // The memory side: the engine is the only master the port has.
-        io.bottom.req.valid := refill.io.bottom.req.valid
-        io.bottom.req.bits :<= refill.io.bottom.req.bits
-        refill.io.bottom.req.ready := io.bottom.req.ready
-        refill.io.bottom.resp.valid := io.bottom.resp.valid
-        refill.io.bottom.resp.bits :<= io.bottom.resp.bits
-        io.bottom.resp.ready := refill.io.bottom.resp.ready
+        // The memory side: the engine is the only master the port has, and a register slice sits between the two. The
+        // refill's request valid is state, but the fabric's ready is not — wired straight through, the fabric's
+        // arbitration would extend the engine's request path out of the cache. The slice makes what the fabric sees
+        // state as well; the response channel stays combinational.
+        val bottomSlice = LiteBusRegisterSlice.instantiate(
+            LiteBusRegisterSliceParameter(aw, parameter.dataWidth, parameter.userWidth, parameter.idWidth)
+        )
+        bottomSlice.io.clock := io.clock
+        bottomSlice.io.resetN := io.resetN
+        bottomSlice.io.in :<>= refill.io.bottom
+        io.bottom :<>= bottomSlice.io.out

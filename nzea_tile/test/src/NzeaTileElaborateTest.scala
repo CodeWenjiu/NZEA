@@ -45,7 +45,6 @@ object NzeaTileElaborateTest extends TestSuite:
                 "LiteBusCrossbar",
                 "LiteBusUserWiden",
                 "LiteBusROSkidBuffer",
-                "LiteBusRegisterSlice",
                 "RamFabricSlave",
                 "Uart",
                 "SifiveTestFinisher",
@@ -53,7 +52,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 "Debugger"
             )
             // Parameterized bodies carry their shape in the name, so the check is on the prefix.
-            val prefixed = Seq("LiteBusTiming_", "CacheStorage_", "CacheRefill_")
+            val prefixed = Seq("LiteBusTiming_", "LiteBusRegisterSlice_", "CacheStorage_", "CacheRefill_")
             assert(exact.filterNot(module => sv.contains(s"module $module(")).isEmpty)
             assert(prefixed.filterNot(prefix => sv.contains(s"module $prefix")).isEmpty)
 

@@ -54,7 +54,12 @@ object LiteBusRegisterSlice
         LiteBusRegisterSliceIO,
         LiteBusRegisterSliceProbe
     ]:
-    override def moduleName(parameter: LiteBusRegisterSliceParameter): String = "LiteBusRegisterSlice"
+    /** The module is named by its whole interface — the slice's body is its widths — so two masters with different bus
+      * shapes do not share one slice.
+      */
+    override def moduleName(parameter: LiteBusRegisterSliceParameter): String =
+        s"LiteBusRegisterSlice_addrWidth${parameter.addrWidth}_dataWidth${parameter.dataWidth}" +
+            s"_userWidth${parameter.userWidth}_idWidth${parameter.idWidth}"
 
     def architecture(parameter: LiteBusRegisterSliceParameter) =
         val io = summon[Interface[LiteBusRegisterSliceIO]]

@@ -10,11 +10,21 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** The storage's shape: the geometry's numbers and the platform's storage kind. */
-case class CacheStorageParameter(sets: Int, ways: Int, rowWidth: Int, storage: CacheStorageKind) extends Parameter:
+/** The storage's shape: the geometry's numbers, the row's fields, and the platform's storage kind. */
+case class CacheStorageParameter(
+    sets: Int,
+    ways: Int,
+    rowWidth: Int,
+    tagBits: Int,
+    lineBits: Int,
+    storage: CacheStorageKind
+) extends Parameter:
     require(sets >= 2, s"sets must be >= 2, got $sets")
     require(ways >= 2, s"ways must be >= 2, got $ways")
     require(rowWidth >= 8, s"rowWidth must be >= 8, got $rowWidth")
+    require(tagBits >= 1, s"tagBits must be >= 1, got $tagBits")
+    require(lineBits >= 1, s"lineBits must be >= 1, got $lineBits")
+    require(rowWidth >= tagBits + lineBits, s"the row cannot hold a $tagBits-bit tag and a $lineBits-bit line")
 
     require(
         storage != CacheStorageKind.Macro(SyncRamPorts.OneR1RW) &&
@@ -39,6 +49,10 @@ class CacheStorageIO(parameter: CacheStorageParameter) extends HWBundle(paramete
     val rdSet = Flipped(UInt(setBits))
     val rdEn = Flipped(Bool())
     val rdRows = Aligned(Vec(parameter.ways, UInt(parameter.rowWidth)))
+
+    /** The tag port: the same set's tag fields alone, so a hit compare need not wait on the line's mux. */
+    val tagSet = Flipped(UInt(setBits))
+    val rdTags = Aligned(Vec(parameter.ways, UInt(parameter.tagBits)))
 
     /** The write port: one way's whole row. */
     val wrEn = Flipped(Bool())
@@ -71,7 +85,8 @@ class CacheStorageProbe(parameter: CacheStorageParameter)
   * The rows come from the platform's storage kind: a synchronous memory macro, or flops where the platform has no macro
   * shaped for an L1 (a read is then a mux of the addressed set — larger, but it keeps the clock, which a deep macro's
   * read path would not). The valid bits are flops either way: the hit compare reads them combinationally in the same
-  * cycle the rows come out, which a synchronous read cannot do.
+  * cycle the rows come out, which a synchronous read cannot do. The tag port exists for a flop array's split read: a
+  * narrow mux for the compare, the wide one for the line, so the two are different paths, not one chain.
   *
   * The control above never reads and writes in the same cycle, so one read-write port serves as well as two, and the
   * port shape only decides which body [[SyncRam]] emits.
@@ -82,7 +97,8 @@ object CacheStorage extends Generator[CacheStorageParameter, CacheStorageLayers,
     /** The module is named by its shape — the geometry is the body — so two caches do not share one storage. */
     override def moduleName(parameter: CacheStorageParameter): String =
         s"CacheStorage_sets${parameter.sets}_ways${parameter.ways}" +
-            s"_rowWidth${parameter.rowWidth}_storage${parameter.storage.name}"
+            s"_rowWidth${parameter.rowWidth}_tag${parameter.tagBits}_line${parameter.lineBits}" +
+            s"_storage${parameter.storage.name}"
 
     def architecture(parameter: CacheStorageParameter) =
         val io = summon[Interface[CacheStorageIO]]
@@ -116,13 +132,22 @@ object CacheStorage extends Generator[CacheStorageParameter, CacheStorageLayers,
                             ram.io.wData := io.wrData
                             ram.io.wMask := fill(parameter.rowWidth / 8, true.B).asUInt
                     ram.io.rData
-                for way <- 0 until parameter.ways do io.rdRows.ref(way) := rows(way)
+                for way <- 0 until parameter.ways do
+                    io.rdRows.ref(way) := rows(way)
+                    // The macro reads whole rows, so its tag port is a slice of the same read — the split read is a flop
+                    // array's.
+                    io.rdTags.ref(way) := Node(rows(way).asBits).bits(parameter.lineBits + parameter.tagBits - 1, parameter.lineBits).asUInt
 
             case CacheStorageKind.Registers =>
-                // One flop array per way; the read is the addressed set's row, the write one decoded entry.
+                // One flop array per way; the read is the addressed set's row, the write one decoded entry, and the
+                // tag port is the row's tag field alone — narrow, so the hit compare never chains behind the line mux.
                 val arrays = (0 until parameter.ways).map(_ => Reg(Vec(parameter.sets, UInt(parameter.rowWidth))))
                 for way <- 0 until parameter.ways do
                     io.rdRows.ref(way) := arrays(way).ref(io.rdSet)
+                    io.rdTags.ref(way) :=
+                        Node(arrays(way).ref(io.tagSet).asBits)
+                            .bits(parameter.lineBits + parameter.tagBits - 1, parameter.lineBits)
+                            .asUInt
                     for set <- 0 until parameter.sets do
                         when(io.wrEn & (io.wrWay === way.U(wayBits)) & (io.wrSet === set.U(setBits))) {
                             arrays(way)(set) := io.wrData
