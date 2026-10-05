@@ -99,11 +99,15 @@ if {$USE_PDK} {
   dfflibmap {*}$LIBS {*}$EXCLUDE_CELLS
   opt -undriven -purge
   set max_FO 24
-  # The sweep point: `ABC_SCRIPT` overrides the mapper script (the default is the same string), so delay-vs-area
-  # variants are one env var and one `just sta` apart - `just sta` re-synthesizes, so a run measures the variant end to
-  # end.
-  set abc_script [expr {[info exists env(ABC_SCRIPT)] ? $env(ABC_SCRIPT) : \
-    "+strash;dch;map -B 0.9;topo;stime -c;buffer -c -N ${max_FO};upsize -c;dnsize -c;stime,-p;print_stats -m"}]
+  # The mapper script is the design's: the core (11k cells) reaches its best with the classic map/upsize pass alone,
+  # while the tile's 90k-cell netlist leaves the same logic 20-50% slower with it — only the target-driven re-map
+  # (`&nf`/`upsize`/`dnsize` at {D}) recovers it (591 -> 674 MHz @riscv32i; the core would drop 887 -> 806, so it
+  # keeps the classic script). `ABC_SCRIPT` overrides the whole script, so delay-vs-area variants stay one env var and
+  # one `just sta` apart - `just sta` re-synthesizes, so a run measures the variant end to end.
+  set classic "+strash;dch;map -B 0.9;topo;stime -c;buffer -c -N ${max_FO};upsize -c;dnsize -c;stime,-p;print_stats -m"
+  set remap "+strash;dch;map -B 0.9;topo;stime -c;buffer -c -N ${max_FO};upsize -c;dnsize -c;&get -n;&nf ${CLK_PERIOD_PS};&put;buffer;upsize ${CLK_PERIOD_PS};dnsize ${CLK_PERIOD_PS};stime -p"
+  set default_abc_script [expr {$DESIGN eq "NzeaTile" ? $remap : $classic}]
+  set abc_script [expr {[info exists env(ABC_SCRIPT)] ? $env(ABC_SCRIPT) : $default_abc_script}]
   abc -D "$CLK_PERIOD_PS" -constr "$sdc_file" {*}$LIBS {*}$EXCLUDE_CELLS -script $abc_script -showtmp
   hilomap -singleton -hicell {*}$TIEHI_CELL_AND_PORT -locell {*}$TIELO_CELL_AND_PORT
   setundef -zero
