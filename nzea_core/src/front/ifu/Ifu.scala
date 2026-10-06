@@ -41,7 +41,9 @@ class IfuIO(parameter: IfuParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
     val ibus = Aligned(Ifu.busType(parameter.config))
-    val redirect = Flipped(Valid(UInt(parameter.config.width)))
+
+    /** The flush event, seen from the fetcher's side: `next_pc` is where it restarts, and the event starts a new epoch. */
+    val redirect = Flipped(new FlushBus(parameter.config.width))
 
     /** The resolved branches the predictor trains on; unused (and folded away) with no predictor. */
     val bp_update = Flipped(Valid(new BpUpdate(parameter.config.width)))
@@ -51,10 +53,10 @@ class IfuProbe(parameter: IfuParameter) extends DVBundle[IfuParameter, IfuLayers
 
 /** In-order fetcher: `pc`, one request at a time, and the prediction that steers it.
   *
-  * Redirect is the only event in this module's world: it steers pc and starts a new epoch, which is also how the fetch
-  * stream is cancelled — a response of a killed stream is consumed and digested, never refused. The fetcher never gates
-  * on reset: it asks and lets the slave refuse (a slave that is not ready does not accept), so the pc only moves on a
-  * real transfer.
+  * The flush event is the only event in this module's world: its `next_pc` steers pc and it starts a new epoch, which
+  * is also how the fetch stream is cancelled — a response of a killed stream is consumed and digested, never refused.
+  * The fetcher never gates on reset: it asks and lets the slave refuse (a slave that is not ready does not accept), so
+  * the pc only moves on a real transfer.
   *
   * The prediction is the predictor's ([[Bpu]]), and this module only carries it: every cycle the predictor is addressed
   * with the pc register's *next* value — the same signal that updates the register — and answers a cycle later, out of
@@ -96,7 +98,7 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
         val nextPc: Referable[UInt] = muxCase(
             pc,
             Seq[(Referable[Bool], Referable[UInt])](
-                io.redirect.valid -> io.redirect.bits,
+                io.redirect.valid -> io.redirect.next_pc,
                 io.ibus.req.fire -> bpu.io.pred_next_pc
             )
         )

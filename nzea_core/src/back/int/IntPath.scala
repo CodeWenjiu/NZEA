@@ -31,6 +31,10 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
     val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
+
+    /** The completion handshake's valid: high while the uop in the slot is finished, held until the slot's pace takes
+      * it — the middle's release can be deferred by the queue's room after a unit has already reported.
+      */
     val done = Aligned(Bool())
     val result = Aligned(new PathResult(width))
 
@@ -42,7 +46,7 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
 class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParameter, IntPathLayers](parameter)
 
 /** Integer execution path: every int unit driven from the held uop, with the resolved branch riding the result (the
-  * middle forwards the redirect to the front).
+  * middle raises the flush event the front restarts from).
   *
   * This is where the unit select and the op mean something — decode only packed them into [[IntOp]]'s columns. Each
   * unit owns its own op encoding and its own operand use, so all this path does is slice the shared field per unit,
@@ -164,9 +168,11 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         val divData: Referable[UInt] = div.map(d => d.io.data).getOrElse(0.U(width))
 
         /** The result: every unit's value built and the tag picking between them, then the completion and the one-shot
-          * result of the uop. A completion is a pulse per instruction: the combinational units report in the uop's
-          * first cycle, the serial ones when they finish — a level would still be high when the next uop arrives, since
-          * the middle admits it in the cycle this one commits.
+          * result of the uop. The completion is the handshake's valid, held until the slot's pace takes it: a
+          * combinational unit is done for as long as its uop sits in the slot — the value is recomputed from that same
+          * uop, so the level costs no register — and a serial unit's pulse is latched here while the uop stays. The
+          * latch clears when a new uop arrives or the slot empties (a flush), so it belongs to one uop only, and no
+          * unit has to know the slot's pace.
           */
         def result(): Unit =
             // Every unit's value is built and the tag picks between them: the union owns that mux, and its entries are the
@@ -184,7 +190,11 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
                 ops.dispatch(op)((otherCases ++ aluCases).map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
             val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
 
-            io.done := uopValid & (uopFirst & (isAlu | isBru | isSysu) | mulDone | divDone)
+            // The serial units report a pulse; hold it for as long as the same uop stays in the slot.
+            val serialHeld = RegInit(false.B)
+            when(uopFirst | !uopValid) { serialHeld := false.B }
+            when(mulDone | divDone) { serialHeld := true.B }
+            io.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone | serialHeld)
             io.result.data := data
             // One mux, not two: `isBru & taken` picks the target in the same level the test lands, so the write-back stage's
             // next pc does not pay two mux stages for one choice.

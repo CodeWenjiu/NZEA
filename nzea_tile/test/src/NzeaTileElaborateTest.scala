@@ -28,6 +28,7 @@ object NzeaTileElaborateTest extends TestSuite:
                     "--stats",
                     parameter.stats.name
                 ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
+                    ++ Seq("--lsqDepth", parameter.lsqDepth.toString)
                     ++ parameter.icache.toSeq.flatMap(icache => Seq("--icache", icache.name))
                     ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
             ),
@@ -38,9 +39,11 @@ object NzeaTileElaborateTest extends TestSuite:
         test("the top's only ports are clock and reset — the bridges are the tile's interface here"):
             assert(TestFlow.ports(sv, "NzeaTile") == Map("clock" -> 1, "reset" -> 1))
 
-        test("the design is the core, the cache, the fabric adapters, one device per window and the debugger"):
+        test("the design is the core, the queue, the cache, the fabric adapters, one device per window and the debugger"):
             val exact = Seq(
                 "Core",
+                "Completion",
+                "Lsq",
                 "ICache",
                 "LiteBusCrossbar",
                 "LiteBusUserWiden",

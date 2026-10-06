@@ -35,6 +35,7 @@ case class CoreParameter(
     mmioRanges: Seq[String],
     bypass: BypassLevel,
     bpu: Option[BpuConfig],
+    lsqDepth: Int,
     stats: StatScope
 ) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -81,7 +82,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
                     c.isa,
                     c.defaultPc,
                     parameter.flow,
-                    parameter.bypass,
+                    parameter.lsqDepth,
                     parameter.stats.child(Middle.Source)
                 )
             )
@@ -94,6 +95,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
                     parameter.mmioRanges,
                     parameter.bypass,
                     parameter.bpu,
+                    parameter.lsqDepth,
                     parameter.stats.child(Back.Source)
                 )
             )
@@ -106,15 +108,17 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
         back.io.resetN := io.resetN
 
         middle.io.decoded :<>= front.io.out
-        front.io.redirect :<= middle.io.redirect
-        front.io.flush := middle.io.flush
+        // The flush event is one bus, out of the middle and into every level that obeys it.
+        front.io.flush :<= middle.io.flush
         // The predictor's training crosses the middle without touching it: the branch resolves at the back, the tables
         // live at the front, and nothing between the two consumes the outcome.
         front.io.bp_update :<= back.io.bp_update
 
         back.io.issue :<= middle.io.issue
-        middle.io.complete :<= back.io.complete
-        back.io.bypass :<>= middle.io.bypass
+        middle.io.retire :<= back.io.retire
+        middle.io.slotRelease := back.io.slotRelease
+        back.io.flush :<= middle.io.flush
+        back.io.forward :<>= middle.io.forward
 
         // The instruction request is registered at the core's own boundary, and the register is a skid: the fetch's
         // request valid follows the decode's ready and its pc advances on the request's acceptance, so a host wiring

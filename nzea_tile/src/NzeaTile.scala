@@ -65,6 +65,7 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
                 mmioWindows(map),
                 parameter.bypass,
                 parameter.bpu,
+                parameter.lsqDepth,
                 parameter.stats.child(Core.Source)
             )
         )

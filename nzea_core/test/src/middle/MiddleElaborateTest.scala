@@ -1,6 +1,6 @@
 package nzea_core.middle
 
-import nzea_core.config.{BypassLevel, CoreConfig}
+import nzea_core.config.CoreConfig
 import nzea_core.back.{BpUpdate, OpWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Srcs}
 import nzea_rtl.{RtlFlow, TestFlow}
@@ -8,9 +8,9 @@ import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** Structural checks: the middle's boundary is the decoded stream it consumes, the three things it hands the front and
-  * the top (flush, redirect, commit), the uop it issues, and the completion it latches into write-back — it holds the
-  * two files both stages face, and its stages hold the register pairs and the units between them.
+/** Structural checks: the middle's boundary is the decoded stream it consumes, the two things it hands the top (the
+  * flush event, the commit trace), the uop it issues, and the completion it latches into write-back — it holds the two
+  * files both stages face, and its stages hold the register pairs and the units between them.
   */
 object MiddleElaborateTest extends TestSuite:
 
@@ -18,10 +18,10 @@ object MiddleElaborateTest extends TestSuite:
     private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
 
     private val module = Middle.moduleName(
-        MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, BypassLevel.Commit, StatScope.root)
+        MiddleParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, 0, StatScope.root)
     )
 
-    private def lower(bypass: BypassLevel): String =
+    private def lower(): String =
         TestFlow.lower(
             module,
             cfg =>
@@ -35,8 +35,8 @@ object MiddleElaborateTest extends TestSuite:
                         "2147483648",
                         "--flow",
                         "yosys",
-                        "--bypass",
-                        bypass.name,
+                        "--lsqDepth",
+                        "0",
                         "--stats",
                         "root"
                     )
@@ -44,7 +44,7 @@ object MiddleElaborateTest extends TestSuite:
             cfg => Middle.main(Array("design", cfg.toString))
         )
 
-    private lazy val sv = lower(BypassLevel.Commit)
+    private lazy val sv = lower()
 
     private lazy val ports = TestFlow.ports(sv, module)
 
@@ -55,7 +55,8 @@ object MiddleElaborateTest extends TestSuite:
                 ports == Map(
                     "clock" -> 1,
                     "resetN" -> 1,
-                    "flush" -> 1,
+                    "flush_valid" -> 1,
+                    "flush_next_pc" -> width,
                     "decoded_valid" -> 1,
                     "decoded_ready" -> 1,
                     "decoded_bits_pc" -> width,
@@ -70,8 +71,6 @@ object MiddleElaborateTest extends TestSuite:
                     "decoded_bits_backend" -> Backend.width,
                     "decoded_bits_op" -> OpWindow.width(config),
                     "decoded_bits_csr_addr" -> 12,
-                    "redirect_valid" -> 1,
-                    "redirect_bits" -> width,
                     "issue_valid" -> 1,
                     "issue_first" -> 1,
                     "issue_bits_pc" -> width,
@@ -87,23 +86,24 @@ object MiddleElaborateTest extends TestSuite:
                     "issue_bits_csr_type" -> CsrType.width,
                     "issue_bits_csr_rdata" -> width,
                     "issue_bits_rd_index" -> Gpr.indexWidth,
-                    "complete_valid" -> 1,
-                    "complete_bits_data" -> width,
-                    "complete_bits_next_pc" -> width,
-                    "complete_bits_csr_type" -> CsrType.width,
-                    "complete_bits_csr_data" -> width,
-                    "complete_bits_is_mmio" -> 1,
-                    "complete_bits_is_branch" -> 1,
-                    "complete_bits_pred_next_pc" -> width,
-                    "bypass_rs1_index" -> Gpr.indexWidth,
-                    "bypass_rs2_index" -> Gpr.indexWidth,
-                    "bypass_commit_valid" -> 1,
-                    "bypass_commit_bits_rd_index" -> Gpr.indexWidth,
-                    "bypass_commit_bits_data" -> width,
-                    "bypass_rs1_valid" -> 1,
-                    "bypass_rs1_bits" -> width,
-                    "bypass_rs2_valid" -> 1,
-                    "bypass_rs2_bits" -> width,
+                    "retire_valid" -> 1,
+                    "retire_bits_next_pc" -> width,
+                    "retire_bits_rd_index" -> Gpr.indexWidth,
+                    "retire_bits_data" -> width,
+                    "retire_bits_csr_type" -> CsrType.width,
+                    "retire_bits_csr_data" -> width,
+                    "retire_bits_is_mmio" -> 1,
+                    "retire_bits_mispredicted" -> 1,
+                    "slotRelease" -> 1,
+                    "forward_commit_armed" -> 1,
+                    "forward_offers_0_valid" -> 1,
+                    "forward_offers_0_armed" -> 1,
+                    "forward_offers_0_index" -> Gpr.indexWidth,
+                    "forward_offers_0_data" -> width,
+                    "forward_offers_1_valid" -> 1,
+                    "forward_offers_1_armed" -> 1,
+                    "forward_offers_1_index" -> Gpr.indexWidth,
+                    "forward_offers_1_data" -> width,
                     "commit_valid" -> 1,
                     "commit_bits_next_pc" -> width,
                     "commit_bits_rd_index" -> Gpr.indexWidth,
@@ -123,21 +123,23 @@ object MiddleElaborateTest extends TestSuite:
             assert(sv.contains("module OperandRead"))
             assert(sv.contains("module Isu"))
 
-        // The read is the issue unit's, and the one producer it cannot see yet is the instruction in execute: a payload
-        // naming that register waits for the completion to pass, so the comparison runs against the IS/EX register's own
-        // destination field — `isex_rd_index` in the lowered RTL — rather than against the retiring instruction's.
-        test("a payload that reads the instruction in execute waits for it"):
-            assert(sv.contains("isex_rd_index"))
+        // The read resolves the network's column and its own retiring write: the offer comparisons and the wait are the
+        // read's, and the middle knows nothing of the level — an offer that is not armed is all the wait there is.
+        test("the read resolves the forward column"):
+            val read = TestFlow.ports(sv, "OperandRead")
+            assert(read.contains("offers_0_armed") && read.contains("offers_1_armed"))
+            assert(read.contains("commit_armed") && read.contains("commit_bits_index"))
+            assert(sv.contains("~offers_0_armed"))
 
         // The stage registers are the issue stage's — the issue unit between them is combinational — and the event
         // files address them through that stage.
         test("the issue stage carries the stage registers"):
             assert(sv.contains("idisValid") && sv.contains("isexValid"))
 
-        // The bypass network's answer is the read's to select: the middle carries the bus to the read, and the read takes
-        // the network's value where it is valid.
-        test("the bypass bus reaches the read unit"):
-            assert(sv.contains("bypass_rs1_valid") && sv.contains("bypass_rs2_valid"))
+        // The forward network's column is the read's to match: the middle carries the bus to the read, and the read
+        // takes the value of the first armed offer that names its register.
+        test("the forward bus reaches the read unit"):
+            assert(sv.contains("forward_offers_0_armed") && sv.contains("forward_offers_1_armed"))
 
         // The unit itself owns no state: the `Isu` module in the same lowering has no flop and no stage register.
         test("the issue unit is purely combinational"):

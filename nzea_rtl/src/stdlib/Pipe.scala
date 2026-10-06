@@ -9,6 +9,14 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
+/** The pipeline's cancel event, sourced at the commit point: `valid` is the flush itself — every stage that obeys it
+  * drops what it holds — and `next_pc` is where the front restarts. One event, one bus: a stage register's cancellation
+  * net and the fetcher's redirect are the same signal, so the two halves cannot be wired apart.
+  */
+class FlushBus(width: Int) extends Bundle:
+    val valid = Aligned(Bool())
+    val next_pc = Aligned(UInt(width))
+
 /** What a pipeline register does with a handover offered in the cycle `flush` is asserted.
   *
   * Both are correct for the register that declares them, and the difference is who the producer is:
@@ -39,7 +47,7 @@ enum FlushHandover:
 def pipelineConnect[T <: HardwareDataType](
     in: Referable[DecoupledIO[T]],
     out: Referable[DecoupledIO[T]],
-    flush: Referable[Bool],
+    flush: Referable[FlushBus],
     name: String,
     onFlush: FlushHandover
 )(using
@@ -62,10 +70,10 @@ def pipelineConnect[T <: HardwareDataType](
 
     val ready = !valid | out.ready
     in.ready := (onFlush match
-        case FlushHandover.Refuse  => ready & !flush
+        case FlushHandover.Refuse  => ready & !flush.valid
         case FlushHandover.Consume => ready
     )
-    out.valid := valid & !flush
+    out.valid := valid & !flush.valid
     out.bits :<= bitsReg
 
     val fire = in.valid & in.ready
@@ -74,4 +82,4 @@ def pipelineConnect[T <: HardwareDataType](
     }
 
     // First match wins: a flush clears, an accepted input fills, a consumed output drains, otherwise hold.
-    valid := muxCase(valid, Seq((flush, false.B), (fire, true.B), (out.valid & out.ready, false.B)))
+    valid := muxCase(valid, Seq((flush.valid, false.B), (fire, true.B), (out.valid & out.ready, false.B)))

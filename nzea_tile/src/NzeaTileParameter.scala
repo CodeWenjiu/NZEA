@@ -24,6 +24,7 @@ case class NzeaTileParameter(
     flow: RtlFlow,
     bypass: BypassLevel,
     bpu: Option[BpuConfig],
+    lsqDepth: Int,
     icache: Option[CacheConfig],
     stats: StatScope,
     devices: Seq[DeviceSpec]
@@ -59,13 +60,15 @@ object ICacheChoice:
 object NzeaTileParameter:
 
     /** The baseline: riscv32i at `0x80000000`, verilator-shaped RTL, execute-level forwarding, the 64-entry bimodal
-      * predictor, the 4 KiB instruction cache, the counters under the design's root, and the bridge flow's devices.
+      * predictor, the four-entry load/store queue, the 4 KiB instruction cache, the counters under the design's root,
+      * and the bridge flow's devices.
       */
     def default: NzeaTileParameter = NzeaTileParameter(
         config = CoreConfig(Isa("riscv32i"), 0x80000000L),
         flow = RtlFlow.Verilator,
         bypass = BypassLevel.Execute,
         bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
+        lsqDepth = 4,
         icache = Some(CacheConfig.baseline(CacheStorageKind.Registers)),
         stats = StatScope.root,
         devices = RtlFlow.Verilator.devices

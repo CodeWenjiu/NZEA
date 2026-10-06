@@ -25,6 +25,8 @@ case class CliArgs(
     config: TopConfigArgs,
     @arg(doc = "verilator-shaped RTL or synthesis-shaped RTL") flow: RtlFlow = CliArgs.coreBaseline.flow,
     @arg(doc = "the tile's devices (JSON, repeatable); defaults to the platform's") devices: Seq[DeviceSpec],
+    @arg(doc = "load/store queue depth (a power of two), 0 builds none") lsqDepth: Int =
+        CliArgs.coreBaseline.lsqDepth,
     @arg(doc = "instruction cache: a geometry, or 'none'") icache: ICacheChoice =
         ICacheChoice.of(CliArgs.tileBaseline.icache),
     @arg(doc = "output dir; defaults to build/<target>/<platform>/<isa>/<flow>") outDir: String = ""
@@ -33,10 +35,13 @@ case class CliArgs(
     /** The ISA both levels are built for: what the out dir and the message name. */
     def isaName: String = config.core.isa.name
 
-    /** The core level's design: the baseline, with what a flag named overridden. */
+    /** The core level's design: the baseline, with what a flag named overridden. The queue depth is the parameter's own
+      * spelling: a power of two, or zero for no queue.
+      */
     def coreParameter: NzeaCoreParameter = CliArgs.coreBaseline.copy(
         config = TopConfig(core = CoreConfig(isa = config.core.isa, defaultPc = config.core.defaultPc)),
-        flow = flow
+        flow = flow,
+        lsqDepth = lsqDepth
     )
 
     /** The tile level's design: the tile's own baseline, with the ISA, flow and device list a flag named overridden.
@@ -50,6 +55,7 @@ case class CliArgs(
         base.copy(
             config = CoreConfig(isa = config.core.isa, defaultPc = config.core.defaultPc),
             flow = flow,
+            lsqDepth = lsqDepth,
             icache = ICacheChoice.toOption(icache),
             devices = if devices.isEmpty then flow.devices else devices
         )

@@ -37,8 +37,8 @@ object CountersTest extends TestSuite:
                         "2147483648",
                         "--flow",
                         "verilator",
-                        "--bypass",
-                        "commit",
+                        "--lsqDepth",
+                        "0",
                         "--stats",
                         "middle"
                     )
@@ -87,6 +87,8 @@ object CountersTest extends TestSuite:
                         "commit",
                         "--mmioRanges",
                         "0x10000000:0x1000",
+                        "--lsqDepth",
+                        "0",
                         "--stats",
                         "core"
                     )
@@ -101,7 +103,7 @@ object CountersTest extends TestSuite:
                 Isa("riscv32i"),
                 0x80000000L,
                 RtlFlow.Verilator,
-                BypassLevel.Commit,
+                0,
                 StatScope(Seq("middle"))
             )
         )
@@ -120,6 +122,7 @@ object CountersTest extends TestSuite:
                 Seq("0x10000000:0x1000"),
                 BypassLevel.Commit,
                 None,
+                0,
                 StatScope(Seq("core"))
             )
         )

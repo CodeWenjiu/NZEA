@@ -8,13 +8,19 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.config.{BypassLevel, CoreConfig}
+import nzea_core.config.CoreConfig
+import nzea_core.back.ForwardParameter
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Gpr, Isa, Operand, Srcs}
+import nzea_core.middle.rf.ArfWrite
+import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class OperandReadParameter(isa: Isa, defaultPc: Long, bypass: BypassLevel) extends Parameter:
+case class OperandReadParameter(isa: Isa, defaultPc: Long, lsqDepth: Int) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
+
+    /** The forward column's length — the in-flight capacity's shape, shared with the network that broadcasts it. */
+    val offerCount: Int = ForwardParameter.offerCount(lsqDepth)
 
 given upickle.default.ReadWriter[OperandReadParameter] = upickle.default.macroRW
 
@@ -35,22 +41,23 @@ class OperandReadIO(parameter: OperandReadParameter) extends HWBundle(parameter)
     val rs1_data = Flipped(UInt(width))
     val rs2_data = Flipped(UInt(width))
 
-    /** The bypass network's answers for the same two indexes. */
-    val bypass_rs1 = Flipped(ValidIO(UInt(width)))
-    val bypass_rs2 = Flipped(ValidIO(UInt(width)))
+    /** The forward network's column of in-flight writers, youngest first: the read resolves its own indexes against it
+      * ([[nzea_rtl.stdlib.ForwardOffer]]).
+      */
+    val offers = Flipped(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
 
-    /** The writers still in flight: the slot's instruction, and the retiring one. */
-    val slot_valid = Flipped(Bool())
-    val slot_rd_index = Flipped(UInt(Gpr.indexWidth))
-    val wb_valid = Flipped(Bool())
-    val wb_rd = Flipped(UInt(Gpr.indexWidth))
+    /** The retiring instruction's write — the middle's own producer, older than everything in the column — and whether
+      * the level reaches it ([[nzea_core.back.ForwardBus.commit_armed]]).
+      */
+    val commit = Flipped(ValidIO(new ArfWrite(width)))
+    val commit_armed = Flipped(Bool())
 
     /** The placed operands: the three slots the units read. */
     val src_a = Aligned(UInt(width))
     val src_b = Aligned(UInt(width))
     val src_c = Aligned(UInt(width))
 
-    /** The read is placeable: every operand is settled — no in-flight writer the network cannot answer. */
+    /** The read is placeable: every operand is settled — no in-flight writer is still in the way. */
     val ready = Aligned(Bool())
 
 class OperandReadProbe(parameter: OperandReadParameter)
@@ -58,14 +65,18 @@ class OperandReadProbe(parameter: OperandReadParameter)
 
 /** The read: the operand fetch between ID/IS and the files.
   *
-  * The file answers the two indexes the payload names, the bypass network's answer wins where it is valid (it is the
-  * younger producer), and the operand form places the result — with the immediate, the pc and zero — into the three
-  * slots the units read. The network's answer does not feed that placement: a slot whose form reads Rs1/Rs2 takes the
-  * answer straight, past the resolve, so the forwarding path is [network answer, one mux] instead of [answer, a mux,
-  * the resolve]. The pace back to ID/IS is this read's own: a payload that names a writer still in flight waits for it,
-  * unless the bypass level reaches the writer's stage. That is the one wait the network cannot answer for a consumer —
-  * a writer younger than its sources is one it does not carry — so the test lives here, beside the read that takes the
-  * answers.
+  * The file answers the two indexes the payload names, the forward network's column answers them too — an offer that is
+  * armed carries the value of the register's youngest writer, so it wins — and the operand form places the result, with
+  * the immediate, the pc and zero, into the three slots the units read. The network's answer does not feed that
+  * placement: a slot whose form reads Rs1/Rs2 takes the answer straight, past the resolve, so the forwarding path is
+  * [offer, one mux] instead of [answer, a mux, the resolve].
+  *
+  * The column is the whole wait rule and it is read here: an offer that names the register without being armed is a
+  * writer whose value is not there yet, so the read holds — and the operand form gates that: only a slot that reads the
+  * register owes the wait. The retiring write is this side's own register, so it is matched here too: it is the oldest
+  * writer in flight, the column's answer wins over it and the file's is the last resort. The read carries no state and
+  * no query: it resolves whatever the network broadcasts this cycle, which is what makes it a wakeup consumer rather
+  * than a requester.
   */
 @generator
 object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, OperandReadIO, OperandReadProbe]:
@@ -77,10 +88,49 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
         val width = parameter.config.width
-        val indexWidth = Gpr.indexWidth
 
-        /** The read: the file answers the two indexes the payload names, the network's answer wins where it is valid,
-          * and the operand form places the result into the three slots the units read.
+        /** Whether a given slot's form reads the given register: one OR of the forms' bits. A slot that never holds the
+          * operand contributes nothing, so an empty fold is false rather than an error.
+          */
+        def readsSlot(pick: Srcs => Operand, target: Operand): Referable[Bool] =
+            val srcsBits: Node[Bits] = Node(io.decoded.srcs.asBits)
+            Srcs.variants.zipWithIndex
+                .collect { case (form, bit) if pick(form) == target => bit }
+                .map(srcsBits.bit)
+                .foldLeft(false.B: Referable[Bool])(_ | _)
+
+        /** Whether any of the payload's slots reads the given register — what the network's wait term is gated by. */
+        def readsRegister(target: Operand): Referable[Bool] =
+            readsSlot(_.a, target) | readsSlot(_.b, target) | readsSlot(_.c, target)
+
+        /** One read's answer, resolved against the column: the offers are in program order, so the value is the first
+          * armed one that names the register — the column's own priority, no comparison — and a read holds while any
+          * offer names the register without being armed. The retiring write is the oldest writer in flight, matched
+          * from its own register here: it answers where the level reaches it and holds the read where it does not, and
+          * it is the ladder's last resort before the file.
+          */
+        def answers(index: Referable[UInt]): Wake =
+            val offers = (0 until parameter.offerCount).map(i => io.offers.ref(i))
+            val armed = offers.map(offer => ForwardSource(offer.valid & offer.armed, offer.index, offer.data))
+            val hit =
+                armed.map(source => source.armed & (source.index === index)).foldLeft(false.B: Referable[Bool])(_ | _)
+            val blocking = offers
+                .map(offer => offer.valid & !offer.armed & (offer.index === index))
+                .foldLeft(false.B: Referable[Bool])(_ | _)
+            val commitValid = io.commit.valid & (io.commit.bits.index =/= 0.U(Gpr.indexWidth))
+            val commitHit = commitValid & io.commit_armed & (io.commit.bits.index === index)
+            val commitBlocks = commitValid & !io.commit_armed & (io.commit.bits.index === index)
+            Wake(
+                !(blocking | commitBlocks),
+                hit | commitHit,
+                forwardRead(index, commitHit ? (io.commit.bits.data, 0.U(width)), armed)
+            )
+
+        val wake1 = answers(io.rs1_index)
+        val wake2 = answers(io.rs2_index)
+
+        /** The read: the file answers the two indexes the payload names, an armed offer wins, and the operand form
+          * places the result into the three slots the units read.
           */
         def placeOperands(): (Referable[UInt], Referable[UInt], Referable[UInt]) =
             val dec = io.decoded
@@ -88,13 +138,7 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
             io.rs2_index := dec.rs2_index
             // The file's answer feeds the form resolve; the network's answer does not — a slot whose form reads Rs1/Rs2 takes
             // it straight. The hit terms are the forms that read that register in that slot: one OR of form bits each, off
-            // the decode's register, so the forwarding path is [network answer, one mux] and the resolve stays off it.
-            val srcsBits: Node[Bits] = Node(dec.srcs.asBits)
-            def readsSlot(pick: Srcs => Operand, target: Operand): Referable[Bool] =
-                Srcs.variants.zipWithIndex
-                    .collect { case (form, bit) if pick(form) == target => bit }
-                    .map(srcsBits.bit)
-                    .reduce(_ | _)
+            // the decode's register, so the forwarding path is [offer, one mux] and the resolve stays off it.
             val (srcA, srcB, srcC) = Srcs.resolve(
                 dec.srcs,
                 Seq[(Operand, Referable[UInt])](
@@ -106,39 +150,22 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
                 ),
                 width
             )
-            val bypassA = readsSlot(_.a, Operand.Rs1) & io.bypass_rs1.valid
-            val bypassB = readsSlot(_.b, Operand.Rs2) & io.bypass_rs2.valid
-            val bypassC = readsSlot(_.c, Operand.Rs2) & io.bypass_rs2.valid
+            val bypassA = readsSlot(_.a, Operand.Rs1) & wake1.from_net
+            val bypassB = readsSlot(_.b, Operand.Rs2) & wake2.from_net
+            val bypassC = readsSlot(_.c, Operand.Rs2) & wake2.from_net
             (
-                bypassA ? (io.bypass_rs1.bits, srcA),
-                bypassB ? (io.bypass_rs2.bits, srcB),
-                bypassC ? (io.bypass_rs2.bits, srcC)
+                bypassA ? (wake1.value, srcA),
+                bypassB ? (wake2.value, srcB),
+                bypassC ? (wake2.value, srcC)
             )
 
-        /** The read is placeable when no in-flight writer blocks it: the operand form once more, for the registers each
-          * slot was read from — 0 for the slots no register feeds, which is also the index no instruction writes — and
-          * the level's answer for how far the network reaches. A wait term the level covers folds to false and takes
-          * its comparator with it.
+        /** The read is placeable when neither of its registers is held back — the operand form is the only part left
+          * here: a slot no register feeds owes no wait.
           */
         def operandsReady(): Referable[Bool] =
-            val (idxA, idxB, idxC) = Srcs.resolve(
-                io.decoded.srcs,
-                Seq[(Operand, Referable[UInt])](
-                    Operand.Rs1 -> io.decoded.rs1_index,
-                    Operand.Rs2 -> io.decoded.rs2_index,
-                    Operand.Imm -> 0.U(indexWidth),
-                    Operand.Pc -> 0.U(indexWidth),
-                    Operand.Zero -> 0.U(indexWidth)
-                ),
-                indexWidth
-            )
-            def reads(rd: Referable[UInt]): Referable[Bool] =
-                (rd =/= 0.U(indexWidth)) & ((idxA === rd) | (idxB === rd) | (idxC === rd))
-            val waitsForExecute =
-                if parameter.bypass.execute then false.B else io.slot_valid & reads(io.slot_rd_index)
-            val waitsForCommit =
-                if parameter.bypass.commit then false.B else io.wb_valid & reads(io.wb_rd)
-            !waitsForExecute & !waitsForCommit
+            val reads1 = readsRegister(Operand.Rs1)
+            val reads2 = readsRegister(Operand.Rs2)
+            !(reads1 & !wake1.ready) & !(reads2 & !wake2.ready)
 
         val (srcA, srcB, srcC) = placeOperands()
         io.src_a := srcA

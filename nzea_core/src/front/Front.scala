@@ -30,9 +30,8 @@ class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
     private val width = parameter.config.width
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
-    val flush = Flipped(Bool())
+    val flush = Flipped(new FlushBus(width))
     val ibus = Aligned(Ifu.busType(parameter.config))
-    val redirect = Flipped(Valid(UInt(width)))
     val bp_update = Flipped(Valid(new BpUpdate(width)))
     val out = Aligned(Decoupled(new IduOut(parameter.config)))
 
@@ -43,8 +42,9 @@ class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, Fro
   * The decoded stream onto the boundary stays combinational: the middle owns the read, so what crosses is the decoded
   * instruction and a gate that holds it back while the middle's decode slot is busy.
   *
-  * `flush` is the core's broadcast and the register between the stages is the only thing here that obeys it: the
-  * fetcher's cancellation is its epoch and the decoded stream onto the middle is gated by that same register.
+  * `flush` is the core's broadcast, one bus: the fetcher restarts from its `next_pc` — and cancels its own stream
+  * through the epoch — while the register between the stages is the only thing here that obeys `valid`, and the decoded
+  * stream onto the middle is gated by that same register.
   */
 @generator
 object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]:
@@ -65,7 +65,7 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
         idu.io.resetN := io.resetN
 
         io.ibus :<>= ifu.io.ibus
-        ifu.io.redirect :<>= io.redirect
+        ifu.io.redirect :<>= io.flush
         ifu.io.bp_update :<>= io.bp_update
 
         pipelineConnect(ifu.io.out, idu.io.in, io.flush, "ifid", FlushHandover.Consume)

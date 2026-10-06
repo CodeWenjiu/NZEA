@@ -9,7 +9,7 @@ import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** Structural checks: the front's boundary is exactly the fetcher's bus, the redirect it is steered by, and the decoded
+/** Structural checks: the front's boundary is exactly the fetcher's bus, the flush event that steers it, and the decoded
   * stream the middle consumes — with the fetcher and decoder instantiated inside it.
   */
 object FrontElaborateTest extends TestSuite:
@@ -52,14 +52,13 @@ object FrontElaborateTest extends TestSuite:
                     "ibus_resp_bits_data" -> width,
                     "ibus_resp_bits_user" -> IbusUser.userWidth(width),
                     "ibus_resp_bits_id" -> Ifu.busIdWidth,
-                    "redirect_valid" -> 1,
-                    "redirect_bits" -> width,
+                    "flush_valid" -> 1,
+                    "flush_next_pc" -> width,
                     "bp_update_valid" -> 1,
                     "bp_update_bits_pc" -> width,
                     "bp_update_bits_taken" -> 1,
                     "bp_update_bits_target" -> width,
                     "bp_update_bits_pht_count" -> BpUpdate.phtCountBits,
-                    "flush" -> 1,
                     "out_valid" -> 1,
                     "out_ready" -> 1,
                     "out_bits_pc" -> width,

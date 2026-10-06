@@ -20,7 +20,7 @@ class BusPipeTestLayers(parameter: BusPipeTestParameter) extends LayerInterface(
 class BusPipeTestIO(parameter: BusPipeTestParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
-    val flush = Flipped(Bool())
+    val flush = Flipped(new FlushBus(parameter.width))
     val ibus = Flipped(new LiteBusRO(parameter.width, parameter.width, 4, 4))
     val in = Flipped(Decoupled(Bits(parameter.width)))
     val out = Aligned(Decoupled(Bits(parameter.width)))
@@ -82,7 +82,16 @@ object LiteBusTest extends TestSuite:
             assert(!sv.contains("ibus_req_bits_wdata"))
 
         test("pipe channels are Decoupled, and flush is the register's own port"):
-            for port <- Seq("flush", "in_valid", "in_ready", "in_bits", "out_valid", "out_ready", "out_bits")
+            for port <- Seq(
+                    "flush_valid",
+                    "flush_next_pc",
+                    "in_valid",
+                    "in_ready",
+                    "in_bits",
+                    "out_valid",
+                    "out_ready",
+                    "out_bits"
+                )
             do assert(sv.contains(port))
             assert(!sv.contains("in_flush"))
             assert(sv.contains("always @(posedge clock)"))

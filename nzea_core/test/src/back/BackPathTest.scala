@@ -25,35 +25,46 @@ object BackPathTest extends TestSuite:
                 Seq(window),
                 BypassLevel.Commit,
                 Some(BpuConfig(BpuStrategy.Bimodal(128, 8), None)),
+                0,
                 StatScope.root
             )
         )
 
-    private def elaborate(isa: String, level: BypassLevel = BypassLevel.Commit): String =
-        TestFlow.lower(
-            module,
-            cfg =>
-                Back.main(
-                    Array(
-                        "config",
-                        cfg.toString,
-                        "--isa",
-                        isa,
-                        "--defaultPc",
-                        "2147483648",
-                        "--flow",
-                        "yosys",
-                        "--mmioRanges",
-                        window,
-                        "--bypass",
-                        level.name,
-                        "--bpu",
-                        "bimodal:128:8",
-                        "--stats",
-                        "root"
-                    )
-                ),
-            cfg => Back.main(Array("design", cfg.toString))
+    /** Lowerings are memoized per configuration: a generator object elaborates a given parameter once per process
+      * (`elaboratedModules`), so a second lowering of the same parameters writes no module and the link would fail.
+      */
+    private val lowerings = scala.collection.mutable.Map[(String, BypassLevel, Int), String]()
+
+    private def elaborate(isa: String, level: BypassLevel = BypassLevel.Commit, depth: Int = 0): String =
+        lowerings.getOrElseUpdate(
+            (isa, level, depth),
+            TestFlow.lower(
+                module,
+                cfg =>
+                    Back.main(
+                        Array(
+                            "config",
+                            cfg.toString,
+                            "--isa",
+                            isa,
+                            "--defaultPc",
+                            "2147483648",
+                            "--flow",
+                            "yosys",
+                            "--mmioRanges",
+                            window,
+                            "--bypass",
+                            level.name,
+                            "--lsqDepth",
+                            depth.toString,
+                            "--bpu",
+                            "bimodal:128:8",
+                            "--stats",
+                            "root"
+                        )
+                    ),
+                cfg => Back.main(Array("design", cfg.toString))
+            )
         )
 
     private lazy val rv32i = elaborate("riscv32i")
@@ -85,14 +96,17 @@ object BackPathTest extends TestSuite:
                     "bp_update_bits_taken" -> 1,
                     "bp_update_bits_target" -> width,
                     "bp_update_bits_pht_count" -> BpUpdate.phtCountBits,
-                    "complete_valid" -> 1,
-                    "complete_bits_data" -> width,
-                    "complete_bits_next_pc" -> width,
-                    "complete_bits_csr_type" -> CsrType.width,
-                    "complete_bits_csr_data" -> width,
-                    "complete_bits_is_mmio" -> 1,
-                    "complete_bits_is_branch" -> 1,
-                    "complete_bits_pred_next_pc" -> width,
+                    "retire_valid" -> 1,
+                    "retire_bits_next_pc" -> width,
+                    "retire_bits_rd_index" -> Gpr.indexWidth,
+                    "retire_bits_data" -> width,
+                    "retire_bits_csr_type" -> CsrType.width,
+                    "retire_bits_csr_data" -> width,
+                    "retire_bits_is_mmio" -> 1,
+                    "retire_bits_mispredicted" -> 1,
+                    "slotRelease" -> 1,
+                    "flush_valid" -> 1,
+                    "flush_next_pc" -> width,
                     "dbus_req_valid" -> 1,
                     "dbus_req_ready" -> 1,
                     "dbus_req_bits_addr" -> width,
@@ -106,15 +120,15 @@ object BackPathTest extends TestSuite:
                     "dbus_resp_bits_data" -> width,
                     "dbus_resp_bits_user" -> DbusUser.userWidth,
                     "dbus_resp_bits_id" -> MemPath.busIdWidth,
-                    "bypass_rs1_index" -> Gpr.indexWidth,
-                    "bypass_rs2_index" -> Gpr.indexWidth,
-                    "bypass_commit_valid" -> 1,
-                    "bypass_commit_bits_rd_index" -> Gpr.indexWidth,
-                    "bypass_commit_bits_data" -> width,
-                    "bypass_rs1_valid" -> 1,
-                    "bypass_rs1_bits" -> width,
-                    "bypass_rs2_valid" -> 1,
-                    "bypass_rs2_bits" -> width
+                    "forward_commit_armed" -> 1,
+                    "forward_offers_0_valid" -> 1,
+                    "forward_offers_0_armed" -> 1,
+                    "forward_offers_0_index" -> Gpr.indexWidth,
+                    "forward_offers_0_data" -> width,
+                    "forward_offers_1_valid" -> 1,
+                    "forward_offers_1_armed" -> 1,
+                    "forward_offers_1_index" -> Gpr.indexWidth,
+                    "forward_offers_1_data" -> width
                 )
             )
 
@@ -124,18 +138,28 @@ object BackPathTest extends TestSuite:
                 assert(!rv32i.contains(s"module $unit("))
                 assert(rv32im.contains(s"module $unit("))
 
-        // The network's sources are the level's prefix of the forwarding ladder: the retiring write answers at commit,
-        // the completing result joins it at execute, and a level below both keeps no matching logic at all.
-        test("the bypass network's sources are cut to the level"):
+        // The level is the column's `armed` bit: a writer the level cannot forward is broadcast unarmed, which is what
+        // keeps a read that names it waiting. The column's shape and the writers' identity do not move with the level —
+        // the same offers carry the same registers and values in every configuration.
+        test("the level is the column's armed bit"):
             val executed = elaborate("riscv32i", BypassLevel.Execute)
             val none = elaborate("riscv32i", BypassLevel.None)
-            assert(rv32i.contains("module Bypass("))
-            assert(rv32i.contains("commit_bits_rd_index == rs1_index"))
-            assert(!rv32i.contains("exec_bits_rd_index == rs1_index"))
-            assert(executed.contains("exec_bits_rd_index == rs1_index"))
-            assert(executed.contains("commit_bits_rd_index == rs1_index"))
-            assert(!none.contains("commit_bits_rd_index == rs1_index"))
-            assert(!none.contains("exec_bits_rd_index == rs1_index"))
+            assert(rv32i.contains("module Forward("))
+            // The retiring write's verdict crosses as a bit — the write itself is the middle's register, matched there.
+            assert(rv32i.contains("assign commit_armed = 1'h1"))
+            assert(!none.contains("assign commit_armed = 1'h1"))
+            // The slot's writer is armed only where the level reaches the completing value — below it, the read waits
+            // the instruction's whole residence.
+            assert(executed.contains("& exec_valid"))
+            assert(!rv32i.contains("& exec_valid"))
+
+        // The column is the whole wait rule and the queue's unfinished entries are part of it: an entry that names a
+        // register without being armed keeps a read of it waiting — the load still on the bus is what makes a read
+        // behind it hold.
+        test("the queue's unfinished entries ride the column"):
+            val queued = elaborate("riscv32i", BypassLevel.Execute, 4)
+            assert(queued.contains("~entries_0_done"))
+            assert(queued.contains("assign offers_4_armed"))
 
         test("mmio windows parse as hex base:size pairs"):
             assert(MmioWindow.parse("0x10000000:0x1000") == (BigInt("10000000", 16), BigInt("1000", 16)))

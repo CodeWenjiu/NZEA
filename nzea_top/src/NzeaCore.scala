@@ -75,6 +75,7 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
                     parameter.mmioRanges,
                     parameter.bypass,
                     parameter.bpu,
+                    parameter.lsqDepth,
                     parameter.stats.child(Core.Source)
                 )
             )

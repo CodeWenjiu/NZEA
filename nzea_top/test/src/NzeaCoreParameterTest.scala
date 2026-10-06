@@ -18,6 +18,7 @@ object NzeaCoreParameterTest extends TestSuite:
             Seq("0x10000000:8"),
             BypassLevel.Commit,
             Some(BpuConfig(BpuStrategy.Bimodal(128, 8), None)),
+            4,
             StatScope.root
         )
 
@@ -27,6 +28,7 @@ object NzeaCoreParameterTest extends TestSuite:
             assert(parameter.config.core.defaultPc == 0x80000000L)
             assert(parameter.bypass.commit)
             assert(parameter.bpu.map(_.name) == Some("bimodal:128:8"))
+            assert(parameter.lsqDepth == 4)
             assert(!parameter.flow.bridges)
 
         test("it round-trips through the config file"):

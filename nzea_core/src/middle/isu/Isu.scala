@@ -43,9 +43,9 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
     /** The CSR file's read side, addressed from the execute slot's held address. */
     val csr_rdata = Flipped(UInt(width))
 
-    /** The execute slot's pace: a completion frees it, and a flush kills the cycle. */
-    val complete = Flipped(Bool())
-    val flush = Flipped(Bool())
+    /** The execute slot's pace: a slot release frees it, and the flush event kills the cycle. */
+    val slotRelease = Flipped(Bool())
+    val flush = Flipped(new FlushBus(width))
 
     /** The execute slot as the middle's IS/EX register presents it: the payload the units work on, its validity, and
       * the pulse marking the cycle it arrived.
@@ -81,11 +81,11 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
         /** ID/IS is consumed when the read has placed the payload's operands — the read owns that test, including the
-          * in-flight writers it had to wait for — and the execute stage is about to free up: its uop completes, or the
-          * slot is empty. A flush moves nothing: what waits in the stages is on the path being killed.
+          * in-flight writers it had to wait for — and the execute stage is about to free up: its uop is released, or
+          * the slot is empty. A flush moves nothing: what waits in the stages is on the path being killed.
           */
         def canPlaceOperands(): Referable[Bool] =
-            (!io.slot_valid | io.complete) & io.operands_ready & !io.flush
+            (!io.slot_valid | io.slotRelease) & io.operands_ready & !io.flush.valid
 
         /** What moves into IS/EX: the read's operands, and the payload's held fields with the destination and the CSR
           * address riding in it.
@@ -128,7 +128,7 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
             uop.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), CsrType.fromAddr(slot.csr_addr))
             uop.csr_rdata := io.csr_rdata
             io.issue.valid := io.slot_valid
-            io.issue.first := io.slot_first & !io.flush
+            io.issue.first := io.slot_first & !io.flush.valid
             io.issue.bits :<= uop
 
         io.decoded_ready := canPlaceOperands()

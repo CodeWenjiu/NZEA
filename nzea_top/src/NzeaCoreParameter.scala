@@ -22,6 +22,7 @@ case class NzeaCoreParameter(
     mmioRanges: Seq[String],
     bypass: BypassLevel,
     bpu: Option[BpuConfig],
+    lsqDepth: Int,
     stats: StatScope
 ) extends Parameter
 
@@ -29,12 +30,12 @@ object NzeaCoreParameter:
 
     /** The baseline configuration: what a caller starts from before it overrides anything — one core, riscv32i at
       * `0x80000000`, verilator-shaped RTL, the yosys platform's device windows, execute-level forwarding, the 64-entry
-      * bimodal predictor, and the counters hanging under the design's root scope.
+      * bimodal predictor, the four-entry load/store queue, and the counters hanging under the design's root scope.
       *
       * A caller changes what it means to change (`NzeaCoreParameter.default.copy(config = …)`) and leaves the rest
-      * alone, so the knobs it has no opinion on — the forwarding level, the predictor, the counter scope — are written
-      * down once, here, instead of at every construction site. None of them is a CLI flag yet: a different design is a
-      * different value here.
+      * alone, so the knobs it has no opinion on — the forwarding level, the predictor, the queue, the counter scope —
+      * are written down once, here, instead of at every construction site. None of them is a CLI flag yet: a different
+      * design is a different value here.
       */
     def default: NzeaCoreParameter = NzeaCoreParameter(
         config = TopConfig(core = CoreConfig(isa = Isa("riscv32i"), defaultPc = 0x80000000L)),
@@ -44,6 +45,7 @@ object NzeaCoreParameter:
         mmioRanges = Seq("0x10000000:8", "0x00100000:4", "0x02000000:0xc000"),
         bypass = BypassLevel.Execute,
         bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
+        lsqDepth = 4,
         stats = StatScope.root
     )
 
