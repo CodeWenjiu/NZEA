@@ -133,7 +133,6 @@ object CountersTest extends TestSuite:
                 middleRun.schema.counters.map(c => (c.name, c.source)) ==
                     Seq(
                         "stat_middle_operand_wait" -> "middle",
-                        "stat_middle_slot_busy" -> "middle",
                         "stat_middle_cycle" -> "middle",
                         "stat_middle_inst_commit" -> "middle",
                         "stat_middle_flush" -> "middle"
@@ -172,14 +171,17 @@ object CountersTest extends TestSuite:
             assert(fetch.map(_.source).distinct == Seq("core"))
             coreRun.schema.validate()
 
-        // The paths and the queue used to sit in a module of their own; their counters keep its segment, so a reader of
-        // the dump does not have to learn the split.
+        // The paths, the queue and the execute slot used to sit in a module of their own — or in the middle; their
+        // counters keep the back segment, so a reader of the dump does not have to learn the split.
         test("the execution paths' counters keep the back scope under the core"):
             val intPath = coreRun.schema.counters.filter(_.source == "int")
             assert(
                 intPath.map(_.name) ==
                     Seq("stat_core_back_int_bp_branch", "stat_core_back_int_bp_taken", "stat_core_back_int_bp_mispred")
             )
+            // The execute slot's occupancy is the register's, and the register is the back's.
+            val back = coreRun.schema.counters.filter(_.source == "back")
+            assert(back.map(_.name) == Seq("stat_core_back_slot_busy"))
 
         test("every counter is box-width, and its box is instantiated by the module that declared it"):
             for r <- Seq(middleRun, intRun, coreRun) do

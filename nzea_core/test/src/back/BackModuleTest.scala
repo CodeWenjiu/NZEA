@@ -8,8 +8,8 @@ import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** Structural checks: the back's boundary is the middle's face in and the core's two ports out — the queue's face with
-  * the memory path, the dispatch and the merge are its own wiring and never cross it.
+/** Structural checks: the back's boundary is the middle's face in and the core's two ports out — the execute slot's
+  * register, the queue's face with the memory path, the dispatch and the merge are its own wiring and never cross it.
   */
 object BackModuleTest extends TestSuite:
 
@@ -63,23 +63,23 @@ object BackModuleTest extends TestSuite:
 
     private lazy val ports = TestFlow.ports(sv, module)
 
-    /** The backend's uop, under the port's own prefix. */
-    private def issuePorts(prefix: String): Map[String, Int] = Map(
-        s"${prefix}_valid" -> 1,
-        s"${prefix}_first" -> 1,
-        s"${prefix}_bits_pc" -> width,
-        s"${prefix}_bits_next_pc" -> width,
-        s"${prefix}_bits_fall_through" -> width,
-        s"${prefix}_bits_pht_count" -> BpUpdate.phtCountBits,
-        s"${prefix}_bits_imm" -> width,
-        s"${prefix}_bits_src_a" -> width,
-        s"${prefix}_bits_src_b" -> width,
-        s"${prefix}_bits_src_c" -> width,
-        s"${prefix}_bits_backend" -> Backend.width,
-        s"${prefix}_bits_op" -> OpWindow.width(config),
-        s"${prefix}_bits_csr_type" -> CsrType.width,
-        s"${prefix}_bits_csr_rdata" -> width,
-        s"${prefix}_bits_rd_index" -> Gpr.indexWidth
+    /** The read's uop, in: the elastic handshake and the IS/EX register's payload — the register is this module's. */
+    private def movedPorts: Map[String, Int] = Map(
+        "moved_valid" -> 1,
+        "moved_ready" -> 1,
+        "moved_bits_pc" -> width,
+        "moved_bits_next_pc" -> width,
+        "moved_bits_fall_through" -> width,
+        "moved_bits_pht_count" -> BpUpdate.phtCountBits,
+        "moved_bits_imm" -> width,
+        "moved_bits_src_a" -> width,
+        "moved_bits_src_b" -> width,
+        "moved_bits_src_c" -> width,
+        "moved_bits_backend" -> Backend.width,
+        "moved_bits_op" -> OpWindow.width(config),
+        "moved_bits_rd_index" -> Gpr.indexWidth,
+        "moved_bits_csr_type" -> CsrType.width,
+        "moved_bits_csr_rdata" -> width
     )
 
     /** One retiring record, under its own prefix. */
@@ -94,12 +94,20 @@ object BackModuleTest extends TestSuite:
         s"${prefix}_bits_mispredicted" -> 1
     )
 
-    /** One offer of the forward column: the slot's writer, then the queue's entries. */
+    /** One offer of the register file's column: the slot's writer, then the queue's entries. */
     private def offerPorts(index: Int): Map[String, Int] = Map(
-        s"offers_${index}_valid" -> 1,
-        s"offers_${index}_armed" -> 1,
-        s"offers_${index}_index" -> Gpr.indexWidth,
-        s"offers_${index}_data" -> width
+        s"forward_arf_offers_${index}_valid" -> 1,
+        s"forward_arf_offers_${index}_armed" -> 1,
+        s"forward_arf_offers_${index}_index" -> Gpr.indexWidth,
+        s"forward_arf_offers_${index}_data" -> width
+    )
+
+    /** One offer of the CSR column: the same writers, indexed by the CSR code. */
+    private def csrOfferPorts(index: Int): Map[String, Int] = Map(
+        s"forward_csr_offers_${index}_valid" -> 1,
+        s"forward_csr_offers_${index}_armed" -> 1,
+        s"forward_csr_offers_${index}_index" -> CsrType.width,
+        s"forward_csr_offers_${index}_data" -> width
     )
 
     /** The data bus, from the memory path's side: the request out and the response in. */
@@ -120,7 +128,7 @@ object BackModuleTest extends TestSuite:
     )
 
     val tests = Tests:
-        test("the back's boundary is the middle's face, the data bus and the predictor's training"):
+        test("the back's boundary is the middle's face and the core's two ports"):
             assert(sv.contains(s"module $module("))
             assert(
                 ports == Map(
@@ -128,16 +136,17 @@ object BackModuleTest extends TestSuite:
                     "resetN" -> 1,
                     "flush_valid" -> 1,
                     "flush_next_pc" -> width,
-                    "pace" -> 1,
-                    "commit_armed" -> 1,
-                    "bp_update_valid" -> 1,
-                    "bp_update_bits_pc" -> width,
-                    "bp_update_bits_taken" -> 1,
-                    "bp_update_bits_target" -> width,
-                    "bp_update_bits_pht_count" -> BpUpdate.phtCountBits
-                ) ++ issuePorts("issue") ++ retirePorts("retire") ++ dbusPorts
+                    "forward_commit_armed" -> 1
+                ) ++ movedPorts ++ retirePorts("retire") ++ dbusPorts
                     ++ (0 to depth).flatMap(offerPorts).toMap
+                    ++ (0 to depth).flatMap(csrOfferPorts).toMap
             )
+
+        // The training sideband is the predictor's: with no predictor there is no one to train, so the port — and the
+        // registers behind it in the int path — do not exist. The front's own test pins the other configuration.
+        test("the predictor's training follows the config"):
+            assert(!ports.contains("bp_update_valid"))
+            assert(!sv.contains("updateValid"))
 
         // The whole point of the module: the queue's face with the memory path and the two paths' faces are wired
         // inside, so nothing of them reaches the middle.
@@ -146,6 +155,12 @@ object BackModuleTest extends TestSuite:
                 Seq("queue_canAccept", "queue_flushRisk", "queue_reqTag", "int_issue_valid", "mem_issue_valid")
             for port <- internal do assert(!ports.contains(port))
 
-        test("the back instantiates the dispatch, the completion path, the network and the two paths"):
+        // The execute slot is this module's — the register is named here — while the CSR file, architectural state, is
+        // the middle's: the back only publishes the in-flight CSR writers, and the middle's read resolves them.
+        test("the back registers the execute slot, and not the CSR file"):
+            assert(sv.contains("isexValid"))
+            assert(!sv.contains("module CsrFile"))
+
+        test("the back instantiates the dispatch, the completion path with its queue, the network and the two paths"):
             for unit <- Seq("Dispatch", "Completion", "Forward", "IntPath", "MemPath", "Lsq") do
                 assert(sv.contains(s"module $unit("))

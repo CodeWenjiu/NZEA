@@ -32,7 +32,13 @@ class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
     val resetN = Flipped(Reset())
     val flush = Flipped(new FlushBus(width))
     val ibus = Aligned(Ifu.busType(parameter.config))
-    val bp_update = Flipped(Valid(new BpUpdate(width)))
+
+    /** The predictor's training, when a predictor is built: the port follows the config on both ends, so a design
+      * without one carries neither the wires nor the back's training registers.
+      */
+    val bp_update: Option[BundleField[ValidIO[BpUpdate]]] =
+        Option.when(parameter.bpu.isDefined)(Flipped(Valid(new BpUpdate(width))))
+
     val out = Aligned(Decoupled(new IduOut(parameter.config)))
 
 class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, FrontLayers](parameter)
@@ -66,7 +72,9 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
 
         io.ibus :<>= ifu.io.ibus
         ifu.io.redirect :<>= io.flush
-        ifu.io.bp_update :<>= io.bp_update
+        // The predictor's training, when a predictor is built: both ends carry the port only where the front has
+        // tables to train.
+        if parameter.bpu.isDefined then ifu.io.bp_update.get :<>= io.bp_update.get
 
         pipelineConnect(ifu.io.out, idu.io.in, io.flush, "ifid", FlushHandover.Consume)
 

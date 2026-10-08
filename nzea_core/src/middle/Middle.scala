@@ -8,17 +8,16 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.back.{ForwardParameter, IssueSlot, IssueUop, RetireEvent}
+import nzea_core.back.{ExecSlot, ForwardBus, ForwardParameter, RetireEvent}
 import nzea_core.config.CoreConfig
 import nzea_core.front.idu.IduOut
-import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
+import nzea_core.isa.{CsrType, Gpr, Isa}
 import nzea_core.middle.isu.{Isu, IsuParameter}
 import nzea_core.middle.rf.{Arf, ArfParameter, CsrFile, CsrFileParameter}
 import nzea_core.middle.wbu.{Wbu, WbuParameter}
-import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
-import nzea_rtl.stdlib.{pipelineConnect, FlushBus, FlushHandover, ForwardOffer}
+import nzea_rtl.stdlib.{pipelineConnect, FlushBus, FlushHandover}
 import nzea_sideband.CommitTrace
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -49,14 +48,12 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
     val resetN = Flipped(Reset())
     val decoded = Flipped(Decoupled(new IduOut(parameter.config)))
 
-    /** The back's face: the execute slot's uop as the backend's contract, and the verdicts it hands back — the slot's
-      * pace, the retiring record, the forward column, and the level's verdict for the retiring write.
+    /** The back's face: the read's uop out, and the verdicts in — the retiring record and the forward network's face
+      * ([[nzea_core.back.ForwardBus]]).
       */
-    val issue = Aligned(new IssueSlot(new IssueUop(parameter.config)))
-    val pace = Flipped(Bool())
+    val moved = Aligned(Decoupled(new ExecSlot(parameter.config)))
     val retire = Flipped(ValidIO(new RetireEvent(width)))
-    val offers = Flipped(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
-    val commit_armed = Flipped(Bool())
+    val forward = Flipped(new ForwardBus(width, parameter.offerCount))
 
     val commit = Aligned(ValidIO(new CommitTrace(width, Gpr.indexWidth, CsrType.addrWidth)))
 
@@ -65,21 +62,21 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
 
 class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, MiddleLayers](parameter)
 
-/** In-order middle: the three stages — [[nzea_core.middle.isu.Isu]], the execute slot and [[nzea_core.middle.wbu.Wbu]]
-  * — the elastic registers between them, and the files they face.
+/** In-order middle: the instruction stream's two ends — [[nzea_core.middle.isu.Isu]] and [[nzea_core.middle.wbu.Wbu]] —
+  * the elastic register between them, and the register and CSR files they face.
   *
-  * [[nzea_core.middle.isu.Isu]] is the combinational read and assembly; the execute slot is the IS/EX register, whose
-  * read side is presented to the back as the backend's uop — the middle holds no unit of its own there, and what the
-  * back hands back is what its stages wait on (the slot's pace, the retire stream, the forward column); and
-  * [[nzea_core.middle.wbu.Wbu]] is the retire register that sources the commit and the flush. The register and CSR
-  * files sit here, where the stages face them.
+  * [[nzea_core.middle.isu.Isu]] is the combinational read and assembly; [[nzea_core.middle.wbu.Wbu]] is the retire
+  * register that sources the commit and the flush. Between them the stream leaves the module: the read's uop crosses to
+  * the back, which registers it as its own input, executes it, and hands back what these two stages wait on — the
+  * slot's pace is the register's room there, the retire stream is the completion path's, the columns are the network's.
+  * The two files sit here, where both stages face them: the read sides are the issue stage's and the write sides the
+  * retire register's.
   *
   * The stage boundaries are declared here, beside the front-end's own (`pipelineConnect`, one per boundary): the units
-  * inside the stages are combinational, and every register the pipeline has is one this module names. The rest is the
-  * wiring: the flush forward, the retirement, the first cycle and the column back, the files' two sides — and the
-  * middle's boundary to the core: the decoded stream in, the back's face, the commit and the flush out. The stages
-  * share the `middle` scope, so the counters they declare land where they always have, and the one that is the
-  * register's own is declared here beside it.
+  * inside the stages are combinational, and every register the pipeline has is one the module that consumes it names —
+  * the middle names ID/IS, the back names IS/EX, the write-back register is [[nzea_core.middle.wbu.Wbu]]'s. The rest is
+  * the wiring: the flush forward, the retirement, the columns back, the files' sides — and the middle's boundary to the
+  * core: the decoded stream in, the back's face, the commit and the flush out.
   */
 @generator
 object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleProbe]:
@@ -93,30 +90,11 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         given ClockScope = ClockScope.posedge(io.clock)
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-        val width = parameter.config.width
         val c = parameter.config
         val middleStats = parameter.stats.child(Middle.Source)
 
         val isu =
             Isu.instantiate(IsuParameter(c.isa, c.defaultPc, parameter.flow, parameter.lsqDepth, middleStats))
-
-        // The execute slot: the IS/EX register's read side, which the back's face reads — its room is the back's pace,
-        // which the queue's own room may hold back after a unit has already reported.
-        val slot = Wire(Decoupled(new ExecSlot(c)))
-
-        /** The execute slot's occupancy: the IS/EX register's own, declared here beside the register whose two ends are
-          * this module's. Its sibling `operand_wait` is the issue stage's, beside the read it watches — and the
-          * declaration sits between the two stages so the schema reads in pipeline order.
-          */
-        if parameter.flow.counters then
-            val busy =
-                middleStats.stat("slot_busy", Regions.Throughput, "cycles the execute slot holds an unfinished uop")
-            busy.inc(slot.valid & !slot.ready)
-
-        // The execute slot's arrival edge, for the per-instruction events the units key off `first`.
-        val slotFirst = RegInit(false.B)
-        slotFirst := isu.io.moved.fire
-
         val wbu = Wbu.instantiate(WbuParameter(c.isa, c.defaultPc, parameter.flow, middleStats))
         val csr = CsrFile.instantiate(CsrFileParameter(c.width))
         val arf = Arf.instantiate(ArfParameter(c.width))
@@ -130,58 +108,32 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         arf.io.clock := io.clock
         arf.io.resetN := io.resetN
 
-        // The middle's two elastic registers — ID/IS and IS/EX — declared here as the front-end declares its own: the
-        // stages' units are combinational, and the boundaries between them are this module's. Each register sits
-        // between two stages and never inside one: the issue stage fills the IS/EX register and the execute stage reads
-        // it — the register's read side is the slot wire above.
+        // The middle's elastic register — ID/IS — declared here as the front-end declares its own: the stages' units are
+        // combinational, and the boundary between them is this module's. The IS/EX register is not: it is the execute
+        // stage's own input, registered by the back, and this module hands the read's uop over as the register's fill
+        // side — its room comes back on `moved.ready`.
         pipelineConnect(io.decoded, isu.io.decoded, wbu.io.flush, "idis", FlushHandover.Refuse)
-        pipelineConnect(isu.io.moved, slot, wbu.io.flush, "isex", FlushHandover.Refuse)
-        slot.ready := io.pace
+        io.moved :<>= isu.io.moved
 
-        /** The uop the back works on, as the slot presents it: the payload reversed into the backend's contract, with
-          * the CSR read answered here. A memory instruction's `inst[31:20]` is an address offset, not a CSR address, so
-          * it maps to none, and a flush silences the roles — the units take a vanished uop as abandoned.
-          */
-        def issueView(): Unit =
-            val bits = slot.bits
-            val isMem = bits.backend === Backend.MEM.lit.U(Backend.width)
-            io.issue.valid := slot.valid
-            io.issue.first := slotFirst & !io.flush.valid
-            io.issue.bits.pc := bits.pc
-            io.issue.bits.next_pc := bits.next_pc
-            io.issue.bits.fall_through := bits.fall_through
-            io.issue.bits.pht_count := bits.pht_count
-            io.issue.bits.imm := bits.imm
-            io.issue.bits.src_a := bits.src_a
-            io.issue.bits.src_b := bits.src_b
-            io.issue.bits.src_c := bits.src_c
-            io.issue.bits.backend := bits.backend
-            io.issue.bits.op := bits.op
-            io.issue.bits.rd_index := bits.rd_index
-            io.issue.bits.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), CsrType.fromAddr(bits.csr_addr))
-            io.issue.bits.csr_rdata := csr.io.read.data
-            csr.io.read.addr := bits.csr_addr
-
-        issueView()
-
-        // The back's verdicts: the retire stream the write-back stage latches, and the column and the level's verdict
-        // the read resolves against.
+        // The back's verdicts: the retiring record the write-back stage latches, and the network's face the read
+        // resolves against.
         wbu.io.retire :<= io.retire
-        isu.io.offers :<= io.offers
-        isu.io.commit_armed := io.commit_armed
+        isu.io.forward :<= io.forward
 
-        // The files both stages face: the register file's read side is the issue stage's, the CSR one's is the execute
-        // stage's — the slot carries the address — and the write side is the retire register's. The reader is the
-        // destination side of a read port (its index flows out of it), so the stage's port is the connect's
-        // destination — a submodule's output port cannot be one.
+        // The two files both stages face: both read sides are the issue stage's — the register file's two ports and the
+        // CSR's one — and both write sides are the retire register's. The reader is the destination side of a read port
+        // (its index flows out of it), so the stage's port is the connect's destination — a submodule's output port
+        // cannot be one.
         isu.io.arf_rs1 :<>= arf.io.rs1
         isu.io.arf_rs2 :<>= arf.io.rs2
+        isu.io.csr_read :<>= csr.io.read
         arf.io.write :<= wbu.io.arf_write
         csr.io.write :<= wbu.io.csr_write
 
-        // The retiring write is the write-back stage's own register, and the read is its forward: one register, seen by
-        // the file's write port and by the read at once.
-        isu.io.commit :<= wbu.io.arf_write
+        // The retiring writes are the write-back stage's own register, and the reads are their forward: one register,
+        // seen by the files' write ports and by the read at once.
+        isu.io.arf_commit :<= wbu.io.arf_write
+        isu.io.csr_commit :<= wbu.io.csr_write
 
         // The boundary's outputs.
         io.flush :<= wbu.io.flush

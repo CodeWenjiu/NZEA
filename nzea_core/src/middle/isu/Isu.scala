@@ -10,10 +10,9 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
 import nzea_core.front.idu.IduOut
-import nzea_core.isa.{Gpr, Isa}
-import nzea_core.middle.ExecSlot
-import nzea_core.back.ForwardParameter
-import nzea_core.middle.rf.{ArfReadPort, ArfWrite}
+import nzea_core.isa.Isa
+import nzea_core.back.{ExecSlot, ForwardBus, ForwardParameter}
+import nzea_core.middle.rf.{ArfReadPort, ArfWrite, CsrReadPort, CsrWrite}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
@@ -54,16 +53,20 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
     val arf_rs1 = Flipped(new ArfReadPort(width))
     val arf_rs2 = Flipped(new ArfReadPort(width))
 
-    /** The forward network's column of in-flight writers, youngest first: the read resolves its own indexes against it
-      * ([[nzea_rtl.stdlib.ForwardOffer]]).
+    /** The CSR file's read side, passed through to the read unit: the reader is the read's, the file is the middle's.
       */
-    val offers = Flipped(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
+    val csr_read = Flipped(new CsrReadPort(width))
 
-    /** The retiring instruction's write — the middle's own producer, older than everything in the column — and whether
-      * the level reaches it (the forward network's `commit_armed`).
+    /** The forward network's face, passed through to the read unit: the columns it resolves its reads against and the
+      * level's verdict for the retiring writes ([[nzea_core.back.ForwardBus]]).
       */
-    val commit = Flipped(ValidIO(new ArfWrite(width)))
-    val commit_armed = Flipped(Bool())
+    val forward = Flipped(new ForwardBus(width, parameter.offerCount))
+
+    /** The retiring instruction's writes — the middle's own producers, older than everything in the columns — the
+      * register file's and the CSR file's.
+      */
+    val arf_commit = Flipped(ValidIO(new ArfWrite(width)))
+    val csr_commit = Flipped(ValidIO(new CsrWrite(width)))
 
 class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers](parameter)
 
@@ -73,8 +76,8 @@ class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers
   * boundary, which is the rule the front-end follows around its decode — and this unit is what sits between them: it
   * reads the ID/IS register and fills the IS/EX register's write side. The read side of that register belongs to the
   * execute stage, which is what presents the slot to the units. The operands arrive already placed from
-  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility; this unit assembles the `moved` payload,
-  * carrying the fetch's predicted next pc through untouched.
+  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility and the CSR it settled; this unit
+  * assembles the `moved` payload, carrying the fetch's predicted next pc through untouched.
   *
   * The stage's own counter (`operand_wait`) is declared here, where the signals it watches are; the execute slot's
   * occupancy is the register's own and is declared beside it.
@@ -92,8 +95,8 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
             OperandRead.instantiate(OperandReadParameter(parameter.isa, parameter.defaultPc, parameter.lsqDepth))
         val assemble = Assemble.instantiate(AssembleParameter(parameter.isa, parameter.defaultPc))
 
-        /** The read: the payload's indexes out to the file and the network, the answers back in, and the placement of
-          * the three operand slots, with the pace this read can move at.
+        /** The read: the payload's indexes and CSR address out to the files and the network, the answers back in, and
+          * the placement of the three operand slots, with the pace this read can move at.
           */
         def readUnit(): Unit =
             read.io.clock := io.clock
@@ -103,14 +106,17 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
             read.io.rs2_data := io.arf_rs2.data
             io.arf_rs1.index := read.io.rs1_index
             io.arf_rs2.index := read.io.rs2_index
+            // The read unit's own port is the connect's sink side; the boundary port is the source — the reader drives
+            // the address out, the file's answer comes back in.
+            read.io.csr_read :<>= io.csr_read
 
-            // The forward column: the read resolves its own indexes against the offers, and the retiring write — the
-            // middle's own register — against the level's verdict for it.
-            read.io.offers :<= io.offers
-            read.io.commit :<= io.commit
-            read.io.commit_armed := io.commit_armed
+            // The forward face and the retiring writes: the read resolves its own indexes against the network's
+            // columns, and the middle's own registers against the level's verdict.
+            read.io.forward :<= io.forward
+            read.io.arf_commit :<= io.arf_commit
+            read.io.csr_commit :<= io.csr_commit
 
-        /** The uop that moves: the read's operands and feasibility, the payload's held fields, and the room the
+        /** The uop that moves: the read's operands and CSR, feasibility, the payload's held fields, and the room the
           * register below reports — its handover rule, the flush included, is the register's own.
           */
         def assembleUnit(): Unit =
@@ -121,6 +127,8 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
             assemble.io.src_a := read.io.src_a
             assemble.io.src_b := read.io.src_b
             assemble.io.src_c := read.io.src_c
+            assemble.io.csr_type := read.io.csr_type
+            assemble.io.csr_rdata := read.io.csr_rdata
             assemble.io.operands_ready := read.io.ready
             assemble.io.moved_ready := io.moved.ready
             io.moved.bits :<= assemble.io.moved

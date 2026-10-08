@@ -10,7 +10,7 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
 import nzea_core.back.mem.{DbusUser, LsqResponse, LsuData, LsuOp, MemOp}
-import nzea_core.isa.{Backend, Gpr, Isa}
+import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
@@ -51,14 +51,17 @@ class LsqEntry(config: CoreConfig) extends Bundle:
     val offset = Aligned(UInt(LsuData.offsetWidth(config.width)))
     val op = Aligned(UInt(LsuOp.set(config.isa).width))
 
-/** What the bypass network sees of one entry: whether it is occupied, whether its value is ready, and the write it
-  * offers. The queue exports this instead of the whole entry so the network's ports carry only what it reads.
+/** What the bypass network sees of one entry: whether it is occupied, whether its value is ready, and the writes it
+  * offers — the register file's and the CSR's, the two the network forwards. The queue exports this instead of the
+  * whole entry so the network's ports carry only what it reads.
   */
 class LsqView(width: Int) extends Bundle:
     val valid = Aligned(Bool())
     val done = Aligned(Bool())
     val rd_index = Aligned(UInt(Gpr.indexWidth))
     val data = Aligned(UInt(width))
+    val csr_type = Aligned(UInt(CsrType.width))
+    val csr_data = Aligned(UInt(width))
 
 /** The queue as the forward network reads it: every entry's view, and the head's position — the order a multiple match
   * is resolved in (the youngest wins).
@@ -273,6 +276,8 @@ object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
                 io.entries.ref(index).done := entries.ref(index).done
                 io.entries.ref(index).rd_index := entries.ref(index).record.rd_index
                 io.entries.ref(index).data := entries.ref(index).record.data
+                io.entries.ref(index).csr_type := entries.ref(index).record.csr_type
+                io.entries.ref(index).csr_data := entries.ref(index).record.csr_data
             io.head := head
 
         writeEntry()

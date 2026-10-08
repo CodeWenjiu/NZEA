@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BypassLevel, CoreConfig}
-import nzea_core.isa.{Gpr, Isa}
+import nzea_core.isa.{CsrType, Gpr, Isa}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -21,7 +21,9 @@ case class ForwardParameter(isa: Isa, defaultPc: Long, bypass: BypassLevel, lsqD
       */
     val entryCount: Int = ForwardParameter.entryCount(lsqDepth)
 
-    /** The column's length: the slot's writer and the entries. The retiring write is not in it — it is the middle's. */
+    /** Each column's length: the slot's writer and the entries. The retiring writes are not in it — they are the
+      * middle's.
+      */
     val offerCount: Int = ForwardParameter.offerCount(lsqDepth)
 
 given upickle.default.ReadWriter[ForwardParameter] = upickle.default.macroRW
@@ -33,6 +35,18 @@ object ForwardParameter:
 
     /** The offers a configuration's column carries: the slot's writer and the entries. */
     def offerCount(lsqDepth: Int): Int = entryCount(lsqDepth) + 1
+
+/** The forward network's face, as the middle sees it: the two columns of in-flight writers — the register file's and
+  * the CSR file's — and the level's verdict for the retiring writes the middle holds itself.
+  *
+  * One port, because it is one thing: the network's answer to the read, which the boundary carries beside the retiring
+  * record instead of as three loose wires. The columns are [[nzea_rtl.stdlib.ForwardOffer]]s; the verdict is a constant
+  * for a configuration, and it rides here so a consumer never has to know the level.
+  */
+class ForwardBus(width: Int, offerCount: Int) extends Bundle:
+    val arf_offers = Aligned(Vec(offerCount, new ForwardOffer(width, Gpr.indexWidth)))
+    val csr_offers = Aligned(Vec(offerCount, new ForwardOffer(width, CsrType.width)))
+    val commit_armed = Aligned(Bool())
 
 class ForwardLayers(parameter: ForwardParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
@@ -53,26 +67,23 @@ class ForwardIO(parameter: ForwardParameter) extends HWBundle(parameter):
       */
     val view = Flipped(new QueueView(width, parameter.entryCount))
 
-    /** The column, out to the middle: the in-flight writers, youngest first ([[nzea_rtl.stdlib.ForwardOffer]]). */
-    val offers = Aligned(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
-
-    /** The level's verdict for the retiring write the middle holds: whether the level forwards it. */
-    val commit_armed = Aligned(Bool())
+    /** The network's face, out to the middle: the two columns and the level's verdict ([[ForwardBus]]). */
+    val forward = Aligned(new ForwardBus(width, parameter.offerCount))
 
 class ForwardProbe(parameter: ForwardParameter) extends DVBundle[ForwardParameter, ForwardLayers](parameter)
 
-/** The forward network: the in-flight writers the execution face holds gathered into one column of offers, youngest
-  * first, each cut to the level's reach.
+/** The forward network: the in-flight writers the execution face holds gathered into two columns of offers — the
+  * register file's and the CSR file's — youngest first, each cut to the level's reach.
   *
-  * The producers do not know who reads them and the consumers do not know who produces: the column is the whole
-  * contract, and a consumer resolves its own read against it. The order is program order — the slot's uop is the
-  * youngest writer in flight, the queue's entries read back from the tail behind it — so a match needs no tag: the
-  * first offer that answers a register is its youngest writer. The middle's retiring write is older than everything
-  * here and lives in the middle, so it is not in the column: only the level's verdict for it crosses.
+  * The producers do not know who reads them and the consumers do not know who produces: a column is the whole contract,
+  * and a consumer resolves its own read against it. The order is program order — the slot's uop is the youngest writer
+  * in flight, the queue's entries read back from the tail behind it — so a match needs no tag: the first offer that
+  * answers a register, or a CSR code, is its youngest writer. The middle's retiring writes are older than everything
+  * here and live in the middle, so they are not in the columns: only the level's verdict for them crosses.
   *
-  * The level is the column's `armed` bit: a writer the level cannot forward — the completing value and the entries
-  * below `Execute` — is broadcast unarmed, which is what keeps a read that names it waiting. The wait a read owes is
-  * the same column read the other way, so no consumer has to know the level.
+  * The level is a column's `armed` bit: a writer the level cannot forward — the completing value and the entries below
+  * `Execute` — is broadcast unarmed, which is what keeps a read that names it waiting. The wait a read owes is the same
+  * column read the other way, so no consumer has to know the level.
   */
 @generator
 object Forward extends Generator[ForwardParameter, ForwardLayers, ForwardIO, ForwardProbe]:
@@ -92,10 +103,20 @@ object Forward extends Generator[ForwardParameter, ForwardLayers, ForwardIO, For
           */
         val slotValid = io.issue.valid & (io.issue.bits.rd_index =/= 0.U(indexWidth))
         val slotArmed = slotValid & (if parameter.bypass.execute then io.exec.valid else false.B)
-        io.offers.ref(0).valid := slotValid
-        io.offers.ref(0).armed := slotArmed
-        io.offers.ref(0).index := io.issue.bits.rd_index
-        io.offers.ref(0).data := io.exec.bits.data
+        io.forward.arf_offers.ref(0).valid := slotValid
+        io.forward.arf_offers.ref(0).armed := slotArmed
+        io.forward.arf_offers.ref(0).index := io.issue.bits.rd_index
+        io.forward.arf_offers.ref(0).data := io.exec.bits.data
+
+        /** The slot's CSR write, the same youngest writer in the CSR's index space: the completion's `csr_type` names
+          * the CSR the uop writes — none for every uop the sysu does not run — and its `csr_data` is the value.
+          */
+        val csrSlotValid = io.issue.valid & (io.exec.bits.csr_type =/= CsrType.None.lit.U(CsrType.width))
+        val csrSlotArmed = csrSlotValid & (if parameter.bypass.execute then io.exec.valid else false.B)
+        io.forward.csr_offers.ref(0).valid := csrSlotValid
+        io.forward.csr_offers.ref(0).armed := csrSlotArmed
+        io.forward.csr_offers.ref(0).index := io.exec.bits.csr_type
+        io.forward.csr_offers.ref(0).data := io.exec.bits.csr_data
 
         /** The queue's entries, from the tail back to the head: offer `1 + k` is the entry at position `entryCount - 1
           * \- k`, so the column reads youngest first and a consumer never sees the ring.
@@ -127,20 +148,37 @@ object Forward extends Generator[ForwardParameter, ForwardLayers, ForwardIO, For
                 val armed =
                     valid & (if parameter.bypass.execute then oneHotBool(picks, j => io.view.entries.ref(j).done)
                              else false.B)
-                val offer = io.offers.ref(1 + k)
+                val offer = io.forward.arf_offers.ref(1 + k)
                 offer.valid := valid
                 offer.armed := armed
                 offer.index := index
                 offer.data := oneHotUInt(picks, j => io.view.entries.ref(j).data, width)
+
+                val csrType = oneHotUInt(picks, j => io.view.entries.ref(j).csr_type, CsrType.width)
+                val csrValid = oneHotBool(picks, j => io.view.entries.ref(j).valid) &
+                    (csrType =/= CsrType.None.lit.U(CsrType.width))
+                val csrArmed =
+                    csrValid & (if parameter.bypass.execute then oneHotBool(picks, j => io.view.entries.ref(j).done)
+                                else false.B)
+                val csrOffer = io.forward.csr_offers.ref(1 + k)
+                csrOffer.valid := csrValid
+                csrOffer.armed := csrArmed
+                csrOffer.index := csrType
+                csrOffer.data := oneHotUInt(picks, j => io.view.entries.ref(j).csr_data, width)
         else
-            // No queue: the column's entry slot is a constant, and the constant folds out of every consumer.
-            val offer = io.offers.ref(1)
+            // No queue: the columns' entry slots are constants, and the constants fold out of every consumer.
+            val offer = io.forward.arf_offers.ref(1)
             offer.valid := false.B
             offer.armed := false.B
             offer.index := 0.U(indexWidth)
             offer.data := 0.U(width)
+            val csrOffer = io.forward.csr_offers.ref(1)
+            csrOffer.valid := false.B
+            csrOffer.armed := false.B
+            csrOffer.index := 0.U(CsrType.width)
+            csrOffer.data := 0.U(width)
 
-        /** The retiring write's verdict: the one producer the middle holds itself, so only the level's answer crosses —
-          * the write-back register goes to the read directly.
+        /** The retiring writes' verdict: the producers the middle holds itself, so only the level's answer crosses —
+          * the write-back register goes to the reads directly.
           */
-        io.commit_armed := (if parameter.bypass.execute | parameter.bypass.commit then true.B else false.B)
+        io.forward.commit_armed := (if parameter.bypass.execute | parameter.bypass.commit then true.B else false.B)

@@ -3,6 +3,7 @@ package nzea_core.front.ifu
 import java.lang.foreign.Arena
 
 import me.jiuyang.stdlib.Valid
+import me.jiuyang.stdlib.ValidIO
 import me.jiuyang.stdlib.default.{*, given}
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -47,7 +48,11 @@ class IfuIO(parameter: IfuParameter) extends HWBundle(parameter):
     val redirect = Flipped(new FlushBus(parameter.config.width))
 
     /** The resolved branches the predictor trains on; unused (and folded away) with no predictor. */
-    val bp_update = Flipped(Valid(new BpUpdate(parameter.config.width)))
+    /** The predictor's training, when a predictor is built: the port follows the config, as it does on the back's end.
+      */
+    val bp_update: Option[BundleField[ValidIO[BpUpdate]]] =
+        Option.when(parameter.bpu.isDefined)(Flipped(Valid(new BpUpdate(parameter.config.width))))
+
     val out = Aligned(Decoupled(new FetchedInst(parameter.config.width)))
 
 class IfuProbe(parameter: IfuParameter) extends DVBundle[IfuParameter, IfuLayers](parameter)
@@ -110,7 +115,7 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
 
         bpu.io.clock := io.clock
         bpu.io.resetN := io.resetN
-        bpu.io.update :<= io.bp_update
+        bpu.io.update.zip(io.bp_update).foreach((update, port) => update :<= port)
         // The read address is the pc register's next value: next cycle's register, one cycle early.
         bpu.io.lookup_pc := nextPc
         // The instruction's own fall-through, registered beside the pc: both are loaded from `nextPc`, so the register

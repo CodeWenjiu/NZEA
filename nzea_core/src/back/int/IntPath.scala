@@ -35,9 +35,12 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
     val path = Flipped(new IntFace(parameter.config))
 
     /** The resolved branches, for the front's predictor: the branch unit's own wires, registered at the resolve cycle
-      * so the tables' write decode hangs off registers rather than off the units' cones.
+      * so the tables' write decode hangs off registers rather than off the units' cones. The port follows the
+      * predictor's config — with no predictor there is no one to train, so neither the port nor the registers behind it
+      * exist.
       */
-    val bp_update = Aligned(ValidIO(new BpUpdate(width)))
+    val bp_update: Option[BundleField[ValidIO[BpUpdate]]] =
+        Option.when(parameter.bpu.isDefined)(Aligned(ValidIO(new BpUpdate(width))))
 
 class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParameter, IntPathLayers](parameter)
 
@@ -203,33 +206,35 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
         result()
 
-        /** The predictor's training data: the branch unit's own outcome, registered on the cycle it resolves. Every
-          * signal already exists — the interface exists at every level, and nothing here knows whether a front is
-          * listening — and the register is what keeps the tables' write decode (a whole PHT/BTB worth of fanout in the
+        /** The predictor's training data: the branch unit's own outcome, registered on the cycle it resolves. The port
+          * is the predictor's own — the same config that builds the front's tables builds this end — and every signal
+          * already exists; the register is what keeps the tables' write decode (a whole PHT/BTB worth of fanout in the
           * front) off the cones that produce them, the target adder's above all. Training therefore lands one cycle
           * after the resolve it describes: a table reorganizes a round later, which only a self-loop tighter than
           * roughly two cycles could notice.
           */
         def bpTraining(): Unit =
-            val updateValid = RegInit(false.B)
-            val updatePc = Reg(UInt(width))
-            val updateTaken = Reg(Bool())
-            val updateTarget = Reg(UInt(width))
-            val updateCount = Reg(UInt(BpUpdate.phtCountBits))
-            when(branchResolved) {
-                updatePc := u.pc
-                updateTaken := bru.io.taken
-                updateTarget := bru.io.target
-                // The counter the fetch's prediction read, carried down the pipeline: the table's update writes the bumped value,
-                // and it cannot read the old one back (a synchronous-read memory hands its read to the fetch, not to this path).
-                updateCount := u.pht_count
-            }
-            updateValid := branchResolved
-            io.bp_update.valid := updateValid
-            io.bp_update.bits.pc := updatePc
-            io.bp_update.bits.taken := updateTaken
-            io.bp_update.bits.target := updateTarget
-            io.bp_update.bits.pht_count := updateCount
+            if parameter.bpu.isDefined then
+                val update = io.bp_update.get
+                val updateValid = RegInit(false.B)
+                val updatePc = Reg(UInt(width))
+                val updateTaken = Reg(Bool())
+                val updateTarget = Reg(UInt(width))
+                val updateCount = Reg(UInt(BpUpdate.phtCountBits))
+                when(branchResolved) {
+                    updatePc := u.pc
+                    updateTaken := bru.io.taken
+                    updateTarget := bru.io.target
+                    // The counter the fetch's prediction read, carried down the pipeline: the table's update writes the bumped value,
+                    // and it cannot read the old one back (a synchronous-read memory hands its read to the fetch, not to this path).
+                    updateCount := u.pht_count
+                }
+                updateValid := branchResolved
+                update.valid := updateValid
+                update.bits.pc := updatePc
+                update.bits.taken := updateTaken
+                update.bits.target := updateTarget
+                update.bits.pht_count := updateCount
 
         bpTraining()
 

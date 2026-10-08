@@ -1,12 +1,10 @@
 // CSR read-after-write chains: a read must see a write made by the instruction ahead of it.
 //
 // The chains are back to back on purpose: `csrw` immediately followed by `csrr` is the sharpest case, because the read
-// lands in the cycle the write commits. With an execute-stage bypass link the read window is one cycle ahead of the
-// commit port's, and a CSR file that only reads its own registers would answer one instruction stale. That hazard
-// needs the middle to admit the pair on consecutive cycles, which needs the front end to hand it two instructions on
-// consecutive cycles — today's fetcher paces one word per two cycles with no buffer, so the pair always has a gap and
-// the chain is correct either way. This program is the regression net for both: it pins the chains' values now, and it
-// is what fails first once a fetch buffer (or a 64-bit fetch word split in two) lets the pair land back to back.
+// issues while the write is still in flight — the file has not been written yet, and the write reaches it only at
+// commit. The read resolves against the forward column (the in-flight writers, the retiring write included), so it
+// takes the writer's value without waiting for the commit. This program pins the chains' values: a stale read reaches a
+// GPR and mismatches the difftest's reference on the committing instruction.
 //
 // Assemble (nzea):   just asm-elf csr_read_after_write riscv32im   # or riscv64im
 // Run (remu shell):  cargo run -p remu_cli --release -- --elf build/asm/csr_read_after_write-riscv32im.elf \

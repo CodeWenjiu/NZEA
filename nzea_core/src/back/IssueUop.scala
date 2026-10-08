@@ -16,6 +16,10 @@ import nzea_core.isa.{Backend, CsrType, Gpr}
   *
   * [[rd_index]] is the destination, and it rides only for the bypass network: the backend itself never reads it.
   *
+  * `csr_type` and `csr_rdata` are the CSR read the same issue resolved — the code the instruction's address named and
+  * the value the read settled on — so the sysu consumes a CSR like any other operand and the execute stage never names
+  * the file.
+  *
   * `op` is the decoded instruction whole, in the window its backend owns (`nzea_core.back.int.IntOp`,
   * `nzea_core.back.mem.MemOp`), so this contract does not change when a backend adds a unit or an operation. Its width
   * is the configuration's (`nzea_core.back.OpWindow`) and is derived here like every other field's, so a caller hands

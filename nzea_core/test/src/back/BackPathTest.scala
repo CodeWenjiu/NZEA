@@ -1,6 +1,6 @@
 package nzea_core.back
 
-import nzea_core.config.CoreConfig
+import nzea_core.config.{BpuConfig, BpuStrategy, CoreConfig}
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{DbusUser, LsuData, MemPath, MemPathParameter, MmioWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
@@ -27,7 +27,15 @@ object BackPathTest extends TestSuite:
     private val lowerings = scala.collection.mutable.Map[String, String]()
 
     private def intModule(isa: String): String =
-        IntPath.moduleName(IntPathParameter(Isa(isa), 0x80000000L, RtlFlow.Yosys, StatScope(Seq("int")), None))
+        IntPath.moduleName(
+            IntPathParameter(
+                Isa(isa),
+                0x80000000L,
+                RtlFlow.Yosys,
+                StatScope(Seq("int")),
+                Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None))
+            )
+        )
 
     private def intSv(isa: String): String =
         lowerings.getOrElseUpdate(
@@ -45,6 +53,8 @@ object BackPathTest extends TestSuite:
                             "2147483648",
                             "--flow",
                             "yosys",
+                            "--bpu",
+                            "bimodal:64:4",
                             "--stats",
                             "int"
                         )

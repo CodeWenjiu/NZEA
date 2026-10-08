@@ -3,6 +3,7 @@ package nzea_core.front.ifu.bp
 import java.lang.foreign.Arena
 
 import me.jiuyang.stdlib.Valid
+import me.jiuyang.stdlib.ValidIO
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -40,8 +41,11 @@ class BpuIO(parameter: BpuParameter) extends HWBundle(parameter):
     /** The direction counter the prediction read, for the fetch to carry back as the branch's training evidence. */
     val pred_count = Aligned(UInt(BpUpdate.phtCountBits))
 
-    /** The resolutions to train on. */
-    val update = Flipped(Valid(new BpUpdate(width)))
+    /** The resolutions to train on: the port follows the config — with no predictor there is no table to train, so it
+      * does not exist.
+      */
+    val update: Option[BundleField[ValidIO[BpUpdate]]] =
+        Option.when(parameter.bpu.isDefined)(Flipped(Valid(new BpUpdate(width))))
 
 class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers](parameter)
 
@@ -87,6 +91,8 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
                 // rather than build a predictor that silently ignores it.
                 require(config.ras.isEmpty, "the return-address stack is not built yet; leave ras empty")
 
+                val update = io.update.get
+
                 config.strategy match
                     case BpuStrategy.Bimodal(phtEntries, btbEntries) =>
                         val pht = Pht.instantiate(PhtParameter(parameter.isa, parameter.defaultPc, phtEntries))
@@ -94,17 +100,17 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
 
                         pht.io.clock := io.clock
                         pht.io.lookup_pc := io.lookup_pc
-                        pht.io.update_valid := io.update.valid
-                        pht.io.update_pc := io.update.bits.pc
-                        pht.io.update_taken := io.update.bits.taken
-                        pht.io.update_count := io.update.bits.pht_count
+                        pht.io.update_valid := update.valid
+                        pht.io.update_pc := update.bits.pc
+                        pht.io.update_taken := update.bits.taken
+                        pht.io.update_count := update.bits.pht_count
 
                         btb.io.clock := io.clock
                         btb.io.resetN := io.resetN
                         btb.io.lookup_pc := io.lookup_pc
-                        btb.io.update_valid := io.update.valid & io.update.bits.taken
-                        btb.io.update_pc := io.update.bits.pc
-                        btb.io.update_target := io.update.bits.target
+                        btb.io.update_valid := update.valid & update.bits.taken
+                        btb.io.update_pc := update.bits.pc
+                        btb.io.update_target := update.bits.target
 
                         // The composition: a redirect needs both the direction's "taken" and a target to go to;
                         // everything else continues at the fall-through of the address being predicted.

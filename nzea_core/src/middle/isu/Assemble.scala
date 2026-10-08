@@ -9,8 +9,8 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
 import nzea_core.front.idu.IduOut
-import nzea_core.isa.Isa
-import nzea_core.middle.ExecSlot
+import nzea_core.isa.{CsrType, Isa}
+import nzea_core.back.ExecSlot
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class AssembleParameter(isa: Isa, defaultPc: Long) extends Parameter:
@@ -38,6 +38,10 @@ class AssembleIO(parameter: AssembleParameter) extends HWBundle(parameter):
     val src_c = Flipped(UInt(width))
     val operands_ready = Flipped(Bool())
 
+    /** From the read: the CSR it settled — the code the payload's address names and the value. */
+    val csr_type = Flipped(UInt(CsrType.width))
+    val csr_rdata = Flipped(UInt(width))
+
     /** From the IS/EX register: its room for a new uop — the register's own accept side, its flush rule included. */
     val moved_ready = Flipped(Bool())
 
@@ -51,9 +55,9 @@ class AssembleProbe(parameter: AssembleParameter) extends DVBundle[AssembleParam
   * Combinational: the ID/IS and IS/EX registers are not this unit's — the read side of the latter belongs to the
   * execute stage — and this unit is what sits between the read and the register's write side, the same rule the
   * front-end follows around [[nzea_core.front.idu.Idu]]. The operands arrive already placed from
-  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility; this unit assembles the `moved` payload,
-  * carrying the fetch's predicted next pc through untouched, and paces the ID/IS register: the payload is consumed when
-  * its operands are placed and the register below has room.
+  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility and the CSR it settled; this unit
+  * assembles the `moved` payload, carrying the fetch's predicted next pc through untouched, and paces the ID/IS
+  * register: the payload is consumed when its operands are placed and the register below has room.
   */
 @generator
 object Assemble extends Generator[AssembleParameter, AssembleLayers, AssembleIO, AssembleProbe]:
@@ -71,8 +75,8 @@ object Assemble extends Generator[AssembleParameter, AssembleLayers, AssembleIO,
         def canPlaceOperands(): Referable[Bool] =
             io.moved_ready & io.operands_ready
 
-        /** What moves into IS/EX: the read's operands, and the payload's held fields with the destination and the CSR
-          * address riding in it.
+        /** What moves into IS/EX: the read's operands and CSR, and the payload's held fields with the destination
+          * riding in it.
           */
         def moveUop(): Unit =
             val dec = io.decoded
@@ -87,7 +91,8 @@ object Assemble extends Generator[AssembleParameter, AssembleLayers, AssembleIO,
             io.moved.backend := dec.backend
             io.moved.op := dec.op
             io.moved.rd_index := dec.rd_index
-            io.moved.csr_addr := dec.csr_addr
+            io.moved.csr_type := io.csr_type
+            io.moved.csr_rdata := io.csr_rdata
 
         io.decoded_ready := canPlaceOperands()
         moveUop()

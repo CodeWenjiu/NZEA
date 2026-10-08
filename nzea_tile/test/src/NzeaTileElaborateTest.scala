@@ -71,6 +71,11 @@ object NzeaTileElaborateTest extends TestSuite:
         test("the commit trace leaves the design on the DPI boundary"):
             assert(sv.contains("commit_trace"))
 
+        // The predictor's training is the default config's: the core builds a predictor by default, so the sideband
+        // from the back to the front — and the registers behind it — are there.
+        test("the predictor's training sideband is built with the default config"):
+            assert(sv.contains("bp_update_valid"))
+
         test("the device list is the fabric's slave inventory"):
             assert(NzeaTileParameter.default.devices.map(_.name) == Seq("ram", "uart16550", "finisher", "clint"))
             assert(

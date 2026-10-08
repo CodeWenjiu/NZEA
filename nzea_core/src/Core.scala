@@ -105,20 +105,20 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
         back.io.clock := io.clock
         back.io.resetN := io.resetN
 
-        middle.io.decoded :<>= front.io.out
-        // The flush event is one bus, out of the middle and into every level that obeys it.
-        front.io.flush :<= middle.io.flush
-        // The predictor's training crosses the middle without touching it: the branch resolves in the back, the tables
-        // live at the front, and nothing between the two consumes the outcome.
-        front.io.bp_update :<= back.io.bp_update
-
-        // The middle and the back: the execute slot's uop down, and the verdicts the middle's stages wait on back.
-        back.io.issue :<>= middle.io.issue
         back.io.flush :<= middle.io.flush
-        middle.io.pace := back.io.pace
+        front.io.flush :<= middle.io.flush
+
+        middle.io.decoded :<>= front.io.out
+        back.io.moved :<>= middle.io.moved
+
         middle.io.retire :<= back.io.retire
-        middle.io.offers :<= back.io.offers
-        middle.io.commit_armed := back.io.commit_armed
+        middle.io.forward :<= back.io.forward
+
+        // The predictor's training crosses the middle without touching it: the branch resolves in the back, the tables
+        // live at the front, and nothing between the two consumes the outcome. The port follows the predictor's config
+        // on both ends — with no predictor there is no one to train — so a design without one carries neither the wires
+        // nor the back's training registers.
+        front.io.bp_update.zip(back.io.bp_update).foreach((port, training) => port :<= training)
 
         // The instruction request is buffered at the core's own boundary: the fetch's request valid follows the decode's
         // ready and its pc advances on the request's acceptance, so a host wiring the port live into a fabric would let

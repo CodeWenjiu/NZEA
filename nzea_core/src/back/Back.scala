@@ -2,7 +2,7 @@ package nzea_core.back
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.ValidIO
+import me.jiuyang.stdlib.{Decoupled, ValidIO}
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -11,10 +11,11 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
 import nzea_core.config.{BpuConfig, BypassLevel, CoreConfig}
-import nzea_core.isa.{Gpr, Isa}
+import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
+import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
-import nzea_rtl.stdlib.{FlushBus, ForwardOffer}
+import nzea_rtl.stdlib.{pipelineConnect, FlushBus, FlushHandover, ForwardOffer}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class BackParameter(
@@ -42,29 +43,33 @@ class BackIO(parameter: BackParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The middle's face, flipped: the execute slot's uop in, the flush it obeys, and the verdicts out. */
-    val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
+    /** The middle's face, flipped: the read's uop in, the flush it obeys, and the verdicts out. */
+    val moved = Flipped(Decoupled(new ExecSlot(parameter.config)))
     val flush = Flipped(new FlushBus(width))
-    val pace = Aligned(Bool())
     val retire = Aligned(ValidIO(new RetireEvent(width)))
-    val offers = Aligned(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
-    val commit_armed = Aligned(Bool())
+    val forward = Aligned(new ForwardBus(width, parameter.offerCount))
 
-    /** The core's own: the data bus the memory path drives, and the resolved branches for the front's predictor. */
+    /** The core's own: the data bus the memory path drives, and the resolved branches for the front's predictor — the
+      * training port follows the predictor's config, so a design without one carries neither the wires nor the
+      * registers behind them.
+      */
     val dbus = Aligned(MemPath.dbusType(parameter.config))
-    val bp_update = Aligned(ValidIO(new BpUpdate(width)))
+
+    val bp_update: Option[BundleField[ValidIO[BpUpdate]]] =
+        Option.when(parameter.bpu.isDefined)(Aligned(ValidIO(new BpUpdate(width))))
 
 class BackProbe(parameter: BackParameter) extends DVBundle[BackParameter, BackLayers](parameter)
 
-/** The back: the execution subsystem — the dispatch that routes an issued uop to its path, the two paths themselves,
-  * the completion path that holds what the execute slot cannot, and the forward network that gathers the in-flight
-  * writers.
+/** The back: the execution subsystem — the execute slot it registers, the dispatch that routes the issued uop to its
+  * path, the two paths themselves, the completion path that holds what the slot cannot, and the forward network that
+  * gathers the in-flight writers. It owns no architectural state: the register and CSR files are the middle's, and what
+  * the execute stage needs of them arrives resolved in the slot — both reads are the issue stage's.
   *
-  * Its face with the middle is the pipeline's own vocabulary: the execute slot's uop goes down, and what comes back is
-  * what the middle waits on — the slot's pace, the retire stream, the forward column, and the level's verdict for the
-  * retiring write. Nothing else of the back crosses this boundary: the dispatch and the merge, the queue's face with
-  * the memory path, the tags and the flush risk are this module's own wiring, so a back-end feature — a cache, a deeper
-  * queue, a reservation station — adds nothing to the middle's ports.
+  * Its face with the middle is the pipeline's own vocabulary: the read's uop comes in and is registered here (the
+  * execute stage's input is its own), and what goes back is what the middle's stages wait on — the retiring record and
+  * the forward network's face. Nothing else of the back crosses this boundary: the dispatch and the merge, the queue's
+  * face with the memory path, the tags and the flush risk are this module's own wiring, so a back-end feature — a
+  * cache, a deeper queue, a reservation station — adds nothing to the middle's ports.
   *
   * The core's two ports are here as well: the data bus the memory path drives, and the resolved branches the front's
   * predictor trains on — the path that resolves them is this module's, the table that consumes them is not.
@@ -108,30 +113,76 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
         mem.io.clock := io.clock
         mem.io.resetN := io.resetN
 
+        // The IS/EX register: the execute stage's input, registered where it is consumed — the middle hands the read's
+        // uop over and this module is the register's fill side. Its room is the completion path's pace, which the
+        // queue's own room may hold back after a unit has already reported.
+        val slot = Wire(Decoupled(new ExecSlot(c)))
+        pipelineConnect(io.moved, slot, io.flush, "isex", FlushHandover.Refuse)
+        slot.ready := completion.io.pace
+
+        /** The execute slot's occupancy: the IS/EX register's own, declared here beside the register whose two ends are
+          * this module's. Its sibling `operand_wait` is the issue stage's, beside the read it watches — and the two sit
+          * in the pipeline order their registers do.
+          */
+        if parameter.flow.counters then
+            val busy =
+                backStats.stat("slot_busy", Regions.Throughput, "cycles the execute slot holds an unfinished uop")
+            busy.inc(slot.valid & !slot.ready)
+
+        // The execute slot's arrival edge, for the per-instruction events the units key off `first`.
+        val slotFirst = RegInit(false.B)
+        slotFirst := io.moved.fire
+
+        val view = Wire(new IssueSlot(new IssueUop(c)))
+
+        /** The uop the units work on, as the slot presents it: the payload reversed into the backend's contract, the
+          * CSR read it carries included. A memory instruction's `inst[31:20]` was an address offset, not a CSR address,
+          * so its code is none, and a flush silences the roles — the units take a vanished uop as abandoned.
+          */
+        def issueView(): Unit =
+            val bits = slot.bits
+            val isMem = bits.backend === Backend.MEM.lit.U(Backend.width)
+            view.valid := slot.valid
+            view.first := slotFirst & !io.flush.valid
+            view.bits.pc := bits.pc
+            view.bits.next_pc := bits.next_pc
+            view.bits.fall_through := bits.fall_through
+            view.bits.pht_count := bits.pht_count
+            view.bits.imm := bits.imm
+            view.bits.src_a := bits.src_a
+            view.bits.src_b := bits.src_b
+            view.bits.src_c := bits.src_c
+            view.bits.backend := bits.backend
+            view.bits.op := bits.op
+            view.bits.rd_index := bits.rd_index
+            view.bits.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), bits.csr_type)
+            view.bits.csr_rdata := bits.csr_rdata
+
+        issueView()
+
         // The dispatch: the one place the issued uop's path is decided, and the faces that decision drives — the
         // routing and the merge are one `is_mem` test.
-        dispatch.io.issue :<= io.issue
+        dispatch.io.issue :<= view
         int.io.path :<>= dispatch.io.int
         mem.io.path :<>= dispatch.io.mem
 
         // The completion path: the entry a release writes, the retire stream, and the queue's face with the memory
         // path — the one face of the queue that does not leave this module.
-        completion.io.issue :<= io.issue
+        completion.io.issue :<= view
         completion.io.merged :<>= dispatch.io.merged
         completion.io.flush :<= io.flush
         mem.io.queue :<>= completion.io.queue
 
-        // The forward network: the in-flight writers, gathered into the column the middle's read resolves.
+        // The forward network: the in-flight writers, gathered into the columns the middle's read resolves.
         forward.io.exec :<= dispatch.io.merged.complete
-        forward.io.issue :<= io.issue
+        forward.io.issue :<= view
         forward.io.view :<>= completion.io.view
 
-        // What the middle waits on: the slot's pace, the retiring record, the column, and the level's verdict.
-        io.pace := completion.io.pace
+        // What the middle waits on: the retiring record and the forward network's face.
         io.retire :<= completion.io.retire
-        io.offers :<= forward.io.offers
-        io.commit_armed := forward.io.commit_armed
+        io.forward :<= forward.io.forward
 
-        // The core's own: the data bus, and the resolved branches for the front's predictor.
+        // The core's own: the data bus, and the resolved branches for the front's predictor — the training port is the
+        // int path's, present exactly where the predictor it trains is.
         io.dbus :<>= mem.io.dbus
-        io.bp_update :<= int.io.bp_update
+        io.bp_update.zip(int.io.bp_update).foreach((port, path) => port :<= path)

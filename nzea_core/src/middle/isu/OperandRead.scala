@@ -9,10 +9,11 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.ForwardParameter
+import nzea_core.back.{ForwardBus, ForwardParameter}
+import nzea_core.back.int.IntOp
 import nzea_core.front.idu.IduOut
-import nzea_core.isa.{Gpr, Isa, Operand, Srcs}
-import nzea_core.middle.rf.ArfWrite
+import nzea_core.isa.{CsrType, Gpr, Isa, Operand, Srcs}
+import nzea_core.middle.rf.{ArfWrite, CsrReadPort, CsrWrite}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -41,21 +42,28 @@ class OperandReadIO(parameter: OperandReadParameter) extends HWBundle(parameter)
     val rs1_data = Flipped(UInt(width))
     val rs2_data = Flipped(UInt(width))
 
-    /** The forward network's column of in-flight writers, youngest first: the read resolves its own indexes against it
-      * ([[nzea_rtl.stdlib.ForwardOffer]]).
-      */
-    val offers = Flipped(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
+    /** The CSR file's read side: the address the payload names, the value the file answers with. */
+    val csr_read = Flipped(new CsrReadPort(width))
 
-    /** The retiring instruction's write — the middle's own producer, older than everything in the column — and whether
-      * the level reaches it (the forward network's `commit_armed`).
+    /** The forward network's face: the columns of in-flight writers this read resolves its own indexes against, and the
+      * level's verdict for the retiring writes ([[nzea_core.back.ForwardBus]]).
       */
-    val commit = Flipped(ValidIO(new ArfWrite(width)))
-    val commit_armed = Flipped(Bool())
+    val forward = Flipped(new ForwardBus(width, parameter.offerCount))
+
+    /** The retiring instruction's writes — the middle's own producers, older than everything in the columns — the
+      * register file's and the CSR file's.
+      */
+    val arf_commit = Flipped(ValidIO(new ArfWrite(width)))
+    val csr_commit = Flipped(ValidIO(new CsrWrite(width)))
 
     /** The placed operands: the three slots the units read. */
     val src_a = Aligned(UInt(width))
     val src_b = Aligned(UInt(width))
     val src_c = Aligned(UInt(width))
+
+    /** The CSR read's resolution: the code the payload's address names and the value the read settled on. */
+    val csr_type = Aligned(UInt(CsrType.width))
+    val csr_rdata = Aligned(UInt(width))
 
     /** The read is placeable: every operand is settled — no in-flight writer is still in the way. */
     val ready = Aligned(Bool())
@@ -77,6 +85,13 @@ class OperandReadProbe(parameter: OperandReadParameter)
   * writer in flight, the column's answer wins over it and the file's is the last resort. The read carries no state and
   * no query: it resolves whatever the network broadcasts this cycle, which is what makes it a wakeup consumer rather
   * than a requester.
+  *
+  * The CSR file's read is the same fetch in a second index space: the payload's address maps to its
+  * [[nzea_core.isa.CsrType]] code — the code is what the writers carry, because a queue entry keeps the type and not
+  * the address — and that code resolves against the CSR half of the column, the retiring CSR write and the file, in
+  * that order. The sysu is the only consumer, so only a sysu op owes this wait: the address field of any other
+  * instruction is not an address at all. The value and the code ride to the payload together, resolved at the issue —
+  * which is what leaves the execute stage with nothing to ask.
   */
 @generator
 object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, OperandReadIO, OperandReadProbe]:
@@ -110,24 +125,57 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
           * it is the ladder's last resort before the file.
           */
         def answers(index: Referable[UInt]): Wake =
-            val offers = (0 until parameter.offerCount).map(i => io.offers.ref(i))
+            val offers = (0 until parameter.offerCount).map(i => io.forward.arf_offers.ref(i))
             val armed = offers.map(offer => ForwardSource(offer.valid & offer.armed, offer.index, offer.data))
             val hit =
                 armed.map(source => source.armed & (source.index === index)).foldLeft(false.B: Referable[Bool])(_ | _)
             val blocking = offers
                 .map(offer => offer.valid & !offer.armed & (offer.index === index))
                 .foldLeft(false.B: Referable[Bool])(_ | _)
-            val commitValid = io.commit.valid & (io.commit.bits.index =/= 0.U(Gpr.indexWidth))
-            val commitHit = commitValid & io.commit_armed & (io.commit.bits.index === index)
-            val commitBlocks = commitValid & !io.commit_armed & (io.commit.bits.index === index)
+            val arfCommitValid = io.arf_commit.valid & (io.arf_commit.bits.index =/= 0.U(Gpr.indexWidth))
+            val arfCommitHit = arfCommitValid & io.forward.commit_armed & (io.arf_commit.bits.index === index)
+            val arfCommitBlocks = arfCommitValid & !io.forward.commit_armed & (io.arf_commit.bits.index === index)
             Wake(
-                !(blocking | commitBlocks),
-                hit | commitHit,
-                forwardRead(index, commitHit ? (io.commit.bits.data, 0.U(width)), armed)
+                !(blocking | arfCommitBlocks),
+                hit | arfCommitHit,
+                forwardRead(index, arfCommitHit ? (io.arf_commit.bits.data, 0.U(width)), armed)
             )
 
         val wake1 = answers(io.rs1_index)
         val wake2 = answers(io.rs2_index)
+
+        /** The code the payload's address names — the reader's key in the CSR index space, and the field the execute
+          * stage's sysu takes the CSR by.
+          */
+        val csrCode: Node[UInt] = CsrType.fromAddr(io.decoded.csr_addr)
+
+        /** The CSR read's answer, resolved the same way in its own index space: the column first — the first armed
+          * offer that names the code is its youngest writer — the retiring CSR write next, the file's value last. Only
+          * a sysu op owes the wait: the sysu is the only unit that reads the CSR, and the address field of any other
+          * instruction is not an address.
+          */
+        def csrAnswers(): Wake =
+            val offers = (0 until parameter.offerCount).map(i => io.forward.csr_offers.ref(i))
+            val armed = offers.map(offer => ForwardSource(offer.valid & offer.armed, offer.index, offer.data))
+            val hit =
+                armed.map(source => source.armed & (source.index === csrCode)).foldLeft(false.B: Referable[Bool])(_ | _)
+            val blocking = offers
+                .map(offer => offer.valid & !offer.armed & (offer.index === csrCode))
+                .foldLeft(false.B: Referable[Bool])(_ | _)
+            val csrCommitValid =
+                io.csr_commit.valid & (io.csr_commit.bits.csr_type =/= CsrType.None.lit.U(CsrType.width))
+            val csrCommitHit = csrCommitValid & io.forward.commit_armed & (io.csr_commit.bits.csr_type === csrCode)
+            val csrCommitBlocks = csrCommitValid & !io.forward.commit_armed & (io.csr_commit.bits.csr_type === csrCode)
+            Wake(
+                !(blocking | csrCommitBlocks),
+                hit | csrCommitHit,
+                forwardRead(csrCode, csrCommitHit ? (io.csr_commit.bits.data, 0.U(width)), armed)
+            )
+
+        val csrWake = csrAnswers()
+
+        /** Whether this payload runs the sysu — the one unit that reads the CSR, so the one that owes its wait. */
+        val readsCsr = IntOp.set(parameter.config.isa).isCase(IntOp.sysu, io.decoded.op)
 
         /** The read: the file answers the two indexes the payload names, an armed offer wins, and the operand form
           * places the result into the three slots the units read.
@@ -159,16 +207,19 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
                 bypassC ? (wake2.value, srcC)
             )
 
-        /** The read is placeable when neither of its registers is held back — the operand form is the only part left
-          * here: a slot no register feeds owes no wait.
+        /** The read is placeable when nothing it reads is held back — the operand form and the op tag are the only
+          * gates: a slot no register feeds owes no wait, and neither does an instruction the sysu will not run.
           */
         def operandsReady(): Referable[Bool] =
             val reads1 = readsRegister(Operand.Rs1)
             val reads2 = readsRegister(Operand.Rs2)
-            !(reads1 & !wake1.ready) & !(reads2 & !wake2.ready)
+            !(reads1 & !wake1.ready) & !(reads2 & !wake2.ready) & !(readsCsr & !csrWake.ready)
 
         val (srcA, srcB, srcC) = placeOperands()
         io.src_a := srcA
         io.src_b := srcB
         io.src_c := srcC
+        io.csr_read.addr := io.decoded.csr_addr
+        io.csr_type := csrCode
+        io.csr_rdata := csrWake.from_net ? (csrWake.value, io.csr_read.data)
         io.ready := operandsReady()

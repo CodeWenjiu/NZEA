@@ -48,8 +48,8 @@ object ForwardTest extends TestSuite:
             val executed = forwardSv(BypassLevel.Execute, 0)
             val none = forwardSv(BypassLevel.None, 0)
             // The retiring write's verdict crosses as a bit — the write itself is the middle's register, matched there.
-            assert(commit.contains("assign commit_armed = 1'h1"))
-            assert(!none.contains("assign commit_armed = 1'h1"))
+            assert(commit.contains("assign forward_commit_armed = 1'h1"))
+            assert(!none.contains("assign forward_commit_armed = 1'h1"))
             // The slot's writer is armed only where the level reaches the completing value — below it, the read waits
             // the instruction's whole residence.
             assert(executed.contains("& exec_valid"))
@@ -61,4 +61,4 @@ object ForwardTest extends TestSuite:
         test("the queue's unfinished entries ride the column"):
             val queued = forwardSv(BypassLevel.Execute, 4)
             assert(queued.contains("& view_entries_0_done"))
-            assert(queued.contains("assign offers_4_armed"))
+            assert(queued.contains("assign forward_arf_offers_4_armed"))

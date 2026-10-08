@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.isa.{Gpr, Isa}
+import nzea_core.isa.{CsrType, Gpr, Isa}
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
@@ -147,5 +147,7 @@ object Completion extends Generator[CompletionParameter, CompletionLayers, Compl
                 io.view.entries.ref(index).done := false.B
                 io.view.entries.ref(index).rd_index := 0.U(Gpr.indexWidth)
                 io.view.entries.ref(index).data := 0.U(width)
+                io.view.entries.ref(index).csr_type := 0.U(CsrType.width)
+                io.view.entries.ref(index).csr_data := 0.U(width)
 
         if parameter.lsqDepth == 0 then passThrough() else withQueue(parameter.lsqDepth)

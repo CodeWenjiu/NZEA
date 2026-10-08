@@ -36,11 +36,12 @@ class CsrFileIO(parameter: CsrFileParameter) extends HWBundle(parameter):
 
 class CsrFileProbe(parameter: CsrFileParameter) extends DVBundle[CsrFileParameter, CsrFileLayers](parameter)
 
-/** Machine-mode CSRs: written at commit, read combinationally by address while the instruction is in execute.
+/** Machine-mode CSRs: written at commit, read combinationally by address while the instruction issues.
   *
-  * A read in the cycle of a write sees the write: with a bypass link the instruction in execute can be reading a CSR
-  * the instruction committing in that same cycle is writing, and the register file's own value is one instruction
-  * stale.
+  * Storage only, like the register file: a read answers what the file holds, and the write lands at the end of its
+  * cycle. Anything younger — the write the retiring instruction makes this cycle, the writer still in flight — is the
+  * forwarding network's to offer, not this file's; the read's consumer selects between the network's answer and the
+  * file's own.
   *
   * `mstatus` resets to 0x1800 (matching the legacy core: MPP = M), the rest to zero. An address that maps to no
   * implemented CSR reads as zero, and a write to one is dropped — the baseline has no illegal-CSR trap.
@@ -70,8 +71,6 @@ object CsrFile extends Generator[CsrFileParameter, CsrFileLayers, CsrFileIO, Csr
         }
 
         val addressed = CsrType.fromAddr(io.read.addr)
-        val writeThrough = io.write.valid & (io.write.bits.csr_type =/= CsrType.None.lit.U(CsrType.width)) &
-            (io.write.bits.csr_type === addressed)
         val stored: Referable[UInt] = muxCase(
             0.U(width),
             Seq(
@@ -82,4 +81,4 @@ object CsrFile extends Generator[CsrFileParameter, CsrFileLayers, CsrFileIO, Csr
                 (addressed === CsrType.Mscratch.lit.U(CsrType.width), mscratch)
             )
         )
-        io.read.data := writeThrough ? (io.write.bits.data, stored)
+        io.read.data := stored

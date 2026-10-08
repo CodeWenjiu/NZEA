@@ -1,6 +1,6 @@
 package nzea_core.front
 
-import nzea_core.config.CoreConfig
+import nzea_core.config.{BpuConfig, BpuStrategy, CoreConfig}
 import nzea_core.back.BpUpdate
 import nzea_core.back.OpWindow
 import nzea_core.front.ifu.{IbusUser, Ifu}
@@ -9,13 +9,15 @@ import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** Structural checks: the front's boundary is exactly the fetcher's bus, the flush event that steers it, and the decoded
-  * stream the middle consumes — with the fetcher and decoder instantiated inside it.
+/** Structural checks: the front's boundary is exactly the fetcher's bus, the flush event that steers it, and the
+  * decoded stream the middle consumes — with the fetcher and decoder instantiated inside it.
   */
 object FrontElaborateTest extends TestSuite:
 
     private val width = 32
-    private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L, None))
+    private val bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None))
+
+    private val module = Front.moduleName(FrontParameter(Isa("riscv32i"), 0x80000000L, bpu))
 
     private lazy val sv = TestFlow.lower(
         module,
@@ -27,7 +29,9 @@ object FrontElaborateTest extends TestSuite:
                     "--isa",
                     "riscv32i",
                     "--defaultPc",
-                    "2147483648"
+                    "2147483648",
+                    "--bpu",
+                    "bimodal:64:4"
                 )
             ),
         cfg => Front.main(Array("design", cfg.toString))
