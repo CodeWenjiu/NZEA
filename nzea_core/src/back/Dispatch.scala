@@ -1,4 +1,4 @@
-package nzea_core.middle.exu
+package nzea_core.back
 
 import java.lang.foreign.Arena
 
@@ -8,7 +8,6 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.back.{IntFace, IssueSlot, IssueUop, MemFace, PathResult}
 import nzea_core.config.CoreConfig
 import nzea_core.isa.{Backend, Isa}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}

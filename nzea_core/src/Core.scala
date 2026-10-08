@@ -10,8 +10,8 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BpuConfig, BypassLevel, CoreConfig}
 import nzea_core.stats.Regions
-import nzea_core.back.int.{IntPath, IntPathParameter}
-import nzea_core.back.mem.{MemPath, MemPathParameter}
+import nzea_core.back.{Back, BackParameter}
+import nzea_core.back.mem.MemPath
 import nzea_core.front.{Front, FrontParameter}
 import nzea_core.front.ifu.Ifu
 import nzea_core.isa.{CsrType, Gpr, Isa}
@@ -77,45 +77,48 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
                     c.isa,
                     c.defaultPc,
                     parameter.flow,
-                    parameter.bypass,
                     parameter.lsqDepth,
                     parameter.stats
                 )
             )
-        // The execution paths are the core's own: pure units, with no state but their own latency. The middle gates
-        // each issued uop to its path and merges what the paths report — the dispatch and the merge are one decision.
-        val int =
-            IntPath.instantiate(
-                IntPathParameter(
+        // The back is the execution subsystem: the dispatch, the two paths, the completion path and the forward
+        // network. What crosses its boundary with the middle is the pipeline's own — the slot's uop down, the pace,
+        // the retire stream and the column back.
+        val back =
+            Back.instantiate(
+                BackParameter(
                     c.isa,
                     c.defaultPc,
                     parameter.flow,
-                    parameter.stats.child(Middle.BackSource).child(IntPath.Source),
-                    parameter.bpu
+                    parameter.bypass,
+                    parameter.bpu,
+                    parameter.lsqDepth,
+                    parameter.mmioRanges,
+                    parameter.stats
                 )
             )
-        val mem = MemPath.instantiate(MemPathParameter(c.isa, c.defaultPc, parameter.mmioRanges))
 
         front.io.clock := io.clock
         front.io.resetN := io.resetN
         middle.io.clock := io.clock
         middle.io.resetN := io.resetN
-        int.io.clock := io.clock
-        int.io.resetN := io.resetN
-        mem.io.clock := io.clock
-        mem.io.resetN := io.resetN
+        back.io.clock := io.clock
+        back.io.resetN := io.resetN
 
         middle.io.decoded :<>= front.io.out
         // The flush event is one bus, out of the middle and into every level that obeys it.
         front.io.flush :<= middle.io.flush
-        // The predictor's training crosses the middle without touching it: the branch resolves in the int path, the
-        // tables live at the front, and nothing between the two consumes the outcome.
-        front.io.bp_update :<= int.io.bp_update
+        // The predictor's training crosses the middle without touching it: the branch resolves in the back, the tables
+        // live at the front, and nothing between the two consumes the outcome.
+        front.io.bp_update :<= back.io.bp_update
 
-        // The execution face: one bundle per side, so the middle and the paths cannot be paired up wrong.
-        int.io.path :<>= middle.io.int
-        mem.io.path :<>= middle.io.mem
-        mem.io.queue :<>= middle.io.queue
+        // The middle and the back: the execute slot's uop down, and the verdicts the middle's stages wait on back.
+        back.io.issue :<>= middle.io.issue
+        back.io.flush :<= middle.io.flush
+        middle.io.pace := back.io.pace
+        middle.io.retire :<= back.io.retire
+        middle.io.offers :<= back.io.offers
+        middle.io.commit_armed := back.io.commit_armed
 
         // The instruction request is buffered at the core's own boundary: the fetch's request valid follows the decode's
         // ready and its pc advances on the request's acceptance, so a host wiring the port live into a fabric would let
@@ -127,7 +130,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
         // register, so a host wiring them straight into a fabric would extend that cone through the fabric's
         // arbitration. The slice makes what the fabric sees state, and costs a cycle on every access's request path —
         // the load latency the in-order pipeline pays.
-        io.dbus :<>= mem.io.dbus.buffered("dbusBuffer", BufferPolicy.Slice)
+        io.dbus :<>= back.io.dbus.buffered("dbusBuffer", BufferPolicy.Slice)
 
         io.commit_msg :<= middle.io.commit
 

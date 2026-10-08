@@ -12,7 +12,7 @@ import nzea_core.config.CoreConfig
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Gpr, Isa}
 import nzea_core.middle.ExecSlot
-import nzea_core.middle.exu.ForwardParameter
+import nzea_core.back.ForwardParameter
 import nzea_core.middle.rf.{ArfReadPort, ArfWrite}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow

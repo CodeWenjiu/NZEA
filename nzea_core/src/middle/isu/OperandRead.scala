@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.middle.exu.ForwardParameter
+import nzea_core.back.ForwardParameter
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Gpr, Isa, Operand, Srcs}
 import nzea_core.middle.rf.ArfWrite

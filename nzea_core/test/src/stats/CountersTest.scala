@@ -37,8 +37,6 @@ object CountersTest extends TestSuite:
                         "2147483648",
                         "--flow",
                         "verilator",
-                        "--bypass",
-                        "commit",
                         "--lsqDepth",
                         "0",
                         "--stats",
@@ -105,7 +103,6 @@ object CountersTest extends TestSuite:
                 Isa("riscv32i"),
                 0x80000000L,
                 RtlFlow.Verilator,
-                BypassLevel.Commit,
                 0,
                 StatScope.root
             )

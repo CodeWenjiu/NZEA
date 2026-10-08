@@ -9,9 +9,9 @@ import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** Structural checks: each execution path's boundary — the middle's face in, the data bus for the memory path — and the
-  * units the M extension adds. The paths are pure units: the dispatch and the merge that used to wrap them live in the
-  * middle's execution face.
+/** Structural checks: each execution path's boundary — the dispatch's face in, the data bus for the memory path — and
+  * the units the M extension adds. The paths are pure units: the dispatch and the merge that wrap them are the back's
+  * own.
   */
 object BackPathTest extends TestSuite:
 
@@ -102,7 +102,7 @@ object BackPathTest extends TestSuite:
     )
 
     val tests = Tests:
-        test("the int path's boundary is the middle's face and the resolved branches"):
+        test("the int path's boundary is the dispatch's face and the resolved branches"):
             assert(
                 TestFlow.ports(intSv("riscv32i"), intModule("riscv32i")) ==
                     Map(
@@ -117,7 +117,7 @@ object BackPathTest extends TestSuite:
                     ) ++ issuePorts("path_issue") ++ resultPorts("path_result")
             )
 
-        test("the memory path's boundary is the middle's face and the data bus"):
+        test("the memory path's boundary is the dispatch's face and the data bus"):
             assert(
                 TestFlow.ports(memSv, memModule) ==
                     Map(

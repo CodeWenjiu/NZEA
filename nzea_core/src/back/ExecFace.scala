@@ -8,9 +8,9 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.back.mem.{DbusUser, LsqResponse, LsuData}
 import nzea_core.config.CoreConfig
 
-/** The face an execution path and the middle meet on: the uop gated to the path, and the report the path sends back.
+/** The face an execution path and the dispatch meet on: the uop gated to the path, and the report the path sends back.
   *
-  * Declared from the middle's side — the uop goes out, the report comes in — and the path holds the same bundle
+  * Declared from the dispatch's side — the uop goes out, the report comes in — and the path holds the same bundle
   * flipped, so the two ends are one declaration: a port added here lands on both sides at once, and neither end can
   * drift.
   */

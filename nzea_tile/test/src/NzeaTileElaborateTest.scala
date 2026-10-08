@@ -44,6 +44,7 @@ object NzeaTileElaborateTest extends TestSuite:
         ):
             val exact = Seq(
                 "Core",
+                "Back",
                 "Completion",
                 "Lsq",
                 "ICache",
