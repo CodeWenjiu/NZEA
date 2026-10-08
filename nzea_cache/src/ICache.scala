@@ -33,6 +33,7 @@ case class ICacheParameter(
     require(config.tagBits(addrWidth) >= 1, s"the address has no room for a tag: ${config.tagBits(addrWidth)} bits")
     require(config.lineBeats(dataWidth) >= 1, s"a line of ${config.lineBytes} bytes has no beats of $dataWidth bits")
     require(cacheable.nonEmpty, "a cache needs at least one cacheable window")
+
     require(
         config.storage == CacheStorageKind.Registers,
         s"the split read is a flop array's — a narrow tag port beside the row port; a macro reads whole rows on one " +
@@ -163,7 +164,8 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
 
         // The answer's word: the row port reads the result stage's set, and the way the compare settled selects the
         // line the word comes from — a chain that starts after the compare, not through it.
-        val t1Word = muxTree(t1Way, (0 until c.ways).map(w => lineOf(storage.io.rdRows.ref(w)).data.ref(addrOf(t1Addr).word)))
+        val t1Word =
+            muxTree(t1Way, (0 until c.ways).map(w => lineOf(storage.io.rdRows.ref(w)).data.ref(addrOf(t1Addr).word)))
         val missReady = refill.io.done
         val respValid = t1Valid & (!t1Miss | missReady)
         io.top.resp.valid := respValid
@@ -303,14 +305,8 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
 
         if parameter.flow.counters then counters()
 
-        // The memory side: the engine is the only master the port has, and a register slice sits between the two. The
-        // refill's request valid is state, but the fabric's ready is not — wired straight through, the fabric's
-        // arbitration would extend the engine's request path out of the cache. The slice makes what the fabric sees
-        // state as well; the response channel stays combinational.
-        val bottomSlice = LiteBusRegisterSlice.instantiate(
-            LiteBusRegisterSliceParameter(aw, parameter.dataWidth, parameter.userWidth, parameter.idWidth)
-        )
-        bottomSlice.io.clock := io.clock
-        bottomSlice.io.resetN := io.resetN
-        bottomSlice.io.in :<>= refill.io.bottom
-        io.bottom :<>= bottomSlice.io.out
+        // The memory side: the engine is the only master the port has, and a buffer sits between the two. The refill's
+        // request valid is state, but the fabric's ready is not — wired straight through, the fabric's arbitration would
+        // extend the engine's request path out of the cache. The elastic slice makes what the fabric sees state as well;
+        // the response channel stays combinational.
+        io.bottom :<>= refill.io.bottom.buffered("bottomSlice", BufferPolicy.Slice)
