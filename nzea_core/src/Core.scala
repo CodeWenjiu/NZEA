@@ -109,9 +109,11 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
         front.io.flush :<= middle.io.flush
 
         middle.io.decoded :<>= front.io.out
+        // The middle and the back: the read's uop down — the back registers it as the execute stage's own input, the
+        // resolved CSR read riding in it — with the two verdicts the middle's stages wait on coming back: the retiring
+        // record and the forward network's face.
         back.io.moved :<>= middle.io.moved
-
-        middle.io.retire :<= back.io.retire
+        middle.io.retire :<>= back.io.retire
         middle.io.forward :<= back.io.forward
 
         // The predictor's training crosses the middle without touching it: the branch resolves in the back, the tables

@@ -9,7 +9,7 @@
 -- One instruction retired: register write-back, CSR write and the commit trace all ride this pulse.
 commit_fire = commit_valid
 
--- A mispredicted branch: the write-back register's resolved `next_pc` disagrees with the prediction it was fetched
--- under (`wb_is_branch & wb_next_pc =/= wb_pred_next_pc`, the test `flushing` starts from), so the stage sources a
--- flush that cancels the younger stages and the front restarts from `wb_next_pc`.
+-- A mispredicted branch: the record the write-back register presents carries the check already made (`mispredicted`,
+-- computed where the record was written), so the stage sources a flush that cancels the younger stages and the front
+-- restarts from the record's `next_pc`.
 redirect = flushing

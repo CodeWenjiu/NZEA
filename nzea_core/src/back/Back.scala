@@ -46,7 +46,7 @@ class BackIO(parameter: BackParameter) extends HWBundle(parameter):
     /** The middle's face, flipped: the read's uop in, the flush it obeys, and the verdicts out. */
     val moved = Flipped(Decoupled(new ExecSlot(parameter.config)))
     val flush = Flipped(new FlushBus(width))
-    val retire = Aligned(ValidIO(new RetireEvent(width)))
+    val retire = Aligned(Decoupled(new RetireEvent(width)))
     val forward = Aligned(new ForwardBus(width, parameter.offerCount))
 
     /** The core's own: the data bus the memory path drives, and the resolved branches for the front's predictor — the
@@ -179,7 +179,7 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
         forward.io.view :<>= completion.io.view
 
         // What the middle waits on: the retiring record and the forward network's face.
-        io.retire :<= completion.io.retire
+        io.retire :<>= completion.io.retire
         io.forward :<= forward.io.forward
 
         // The core's own: the data bus, and the resolved branches for the front's predictor — the training port is the

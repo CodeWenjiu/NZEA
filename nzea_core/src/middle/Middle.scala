@@ -52,7 +52,7 @@ class MiddleIO(parameter: MiddleParameter) extends HWBundle(parameter):
       * ([[nzea_core.back.ForwardBus]]).
       */
     val moved = Aligned(Decoupled(new ExecSlot(parameter.config)))
-    val retire = Flipped(ValidIO(new RetireEvent(width)))
+    val retire = Flipped(Decoupled(new RetireEvent(width)))
     val forward = Flipped(new ForwardBus(width, parameter.offerCount))
 
     val commit = Aligned(ValidIO(new CommitTrace(width, Gpr.indexWidth, CsrType.addrWidth)))
@@ -65,18 +65,18 @@ class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, 
 /** In-order middle: the instruction stream's two ends — [[nzea_core.middle.isu.Isu]] and [[nzea_core.middle.wbu.Wbu]] —
   * the elastic register between them, and the register and CSR files they face.
   *
-  * [[nzea_core.middle.isu.Isu]] is the combinational read and assembly; [[nzea_core.middle.wbu.Wbu]] is the retire
-  * register that sources the commit and the flush. Between them the stream leaves the module: the read's uop crosses to
-  * the back, which registers it as its own input, executes it, and hands back what these two stages wait on — the
-  * slot's pace is the register's room there, the retire stream is the completion path's, the columns are the network's.
-  * The two files sit here, where both stages face them: the read sides are the issue stage's and the write sides the
-  * retire register's.
+  * [[nzea_core.middle.isu.Isu]] is the combinational read and assembly; [[nzea_core.middle.wbu.Wbu]] is the
+  * combinational commit behind the write-back register. Between them the stream leaves the module: the read's uop
+  * crosses to the back, which registers it as its own input, executes it, and hands back what these two stages wait on
+  * — the slot's pace is the register's room there, the retire stream is the completion path's, the face is the
+  * network's. The two files sit here, where both stages face them: the read sides are the issue stage's and the write
+  * sides the write-back register's.
   *
   * The stage boundaries are declared here, beside the front-end's own (`pipelineConnect`, one per boundary): the units
   * inside the stages are combinational, and every register the pipeline has is one the module that consumes it names —
-  * the middle names ID/IS, the back names IS/EX, the write-back register is [[nzea_core.middle.wbu.Wbu]]'s. The rest is
-  * the wiring: the flush forward, the retirement, the columns back, the files' sides — and the middle's boundary to the
-  * core: the decoded stream in, the back's face, the commit and the flush out.
+  * the middle names ID/IS and EX/WB, the back names IS/EX. The rest is the wiring: the flush forward, the retirement,
+  * the face back, the files' sides — and the middle's boundary to the core: the decoded stream in, the back's face, the
+  * commit and the flush out.
   */
 @generator
 object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleProbe]:
@@ -99,6 +99,8 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         val csr = CsrFile.instantiate(CsrFileParameter(c.width))
         val arf = Arf.instantiate(ArfParameter(c.width))
 
+        val flush = wbu.io.flush
+
         isu.io.clock := io.clock
         isu.io.resetN := io.resetN
         wbu.io.clock := io.clock
@@ -108,16 +110,17 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         arf.io.clock := io.clock
         arf.io.resetN := io.resetN
 
-        // The middle's elastic register — ID/IS — declared here as the front-end declares its own: the stages' units are
-        // combinational, and the boundary between them is this module's. The IS/EX register is not: it is the execute
-        // stage's own input, registered by the back, and this module hands the read's uop over as the register's fill
-        // side — its room comes back on `moved.ready`.
+        // The middle's stage registers, declared here as the front-end declares its own: the stages' units are
+        // combinational, and the boundaries between them are this module's. ID/IS is the elastic one. EX/WB is the one
+        // register that does not obey the flush — the entry it holds is what raises it, and it must commit in the very
+        // cycle it does — so the net it sources is passed to it and ignored. The IS/EX register is not the middle's: it
+        // is the execute stage's own input, registered by the back, and this module hands the read's uop over as the
+        // register's fill side — its room comes back on `moved.ready`.
         pipelineConnect(io.decoded, isu.io.decoded, wbu.io.flush, "idis", FlushHandover.Refuse)
+        pipelineConnect(io.retire, wbu.io.retire, wbu.io.flush, "exwb", FlushHandover.Ignore)
         io.moved :<>= isu.io.moved
 
-        // The back's verdicts: the retiring record the write-back stage latches, and the network's face the read
-        // resolves against.
-        wbu.io.retire :<= io.retire
+        // The back's verdicts: the forward network's face the read resolves against.
         isu.io.forward :<= io.forward
 
         // The two files both stages face: both read sides are the issue stage's — the register file's two ports and the
@@ -136,5 +139,5 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         isu.io.csr_commit :<= wbu.io.csr_write
 
         // The boundary's outputs.
-        io.flush :<= wbu.io.flush
+        io.flush :<= flush
         io.commit :<= wbu.io.commit

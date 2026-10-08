@@ -2,7 +2,7 @@ package nzea_core.back
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.ValidIO
+import me.jiuyang.stdlib.{Decoupled, ValidIO}
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -109,7 +109,7 @@ class LsqIO(parameter: LsqParameter) extends HWBundle(parameter):
     val flushRisk = Aligned(Bool())
 
     /** The retirement head: the record the middle retires, in program order. */
-    val retire = Aligned(ValidIO(new RetireEvent(width)))
+    val retire = Aligned(Decoupled(new RetireEvent(width)))
 
     /** The entries as the bypass network reads them, and the head's position — the order the network resolves a
       * multiple match in (the youngest wins).
@@ -133,9 +133,9 @@ class LsqProbe(parameter: LsqParameter) extends DVBundle[LsqParameter, LsqLayers
   * answer is routed by tag, never by position: responses may interleave across slaves, and a flushed load's answer must
   * drain without completing anything — a stale tag finds no occupied, unfinished entry.
   *
-  * Retirement is the head's: its record goes out as the [[RetireEvent]] the middle commits, the entry is popped, and a
-  * mispredicted branch's flush drops everything behind it in the same cycle (the queue cannot roll back, so it never
-  * retires a speculative instruction in the first place).
+  * Retirement is the head's: its record goes out as the [[RetireEvent]] the middle commits — taken when the middle
+  * reports room for it — the entry is popped, and a mispredicted branch's flush drops everything behind it in the same
+  * cycle (the queue cannot roll back, so it never retires a speculative instruction in the first place).
   */
 @generator
 object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
@@ -189,11 +189,13 @@ object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
                 .foldLeft(false.B: Referable[Bool])(_ | _)
         io.flushRisk := flushRisk()
 
-        // The head's own state: what retires this cycle, and what a push and a pop do to the ring.
+        // The head's own state: what retires this cycle, and what a push and a pop do to the ring. The pop waits for
+        // the middle to take the record (`retire.ready`): an elastic producer never lets go of what its consumer did
+        // not take.
         val push = io.slotRelease
         val headValid = entries.ref(head).valid
         val headDone = entries.ref(head).done
-        val pop = headValid & headDone & !io.flush.valid
+        val pop = headValid & headDone & !io.flush.valid & io.retire.ready
         io.retire.valid := pop
         io.retire.bits :<= entries.ref(head).record
 

@@ -2,7 +2,7 @@ package nzea_core.middle.wbu
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.{Valid, ValidIO}
+import me.jiuyang.stdlib.{Decoupled, ValidIO}
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -32,8 +32,10 @@ class WbuIO(parameter: WbuParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The retiring instruction, in program order: the completion without a queue, the queue's head with one. */
-    val retire = Flipped(ValidIO(new RetireEvent(width)))
+    /** The retiring instruction, in program order, as the write-back register presents it: the completion without a
+      * queue, the queue's head with one.
+      */
+    val retire = Flipped(Decoupled(new RetireEvent(width)))
 
     /** The commit's write faces: the register file's write port and the CSR write, driven by the retire register. */
     val arf_write = Aligned(ValidIO(new ArfWrite(width)))
@@ -47,16 +49,18 @@ class WbuIO(parameter: WbuParameter) extends HWBundle(parameter):
 
 class WbuProbe(parameter: WbuParameter) extends DVBundle[WbuParameter, WbuLayers](parameter)
 
-/** The write-back stage: the retire register, the commit and the flush event, and the two files' write faces.
+/** The write-back stage's logic: the commit and the flush event, and the two files' write faces — combinational, behind
+  * the register the middle declares for this boundary.
   *
-  * EX/WB is neither elastic nor cancellable: what retires from it writes the register and CSR files, rides the commit
-  * trace, and a mispredicted branch in it is what cancels the younger stages. The record it latches is the back's
-  * [[RetireEvent]] — the completion's, or a queue entry's — so this stage does not know which instruction source it is
-  * retiring from; the prediction check rides the record too (`mispredicted`), made where the record was written. What
-  * this stage owns is the event: `flushing` is raised the cycle the record is in write-back, and the same pulse and the
-  * record's `next_pc` make the one [[FlushBus]] the level tops broadcast. The register and CSR files themselves live in
-  * the middle, where both stages face them: this stage drives their write sides (`arf_write` / `csr_write`), the issue
-  * stage their reads. The flush is sourced here, so every stage reads one net instead of asking the stage below.
+  * EX/WB is the one boundary whose register does not obey the flush ([[nzea_rtl.stdlib.FlushHandover.Ignore]]): the
+  * record this stage presents is the one that raises it, and it must commit in the very cycle it does. The record is
+  * the back's [[RetireEvent]] — the completion's, or a queue entry's — so this stage does not know which instruction
+  * source it is retiring from; the prediction check rides the record too (`mispredicted`), made where the record was
+  * written. What this stage owns is the event: `flushing` is raised the cycle the record is in write-back, and the same
+  * pulse and the record's `next_pc` make the one [[FlushBus]] the level tops broadcast. The register and CSR files
+  * themselves live in the middle, where both stages face them: this stage drives their write sides (`arf_write` /
+  * `csr_write`), the issue stage their reads. The flush is sourced here, so every stage reads one net instead of asking
+  * the stage below.
   *
   * The counters the write-back side owns — `cycle`, `inst_commit`, `flush` and the `ipc` rule over them — are declared
   * here, where the commit and the cycle are both known.
@@ -72,22 +76,20 @@ object Wbu extends Generator[WbuParameter, WbuLayers, WbuIO, WbuProbe]:
 
         val width = parameter.config.width
 
-        // EX/WB: the one register here that is neither elastic nor cancellable — what retires from it writes the files
-        // and the trace, and a mispredicted branch in it is what cancels the younger stages. The flush is sourced from
-        // it, so every stage reads one net instead of asking the stage below.
-        val wb = Reg(new RetireEvent(width))
-        val wbValid = RegInit(false.B)
-        val complete = io.retire.valid
-        val retire = wbValid
+        // EX/WB: the register is the middle's, declared beside the stage's other boundaries — what sits here is the
+        // logic behind it. This stage always consumes what the register presents (the commit is one instruction per
+        // cycle and never stalls), so the handshake's consumer side is tied high for now: the port is where a real pace
+        // would live the day the stage has one. `flushing` is the one fact the stage adds to the record: the pulse that
+        // cancels the younger stages, raised the cycle the record is in write-back.
+        io.retire.ready := true.B
+        val retire = io.retire.valid
+        val wb = io.retire.bits
         val flushing = retire & wb.mispredicted
 
-        /** The write-back cycle: the retire record latched, then the register write, the CSR write, the commit, the
-          * flush event and the retire facts the issue stage reads, all off that one register.
+        /** The write-back cycle: the record the register presents, turned into the register write, the CSR write, the
+          * commit, the flush event and the retire facts the issue stage reads.
           */
         def retireStage(): Unit =
-            when(complete) { wb :<= io.retire.bits }
-            wbValid := complete
-
             io.flush.valid := flushing
             // The restart is wherever the branch actually resolved to: `next_pc`, not the target — under a predictor a
             // mispredict on a not-taken resolution points back at the fall-through.

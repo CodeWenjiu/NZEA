@@ -2,7 +2,7 @@ package nzea_core.back
 
 import java.lang.foreign.Arena
 
-import me.jiuyang.stdlib.ValidIO
+import me.jiuyang.stdlib.{Decoupled, ValidIO}
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
@@ -54,7 +54,7 @@ class CompletionIO(parameter: CompletionParameter) extends HWBundle(parameter):
     val pace = Aligned(Bool())
 
     /** The retiring instruction, in program order: the queue's head, or the completion itself without one. */
-    val retire = Aligned(ValidIO(new RetireEvent(width)))
+    val retire = Aligned(Decoupled(new RetireEvent(width)))
 
     /** The queue as the forward network reads it. */
     val view = Aligned(new QueueView(width, entryCount))
@@ -127,7 +127,7 @@ object Completion extends Generator[CompletionParameter, CompletionLayers, Compl
 
             io.queue.canAccept := lsq.io.canAccept
             io.queue.flushRisk := lsq.io.flushRisk
-            io.retire :<= lsq.io.retire
+            io.retire :<>= lsq.io.retire
             io.view.entries :<= lsq.io.entries
             io.view.head := lsq.io.head
 
@@ -136,7 +136,9 @@ object Completion extends Generator[CompletionParameter, CompletionLayers, Compl
           * shape, and a constant folds out of whoever reads it.
           */
         def passThrough(): Unit =
-            io.pace := io.merged.complete.valid
+            // The completion is the retire stream itself here, so the slot is let go only when the middle takes the
+            // record: the pace is the handshake's.
+            io.pace := io.merged.complete.valid & io.retire.ready
             io.queue.canAccept := true.B
             io.queue.flushRisk := false.B
             io.retire.valid := io.merged.complete.valid

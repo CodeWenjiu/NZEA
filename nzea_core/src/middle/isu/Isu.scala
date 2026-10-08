@@ -75,9 +75,9 @@ class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers
   * The ID/IS and IS/EX registers are not this unit's — they are declared one level up, beside every other stage
   * boundary, which is the rule the front-end follows around its decode — and this unit is what sits between them: it
   * reads the ID/IS register and fills the IS/EX register's write side. The read side of that register belongs to the
-  * execute stage, which is what presents the slot to the units. The operands arrive already placed from
-  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility and the CSR it settled; this unit
-  * assembles the `moved` payload, carrying the fetch's predicted next pc through untouched.
+  * execute stage, which is what presents the slot to the units. The operands come already placed from
+  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility and the CSR it settled; this unit packs
+  * them into the `moved` payload, carrying the fetch's predicted next pc through untouched.
   *
   * The stage's own counter (`operand_wait`) is declared here, where the signals it watches are; the execute slot's
   * occupancy is the register's own and is declared beside it.
@@ -93,7 +93,6 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
 
         val read =
             OperandRead.instantiate(OperandReadParameter(parameter.isa, parameter.defaultPc, parameter.lsqDepth))
-        val assemble = Assemble.instantiate(AssembleParameter(parameter.isa, parameter.defaultPc))
 
         /** The read: the payload's indexes and CSR address out to the files and the network, the answers back in, and
           * the placement of the three operand slots, with the pace this read can move at.
@@ -116,28 +115,33 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
             read.io.arf_commit :<= io.arf_commit
             read.io.csr_commit :<= io.csr_commit
 
-        /** The uop that moves: the read's operands and CSR, feasibility, the payload's held fields, and the room the
-          * register below reports — its handover rule, the flush included, is the register's own.
+        /** The uop that moves: the read's operands and CSR, and the payload's held fields with the destination riding
+          * in it — the IS/EX register's write side.
           */
-        def assembleUnit(): Unit =
-            assemble.io.clock := io.clock
-            assemble.io.resetN := io.resetN
-            assemble.io.decoded :<= io.decoded.bits
-            io.decoded.ready := assemble.io.decoded_ready
-            assemble.io.src_a := read.io.src_a
-            assemble.io.src_b := read.io.src_b
-            assemble.io.src_c := read.io.src_c
-            assemble.io.csr_type := read.io.csr_type
-            assemble.io.csr_rdata := read.io.csr_rdata
-            assemble.io.operands_ready := read.io.ready
-            assemble.io.moved_ready := io.moved.ready
-            io.moved.bits :<= assemble.io.moved
+        def moveUop(): Unit =
+            val dec = io.decoded.bits
+            io.moved.bits.pc := dec.pc
+            io.moved.bits.next_pc := dec.next_pc
+            io.moved.bits.fall_through := dec.fall_through
+            io.moved.bits.pht_count := dec.pht_count
+            io.moved.bits.imm := dec.imm
+            io.moved.bits.src_a := read.io.src_a
+            io.moved.bits.src_b := read.io.src_b
+            io.moved.bits.src_c := read.io.src_c
+            io.moved.bits.backend := dec.backend
+            io.moved.bits.op := dec.op
+            io.moved.bits.rd_index := dec.rd_index
+            io.moved.bits.csr_type := read.io.csr_type
+            io.moved.bits.csr_rdata := read.io.csr_rdata
 
         readUnit()
-        assembleUnit()
+        moveUop()
 
-        // The read's uop into the IS/EX register: handed over in the cycle ID/IS is consumed, taken when the units are
-        // done with the previous one — the cycle the register reports room.
+        // The handover: ID/IS is consumed when the read has placed the payload's operands — the read owns that test,
+        // including the in-flight writers it had to wait for — and the register below reports room: its own accept side
+        // already carries its flush rule, so a handover the flush refuses never reaches here. The uop moves in that
+        // cycle, so the register presents it the next one.
+        io.decoded.ready := io.moved.ready & read.io.ready
         io.moved.valid := io.decoded.fire
 
         /** The counter the simulator reads back: the payload's pace, declared here where the signals it watches are.

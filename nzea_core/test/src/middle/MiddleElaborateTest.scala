@@ -67,9 +67,10 @@ object MiddleElaborateTest extends TestSuite:
         "moved_bits_csr_rdata" -> width
     )
 
-    /** One retiring record, under its own prefix. */
+    /** One retiring record, under its own prefix: the elastic handshake and the record's fields. */
     private def retirePorts(prefix: String): Map[String, Int] = Map(
         s"${prefix}_valid" -> 1,
+        s"${prefix}_ready" -> 1,
         s"${prefix}_bits_next_pc" -> width,
         s"${prefix}_bits_rd_index" -> Gpr.indexWidth,
         s"${prefix}_bits_data" -> width,
@@ -144,7 +145,6 @@ object MiddleElaborateTest extends TestSuite:
             assert(sv.contains("module Arf"))
             assert(sv.contains("module CsrFile"))
             assert(sv.contains("module OperandRead"))
-            assert(sv.contains("module Assemble"))
             for unit <- Seq("Exu", "Back", "Dispatch", "Completion", "Forward", "IntPath", "MemPath") do
                 assert(!sv.contains(s"module $unit("))
 
@@ -158,10 +158,11 @@ object MiddleElaborateTest extends TestSuite:
             assert(read.contains("csr_commit_bits_csr_type"))
             assert(sv.contains("~forward_arf_offers_0_armed"))
 
-        // The stage register is the middle's own — the issue unit between the two ends is combinational — and the
-        // IS/EX register is not: it is the execute stage's input, registered by the back.
-        test("the middle carries the ID/IS register, not the IS/EX one"):
+        // The stage registers are the middle's own — the units between them are combinational — and the IS/EX register
+        // is not: it is the execute stage's input, registered by the back.
+        test("the middle carries the ID/IS and EX/WB registers, not the IS/EX one"):
             assert(sv.contains("idisValid"))
+            assert(sv.contains("exwbValid"))
             assert(!sv.contains("isexValid"))
 
         // The forward network's face is the read's to match: the middle carries the bus from the back's network to
@@ -170,17 +171,18 @@ object MiddleElaborateTest extends TestSuite:
             assert(sv.contains("forward_arf_offers_0_armed") && sv.contains("forward_arf_offers_1_armed"))
             assert(sv.contains("forward_csr_offers_0_armed") && sv.contains("forward_csr_offers_1_armed"))
 
-        // The stage owns no register either: its two boundaries are the middle's, declared one level up.
+        // The stage owns no register either: its two boundaries are the middle's, declared one level up. The read unit
+        // is the only thing inside it, and the assembly is the stage's own wiring.
         test("the issue stage is purely combinational"):
             val start = sv.indexOf("module Isu(")
             assert(start >= 0)
             val body = sv.substring(start, sv.indexOf("endmodule", start))
             assert(!body.contains("always @(posedge"))
 
-        // The assembly owns no state: the `Assemble` module in the same lowering has no flop and no stage register.
-        test("the assembly unit is purely combinational"):
-            val start = sv.indexOf("module Assemble(")
+        // The commit is combinational too: its register is the middle's — declared beside the other boundary — so what
+        // sits behind it owns no flop.
+        test("the write-back stage is purely combinational"):
+            val start = sv.indexOf("module Wbu(")
             assert(start >= 0)
             val body = sv.substring(start, sv.indexOf("endmodule", start))
             assert(!body.contains("always @(posedge"))
-            assert(!body.contains("idisValid") && !body.contains("isexValid"))

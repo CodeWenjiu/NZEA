@@ -82,9 +82,10 @@ object BackModuleTest extends TestSuite:
         "moved_bits_csr_rdata" -> width
     )
 
-    /** One retiring record, under its own prefix. */
+    /** One retiring record, under its own prefix: the elastic handshake and the record's fields. */
     private def retirePorts(prefix: String): Map[String, Int] = Map(
         s"${prefix}_valid" -> 1,
+        s"${prefix}_ready" -> 1,
         s"${prefix}_bits_next_pc" -> width,
         s"${prefix}_bits_rd_index" -> Gpr.indexWidth,
         s"${prefix}_bits_data" -> width,

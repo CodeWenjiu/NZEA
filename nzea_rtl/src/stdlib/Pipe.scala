@@ -17,32 +17,39 @@ class FlushBus(width: Int) extends Bundle:
     val valid = Aligned(Bool())
     val next_pc = Aligned(UInt(width))
 
-/** What a pipeline register does with a handover offered in the cycle `flush` is asserted.
+/** What a pipeline register does about the flush.
   *
-  * Both are correct for the register that declares them, and the difference is who the producer is:
-  *   - [[Refuse]]: the producer waits a cycle. Right when the offer is a peer's — the handover is part of a stream that
-  *     is being killed anyway, and accepting it would make the producer do work whose result is already known to be
-  *     discarded (a fetcher would ask the bus for one more word of the dead path).
+  * Each case is correct for the register that declares it, and the difference is who the producer is:
+  *   - [[Refuse]]: a handover in the flush cycle is refused — the producer waits a cycle. Right when the offer is a
+  *     peer's: the handover is part of a stream that is being killed anyway, and accepting it would make the producer
+  *     do work whose result is already known to be discarded (a fetcher would ask the bus for one more word of the dead
+  *     path).
   *   - [[Consume]]: the handover is taken and dropped. Right when the producer is a device's response: a response
   *     cannot be left hanging — refusing it leaves it on the bus, where it blocks the next request until a later cycle
   *     consumes it, which costs the stream a cycle.
+  *   - [[Ignore]]: the register does not obey the flush at all — it keeps its entry, presents it, and takes handovers
+  *     as if nothing happened. Right for the register whose own entry *sources* the flush: that entry is the oldest,
+  *     non-speculative instruction, and it must commit in the very cycle it cancels the younger stages.
   */
 enum FlushHandover:
-    case Refuse, Consume
+    case Refuse, Consume, Ignore
 
 /** One-entry pipeline register between a producer's output (`in`) and a consumer's input (`out`).
   *
   * Both ends are referables, so the caller can pass module ports (the usual case) or internal wires. `flush` is this
   * register's cancellation net: the core broadcasts one, but whether a register obeys it is the caller's decision —
-  * architectural state and anything that has to drain rather than vanish must not be wired to it. `name` is the stage
-  * boundary this register is, and the two registers carry it (its `Valid` and its bits): a stage register is read by
-  * name from waveforms, event files and timing reports, so it says what it is instead of falling into the framework's
-  * anonymous counter. `onFlush` is how a handover in the flush cycle is treated — see [[FlushHandover]].
+  * architectural state and anything that has to drain rather than vanish must not be wired to it, and
+  * [[FlushHandover.Ignore]] is the one case that takes the net without obeying it, for the register whose own entry
+  * sources it. `name` is the stage boundary this register is, and the two registers carry it (its `Valid` and its
+  * bits): a stage register is read by name from waveforms, event files and timing reports, so it says what it is
+  * instead of falling into the framework's anonymous counter. `onFlush` is how the register relates to the flush — see
+  * [[FlushHandover]].
   *
   * A flushed entry never reaches the consumer, in either window: the entry the register holds is cleared at the edge
   * rather than presented, and what it takes in that cycle is dropped. That is the whole of the register's cancellation
   * — no consumer needs to look at flush to be sure it was not handed a stale entry, because an entry carries no
-  * generation of its own once it has left the bus.
+  * generation of its own once it has left the bus. The exception is [[FlushHandover.Ignore]], where there is no
+  * cancellation to speak of: the register sources the net and goes on presenting.
   */
 def pipelineConnect[T <: HardwareDataType](
     in: Referable[DecoupledIO[T]],
@@ -68,12 +75,18 @@ def pipelineConnect[T <: HardwareDataType](
         given sourcecode.Name.Machine = sourcecode.Name.Machine(name)
         Reg(in.bits.getType)
 
+    // The register's cancellation: the flush net, where the register obeys it. The one register that sources the net
+    // does not ([[FlushHandover.Ignore]]), so for it the term is a constant and folds away.
+    val cancellation: Referable[Bool] = onFlush match
+        case FlushHandover.Ignore => false.B
+        case _                    => flush.valid
+
     val ready = !valid | out.ready
     in.ready := (onFlush match
-        case FlushHandover.Refuse  => ready & !flush.valid
-        case FlushHandover.Consume => ready
+        case FlushHandover.Refuse => ready & !flush.valid
+        case _                    => ready
     )
-    out.valid := valid & !flush.valid
+    out.valid := valid & !cancellation
     out.bits :<= bitsReg
 
     val fire = in.valid & in.ready
@@ -82,4 +95,4 @@ def pipelineConnect[T <: HardwareDataType](
     }
 
     // First match wins: a flush clears, an accepted input fills, a consumed output drains, otherwise hold.
-    valid := muxCase(valid, Seq((flush.valid, false.B), (fire, true.B), (out.valid & out.ready, false.B)))
+    valid := muxCase(valid, Seq((cancellation, false.B), (fire, true.B), (out.valid & out.ready, false.B)))
