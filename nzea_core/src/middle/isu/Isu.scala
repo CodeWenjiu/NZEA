@@ -2,21 +2,35 @@ package nzea_core.middle.isu
 
 import java.lang.foreign.Arena
 
+import me.jiuyang.stdlib.{Decoupled, ValidIO}
 import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.{IssueSlot, IssueUop}
 import nzea_core.front.idu.IduOut
-import nzea_core.isa.{Backend, CsrType, Isa}
+import nzea_core.isa.{Gpr, Isa}
 import nzea_core.middle.ExecSlot
+import nzea_core.middle.exu.ForwardParameter
+import nzea_core.middle.rf.{ArfReadPort, ArfWrite}
+import nzea_core.stats.Regions
+import nzea_rtl.RtlFlow
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class IsuParameter(isa: Isa, defaultPc: Long) extends Parameter:
+case class IsuParameter(
+    isa: Isa,
+    defaultPc: Long,
+    flow: RtlFlow,
+    lsqDepth: Int,
+    stats: StatScope
+) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
+
+    /** The forward column's length — the in-flight capacity's shape, shared with the network that broadcasts it. */
+    val offerCount: Int = ForwardParameter.offerCount(lsqDepth)
 
 given upickle.default.ReadWriter[IsuParameter] = upickle.default.macroRW
 
@@ -28,48 +42,42 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** From the middle's ID/IS register: the decoded payload, in the cycle the register presents it. */
-    val decoded = Flipped(new IduOut(parameter.config))
+    /** The ID/IS register, this unit's upstream end: the decoded payload, and the pace the read gives it. */
+    val decoded = Flipped(Decoupled(new IduOut(parameter.config)))
 
-    /** The read's pace back to that register: set when this cycle's read can place the payload's operands. */
-    val decoded_ready = Aligned(Bool())
-
-    /** From the read: the operands it placed, and whether every one of them is settled. */
-    val src_a = Flipped(UInt(width))
-    val src_b = Flipped(UInt(width))
-    val src_c = Flipped(UInt(width))
-    val operands_ready = Flipped(Bool())
-
-    /** The CSR file's read side, addressed from the execute slot's held address. */
-    val csr_rdata = Flipped(UInt(width))
-
-    /** The execute slot's pace: a slot release frees it, and the flush event kills the cycle. */
-    val slotRelease = Flipped(Bool())
-    val flush = Flipped(new FlushBus(width))
-
-    /** The execute slot as the middle's IS/EX register presents it: the payload the units work on, its validity, and
-      * the pulse marking the cycle it arrived.
+    /** The IS/EX register's write side, this unit's downstream end: the uop the read produced, and the register's room
+      * back — the read paces itself by it.
       */
-    val slot = Flipped(new ExecSlot(parameter.config))
-    val slot_valid = Flipped(Bool())
-    val slot_first = Flipped(Bool())
+    val moved = Aligned(Decoupled(new ExecSlot(parameter.config)))
 
-    /** To the IS/EX register: the uop the read produced, with the destination and CSR address riding in it. */
-    val moved = Aligned(new ExecSlot(parameter.config))
+    /** The register file's read side, from the reader's view: the indexes go out, the values come back. */
+    val arf_rs1 = Flipped(new ArfReadPort(width))
+    val arf_rs2 = Flipped(new ArfReadPort(width))
 
-    /** To the backend: the uop as a level, roles carried by `valid` and `first`. */
-    val issue = Aligned(new IssueSlot(new IssueUop(parameter.config)))
+    /** The forward network's column of in-flight writers, youngest first: the read resolves its own indexes against it
+      * ([[nzea_rtl.stdlib.ForwardOffer]]).
+      */
+    val offers = Flipped(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
+
+    /** The retiring instruction's write — the middle's own producer, older than everything in the column — and whether
+      * the level reaches it (the forward network's `commit_armed`).
+      */
+    val commit = Flipped(ValidIO(new ArfWrite(width)))
+    val commit_armed = Flipped(Bool())
 
 class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers](parameter)
 
-/** Issue unit: the assembly of the uop the units work on, between the middle's two registers.
+/** The issue stage: the register read and the assembly, combinational, between the middle's two elastic registers.
   *
-  * Combinational: the ID/IS and IS/EX registers are the middle's (`Isu` neither owns nor instantiates one), and this
-  * unit is what sits between them — the same rule the front-end follows around [[nzea_core.front.idu.Idu]]. The
-  * operands arrive already placed from [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility; this
-  * unit assembles the `moved` payload, carrying the fetch's predicted next pc through untouched, and presents the uop
-  * to the backend, silencing it when the slot is empty or the flush is killing the cycle. The slot holds the uop for
-  * the unit's whole residence — the units take a level, not a handshake — and `slot_first` marks the cycle it arrived.
+  * The ID/IS and IS/EX registers are not this unit's — they are declared one level up, beside every other stage
+  * boundary, which is the rule the front-end follows around its decode — and this unit is what sits between them: it
+  * reads the ID/IS register and fills the IS/EX register's write side. The read side of that register belongs to the
+  * execute stage, which is what presents the slot to the units. The operands arrive already placed from
+  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility; this unit assembles the `moved` payload,
+  * carrying the fetch's predicted next pc through untouched.
+  *
+  * The stage's own counter (`operand_wait`) is declared here, where the signals it watches are; the execute slot's
+  * occupancy is the register's own and is declared beside it.
   */
 @generator
 object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
@@ -80,57 +88,56 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
         given ClockScope = ClockScope.posedge(io.clock)
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-        /** ID/IS is consumed when the read has placed the payload's operands — the read owns that test, including the
-          * in-flight writers it had to wait for — and the execute stage is about to free up: its uop is released, or
-          * the slot is empty. A flush moves nothing: what waits in the stages is on the path being killed.
-          */
-        def canPlaceOperands(): Referable[Bool] =
-            (!io.slot_valid | io.slotRelease) & io.operands_ready & !io.flush.valid
+        val read =
+            OperandRead.instantiate(OperandReadParameter(parameter.isa, parameter.defaultPc, parameter.lsqDepth))
+        val assemble = Assemble.instantiate(AssembleParameter(parameter.isa, parameter.defaultPc))
 
-        /** What moves into IS/EX: the read's operands, and the payload's held fields with the destination and the CSR
-          * address riding in it.
+        /** The read: the payload's indexes out to the file and the network, the answers back in, and the placement of
+          * the three operand slots, with the pace this read can move at.
           */
-        def moveUop(): Unit =
-            val dec = io.decoded
-            io.moved.pc := dec.pc
-            io.moved.next_pc := dec.next_pc
-            io.moved.fall_through := dec.fall_through
-            io.moved.pht_count := dec.pht_count
-            io.moved.imm := dec.imm
-            io.moved.src_a := io.src_a
-            io.moved.src_b := io.src_b
-            io.moved.src_c := io.src_c
-            io.moved.backend := dec.backend
-            io.moved.op := dec.op
-            io.moved.rd_index := dec.rd_index
-            io.moved.csr_addr := dec.csr_addr
+        def readUnit(): Unit =
+            read.io.clock := io.clock
+            read.io.resetN := io.resetN
+            read.io.decoded :<= io.decoded.bits
+            read.io.rs1_data := io.arf_rs1.data
+            read.io.rs2_data := io.arf_rs2.data
+            io.arf_rs1.index := read.io.rs1_index
+            io.arf_rs2.index := read.io.rs2_index
 
-        /** The uop the units work on, as the slot's register holds it: the payload reversed into the backend's
-          * contract, with the CSR read answered here. A memory instruction's `inst[31:20]` is an address offset, not a
-          * CSR address, so it maps to none, and a flush silences the channel — the units take a vanished uop as
-          * abandoned.
+            // The forward column: the read resolves its own indexes against the offers, and the retiring write — the
+            // middle's own register — against the level's verdict for it.
+            read.io.offers :<= io.offers
+            read.io.commit :<= io.commit
+            read.io.commit_armed := io.commit_armed
+
+        /** The uop that moves: the read's operands and feasibility, the payload's held fields, and the room the
+          * register below reports — its handover rule, the flush included, is the register's own.
           */
-        def issue(): Unit =
-            val slot = io.slot
-            val uop = Wire(new IssueUop(parameter.config))
-            uop.pc := slot.pc
-            uop.next_pc := slot.next_pc
-            uop.fall_through := slot.fall_through
-            uop.pht_count := slot.pht_count
-            uop.imm := slot.imm
-            uop.src_a := slot.src_a
-            uop.src_b := slot.src_b
-            uop.src_c := slot.src_c
-            uop.backend := slot.backend
-            uop.op := slot.op
-            uop.rd_index := slot.rd_index
-            val isMem = slot.backend === Backend.MEM.lit.U(Backend.width)
-            uop.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), CsrType.fromAddr(slot.csr_addr))
-            uop.csr_rdata := io.csr_rdata
-            io.issue.valid := io.slot_valid
-            io.issue.first := io.slot_first & !io.flush.valid
-            io.issue.bits :<= uop
+        def assembleUnit(): Unit =
+            assemble.io.clock := io.clock
+            assemble.io.resetN := io.resetN
+            assemble.io.decoded :<= io.decoded.bits
+            io.decoded.ready := assemble.io.decoded_ready
+            assemble.io.src_a := read.io.src_a
+            assemble.io.src_b := read.io.src_b
+            assemble.io.src_c := read.io.src_c
+            assemble.io.operands_ready := read.io.ready
+            assemble.io.moved_ready := io.moved.ready
+            io.moved.bits :<= assemble.io.moved
 
-        io.decoded_ready := canPlaceOperands()
-        moveUop()
-        issue()
+        readUnit()
+        assembleUnit()
+
+        // The read's uop into the IS/EX register: handed over in the cycle ID/IS is consumed, taken when the units are
+        // done with the previous one — the cycle the register reports room.
+        io.moved.valid := io.decoded.fire
+
+        /** The counter the simulator reads back: the payload's pace, declared here where the signals it watches are.
+          * The execute slot's occupancy is the register's own and lives beside it ([[nzea_core.middle.Middle]]).
+          */
+        def counters(): Unit =
+            val wait =
+                parameter.stats.stat("operand_wait", Regions.Throughput, "cycles a payload waits for its own operands")
+            wait.inc(io.decoded.valid & io.moved.ready & !read.io.ready)
+
+        if parameter.flow.counters then counters()

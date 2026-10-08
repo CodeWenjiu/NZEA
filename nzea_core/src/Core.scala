@@ -10,8 +10,8 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BpuConfig, BypassLevel, CoreConfig}
 import nzea_core.stats.Regions
-import nzea_core.back.{Back, BackParameter}
-import nzea_core.back.mem.{DbusUser, MemPath}
+import nzea_core.back.int.{IntPath, IntPathParameter}
+import nzea_core.back.mem.{DbusUser, MemPath, MemPathParameter}
 import nzea_core.front.{Front, FrontParameter}
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{CsrType, Gpr, Isa}
@@ -55,8 +55,8 @@ class CoreIO(parameter: CoreParameter) extends HWBundle(parameter):
 
 class CoreProbe(parameter: CoreParameter) extends DVBundle[CoreParameter, CoreLayers](parameter)
 
-/** The core: front, middle and back, with the interfaces it actually has — an instruction bus, a data bus and the
-  * commit trace — as its own ports.
+/** The core: the front, the middle and the two execution paths the middle dispatches to, with the interfaces it
+  * actually has — an instruction bus, a data bus and the commit trace — as its own ports.
   *
   * Nothing here knows how the core is dumped or wired upwards: turning those interfaces into a top's ports or into
   * simulation bridges belongs to the level top (`nzea_top.NzeaCore`), and a tile instantiates this module as it is.
@@ -82,43 +82,45 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
                     c.isa,
                     c.defaultPc,
                     parameter.flow,
+                    parameter.bypass,
                     parameter.lsqDepth,
-                    parameter.stats.child(Middle.Source)
+                    parameter.stats
                 )
             )
-        val back =
-            Back.instantiate(
-                BackParameter(
+        // The execution paths are the core's own: pure units, with no state but their own latency. The middle gates
+        // each issued uop to its path and merges what the paths report — the dispatch and the merge are one decision.
+        val int =
+            IntPath.instantiate(
+                IntPathParameter(
                     c.isa,
                     c.defaultPc,
                     parameter.flow,
-                    parameter.mmioRanges,
-                    parameter.bypass,
-                    parameter.bpu,
-                    parameter.lsqDepth,
-                    parameter.stats.child(Back.Source)
+                    parameter.stats.child(Middle.BackSource).child(IntPath.Source),
+                    parameter.bpu
                 )
             )
+        val mem = MemPath.instantiate(MemPathParameter(c.isa, c.defaultPc, parameter.mmioRanges))
 
         front.io.clock := io.clock
         front.io.resetN := io.resetN
         middle.io.clock := io.clock
         middle.io.resetN := io.resetN
-        back.io.clock := io.clock
-        back.io.resetN := io.resetN
+        int.io.clock := io.clock
+        int.io.resetN := io.resetN
+        mem.io.clock := io.clock
+        mem.io.resetN := io.resetN
 
         middle.io.decoded :<>= front.io.out
         // The flush event is one bus, out of the middle and into every level that obeys it.
         front.io.flush :<= middle.io.flush
-        // The predictor's training crosses the middle without touching it: the branch resolves at the back, the tables
-        // live at the front, and nothing between the two consumes the outcome.
-        front.io.bp_update :<= back.io.bp_update
+        // The predictor's training crosses the middle without touching it: the branch resolves in the int path, the
+        // tables live at the front, and nothing between the two consumes the outcome.
+        front.io.bp_update :<= int.io.bp_update
 
-        back.io.issue :<= middle.io.issue
-        middle.io.retire :<= back.io.retire
-        middle.io.slotRelease := back.io.slotRelease
-        back.io.flush :<= middle.io.flush
-        back.io.forward :<>= middle.io.forward
+        // The execution face: one bundle per side, so the middle and the paths cannot be paired up wrong.
+        int.io.path :<>= middle.io.int
+        mem.io.path :<>= middle.io.mem
+        mem.io.queue :<>= middle.io.queue
 
         // The instruction request is registered at the core's own boundary, and the register is a skid: the fetch's
         // request valid follows the decode's ready and its pc advances on the request's acceptance, so a host wiring
@@ -142,7 +144,7 @@ object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:
         )
         dbusBuffer.io.clock := io.clock
         dbusBuffer.io.resetN := io.resetN
-        dbusBuffer.io.in :<>= back.io.dbus
+        dbusBuffer.io.in :<>= mem.io.dbus
         io.dbus :<>= dbusBuffer.io.out
 
         io.commit_msg :<= middle.io.commit

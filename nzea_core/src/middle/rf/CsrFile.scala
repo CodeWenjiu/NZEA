@@ -16,6 +16,11 @@ class CsrWrite(width: Int) extends Bundle:
     val csr_type = Aligned(UInt(CsrType.width))
     val data = Aligned(UInt(width))
 
+/** The file's read side: the address the reader asks for, and the value the file answers with. */
+class CsrReadPort(width: Int) extends Bundle:
+    val addr = Flipped(UInt(12))
+    val data = Aligned(UInt(width))
+
 case class CsrFileParameter(width: Int) extends Parameter
 
 given upickle.default.ReadWriter[CsrFileParameter] = upickle.default.macroRW
@@ -27,8 +32,7 @@ class CsrFileIO(parameter: CsrFileParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
     val write = Flipped(ValidIO(new CsrWrite(parameter.width)))
-    val read_addr = Flipped(UInt(12))
-    val read_data = Aligned(UInt(parameter.width))
+    val read = Aligned(new CsrReadPort(parameter.width))
 
 class CsrFileProbe(parameter: CsrFileParameter) extends DVBundle[CsrFileParameter, CsrFileLayers](parameter)
 
@@ -65,7 +69,7 @@ object CsrFile extends Generator[CsrFileParameter, CsrFileLayers, CsrFileIO, Csr
             when(io.write.bits.csr_type === CsrType.Mscratch.lit.U(CsrType.width)) { mscratch := io.write.bits.data }
         }
 
-        val addressed = CsrType.fromAddr(io.read_addr)
+        val addressed = CsrType.fromAddr(io.read.addr)
         val writeThrough = io.write.valid & (io.write.bits.csr_type =/= CsrType.None.lit.U(CsrType.width)) &
             (io.write.bits.csr_type === addressed)
         val stored: Referable[UInt] = muxCase(
@@ -78,4 +82,4 @@ object CsrFile extends Generator[CsrFileParameter, CsrFileLayers, CsrFileIO, Csr
                 (addressed === CsrType.Mscratch.lit.U(CsrType.width), mscratch)
             )
         )
-        io.read_data := writeThrough ? (io.write.bits.data, stored)
+        io.read.data := writeThrough ? (io.write.bits.data, stored)

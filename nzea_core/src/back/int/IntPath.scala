@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BpuConfig, CoreConfig}
-import nzea_core.back.{BpUpdate, IssueSlot, IssueUop, PathResult}
+import nzea_core.back.{BpUpdate, IntFace}
 import nzea_core.isa.{CsrType, Isa}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
@@ -30,13 +30,9 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
     private val width = parameter.config.width
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
-    val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
 
-    /** The completion handshake's valid: high while the uop in the slot is finished, held until the slot's pace takes
-      * it — the middle's release can be deferred by the queue's room after a unit has already reported.
-      */
-    val done = Aligned(Bool())
-    val result = Aligned(new PathResult(width))
+    /** The middle's face, flipped: the gated uop in, the completion report out. */
+    val path = Flipped(new IntFace(parameter.config))
 
     /** The resolved branches, for the front's predictor: the branch unit's own wires, registered at the resolve cycle
       * so the tables' write decode hangs off registers rather than off the units' cones.
@@ -66,9 +62,9 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
         val width = parameter.config.width
-        val uopValid = io.issue.valid
-        val uopFirst = io.issue.first
-        val u = io.issue.bits
+        val uopValid = io.path.issue.valid
+        val uopFirst = io.path.issue.first
+        val u = io.path.issue.bits
 
         val ops = IntOp.set(parameter.config.isa)
         val op: Referable[UInt] = u.op
@@ -194,16 +190,16 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
             val serialHeld = RegInit(false.B)
             when(uopFirst | !uopValid) { serialHeld := false.B }
             when(mulDone | divDone) { serialHeld := true.B }
-            io.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone | serialHeld)
-            io.result.data := data
+            io.path.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone | serialHeld)
+            io.path.result.data := data
             // One mux, not two: `isBru & taken` picks the target in the same level the test lands, so the write-back stage's
             // next pc does not pay two mux stages for one choice.
-            io.result.next_pc := (isBru & bru.io.taken) ? (bru.io.target, fallThrough)
-            io.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
-            io.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
-            io.result.is_mmio := false.B
-            io.result.is_branch := isBru
-            io.result.pred_next_pc := u.next_pc
+            io.path.result.next_pc := (isBru & bru.io.taken) ? (bru.io.target, fallThrough)
+            io.path.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
+            io.path.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
+            io.path.result.is_mmio := false.B
+            io.path.result.is_branch := isBru
+            io.path.result.pred_next_pc := u.next_pc
 
         result()
 

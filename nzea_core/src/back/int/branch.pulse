@@ -1,10 +1,10 @@
--- Branch-resolution events, relative to the int path's scope (TOP.NzeaCore.core.back.int_0).
+-- Branch-resolution events, relative to the int path's scope (TOP.NzeaCore.core.int_0).
 --
 -- The counters in the same scope count these events; cross-checking one against the other is how a counter wired to a
 -- level instead of an event shows up. Bind them with --event, e.g. the resolution of each branch against its refetch
 -- (a window, not a fixed distance: the redirect follows the resolution by way of the middle's write-back register):
 --   pulse property --event nzea_core/src/back/int/branch.pulse <INT> Branch \
---       --event nzea_core/src/middle/retire.pulse <MIDDLE> Core \
+--       --event nzea_core/src/middle/wbu/retire.pulse <MIDDLE> Core \
 --       --eval 'Branch.branch_mispred --3 Core.redirect'
 
 -- One branch or jump resolved. This is the uop's arrival edge, not its whole stay: a combinational unit holds its uop

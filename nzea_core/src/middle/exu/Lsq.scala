@@ -1,4 +1,4 @@
-package nzea_core.back
+package nzea_core.middle.exu
 
 import java.lang.foreign.Arena
 
@@ -9,7 +9,8 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.mem.{DbusUser, LsuData, LsuOp, MemOp}
+import nzea_core.back.{IssueSlot, IssueUop, PathResult, RetireEvent}
+import nzea_core.back.mem.{DbusUser, LsqResponse, LsuData, LsuOp, MemOp}
 import nzea_core.isa.{Backend, Gpr, Isa}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
@@ -60,6 +61,13 @@ class LsqView(width: Int) extends Bundle:
     val rd_index = Aligned(UInt(Gpr.indexWidth))
     val data = Aligned(UInt(width))
 
+/** The queue as the forward network reads it: every entry's view, and the head's position — the order a multiple match
+  * is resolved in (the youngest wins).
+  */
+class QueueView(width: Int, depth: Int) extends Bundle:
+    val entries = Aligned(Vec(depth, new LsqView(width)))
+    val head = Aligned(UInt(log2Ceil(depth)))
+
 class LsqIO(parameter: LsqParameter) extends HWBundle(parameter):
     private val width = parameter.config.width
     private val depth = parameter.depth
@@ -107,13 +115,6 @@ class LsqIO(parameter: LsqParameter) extends HWBundle(parameter):
     val entries = Aligned(Vec(depth, new LsqView(width)))
     val head = Aligned(UInt(log2Ceil(depth)))
 
-/** The bus answer as the queue consumes it: the tag that names the entry, and the bus word the entry's value is
-  * selected from.
-  */
-class LsqResponse(width: Int) extends Bundle:
-    val tag = Aligned(UInt(DbusUser.tagWidth))
-    val data = Aligned(UInt(width))
-
 class LsqProbe(parameter: LsqParameter) extends DVBundle[LsqParameter, LsqLayers](parameter)
 
 /** The load/store queue: the core's in-order completion queue, one entry per instruction in flight.
@@ -127,11 +128,11 @@ class LsqProbe(parameter: LsqParameter) extends DVBundle[LsqParameter, LsqLayers
   *
   * Entries are done in one of three ways: an integer op when it is written (the unit's result, same cycle), a store
   * when the bus accepts its write (non-speculative — see [[flushRisk]]), a load when its tagged answer arrives. The
-  * answer is routed by tag, never by position: responses may interleave across slaves, and a flushed load's answer
-  * must drain without completing anything — a stale tag finds no occupied, unfinished entry.
+  * answer is routed by tag, never by position: responses may interleave across slaves, and a flushed load's answer must
+  * drain without completing anything — a stale tag finds no occupied, unfinished entry.
   *
-  * Retirement is the head's: its record goes out as the [[RetireEvent]] the middle commits, the entry is popped, and
-  * a mispredicted branch's flush drops everything behind it in the same cycle (the queue cannot roll back, so it never
+  * Retirement is the head's: its record goes out as the [[RetireEvent]] the middle commits, the entry is popped, and a
+  * mispredicted branch's flush drops everything behind it in the same cycle (the queue cannot roll back, so it never
   * retires a speculative instruction in the first place).
   */
 @generator
@@ -203,9 +204,9 @@ object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
         )
 
         /** One instruction's entry, written whole when the slot releases it: the retire record from the completion, the
-          * destination from the held uop, and the memory path's tag and offset for a load's later answer. A load's entry
-          * starts unfinished and without a value — its data is not on the bus yet — so `data` is zeroed rather than
-          * taken from the result, whose data belongs to whatever answer is on the bus this cycle.
+          * destination from the held uop, and the memory path's tag and offset for a load's later answer. A load's
+          * entry starts unfinished and without a value — its data is not on the bus yet — so `data` is zeroed rather
+          * than taken from the result, whose data belongs to whatever answer is on the bus this cycle.
           */
         def writeEntry(): Unit =
             val record = RetireEvent.of(width, io.complete.bits, io.issue.bits.rd_index)
@@ -251,13 +252,13 @@ object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
           */
         def retireHead(): Unit =
             when(pop) {
-                for index <- 0 until depth do
-                    when(head === index.U(ptrW)) { entries.ref(index).valid := false.B }
+                for index <- 0 until depth do when(head === index.U(ptrW)) { entries.ref(index).valid := false.B }
                 head := headNext
             }
 
         /** The flush: everything behind the retiring head is dropped. The head itself retired in the cycle before — the
-          * flush is the middle's, one register past this queue's own retire — so the queue simply empties from the head.
+          * flush is the middle's, one register past this queue's own retire — so the queue simply empties from the
+          * head.
           */
         def clearOnFlush(): Unit =
             when(io.flush.valid) {

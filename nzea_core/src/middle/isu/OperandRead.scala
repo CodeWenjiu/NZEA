@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.ForwardParameter
+import nzea_core.middle.exu.ForwardParameter
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{Gpr, Isa, Operand, Srcs}
 import nzea_core.middle.rf.ArfWrite
@@ -47,7 +47,7 @@ class OperandReadIO(parameter: OperandReadParameter) extends HWBundle(parameter)
     val offers = Flipped(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
 
     /** The retiring instruction's write — the middle's own producer, older than everything in the column — and whether
-      * the level reaches it ([[nzea_core.back.ForwardBus.commit_armed]]).
+      * the level reaches it (the forward network's `commit_armed`).
       */
     val commit = Flipped(ValidIO(new ArfWrite(width)))
     val commit_armed = Flipped(Bool())

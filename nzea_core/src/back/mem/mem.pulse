@@ -1,4 +1,4 @@
--- Memory-path events, relative to the load/store path's scope (TOP.NzeaCore.core.back.mem).
+-- Memory-path events, relative to the load/store path's scope (TOP.NzeaCore.core.mem).
 --
 -- What the retire and branch events cannot answer: how long a load or store asks, and whether it left the core at all.
 -- One request is outstanding at a time, so a response lands the cycle after the fire unless the level below holds it —
@@ -18,9 +18,9 @@ req_fire = dbus_req_valid && dbus_req_ready
 -- The bus answered, whatever the response turns out to complete.
 resp = dbus_resp_valid
 
--- The response completed the held uop, its tag matching: the cycle the middle can retire it from. (`done` is the same
--- port under its waveform name; the event is the matched completion, not every response.)
-complete = done
+-- The response completed the held uop, its tag matching: the cycle the middle can retire it from. (`path_done` is the
+-- same port under its waveform name; the event is the matched completion, not every response.)
+complete = path_done
 
 -- A read / a write the bus took.
 load  = req_fire && !dbus_req_bits_wen
@@ -31,7 +31,7 @@ wait = dbus_req_valid && !dbus_req_ready
 
 -- The access that completed was a platform device rather than memory: the commit trace marks it, and in a simulation
 -- dump it is the access that crosses the DPI bridge instead of being answered from the memory array.
-mmio = complete && result_is_mmio
+mmio = complete && path_result_is_mmio
 
 -- A response that completed nothing, because the uop that asked for it is gone: a flush in the middle of a request
 -- shows up here. Every response is consumed, so this is a drain, not a stall.

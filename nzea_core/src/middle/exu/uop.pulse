@@ -1,0 +1,19 @@
+-- Execute-stage slot events, relative to the execute stage's scope (TOP.NzeaCore.core.middle.exu).
+--
+-- These are the events the retire counters cannot answer: the counters say how many, these say when and in what order.
+-- The slot is this stage's read side of the middle's IS/EX register, so the events are watched at the register's own
+-- end here. The read that fills it is the issue stage's and its events live beside it
+-- (`nzea_core/src/middle/isu/issue.pulse`), as do the write-back stage's (`nzea_core/src/middle/wbu/retire.pulse`);
+-- bind them together for the redirect each issued uop turns into (the window is the read/write-back distance, so it is
+-- not a fixed number):
+--   pulse property --event nzea_core/src/middle/isu/issue.pulse <ISU> Issue \
+--       --event nzea_core/src/middle/exu/uop.pulse <EXU> Uop \
+--       --event nzea_core/src/middle/wbu/retire.pulse <WB> Wbu \
+--       --eval 'Uop.uop_issue -> Wbu.redirect'
+
+-- A uop's first cycle in the execute slot: the cycle after the read placed its operands, and the one the units take as
+-- the uop's beginning.
+uop_issue = slot_first
+
+-- The slot holds an unfinished uop: the execute stage's occupancy, the cycles it has not released.
+slot_busy = slot_valid && !slot_ready

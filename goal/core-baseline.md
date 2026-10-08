@@ -21,11 +21,12 @@ nzea_core/src/
   front/                Front（取指 + 译码，两段之间的流水寄存器由它 own，受 flush 控制）
     ifu/                Ifu（pc/epoch，一次一个请求，预测随取指）/ IbusUser（user = {pc, next_pc, epoch}）
     idu/                Idu（PLA 译码 + 立即数成形 + 源寄存器号）/ inst/（Insts 类型与模式形状 ｜ InstI、InstM 指令行，各自 rows(xlen) 选行）/ DecodeTables（真值表 → PLA）
-  middle/               Middle（两个阶段 + 共享寄存器文件 rf：读面归 IssueStage、写面归 Wbu）/ CommitMsg / ExecSlot
+  middle/               Middle（三级：Isu / Exu / Wbu + 两个边界寄存器 + 共享寄存器文件 rf）/ ExecSlot（IS/EX 载荷）
     rf/                 Arf（GPR 文件：两读口 + 一写口，纯存储）/ CsrFile（机器态 CSR：组合读（含写穿透），写随提交）
-    isu/                IssueStage（两级流水寄存器 idis/isex + pipelineConnect + slotFirst，出 uop 与 slot 事实）/ Isu（uop 组装）/ OperandRead（寄存器读与等待），后两者纯组合；issue.pulse
+    isu/                Isu（读 + 组装，纯组合；写 IS/EX 写侧）+ OperandRead（寄存器读与等待）+ Assemble（uop 组装）；issue.pulse
+    exu/                Exu（读 IS/EX 读侧，把 slot 呈现为后端 uop 视图）+ Dispatch（分发 + 完成合并）+ Completion（完成路径 + LSQ）+ Forward（前递网络）+ Lsq；uop.pulse
     wbu/                Wbu（写回寄存器：提交、flush、redirect 的源头，驱动文件的写面）；retire.pulse
-  back/                 Back（按 backend 分发 + 完成合并 + 出口锁存）/ IssueUop / BackOut / PathResult / OpWindow / Bypass（前递网络：完成中的结果按请求寄存器号匹配，逐读口返回 ValidIO）/ BypassBus（middle↔back）
+  back/                 执行单元与契约：IntFace / MemFace / QueueFace / IssueSlot / IssueUop / PathResult / OpWindow / RetireEvent / BpUpdate
     int/                IntPath（ALU/BRU/MUL/DIV/SYSU + 分支计数）/ Fu（FuType 与 IntOp 窗口）/ FuOps（各 op 编码）/ Mul / Div
     mem/                MemPath（LSU：请求保持 + 响应 tag 匹配）/ LsuOp（LsuOp 与 MemOp 窗口）/ DbusUser
   isa/                  跨段 ISA 级类型：Backend / CsrType / Gpr / Operands（操作数形态 Srcs）
@@ -64,8 +65,8 @@ nzea_core/src/
   |---|---|---|---|
   | IF | `ifu.pc` + 总线往返 | Ifu | 请求/响应、epoch 甄别、预测（`pc+4`）随请求携带 |
   | ID | `ifid`（指令字） | Front | `Idu` 的 PLA + 立即数 |
-  | ID/IS | `idis`（译码载荷） | Middle | 寄存器读（`Arf` 组合读 + `Srcs.resolve`，即 `Isu`） |
-  | IS/EX | `isex`（`ExecSlot`） | Middle | 执行（IntPath/MemPath 组合） |
+  | ID/IS | `idis`（译码载荷） | Middle | 寄存器读与组装（`OperandRead` + `Assemble`，即 `Isu`） |
+  | IS/EX | `isex`（`ExecSlot`） | Middle | uop 视图（`Exu` 读侧）+ 执行（IntPath/MemPath 组合） |
   | EX/WB | `wb`（结果） | Middle | 写回：`arf`/`csr` 写 + commit + flush/redirect 广播 |
 
   后端的“级数”完全由单元自己声明（ALU/BRU/SYSU 组合、MUL 3 拍、DIV 多拍、LSU 变长）。
@@ -76,11 +77,13 @@ nzea_core/src/
   `IssueUop`），BRU 用预测与解析结果对照（基线下该对照折叠成 `offset =/= 4`，目标加法器不进 redirect 的 valid
   锥）；分支在 BRU 解析后 flush + redirect；无 BPU。BP 落地时替换 `Ifu` 里那一个预测值，管道其余不动。
 - 中端两槽：`idis`（译码载荷，还没有操作数）与 `isex`（`ExecSlot`：就绪 uop + `rd_index`/`csr_addr`；后端只看到
-  它反推出的 `IssueUop`）。两个寄存器与 `pipelineConnect` 都在 `Middle` 的 `IssueStage`，夹在中间的是两个组合单元：
-  `OperandRead`（操作数读取：请求 index、合流文件/网络、按形式置换，及在飞写者的等待）与 `Isu`（uop 组装；与前端
-  `Idu` 同规矩）。载荷在后端 uop 完成的那拍搬入 `isex`
+  它反推出的 `IssueUop`）。两个寄存器与 `pipelineConnect` 都在 `Middle`：`idis` 夹在 `Isu`（读 + 组装：`OperandRead`
+  的操作数读取与 `Assemble` 的 uop 组装，与前端 `Idu` 同规矩）与前端之间，`isex` 的写侧是 `Isu` 的、读侧是 `Exu` 的
+  （`Exu` 把 slot 呈现成后端 uop 视图：角色位、`csr_type`、`csr_rdata`），即每个寄存器都夹在两个流水级之间，而不是
+  某个单元内部。载荷在后端 uop 完成的那拍搬入 `isex`
   并在同一拍读寄存器：此时写口上正是那条在途指令的写，读一次就是对的。载荷读的正是这条指令写的寄存器时，
-  搬运晚一拍（写口下一拍才到），即 "读永远正确" 的代价。共享的 `Arf`/`CsrFile` 挂在 `Middle` 下：读面面向 `IssueStage`，写面由 `Wbu` 驱动。
+  搬运晚一拍（写口下一拍才到），即 "读永远正确" 的代价。共享的 `Arf`/`CsrFile` 挂在 `Middle` 下：读面面向 `Isu`
+  （Arf）与 `Exu`（CSR，地址随 slot），写面由 `Wbu` 驱动。
 - 前递网络是一个按档位裁剪的源清单：`BypassLevel` 取转发阶梯的年轻前缀——`Commit` 档 = {提交中的写}，
   `Execute` 档 = {完成中的结果, 提交中的写}（冲突取年轻者），`None` = 空。源各自进 `back.Bypass`（完成结果在
   back 本地，提交写经 `BypassBus` 从中端带来），逐读口给 `ValidIO`；`OperandRead` 以 `valid ? bypass : arf` 选择。

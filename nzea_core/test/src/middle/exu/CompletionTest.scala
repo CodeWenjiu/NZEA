@@ -1,4 +1,4 @@
-package nzea_core.back
+package nzea_core.middle.exu
 
 import nzea_core.isa.Isa
 import nzea_rtl.{RtlFlow, TestFlow}
@@ -48,9 +48,9 @@ object CompletionTest extends TestSuite:
                 assert(ports("retire_valid") == 1)
                 assert(ports("retire_bits_mispredicted") == 1)
                 assert(ports("pace") == 1)
-                assert(ports("canAccept") == 1)
-                assert(ports("flushRisk") == 1)
+                assert(ports("queue_canAccept") == 1)
+                assert(ports("queue_flushRisk") == 1)
 
         test("the entries view is the queue's, or a constant when none is built"):
-            assert(queued.contains("entries_3_valid"))
-            assert(!plain.contains("entries_1_valid"))
+            assert(queued.contains("view_entries_3_valid"))
+            assert(!plain.contains("view_entries_1_valid"))

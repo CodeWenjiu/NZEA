@@ -1,4 +1,4 @@
-package nzea_core.back
+package nzea_core.middle.exu
 
 import java.lang.foreign.Arena
 
@@ -8,25 +8,11 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_core.back.{IssueSlot, IssueUop, PathResult}
 import nzea_core.config.{BypassLevel, CoreConfig}
 import nzea_core.isa.{Gpr, Isa}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
-
-/** The middle's end of the forward network: the in-flight writers the back holds as one column of offers, youngest
-  * first ([[nzea_rtl.stdlib.ForwardOffer]]), and the level's verdict for the write the middle is retiring.
-  *
-  * The column is the back's own producers — the slot's uop and the queue's entries — and it is broadcast, so the middle
-  * drives nothing: this bus is one way. The retiring write is the middle's own register and is matched there; all that
-  * crosses for it is whether the level reaches it, which is what a consumer needs to place it against its own register.
-  * The column's length is the in-flight capacity's (the queue's depth).
-  */
-class ForwardBus(width: Int, offerCount: Int) extends Bundle:
-    /** Whether the level forwards the retiring write — the middle's own producer, matched there. */
-    val commit_armed = Flipped(Bool())
-
-    /** The in-flight writers, youngest first. */
-    val offers = Flipped(Vec(offerCount, new ForwardOffer(width, Gpr.indexWidth)))
 
 case class ForwardParameter(isa: Isa, defaultPc: Long, bypass: BypassLevel, lsqDepth: Int) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -57,28 +43,27 @@ class ForwardIO(parameter: ForwardParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The completing instruction's value: valid the cycle the slot's uop is finished. */
-    val exec = Flipped(ValidIO(UInt(width)))
+    /** The completing instruction: valid the cycle the slot's uop is finished, carrying the value it produced. */
+    val exec = Flipped(ValidIO(new PathResult(width)))
 
-    /** The execute slot's writer: the register the in-flight uop will write. */
-    val slot = Flipped(ValidIO(UInt(Gpr.indexWidth)))
+    /** The execute slot's uop: the youngest writer in flight, named by its destination. */
+    val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
 
-    /** The queue's entries and the head's position: the writers between the completing instruction and the retiring
-      * write, in program order — the head is the oldest, the position `(index - head) mod depth` the age.
+    /** The queue as this network reads it: the writers between the completing instruction and the retiring write, in
+      * program order — the head is the oldest, the position `(index - head) mod depth` the age.
       */
-    val entries = Flipped(Vec(parameter.entryCount, new LsqView(width)))
-    val head = Flipped(UInt(log2Ceil(parameter.entryCount)))
+    val view = Flipped(new QueueView(width, parameter.entryCount))
 
-    /** The column, out to the middle: see [[ForwardBus.offers]]. */
+    /** The column, out to the middle: the in-flight writers, youngest first ([[nzea_rtl.stdlib.ForwardOffer]]). */
     val offers = Aligned(Vec(parameter.offerCount, new ForwardOffer(width, Gpr.indexWidth)))
 
-    /** The level's verdict for the retiring write: see [[ForwardBus.commit_armed]]. */
+    /** The level's verdict for the retiring write the middle holds: whether the level forwards it. */
     val commit_armed = Aligned(Bool())
 
 class ForwardProbe(parameter: ForwardParameter) extends DVBundle[ForwardParameter, ForwardLayers](parameter)
 
-/** The forward network: the in-flight writers the back holds gathered into one column of offers, youngest first, each
-  * cut to the level's reach.
+/** The forward network: the in-flight writers the execution face holds gathered into one column of offers, youngest
+  * first, each cut to the level's reach.
   *
   * The producers do not know who reads them and the consumers do not know who produces: the column is the whole
   * contract, and a consumer resolves its own read against it. The order is program order — the slot's uop is the
@@ -106,19 +91,19 @@ object Forward extends Generator[ForwardParameter, ForwardLayers, ForwardIO, For
         /** The slot's uop: the youngest writer in flight. Its identity is the slot's and its value the completion's —
           * the two ports are the same instruction, one naming the writer and the other carrying the value it produces.
           */
-        val slotValid = io.slot.valid & (io.slot.bits =/= 0.U(indexWidth))
+        val slotValid = io.issue.valid & (io.issue.bits.rd_index =/= 0.U(indexWidth))
         val slotArmed = slotValid & (if parameter.bypass.execute then io.exec.valid else false.B)
         io.offers.ref(0).valid := slotValid
         io.offers.ref(0).armed := slotArmed
-        io.offers.ref(0).index := io.slot.bits
-        io.offers.ref(0).data := io.exec.bits
+        io.offers.ref(0).index := io.issue.bits.rd_index
+        io.offers.ref(0).data := io.exec.bits.data
 
         /** The queue's entries, from the tail back to the head: offer `1 + k` is the entry at position `entryCount - 1
           * \- k`, so the column reads youngest first and a consumer never sees the ring.
           */
         if parameter.lsqDepth != 0 then
             val posW = log2Ceil(entryCount)
-            val positions = (0 until entryCount).map(i => subWrap(i.U(posW), io.head, posW))
+            val positions = (0 until entryCount).map(i => subWrap(i.U(posW), io.view.head, posW))
 
             def pickAt(position: Int): Seq[Referable[Bool]] =
                 (0 until entryCount).map(j => positions(j) === position.U(posW))
@@ -138,16 +123,16 @@ object Forward extends Generator[ForwardParameter, ForwardLayers, ForwardIO, For
 
             for k <- 0 until entryCount do
                 val picks = pickAt(entryCount - 1 - k)
-                val index = oneHotUInt(picks, j => io.entries.ref(j).rd_index, indexWidth)
-                val valid = oneHotBool(picks, j => io.entries.ref(j).valid) & (index =/= 0.U(indexWidth))
+                val index = oneHotUInt(picks, j => io.view.entries.ref(j).rd_index, indexWidth)
+                val valid = oneHotBool(picks, j => io.view.entries.ref(j).valid) & (index =/= 0.U(indexWidth))
                 val armed =
-                    valid & (if parameter.bypass.execute then oneHotBool(picks, j => io.entries.ref(j).done)
+                    valid & (if parameter.bypass.execute then oneHotBool(picks, j => io.view.entries.ref(j).done)
                              else false.B)
                 val offer = io.offers.ref(1 + k)
                 offer.valid := valid
                 offer.armed := armed
                 offer.index := index
-                offer.data := oneHotUInt(picks, j => io.entries.ref(j).data, width)
+                offer.data := oneHotUInt(picks, j => io.view.entries.ref(j).data, width)
         else
             // No queue: the column's entry slot is a constant, and the constant folds out of every consumer.
             val offer = io.offers.ref(1)

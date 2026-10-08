@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.{IssueSlot, IssueUop, LsqResponse, PathResult}
+import nzea_core.back.{MemFace, QueueFace}
 import nzea_core.isa.{CsrType, Isa}
 import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
@@ -39,36 +39,12 @@ class MemPathIO(parameter: MemPathParameter) extends HWBundle(parameter):
     private val width = parameter.config.width
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
-    val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
-    val done = Aligned(Bool())
-    val result = Aligned(new PathResult(width))
+
+    /** The middle's faces, flipped: the gated uop in and the completion report out, and the queue's request side. */
+    val path = Flipped(new MemFace(parameter.config))
+    val queue = Flipped(new QueueFace(parameter.config))
+
     val dbus = Aligned(MemPath.dbusType(parameter.config))
-
-    /** The request's acceptance: the slot's uop is finished with the slot — a load's answer may still be in flight,
-      * the load/store queue holds the entry that completes on it. This is the pace a slot release takes when the queue
-      * is on; without one, the completion (`done`) is what frees the slot.
-      */
-    val slotRelease = Aligned(Bool())
-
-    /** What a new queue entry records about this request: the tag its answer will carry, and the in-word offset a
-      * load's value is selected with.
-      */
-    val reqTag = Aligned(UInt(DbusUser.tagWidth))
-    val offset = Aligned(UInt(LsuData.offsetWidth(width)))
-
-    /** The bus's answers, re-exported for the queue's tag match. The path itself still consumes them: the response
-      * channel is always ready, so nothing here needs a handshake.
-      */
-    val resp = Aligned(ValidIO(new LsqResponse(width)))
-
-    /** The queue's room, and whether an older mispredicted branch makes a bus access unsafe to issue: the request is
-      * held until both say go. A store's write that leaves while an older branch could still flush cannot be taken
-      * back, and a load's request cannot either — an access to an unmapped window faults the bus, one to an MMIO window
-      * has side effects, and a flush after the fact undoes neither. A request the queue never lets leave is dropped
-      * with its uop when the flush arrives, so the wait costs the dead path nothing.
-      */
-    val canAccept = Flipped(Bool())
-    val flushRisk = Flipped(Bool())
 
 class MemPathProbe(parameter: MemPathParameter) extends DVBundle[MemPathParameter, MemPathLayers](parameter)
 
@@ -77,10 +53,10 @@ class MemPathProbe(parameter: MemPathParameter) extends DVBundle[MemPathParamete
   *
   * The path keeps no queue — the held uop is all the state it needs. The request is driven while the uop is there and
   * dropped when it goes away, and every response is consumed, so a response for an abandoned request drains instead of
-  * completing the next uop. A store completes on the request's own acceptance — the first cycle the bus takes it — and it
-  * is non-speculative then: with the load/store queue on, the request is held back while an older mispredicted branch
-  * could still flush it (`flushRisk`), and without one the slot holds the oldest unretired uop and its validity is
-  * flush-gated, so a store younger than a resolving mispredict is never presented either way. The same gate covers a
+  * completing the next uop. A store completes on the request's own acceptance — the first cycle the bus takes it — and
+  * it is non-speculative then: with the load/store queue on, the request is held back while an older mispredicted
+  * branch could still flush it (`flushRisk`), and without one the slot holds the oldest unretired uop and its validity
+  * is flush-gated, so a store younger than a resolving mispredict is never presented either way. The same gate covers a
   * load: its request is a bus access, and a speculative one to an unmapped or MMIO window cannot be undone by a flush.
   * The acknowledgment that follows is counted, never matched, so a stale one cannot complete a load. A load completes
   * when its tagged response lands — with the queue on, the slot has already let the uop go and the answer completes the
@@ -103,8 +79,8 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
         val width = parameter.config.width
-        val uopValid = io.issue.valid
-        val u = io.issue.bits
+        val uopValid = io.path.issue.valid
+        val u = io.path.issue.bits
 
         val memOps = MemOp.set(parameter.config.isa)
         val lsuOps = LsuOp.set(parameter.config.isa)
@@ -158,7 +134,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
           * lost, the next cycle presents it again.
           */
         def holdRequest(wdata: Referable[UInt], wstrb: Referable[UInt]) =
-            val uopFirst = io.issue.first
+            val uopFirst = io.path.issue.first
             val tag = RegInit(0.U(DbusUser.tagWidth))
             val curTag = RegInit(0.U(DbusUser.tagWidth))
             val tagNext = (tag.asBits.asUInt + 1.U(DbusUser.tagWidth)).asBits.bits(DbusUser.tagWidth - 1, 0).asUInt
@@ -167,7 +143,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
                 tag := tagNext
             }
 
-            val canIssue = io.canAccept & !io.flushRisk
+            val canIssue = io.queue.canAccept & !io.queue.flushRisk
             val held = RegInit(false.B)
             val wants = uopValid & (uopFirst | held)
             val asking = wants & canIssue
@@ -192,12 +168,12 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
 
         // The request side and the answers, handed to the queue: the acceptance is a release's trigger, the tag and
         // offset are what a new entry records, and the response is what a load's entry is completed from.
-        io.slotRelease := reqFire
-        io.reqTag := reqTag
-        io.offset := offset
-        io.resp.valid := io.dbus.resp.valid
-        io.resp.bits.tag := DbusUser.tagOf(io.dbus.resp.bits.user)
-        io.resp.bits.data := io.dbus.resp.bits.data
+        io.path.slotRelease := reqFire
+        io.queue.reqTag := reqTag
+        io.queue.offset := offset
+        io.queue.resp.valid := io.dbus.resp.valid
+        io.queue.resp.bits.tag := DbusUser.tagOf(io.dbus.resp.bits.user)
+        io.queue.resp.bits.data := io.dbus.resp.bits.data
 
         // A store's answer is only the bus's acknowledgment, and the store is non-speculative when its write is accepted:
         // the slot holds it while its older instructions retire, and the slot's own validity is flush-gated, so a store
@@ -223,16 +199,17 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
         val isMmio = mmioAddress()
 
         /** The one-shot result of the uop: a store's is its write's acceptance — the acknowledgment that follows is
-          * nobody's — and a load's is its own tagged response, whose data it carries. The redirect is the branch's alone.
+          * nobody's — and a load's is its own tagged response, whose data it carries. The redirect is the branch's
+          * alone.
           */
         def result(): Unit =
-            io.done := (reqFire & isStore) | hit
-            io.result.data := (isStore ? (0.U(width), loadData.asUInt))
-            io.result.next_pc := u.next_pc
-            io.result.csr_type := CsrType.None.lit.U(CsrType.width)
-            io.result.csr_data := 0.U(width)
-            io.result.is_mmio := isMmio
-            io.result.is_branch := false.B
-            io.result.pred_next_pc := u.next_pc
+            io.path.done := (reqFire & isStore) | hit
+            io.path.result.data := (isStore ? (0.U(width), loadData.asUInt))
+            io.path.result.next_pc := u.next_pc
+            io.path.result.csr_type := CsrType.None.lit.U(CsrType.width)
+            io.path.result.csr_data := 0.U(width)
+            io.path.result.is_mmio := isMmio
+            io.path.result.is_branch := false.B
+            io.path.result.pred_next_pc := u.next_pc
 
         result()

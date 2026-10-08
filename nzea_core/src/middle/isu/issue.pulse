@@ -1,22 +1,25 @@
--- Issue-stage events, relative to the issue stage's scope (TOP.NzeaCore.core.middle.issueStage).
+-- Issue-stage events, relative to the issue stage's scope (TOP.NzeaCore.core.middle.isu).
 --
 -- These are the events the retire counters cannot answer: the counters say how many, these say when and in what order.
--- The two stage registers are the issue stage's, and the write-back stage's events live beside it
--- (`nzea_core/src/middle/wbu/retire.pulse`); bind both, e.g. for the redirect each issue turns into (the window is the
--- read/write-back distance, so it is not a fixed number):
---   pulse property --event nzea_core/src/middle/isu/issue.pulse <ISSUE> Issue \
+-- The two stage registers are the middle's — declared one level up, beside every other stage boundary — so what is
+-- watched here is this unit's end of them: the payload it reads (`decoded_*`) and the uop it hands to the register
+-- below (`moved_*`). The slot those uops land in is the execute stage's read side, so its events live beside it
+-- (`nzea_core/src/middle/exu/uop.pulse`), and the write-back stage's live beside it
+-- (`nzea_core/src/middle/wbu/retire.pulse`); bind them together for the redirect each issued uop turns into (the
+-- window is the read/write-back distance, so it is not a fixed number):
+--   pulse property --event nzea_core/src/middle/isu/issue.pulse <ISU> Issue \
+--       --event nzea_core/src/middle/exu/uop.pulse <EXU> Uop \
 --       --event nzea_core/src/middle/wbu/retire.pulse <WB> Wbu \
---       --eval 'Issue.uop_issue ->1 Wbu.redirect'
+--       --eval 'Uop.uop_issue -> Wbu.redirect'
 
--- There is an instruction in the issue stage: the uop the units work on, or a payload waiting for its operands.
-inflight = isexValid || idisValid
+-- There is a payload in the issue stage: what the read presents, or what it still waits for.
+inflight = decoded_valid
 
--- A uop's first cycle in the execute slot: the cycle after the read placed its operands, and the one the units take as
--- the uop's beginning.
-uop_issue = slotFirst
+-- The payload holds although the register below reports room: what stops it is its own operands — it reads the very
+-- instruction that is finishing below it, and the write it waits for lands a cycle later. `moved_ready` is the
+-- register's accept side, so it is the room; while `decoded_valid` holds and the room is there, the payload's own pace
+-- is where the operand check lives.
+operand_wait = decoded_valid && moved_ready && !decoded_ready
 
--- The payload holds although the execute slot is free: what stops it is its own operands — it reads the very
--- instruction that is finishing below it, and the write it waits for lands a cycle later. `decoded_ready` is the
--- register's accept side; while `idisValid` holds and no flush is up it is the read's own ready, which is where the
--- operand check lives.
-operand_wait = idisValid && !decoded_ready && (!isexValid || complete) && !flush
+-- The read places its operands: the uop moves into the execute slot this cycle, and the slot presents it the next one.
+uop_move = moved_valid && moved_ready

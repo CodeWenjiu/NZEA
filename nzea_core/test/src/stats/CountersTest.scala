@@ -37,10 +37,12 @@ object CountersTest extends TestSuite:
                         "2147483648",
                         "--flow",
                         "verilator",
+                        "--bypass",
+                        "commit",
                         "--lsqDepth",
                         "0",
                         "--stats",
-                        "middle"
+                        "root"
                     )
                 ),
             cfg => Middle.main(Array("design", cfg.toString))
@@ -103,8 +105,9 @@ object CountersTest extends TestSuite:
                 Isa("riscv32i"),
                 0x80000000L,
                 RtlFlow.Verilator,
+                BypassLevel.Commit,
                 0,
-                StatScope(Seq("middle"))
+                StatScope.root
             )
         )
 
@@ -171,6 +174,15 @@ object CountersTest extends TestSuite:
             )
             assert(fetch.map(_.source).distinct == Seq("core"))
             coreRun.schema.validate()
+
+        // The paths and the queue used to sit in a module of their own; their counters keep its segment, so a reader of
+        // the dump does not have to learn the split.
+        test("the execution paths' counters keep the back scope under the core"):
+            val intPath = coreRun.schema.counters.filter(_.source == "int")
+            assert(
+                intPath.map(_.name) ==
+                    Seq("stat_core_back_int_bp_branch", "stat_core_back_int_bp_taken", "stat_core_back_int_bp_mispred")
+            )
 
         test("every counter is box-width, and its box is instantiated by the module that declared it"):
             for r <- Seq(middleRun, intRun, coreRun) do
