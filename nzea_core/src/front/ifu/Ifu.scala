@@ -42,7 +42,8 @@ class IfuIO(parameter: IfuParameter) extends HWBundle(parameter):
     val resetN = Flipped(Reset())
     val ibus = Aligned(Ifu.busType(parameter.config))
 
-    /** The flush event, seen from the fetcher's side: `next_pc` is where it restarts, and the event starts a new epoch. */
+    /** The flush event, seen from the fetcher's side: `next_pc` is where it restarts, and the event starts a new epoch.
+      */
     val redirect = Flipped(new FlushBus(parameter.config.width))
 
     /** The resolved branches the predictor trains on; unused (and folded away) with no predictor. */
@@ -86,6 +87,9 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
         // The platform's reset pc, masked to the register width: a BigInt shift, because `1L << 64` wraps around in a Long.
         val pcReset = BigInt(parameter.config.defaultPc) & ((BigInt(1) << width) - 1)
         val pc = RegInit(pcReset.U(width))
+        // The pc register's own fall-through, registered beside it: loaded from the same select that loads the pc, so the
+        // two always describe the same fetch ([[fallThrough]] below explains why it is made there).
+        val fallThrough = RegInit(((pcReset + 4) & ((BigInt(1) << width) - 1)).U(width))
         val epoch = RegInit(0.U(IbusUser.epochBits))
 
         // The prediction the request carries for the instruction at `pc`, and the pc register's next value, in one
@@ -109,11 +113,15 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
         bpu.io.update :<= io.bp_update
         // The read address is the pc register's next value: next cycle's register, one cycle early.
         bpu.io.lookup_pc := nextPc
-        // The instruction's own fall-through, made once on this side: the request packs it (below) and the predictor's
-        // composition defaults to it, so the two can never disagree and the +4 exists once. Live off the pc register, it
-        // sits beside the pc, not after the select that computes the pc's next value.
-        val pcFallThrough: Node[UInt] = constAdder(pc, 4, width)
-        bpu.io.fall_through := pcFallThrough
+        // The instruction's own fall-through, registered beside the pc: both are loaded from `nextPc`, so the register
+        // always holds `pc + 4` and the two never disagree. It is made *after* the select that computes the pc's next
+        // value, not off the pc register, because that select is the fetch loop's whole body: the loop is
+        // pc -> prediction -> pc, and with the +4 on the loop's own side it measured a 30-level carry chain (abc
+        // decomposes the adder into a ripple) in the loop, in the request's user packing and in the BTB's read address
+        // at once. Here the adder feeds only this register — one 32-bit op on a path of its own — and every one of those
+        // three cones reads a register instead.
+        fallThrough := constAdder(nextPc, 4, width)
+        bpu.io.fall_through := fallThrough
 
         when(io.redirect.valid) {
             epoch := (epoch.asBits.asUInt + 1.U(IbusUser.epochBits)).asBits.bits(IbusUser.epochBits - 1, 0).asUInt
@@ -142,7 +150,7 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
         // The request carries the fetch's whole context: which pc it is, the pc the stream goes on with (the prediction),
         // the instruction's own fall-through — made here, on the port's own path, so no stage below rebuilds it — the
         // direction counter the prediction read (training evidence), and the epoch that says whether it is still wanted.
-        io.ibus.req.bits.user := IbusUser.pack(pc, bpu.io.pred_next_pc, pcFallThrough, epoch, bpu.io.pred_count)
+        io.ibus.req.bits.user := IbusUser.pack(pc, bpu.io.pred_next_pc, fallThrough, epoch, bpu.io.pred_count)
         io.ibus.req.bits.id := 0.U(Ifu.busIdWidth)
 
         // `out.ready` is the only condition on accepting a response: a fetch from a killed stream is consumed and digested
