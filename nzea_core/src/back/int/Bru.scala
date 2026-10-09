@@ -39,7 +39,7 @@ class BruProbe(parameter: BruParameter) extends DVBundle[BruParameter, BruLayers
   * The prediction is an input, not this unit's knowledge: the pc to continue from when the branch is not taken is the
   * fall-through (a predicted level resolves against the fetch's prediction and redirects wherever the two disagree, in
   * either direction), so a predictor that lands changes where the prediction comes from, not this interface. At `Off`
-  * that prediction is the fall-through, which is what the mispredict test below folds away.
+  * that prediction is the fall-through.
   *
   * Combinational, and it carries no valid: the path gates the redirect with the tag it issued.
   */
@@ -76,11 +76,9 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         io.nextPc := taken ? (target, io.fallThrough)
 
         // The prediction check, `predNextPc =/= nextPc`: where the stream went against where the branch resolved. The
-        // flush's own copy of the test is the write-back stage's (`is_branch & next_pc =/= pred_next_pc`, made against its
-        // registers); this output is what the resolve-side counters report on. At `Off` the prediction is the fall-through,
-        // which folds the check into the offset not being 4 for the pc-relative forms — instruction-static, the sequential
-        // baseline's own mispredict. JALR bases its target on a register, so it always counts as a redirect there.
-        val mispredict: Referable[Bool] =
-            if parameter.bpu.isDefined then io.nextPc =/= io.predNextPc
-            else taken & (isJalr | (io.offset =/= 4.U(width)))
+        // verdict is made here and rides the path's result to the retire record — the record takes it as made instead of
+        // rebuilding the comparator behind the dispatch's merge — and it is the same fact the resolve-side counters
+        // report on. At `Off` the prediction is the fall-through, so the check reduces to the resolved next pc not being
+        // it.
+        val mispredict: Referable[Bool] = io.nextPc =/= io.predNextPc
         io.mispredict := mispredict

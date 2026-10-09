@@ -126,11 +126,11 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         val bru = bruUnit()
         val sysu = sysuUnit()
 
-        // The resolved branch rides the result as data: `is_branch` marks it, and `next_pc` is wherever it actually goes —
-        // under a predictor, a mispredict on a not-taken resolution points back at the fall-through. The prediction check
-        // itself is the write-back stage's, made there against registers. The resolve cycle is a named wire on purpose
-        // (like `branchResolved` below): its counters and the waveform's event file (`branch.pulse` beside this one) address
-        // it by name, and a plain alias would fold into the unit's port.
+        // The resolved branch rides the result as data: `next_pc` is wherever it actually goes — under a predictor, a
+        // mispredict on a not-taken resolution points back at the fall-through — and `mispredict` is the branch unit's
+        // own check, the one bit the retire record carries. The resolve cycle is a named wire on purpose (like
+        // `branchResolved` below): its counters and the waveform's event file (`branch.pulse` beside this one) address it
+        // by name, and a plain alias would fold into the unit's port.
         val branchMispred = Wire(Bool())
         branchMispred := uopValid & isBru & bru.io.mispredict
 
@@ -195,14 +195,13 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
             when(mulDone | divDone) { serialHeld := true.B }
             io.path.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone | serialHeld)
             io.path.result.data := data
-            // One mux, not two: `isBru & taken` picks the target in the same level the test lands, so the write-back stage's
-            // next pc does not pay two mux stages for one choice.
+            // One mux, not two: `isBru & taken` picks the target in the same level the test lands, so the result's next
+            // pc does not pay two mux stages for one choice.
             io.path.result.next_pc := (isBru & bru.io.taken) ? (bru.io.target, fallThrough)
             io.path.result.csr_type := isSysu ? (sysu.io.write ? (u.csr_type, csrNone), csrNone)
             io.path.result.csr_data := isSysu ? (sysu.io.write ? (sysu.io.data, 0.U(width)), 0.U(width))
             io.path.result.is_mmio := false.B
-            io.path.result.is_branch := isBru
-            io.path.result.pred_next_pc := u.next_pc
+            io.path.result.mispredict := branchMispred
 
         result()
 

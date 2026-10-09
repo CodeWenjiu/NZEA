@@ -179,9 +179,10 @@ object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
 
         /** The store-issue gate: a store's write must not be on the bus while a branch older than the store could still
           * resolve mispredicted and flush it — a flush after the fact cannot take the write back. A branch's own entry
-          * records the check the moment it is written (`is_branch & next_pc =/= pred_next_pc`), so this is the OR over
-          * the queue. A store whose older branch is correctly predicted is not gated by it: a flush needs the branch to
-          * be wrong, and a wrong one retires as a flush — killing the store before its write ever leaves.
+          * records the check the moment it is written (the record's `mispredicted`, the branch unit's own verdict), so
+          * this is the OR over the queue. A store whose older branch is correctly predicted is not gated by it: a flush
+          * needs the branch to be wrong, and a wrong one retires as a flush — killing the store before its write ever
+          * leaves.
           */
         def flushRisk(): Referable[Bool] =
             (0 until depth)

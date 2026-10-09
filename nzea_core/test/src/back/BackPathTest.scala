@@ -107,8 +107,7 @@ object BackPathTest extends TestSuite:
         s"${prefix}_csr_type" -> CsrType.width,
         s"${prefix}_csr_data" -> width,
         s"${prefix}_is_mmio" -> 1,
-        s"${prefix}_is_branch" -> 1,
-        s"${prefix}_pred_next_pc" -> width
+        s"${prefix}_mispredict" -> 1
     )
 
     val tests = Tests:

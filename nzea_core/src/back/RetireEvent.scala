@@ -15,10 +15,11 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * because the retire's source is not always the completion — with a load/store queue the retirement head is a queue
   * entry, which outlives the execute slot. Both sources produce this shape, so the middle never asks which.
   *
-  * `mispredicted` is the prediction check already made (`is_branch & next_pc =/= pred_next_pc`), computed where the
-  * record is written instead of at the middle: the queue keeps it per entry — the bus-issue gate reads it — and a
-  * completion makes it from the path's own result. It is a fact about the instruction, not the flush event: the event is
-  * the middle's, raised when this record retires.
+  * `mispredicted` is the prediction check the path already resolved — the branch unit's own `next_pc =/= pred_next_pc`,
+  * carried as one bit on the result — so the record takes it as made instead of rebuilding the comparator behind the
+  * dispatch's merge: the queue keeps it per entry — the bus-issue gate reads it — and a completion copies it from the
+  * path's result. It is a fact about the instruction, not the flush event: the event is the middle's, raised when this
+  * record retires.
   */
 class RetireEvent(width: Int) extends Bundle:
     val next_pc = Aligned(UInt(width))
@@ -31,8 +32,8 @@ class RetireEvent(width: Int) extends Bundle:
 
 object RetireEvent:
 
-    /** The record a completion makes: the path's result with the destination it writes, and the prediction check taken
-      * from the result's own `next_pc` against the prediction it was fetched under.
+    /** The record a completion makes: the path's result with the destination it writes, and the prediction check the
+      * result carries (the path's own verdict).
       */
     def of(width: Int, result: Referable[PathResult], rdIndex: Referable[UInt])(using
         Arena,
@@ -50,5 +51,5 @@ object RetireEvent:
         event.csr_type := result.csr_type
         event.csr_data := result.csr_data
         event.is_mmio := result.is_mmio
-        event.mispredicted := result.is_branch & (result.next_pc =/= result.pred_next_pc)
+        event.mispredicted := result.mispredict
         event
