@@ -150,7 +150,14 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
         val inst: Node[UInt] =
             muxTree(offset, (0 until lanes).map(i => rdata.bits((i & ~3) * 8 + 31, (i & ~3) * 8))).asUInt
 
-        io.ibus.req.valid := io.out.ready
+        // The fetcher always has a request to make: the bus's own ready is the only gate on the request, so the path it
+        // drives — the pc, the prediction, the user packing that rides with them — never follows the pipeline's ready
+        // chain, which runs from the back's completion through every stage's room. What bounds how far the fetch runs
+        // ahead is the buffer at the core's boundary, not this module: the fabric's ready stops the buffer, and a
+        // redirect empties it — the requests a killed stream left there die instead of spending a round trip before the
+        // epoch digests their answers. The response side is where the pipeline's room belongs: a response waits for
+        // `out.ready`, so nothing is delivered to a pipeline that cannot take it.
+        io.ibus.req.valid := true.B
         io.ibus.req.bits.addr := wordAddr
         // The request carries the fetch's whole context: which pc it is, the pc the stream goes on with (the prediction),
         // the instruction's own fall-through — made here, on the port's own path, so no stage below rebuilds it — the

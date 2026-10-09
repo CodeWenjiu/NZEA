@@ -308,5 +308,6 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         // The memory side: the engine is the only master the port has, and a buffer sits between the two. The refill's
         // request valid is state, but the fabric's ready is not — wired straight through, the fabric's arbitration would
         // extend the engine's request path out of the cache. The elastic slice makes what the fabric sees state as well;
-        // the response channel stays combinational.
+        // the response channel stays combinational. The port is read/write, so it has no flush — and it needs none: the
+        // refill engine is a consumer that waits for its answer, so a dropped request would leave it waiting.
         io.bottom :<>= refill.io.bottom.buffered("bottomSlice", BufferPolicy.Slice)
