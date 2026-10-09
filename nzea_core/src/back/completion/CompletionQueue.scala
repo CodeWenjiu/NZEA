@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.mem.{DbusUser, LsqResponse, LsuData, LsuOp, MemOp}
+import nzea_core.back.mem.{DbusUser, LsuData, LsuOp, MemOp, QueueResponse}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
@@ -18,21 +18,22 @@ import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The queue's parameter: its depth is a power of two, and the queue is only built with a nonzero one — a design
-  * without a queue builds no `Lsq` at all, so this parameter never spells absence.
+  * without a queue builds no `CompletionQueue` at all, so this parameter never spells absence.
   *
   * A power of two because the ring's pointers wrap by their own width (`addWrap`): that is what makes the wrap equal to
   * `mod depth`, and the `(index - head) mod depth` ordering the bypass reads relies on the same identity. A depth of
   * one is refused rather than special-cased: its ring degenerates to zero-width pointers, and its behavior is the
   * pass-through a design without a queue already gets.
   */
-case class LsqParameter(isa: Isa, defaultPc: Long, depth: Int, flow: RtlFlow, stats: StatScope) extends Parameter:
+case class CompletionQueueParameter(isa: Isa, defaultPc: Long, depth: Int, flow: RtlFlow, stats: StatScope)
+    extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
-    require(depth >= 2, s"lsq depth must be >= 2 — a depth of one is the pass-through, spelled by building no queue")
-    require((depth & (depth - 1)) == 0, s"lsq depth must be a power of two (the ring's pointers wrap by their width)")
+    require(depth >= 2, s"queue depth must be >= 2 — a depth of one is the pass-through, spelled by building no queue")
+    require((depth & (depth - 1)) == 0, s"queue depth must be a power of two (the ring's pointers wrap by their width)")
 
-given upickle.default.ReadWriter[LsqParameter] = upickle.default.macroRW
+given upickle.default.ReadWriter[CompletionQueueParameter] = upickle.default.macroRW
 
-class LsqLayers(parameter: LsqParameter) extends LayerInterface(parameter):
+class CompletionQueueLayers(parameter: CompletionQueueParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
 /** One queue entry: the retire record it will present when it reaches the head, whether it is finished, whether the
@@ -43,7 +44,7 @@ class LsqLayers(parameter: LsqParameter) extends LayerInterface(parameter):
   * selected and extended with — the answer arrives after the execute slot has moved on, so the entry is the only place
   * that still knows how to read the bus word.
   */
-class LsqEntry(config: CoreConfig) extends Bundle:
+class CompletionQueueEntry(config: CoreConfig) extends Bundle:
     val record = Aligned(new RetireEvent(config.width))
     val done = Aligned(Bool())
     val valid = Aligned(Bool())
@@ -55,7 +56,7 @@ class LsqEntry(config: CoreConfig) extends Bundle:
   * offers — the register file's and the CSR's, the two the network forwards. The queue exports this instead of the
   * whole entry so the network's ports carry only what it reads.
   */
-class LsqView(width: Int) extends Bundle:
+class QueueEntryView(width: Int) extends Bundle:
     val valid = Aligned(Bool())
     val done = Aligned(Bool())
     val rd_index = Aligned(UInt(Gpr.indexWidth))
@@ -67,10 +68,10 @@ class LsqView(width: Int) extends Bundle:
   * is resolved in (the youngest wins).
   */
 class QueueView(width: Int, depth: Int) extends Bundle:
-    val entries = Aligned(Vec(depth, new LsqView(width)))
+    val entries = Aligned(Vec(depth, new QueueEntryView(width)))
     val head = Aligned(UInt(log2Ceil(depth)))
 
-class LsqIO(parameter: LsqParameter) extends HWBundle(parameter):
+class CompletionQueueIO(parameter: CompletionQueueParameter) extends HWBundle(parameter):
     private val width = parameter.config.width
     private val depth = parameter.depth
     val clock = Flipped(Clock())
@@ -94,7 +95,7 @@ class LsqIO(parameter: LsqParameter) extends HWBundle(parameter):
     val offset = Flipped(UInt(LsuData.offsetWidth(width)))
 
     /** The data bus's answers, routed to the entry whose tag they carry. */
-    val resp = Flipped(ValidIO(new LsqResponse(width)))
+    val resp = Flipped(ValidIO(new QueueResponse(width)))
 
     /** The flush event the middle's write-back stage sources: everything behind the retiring head is dropped. */
     val flush = Flipped(new FlushBus(width))
@@ -114,12 +115,14 @@ class LsqIO(parameter: LsqParameter) extends HWBundle(parameter):
     /** The entries as the bypass network reads them, and the head's position — the order the network resolves a
       * multiple match in (the youngest wins).
       */
-    val entries = Aligned(Vec(depth, new LsqView(width)))
+    val entries = Aligned(Vec(depth, new QueueEntryView(width)))
     val head = Aligned(UInt(log2Ceil(depth)))
 
-class LsqProbe(parameter: LsqParameter) extends DVBundle[LsqParameter, LsqLayers](parameter)
+class CompletionQueueProbe(parameter: CompletionQueueParameter)
+    extends DVBundle[CompletionQueueParameter, CompletionQueueLayers](parameter)
 
-/** The load/store queue: the core's in-order completion queue, one entry per instruction in flight.
+/** The completion queue: the core's in-order record of instructions that have executed but not retired — one entry per
+  * instruction in flight.
   *
   * The execute slot is a single-cycle residence for everything the units can finish in a cycle, and an entry is what
   * outlives it: an instruction is written into the queue when the slot releases it (the memory path's acceptance, or a
@@ -138,14 +141,15 @@ class LsqProbe(parameter: LsqParameter) extends DVBundle[LsqParameter, LsqLayers
   * cycle (the queue cannot roll back, so it never retires a speculative instruction in the first place).
   */
 @generator
-object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
-    override def moduleName(parameter: LsqParameter): String = "Lsq"
+object CompletionQueue
+    extends Generator[CompletionQueueParameter, CompletionQueueLayers, CompletionQueueIO, CompletionQueueProbe]:
+    override def moduleName(parameter: CompletionQueueParameter): String = "CompletionQueue"
 
     /** The block name the queue's statistics are attributed to; the parent's scope takes it as a segment. */
-    val Source: String = "lsq"
+    val Source: String = "completion_queue"
 
-    def architecture(parameter: LsqParameter) =
-        val io = summon[Interface[LsqIO]]
+    def architecture(parameter: CompletionQueueParameter) =
+        val io = summon[Interface[CompletionQueueIO]]
         given ClockScope = ClockScope.posedge(io.clock)
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
@@ -159,7 +163,7 @@ object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
         val lsuOp: Node[UInt] = memOps.payload(io.issue.bits.op)
         val isMem = io.issue.bits.backend === Backend.MEM.lit.U(Backend.width)
 
-        val entries = Reg(Vec(depth, new LsqEntry(parameter.config)))
+        val entries = Reg(Vec(depth, new CompletionQueueEntry(parameter.config)))
         when(!io.resetN.asBool) {
             for index <- 0 until depth do
                 entries.ref(index).valid := false.B
@@ -293,10 +297,10 @@ object Lsq extends Generator[LsqParameter, LsqLayers, LsqIO, LsqProbe]:
           * Declared here, where the pointers are.
           */
         def counters(): Unit =
-            val full = parameter.stats.stat("lsq_full", Regions.Throughput, "cycles the queue cannot take an entry")
-            val busy = parameter.stats.stat("lsq_busy", Regions.Throughput, "cycles the queue holds an instruction")
+            val full = parameter.stats.stat("full", Regions.Throughput, "cycles the queue cannot take an entry")
+            val busy = parameter.stats.stat("busy", Regions.Throughput, "cycles the queue holds an instruction")
             val blocked =
-                parameter.stats.stat("lsq_blocked", Regions.Throughput, "cycles the head waits for its value")
+                parameter.stats.stat("blocked", Regions.Throughput, "cycles the head waits for its value")
             full.inc(count === depth.U(cntW))
             busy.inc(count =/= 0.U(cntW))
             blocked.inc(headValid & !headDone & !io.flush.valid)

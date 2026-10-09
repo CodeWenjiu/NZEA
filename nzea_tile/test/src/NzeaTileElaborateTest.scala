@@ -46,7 +46,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 "Core",
                 "Back",
                 "Completion",
-                "Lsq",
+                "CompletionQueue",
                 "ICache",
                 "LiteBusCrossbar",
                 "LiteBusUserWiden",

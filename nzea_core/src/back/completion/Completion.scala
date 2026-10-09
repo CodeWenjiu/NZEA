@@ -17,7 +17,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The completion path's parameter: the design's, plus the queue's depth — a power of two, or zero for no queue, which
   * is the pass-through. `stats` is the scope the queue's counters are attributed to — this module adds no segment of
-  * its own, so they keep the names they had beside the paths (`back.lsq`).
+  * its own, so they land under the queue's own (`back.completion_queue`).
   */
 case class CompletionParameter(isa: Isa, defaultPc: Long, flow: RtlFlow, lsqDepth: Int, stats: StatScope)
     extends Parameter:
@@ -102,34 +102,34 @@ object Completion extends Generator[CompletionParameter, CompletionLayers, Compl
           * room, and the retire stream and the bus-issue gate come from the queue.
           */
         def withQueue(depth: Int): Unit =
-            val lsq =
-                Lsq.instantiate(
-                    LsqParameter(
+            val completionQueue =
+                CompletionQueue.instantiate(
+                    CompletionQueueParameter(
                         parameter.config.isa,
                         parameter.config.defaultPc,
                         depth,
                         parameter.flow,
-                        parameter.stats.child(Lsq.Source)
+                        parameter.stats.child(CompletionQueue.Source)
                     )
                 )
-            lsq.io.clock := io.clock
-            lsq.io.resetN := io.resetN
-            lsq.io.issue :<= io.issue
-            lsq.io.complete :<= io.merged.complete
-            lsq.io.reqTag := io.queue.reqTag
-            lsq.io.offset := io.queue.offset
-            lsq.io.resp :<= io.queue.resp
-            lsq.io.flush :<= io.flush
+            completionQueue.io.clock := io.clock
+            completionQueue.io.resetN := io.resetN
+            completionQueue.io.issue :<= io.issue
+            completionQueue.io.complete :<= io.merged.complete
+            completionQueue.io.reqTag := io.queue.reqTag
+            completionQueue.io.offset := io.queue.offset
+            completionQueue.io.resp :<= io.queue.resp
+            completionQueue.io.flush :<= io.flush
 
             // A release takes an entry, so a full queue holds the slot — and with it the pace the middle sees.
-            io.pace := io.merged.release & lsq.io.canAccept
-            lsq.io.slotRelease := io.pace
+            io.pace := io.merged.release & completionQueue.io.canAccept
+            completionQueue.io.slotRelease := io.pace
 
-            io.queue.canAccept := lsq.io.canAccept
-            io.queue.flushRisk := lsq.io.flushRisk
-            io.retire :<>= lsq.io.retire
-            io.view.entries :<= lsq.io.entries
-            io.view.head := lsq.io.head
+            io.queue.canAccept := completionQueue.io.canAccept
+            io.queue.flushRisk := completionQueue.io.flushRisk
+            io.retire :<>= completionQueue.io.retire
+            io.view.entries :<= completionQueue.io.entries
+            io.view.head := completionQueue.io.head
 
         /** The completion path without one: the completion is the pace the middle moves at and the retire itself, and
           * the request's gates are always open. The entries' view is a constant — the bypass network keeps one port

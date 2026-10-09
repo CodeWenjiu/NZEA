@@ -163,5 +163,5 @@ object BackModuleTest extends TestSuite:
             assert(!sv.contains("module CsrFile"))
 
         test("the back instantiates the dispatch, the completion path with its queue, the network and the two paths"):
-            for unit <- Seq("Dispatch", "Completion", "Forward", "IntPath", "MemPath", "Lsq") do
+            for unit <- Seq("Dispatch", "Completion", "Forward", "IntPath", "MemPath", "CompletionQueue") do
                 assert(sv.contains(s"module $unit("))

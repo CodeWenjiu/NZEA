@@ -39,8 +39,8 @@ object CompletionTest extends TestSuite:
 
     val tests = Tests:
         test("the completion path is the queue when the configuration builds one"):
-            assert(queued.contains("module Lsq("))
-            assert(!plain.contains("module Lsq("))
+            assert(queued.contains("module CompletionQueue("))
+            assert(!plain.contains("module CompletionQueue("))
 
         test("the retire stream and the slot pace have the same shape either way"):
             for sv <- Seq(queued, plain) do

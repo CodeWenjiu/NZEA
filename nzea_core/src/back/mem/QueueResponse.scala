@@ -8,6 +8,6 @@ import me.jiuyang.zaozi.valuetpe.*
   * The memory path produces it from the bus's response channel and the completion path's queue consumes it to complete
   * the entry whose tag it carries — both ends of the same signal, so it is its own type rather than one side's field.
   */
-class LsqResponse(width: Int) extends Bundle:
+class QueueResponse(width: Int) extends Bundle:
     val tag = Aligned(UInt(DbusUser.tagWidth))
     val data = Aligned(UInt(width))

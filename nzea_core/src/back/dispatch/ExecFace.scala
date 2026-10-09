@@ -5,7 +5,7 @@ import me.jiuyang.stdlib.default.given
 import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.back.mem.{DbusUser, LsqResponse, LsuData}
+import nzea_core.back.mem.{DbusUser, LsuData, QueueResponse}
 import nzea_core.config.CoreConfig
 
 /** The face an execution path and the dispatch meet on: the uop gated to the path, and the report the path sends back.
@@ -41,7 +41,7 @@ class QueueFace(config: CoreConfig) extends Bundle:
     val offset = Flipped(UInt(LsuData.offsetWidth(config.width)))
 
     /** The bus's answers, re-exported for the queue's tag match. */
-    val resp = Flipped(ValidIO(new LsqResponse(config.width)))
+    val resp = Flipped(ValidIO(new QueueResponse(config.width)))
 
     /** The queue's room, and whether an older mispredicted branch makes a bus access unsafe to issue. */
     val canAccept = Aligned(Bool())
