@@ -25,8 +25,7 @@ case class CliArgs(
     config: TopConfigArgs,
     @arg(doc = "verilator-shaped RTL or synthesis-shaped RTL") flow: RtlFlow = CliArgs.coreBaseline.flow,
     @arg(doc = "the tile's devices (JSON, repeatable); defaults to the platform's") devices: Seq[DeviceSpec],
-    @arg(doc = "load/store queue depth (a power of two), 0 builds none") lsqDepth: Int =
-        CliArgs.coreBaseline.lsqDepth,
+    @arg(doc = "load/store queue depth (a power of two), 0 builds none") lsqDepth: Int = CliArgs.coreBaseline.lsqDepth,
     @arg(doc = "instruction cache: a geometry, or 'none'") icache: ICacheChoice =
         ICacheChoice.of(CliArgs.tileBaseline.icache),
     @arg(doc = "output dir; defaults to build/<target>/<platform>/<isa>/<flow>") outDir: String = ""
@@ -78,18 +77,22 @@ object Main:
     /** firtool flags per flow. Verilator takes what firtool emits by default; Yosys refuses `always_comb` and local
       * variables inside it, so a synthesis dump is lowered without either.
       */
-    private val verilatorLowering =
-        Seq("--split-verilog", "-disable-all-randomization", "-strip-debug-info")
-
-    private val yosysLowering = Seq(
+    /** What every flow's lowering shares: the split output, and the randomization/debug stripping the dumps are read
+      * with. What a value keeps of itself — its declaration, and the Verilog attributes it carries — is not decided
+      * here: `dontTouch` marks the values that must survive, per value, and the rest of the design is lowered the way
+      * the emitter wants to (see `ConstructorApi.NodeWithAttributes`).
+      */
+    private val sharedLowering = Seq(
         "--split-verilog",
-        "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb",
         "-disable-all-randomization",
         "-strip-debug-info"
     )
 
+    private val yosysLowering =
+        sharedLowering :+ "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb"
+
     private def lowering(flow: RtlFlow): Seq[String] = flow match
-        case RtlFlow.Verilator => verilatorLowering
+        case RtlFlow.Verilator => sharedLowering
         case RtlFlow.Yosys     => yosysLowering
 
     def main(args: Array[String]): Unit =
