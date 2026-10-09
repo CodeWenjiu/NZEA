@@ -113,9 +113,15 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
         mem.io.clock := io.clock
         mem.io.resetN := io.resetN
 
-        // The IS/EX register: the execute stage's input, registered where it is consumed — the middle hands the read's
-        // uop over and this module is the register's fill side. Its room is the completion path's pace, which the
-        // queue's own room may hold back after a unit has already reported.
+        // The wiring below follows the uop: the register it waits in, the view the units read, the dispatch that routes
+        // it, the merge that concludes it, and the two readers of that conclusion. Each edge that runs against that flow
+        // is named where it is made — the completion path's pace into the register, the queue's face with the memory
+        // path, the queue's view into the forward network.
+
+        // ── The IS/EX register, and the uop view the units read ──
+        // The execute stage's input, registered where it is consumed — the middle hands the read's uop over and this
+        // module is the register's fill side. Its room is the completion path's pace, which the queue's own room may
+        // hold back after a unit has already reported.
         val slot = Wire(Decoupled(new ExecSlot(c)))
         pipelineConnect(io.moved, slot, io.flush, "isex", FlushHandover.Refuse)
         slot.ready := completion.io.pace
@@ -160,29 +166,37 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
 
         issueView()
 
-        // The dispatch: the one place the issued uop's path is decided, and the faces that decision drives — the
-        // routing and the merge are one `is_mem` test.
+        // ── The uop's three readers ──
+        // One view, three readers: the dispatch decides its path, the completion path writes an entry from it and takes
+        // the destination a retire record needs, and the forward network names it as the youngest writer in flight.
         dispatch.io.issue :<= view
+        completion.io.issue :<= view
+        forward.io.issue :<= view
+
+        // ── The dispatch and the two paths ──
+        // The one place the issued uop's path is decided, and the faces that decision drives — the routing and the merge
+        // are one `is_mem` test.
         int.io.path :<>= dispatch.io.int
         mem.io.path :<>= dispatch.io.mem
 
-        // The completion path: the entry a release writes, the retire stream, and the queue's face with the memory
-        // path — the one face of the queue that does not leave this module.
-        completion.io.issue :<= view
+        // ── The merge, and its two readers ──
+        // The conclusion about the held uop goes to the completion path whole — the value, and the release before the
+        // queue's room — and to the forward network as its completing instruction, the youngest writer.
         completion.io.merged :<>= dispatch.io.merged
+        forward.io.exec :<= dispatch.io.merged.complete
+
+        // ── The completion path, and the queue's face with the memory path ──
+        // The retire stream the middle waits on, and the queue's own face with the memory path — the one face of the
+        // queue that does not leave this module.
         completion.io.flush :<= io.flush
         mem.io.queue :<>= completion.io.queue
-
-        // The forward network: the in-flight writers, gathered into the columns the middle's read resolves.
-        forward.io.exec :<= dispatch.io.merged.complete
-        forward.io.issue :<= view
-        forward.io.view :<>= completion.io.view
-
-        // What the middle waits on: the retiring record and the forward network's face.
         io.retire :<>= completion.io.retire
+
+        // ── The forward network: the in-flight writers, gathered into the columns the middle's read resolves ──
+        forward.io.view :<>= completion.io.view
         io.forward :<= forward.io.forward
 
-        // The core's own: the data bus, and the resolved branches for the front's predictor — the training port is the
-        // int path's, present exactly where the predictor it trains is.
+        // ── The core's own: the data bus, and the resolved branches for the front's predictor ──
+        // The training port is the int path's, present exactly where the predictor it trains is.
         io.dbus :<>= mem.io.dbus
         io.bp_update.zip(int.io.bp_update).foreach((port, path) => port :<= path)
