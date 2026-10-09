@@ -53,6 +53,38 @@ def muxLookup[K <: Data, V <: Data](
 ): Referable[V] =
     muxCase(default, mapping.map((k, v) => (key === k, v)))
 
+/** Balanced selection over `values` by `index`, the replacement for a dynamic shift's barrel structure.
+  *
+  * A barrel shifter fans every shift-amount bit out to a whole 32-bit row of muxes, one row per stage, five stages
+  * deep. Selecting a *constant* shift instead makes each stage's data a plain rewiring (a constant shift costs
+  * nothing), so only the select network is left: a tree, where each index bit reaches one level and every level halves
+  * the width it switches.
+  *
+  * `values.length` must be a power of two, and `index` is read as that many values wide.
+  */
+def muxTree[T <: Data](index: Referable[UInt], values: Seq[Referable[T]])(using
+    Arena,
+    Context,
+    Block,
+    sourcecode.File,
+    sourcecode.Line,
+    sourcecode.Name.Machine,
+    InstanceContext
+): Node[T] =
+    require(values.nonEmpty, "muxTree needs at least one value")
+    require(
+        (values.length & (values.length - 1)) == 0,
+        s"muxTree needs a power-of-two number of values, got ${values.length}"
+    )
+    val idxBits: Node[Bits] = Node(index.asBits)
+    val idx: Node[UInt] = idxBits.asUInt
+    def pick(from: Int, size: Int): Node[T] =
+        if size == 1 then Node(values(from))
+        else
+            val half = size / 2
+            idx.asBits.bit(log2Ceil(size) - 1) ? (pick(from + half, half), pick(from, half))
+    pick(0, values.length)
+
 /** Pairwise reduce in one shape: each level combines neighbours, so the expression a caller builds is a balanced tree,
   * not a serial fold. Serial folds are what leave synthesis a chain to map — the execute loop's src-to-src bypass cone
   * measured two gates per fold step (see the selection helpers below that use this).
