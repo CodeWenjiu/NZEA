@@ -189,11 +189,13 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
                 ops.dispatch(op)((otherCases ++ aluCases).map(c => c -> ((_: Node[UInt]) => unitData(c)))*)
             val csrNone: Referable[UInt] = CsrType.None.lit.U(CsrType.width)
 
-            // The serial units report a pulse; hold it for as long as the same uop stays in the slot.
+            // The serial units report a pulse; hold it for as long as the same uop stays in the slot. The hold belongs
+            // to the uop that produced it: a new uop's first cycle ignores it, or the uop entering behind a divide would
+            // be reported done in the cycle it arrives.
             val serialHeld = RegInit(false.B)
             when(uopFirst | !uopValid) { serialHeld := false.B }
             when(mulDone | divDone) { serialHeld := true.B }
-            io.path.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone | serialHeld)
+            io.path.done := uopValid & (isAlu | isBru | isSysu | mulDone | divDone | (serialHeld & !uopFirst))
             io.path.result.data := data
             // One mux, not two: `isBru & taken` picks the target in the same level the test lands, so the result's next
             // pc does not pay two mux stages for one choice.
