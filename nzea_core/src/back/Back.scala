@@ -181,9 +181,16 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
 
         // ── The merge, and its two readers ──
         // The conclusion about the held uop goes to the completion path whole — the value, and the release before the
-        // queue's room — and to the forward network as its completing instruction, the youngest writer.
+        // queue's room.
         completion.io.merged :<>= dispatch.io.merged
-        forward.io.exec :<= dispatch.io.merged.complete
+
+        // The forward network's youngest writer is the slot's uop, and the only live value a read can take is the
+        // integer path's: a memory op's live answer is never a forwardable one — a load's data lands after its slot has
+        // moved on, where its queue entry answers the read, and a store writes nothing — so the memory path's result is
+        // not a source here. That is what keeps its request cone (the tag, the strobe, the response select) out of the
+        // read's own loop: the youngest writer's value is an integer cone alone.
+        forward.io.exec.valid := dispatch.io.int.done
+        forward.io.exec.bits :<= dispatch.io.int.result
 
         // ── The completion path, and the queue's face with the memory path ──
         // The retire stream the middle waits on, and the queue's own face with the memory path — the one face of the

@@ -56,7 +56,11 @@ class ForwardIO(parameter: ForwardParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The completing instruction: valid the cycle the slot's uop is finished, carrying the value it produced. */
+    /** The slot's uop as a value: whether it is finishing this cycle, and the value the integer path produced for it —
+      * the only live value a read can take. A memory op's live answer is never forwardable: a load's data arrives after
+      * its slot has moved on, where its queue entry answers the read, and a store writes nothing. Taking the memory
+      * result as a source here would only drag its request cone into every read's loop.
+      */
     val exec = Flipped(ValidIO(new PathResult(width)))
 
     /** The execute slot's uop: the youngest writer in flight, named by its destination. */
@@ -98,7 +102,7 @@ object Forward extends Generator[ForwardParameter, ForwardLayers, ForwardIO, For
         val indexWidth = Gpr.indexWidth
         val entryCount = parameter.entryCount
 
-        /** The slot's uop: the youngest writer in flight. Its identity is the slot's and its value the completion's —
+        /** The slot's uop: the youngest writer in flight. Its identity is the slot's and its value the integer path's —
           * the two ports are the same instruction, one naming the writer and the other carrying the value it produces.
           */
         val slotValid = io.issue.valid & (io.issue.bits.rd_index =/= 0.U(indexWidth))
