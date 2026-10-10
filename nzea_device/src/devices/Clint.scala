@@ -68,7 +68,10 @@ object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
         ):
             val dw = parameter.dataWidth
             val mtime = RegInit(0.U(64))
-            mtime := addWrap(mtime, 1.U(64), 64)
+            // The increment is the shaped constant adder, not `+ 1`: the free-running counter's carry is the whole
+            // 64-bit width, and a mapper left to itself decomposes it into a ripple — bit 0's carry reaches bit 63
+            // through sixteen levels. The prefix form's depth is the width's logarithm.
+            mtime := constAdder(mtime, 1, 64)
             val mtimecmp = RegInit(0.U(64))
 
             val busy = RegInit(false.B)

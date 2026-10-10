@@ -9,6 +9,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** What a bus boundary register costs, and what it buys.
@@ -147,6 +148,73 @@ def bufferConnect[T <: HardwareDataType](
                     }
                 }
             }
+
+/** The boundary register on a bus's response channel — the mirror of [[bufferConnect]].
+  *
+  * A response's producer is the slave, and the answer it hands over must not wait on the consumer: an in-order core's
+  * readiness is the whole pipeline's back-pressure cone, and a slave whose own handover — a cache's promote, an engine's
+  * ack — reads it would drag that cone into the slave's arbitration. So `in.ready` is the buffer's own state (`!full`),
+  * two entries absorb a consumer's stall, and an answer that finds the buffer empty bypasses it, which keeps the common
+  * case at the same latency. A response is never speculative, so there is no flush.
+  *
+  * The entries are addressed by pointers, not shifted down: what the consumer's readiness reaches is then the count and
+  * the pointers — a couple of gates — instead of the selects of the wide data muxes, which the pointers keep registers.
+  */
+def responseConnect[T <: HardwareDataType](
+    in: Referable[DecoupledIO[T]],
+    out: Referable[DecoupledIO[T]],
+    name: String
+)(using
+    ClockScope,
+    ResetScope,
+    Arena,
+    Context,
+    Block,
+    TypeImpl,
+    sourcecode.File,
+    sourcecode.Line,
+    InstanceContext
+): Unit =
+    val depth = 2
+    val cntW = log2Ceil(depth + 1)
+
+    val slot0 =
+        given sourcecode.Name.Machine = sourcecode.Name.Machine(s"${name}Slot0")
+        Reg(in.bits.getType)
+    val slot1 =
+        given sourcecode.Name.Machine = sourcecode.Name.Machine(s"${name}Slot1")
+        Reg(in.bits.getType)
+    val wrPtr =
+        given sourcecode.Name.Machine = sourcecode.Name.Machine(s"${name}WrPtr")
+        RegInit(false.B)
+    val rdPtr =
+        given sourcecode.Name.Machine = sourcecode.Name.Machine(s"${name}RdPtr")
+        RegInit(false.B)
+    val count =
+        given sourcecode.Name.Machine = sourcecode.Name.Machine(s"${name}Count")
+        RegInit(0.U(cntW))
+
+    val empty = count === 0.U(cntW)
+    val full = count === depth.U(cntW)
+    in.ready := !full
+    // An answer that finds the buffer empty goes straight out; one that does not is deposited and delivered later. The
+    // pointers are what the two data muxes — the deposit's slot and the head's — are selected by.
+    val bypass = in.valid & empty & out.ready
+    out.valid := !empty | (in.valid & empty)
+    out.bits :<= (empty ? (in.bits, (rdPtr ? (slot1, slot0))))
+    val push = in.valid & in.ready & !bypass
+    val pop = !empty & out.ready
+
+    when(push) {
+        when(wrPtr) { slot1 :<= in.bits }.otherwise { slot0 :<= in.bits }
+        wrPtr := !wrPtr
+    }
+    when(pop) { rdPtr := !rdPtr }
+    count := subWrap(
+        addWrap(count, push ? (1.U(cntW), 0.U(cntW)), cntW),
+        pop ? (1.U(cntW), 0.U(cntW)),
+        cntW
+    )
 
 /** The bus buffered at a boundary: the far end, to hand to whatever is on the other side.
   *

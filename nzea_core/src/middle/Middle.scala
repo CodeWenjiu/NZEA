@@ -111,12 +111,15 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         arf.io.resetN := io.resetN
 
         // The middle's stage registers, declared here as the front-end declares its own: the stages' units are
-        // combinational, and the boundaries between them are this module's. ID/IS is the elastic one. EX/WB is the one
-        // register that does not obey the flush — the entry it holds is what raises it, and it must commit in the very
-        // cycle it does — so the net it sources is passed to it and ignored. The IS/EX register is not the middle's: it
-        // is the execute stage's own input, registered by the back, and this module hands the read's uop over as the
-        // register's fill side — its room comes back on `moved.ready`.
-        pipelineConnect(io.decoded, isu.io.decoded, wbu.io.flush, "idis", FlushHandover.Refuse)
+        // combinational, and the boundaries between them are this module's. ID/IS is the elastic one, and it takes a
+        // handover in a flush cycle and drops it (`Consume`, like the front's own IF/ID): the front presents nothing
+        // then — its own valid is flush-gated — so refusing the handover would only shape the ready, and a ready that
+        // reads the flush carries the commit's whole cone into the fetch. EX/WB is the one register that does not obey
+        // the flush — the entry it holds is what raises it, and it must commit in the very cycle it does — so the net
+        // it sources is passed to it and ignored. The IS/EX register is not the middle's: it is the execute stage's own
+        // input, registered by the back, and this module hands the read's uop over as the register's fill side — its
+        // room comes back on `moved.ready`.
+        pipelineConnect(io.decoded, isu.io.decoded, wbu.io.flush, "idis", FlushHandover.Consume)
         pipelineConnect(io.retire, wbu.io.retire, wbu.io.flush, "exwb", FlushHandover.Ignore)
         io.moved :<>= isu.io.moved
 

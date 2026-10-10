@@ -50,10 +50,6 @@ class CacheStorageIO(parameter: CacheStorageParameter) extends HWBundle(paramete
     val rdEn = Flipped(Bool())
     val rdRows = Aligned(Vec(parameter.ways, UInt(parameter.rowWidth)))
 
-    /** The tag port: the same set's tag fields alone, so a hit compare need not wait on the line's mux. */
-    val tagSet = Flipped(UInt(setBits))
-    val rdTags = Aligned(Vec(parameter.ways, UInt(parameter.tagBits)))
-
     /** The write port: one way's whole row. */
     val wrEn = Flipped(Bool())
     val wrSet = Flipped(UInt(setBits))
@@ -85,11 +81,11 @@ class CacheStorageProbe(parameter: CacheStorageParameter)
   * The rows come from the platform's storage kind: a synchronous memory macro, or flops where the platform has no macro
   * shaped for an L1 (a read is then a mux of the addressed set — larger, but it keeps the clock, which a deep macro's
   * read path would not). The valid bits are flops either way: the hit compare reads them combinationally in the same
-  * cycle the rows come out, which a synchronous read cannot do. The tag port exists for a flop array's split read: a
-  * narrow mux for the compare, the wide one for the line, so the two are different paths, not one chain.
+  * cycle the rows come out, which a synchronous read cannot do.
   *
   * The control above never reads and writes in the same cycle, so one read-write port serves as well as two, and the
-  * port shape only decides which body [[SyncRam]] emits.
+  * port shape only decides which body [[SyncRam]] emits. A flop array's write lands one cycle after its command — the
+  * array's own timing, not the caller's, see the branch for why — and its valid and dirty bits land with it.
   */
 @generator
 object CacheStorage extends Generator[CacheStorageParameter, CacheStorageLayers, CacheStorageIO, CacheStorageProbe]:
@@ -134,52 +130,74 @@ object CacheStorage extends Generator[CacheStorageParameter, CacheStorageLayers,
                     ram.io.rData
                 for way <- 0 until parameter.ways do
                     io.rdRows.ref(way) := rows(way)
-                    // The macro reads whole rows, so its tag port is a slice of the same read — the split read is a flop
-                    // array's.
-                    io.rdTags.ref(way) := Node(rows(way).asBits).bits(parameter.lineBits + parameter.tagBits - 1, parameter.lineBits).asUInt
 
             case CacheStorageKind.Registers =>
-                // One flop array per way; the read is the addressed set's row, the write one decoded entry, and the
-                // tag port is the row's tag field alone — narrow, so the hit compare never chains behind the line mux.
+                // One flop array per way; the read is the addressed set's row, the write one decoded entry, and the row
+                // carries the tag above the line — a reader takes both from the same read.
+                //
+                // The write lands a cycle after its command. A flop array's write data is a broadcast — every flop
+                // wants every bit — so left whole, one net would drive `sets * ways` data pins (257 in the tile's
+                // 64x4 geometry, which an X1 flop cannot drive: the net's own slew, not the logic, sets the cache's
+                // frequency). The row is copied per way instead, so each copy drives `sets` data pins and the source
+                // — the refill engine's line — keeps a handful of loads. The command is registered for the same
+                // reason on the enable side: the array's clock-gate enables decode from the command register rather
+                // than combinationally from the miss state. Nothing reads the entry in between: the miss's answer
+                // comes from the engine's own bypass, and the next request reads only after `done` has risen.
                 val arrays = (0 until parameter.ways).map(_ => Reg(Vec(parameter.sets, UInt(parameter.rowWidth))))
+                val wrCmdEn = regNext(io.wrEn, false.B)
+                val wrCmdSet = regNext(io.wrSet)
+                val wrCmdWay = regNext(io.wrWay)
+                val wrRow = (0 until parameter.ways).map(_ => Reg(UInt(parameter.rowWidth)))
+                // Each copy loads only when its own way is the target, which also keeps the copies distinct: identical
+                // registers would be merged back into the one broadcast they exist to avoid.
+                for way <- 0 until parameter.ways do
+                    when(io.wrEn & (io.wrWay === way.U(wayBits))) { wrRow(way) := io.wrData }
                 for way <- 0 until parameter.ways do
                     io.rdRows.ref(way) := arrays(way).ref(io.rdSet)
-                    io.rdTags.ref(way) :=
-                        Node(arrays(way).ref(io.tagSet).asBits)
-                            .bits(parameter.lineBits + parameter.tagBits - 1, parameter.lineBits)
-                            .asUInt
                     for set <- 0 until parameter.sets do
-                        when(io.wrEn & (io.wrWay === way.U(wayBits)) & (io.wrSet === set.U(setBits))) {
-                            arrays(way)(set) := io.wrData
+                        when(wrCmdEn & (wrCmdWay === way.U(wayBits)) & (wrCmdSet === set.U(setBits))) {
+                            arrays(way)(set) := wrRow(way)
                         }
 
-        // The valid bits: a set's ways are one mask, so a write is one masked update of that set.
+        // The valid bits: a set's ways are one mask, so a write is one masked update of that set. A flop array's
+        // lands with its row — a cycle after the command — so an entry never shows a row and a valid bit from
+        // different cycles; a macro's write is its own cycle.
+        val registers = parameter.storage == CacheStorageKind.Registers
         val valids = Reg(Vec(parameter.sets, UInt(parameter.ways)))
         when(!summon[ResetScope].reset.asBool) {
             for s <- 0 until parameter.sets do valids(s) := 0.U(parameter.ways)
         }
         for w <- 0 until parameter.ways do io.vdBits.ref(w) := Node(valids.ref(io.vdSet).asBits).bit(w)
-        val vdMask = muxTree(io.vdWrWay, (0 until parameter.ways).map(w => (BigInt(1) << w).U(parameter.ways)))
-        when(io.vdWrEn) {
+        val vdWrEn: Referable[Bool] = if registers then regNext(io.vdWrEn, false.B) else io.vdWrEn
+        val vdWrSet: Referable[UInt] = if registers then regNext(io.vdWrSet) else io.vdWrSet
+        val vdWrWay: Referable[UInt] = if registers then regNext(io.vdWrWay) else io.vdWrWay
+        val vdWrVal: Referable[Bool] = if registers then regNext(io.vdWrVal, false.B) else io.vdWrVal
+        val vdMask = muxTree(vdWrWay, (0 until parameter.ways).map(w => (BigInt(1) << w).U(parameter.ways)))
+        when(vdWrEn) {
             for s <- 0 until parameter.sets do
-                when(io.vdWrSet === s.U(setBits)) {
+                when(vdWrSet === s.U(setBits)) {
                     val bits = Node(valids(s).asBits)
-                    val next = io.vdWrVal ? (bits | vdMask.asBits, bits & ~vdMask.asBits)
+                    val next = vdWrVal ? (bits | vdMask.asBits, bits & ~vdMask.asBits)
                     valids(s) := next.asUInt
                 }
         }
 
+        // The dirty bits, on the same terms as the valid ones.
         val dirt = Reg(Vec(parameter.sets, UInt(parameter.ways)))
         when(!summon[ResetScope].reset.asBool) {
             for s <- 0 until parameter.sets do dirt(s) := 0.U(parameter.ways)
         }
         for w <- 0 until parameter.ways do io.dtBits.ref(w) := Node(dirt.ref(io.dtSet).asBits).bit(w)
-        val dtMask = muxTree(io.dtWrWay, (0 until parameter.ways).map(w => (BigInt(1) << w).U(parameter.ways)))
-        when(io.dtWrEn) {
+        val dtWrEn: Referable[Bool] = if registers then regNext(io.dtWrEn, false.B) else io.dtWrEn
+        val dtWrSet: Referable[UInt] = if registers then regNext(io.dtWrSet) else io.dtWrSet
+        val dtWrWay: Referable[UInt] = if registers then regNext(io.dtWrWay) else io.dtWrWay
+        val dtWrVal: Referable[Bool] = if registers then regNext(io.dtWrVal, false.B) else io.dtWrVal
+        val dtMask = muxTree(dtWrWay, (0 until parameter.ways).map(w => (BigInt(1) << w).U(parameter.ways)))
+        when(dtWrEn) {
             for s <- 0 until parameter.sets do
-                when(io.dtWrSet === s.U(setBits)) {
+                when(dtWrSet === s.U(setBits)) {
                     val bits = Node(dirt(s).asBits)
-                    val next = io.dtWrVal ? (bits | dtMask.asBits, bits & ~dtMask.asBits)
+                    val next = dtWrVal ? (bits | dtMask.asBits, bits & ~dtMask.asBits)
                     dirt(s) := next.asUInt
                 }
         }

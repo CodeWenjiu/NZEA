@@ -115,7 +115,12 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
 
                         // The composition: a redirect needs both the direction's "taken" and a target to go to;
                         // everything else continues at the fall-through of the address being predicted.
-                        io.pred_next_pc := (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, io.fall_through)
+                        // Kept whole: this select is the fetch loop's body (the BTB's answer becomes the pc's next value),
+                        // and a mapper left to itself folds the wide mux into the cones on either side of it — the loop
+                        // then reads as one long chain instead of a mux between registers.
+                        io.pred_next_pc := dontTouch(
+                            (pht.io.pred_taken & btb.io.pred_hit) ? (btb.io.pred_target, io.fall_through)
+                        )
                         io.pred_count := pht.io.count
 
             case None =>

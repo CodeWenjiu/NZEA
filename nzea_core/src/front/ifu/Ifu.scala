@@ -104,11 +104,15 @@ object Ifu extends Generator[IfuParameter, IfuLayers, IfuIO, IfuProbe]:
         // only decides what the answer is worth.
         val bpu = Bpu.instantiate(BpuParameter(parameter.config.isa, parameter.config.defaultPc, parameter.bpu))
 
-        val nextPc: Referable[UInt] = muxCase(
-            pc,
-            Seq[(Referable[Bool], Referable[UInt])](
-                io.redirect.valid -> io.redirect.next_pc,
-                io.ibus.req.fire -> bpu.io.pred_next_pc
+        // Kept whole, like the predictor's own select: this is the fetch loop's body — the prediction becomes the pc's
+        // next value — and a mapper left to itself folds the wide mux into the cones on either side of it.
+        val nextPc: Referable[UInt] = dontTouch(
+            muxCase(
+                pc,
+                Seq[(Referable[Bool], Referable[UInt])](
+                    io.redirect.valid -> io.redirect.next_pc,
+                    io.ibus.req.fire -> bpu.io.pred_next_pc
+                )
             )
         )
         pc := nextPc

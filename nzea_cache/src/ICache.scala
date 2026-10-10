@@ -62,11 +62,11 @@ class ICacheProbe(parameter: ICacheParameter) extends DVBundle[ICacheParameter, 
 
 /** The instruction cache: a set-associative line store in front of the fetch's memory side.
   *
-  * The hit path is a two-stage pipeline that accepts one request per cycle: the head cycle reads the head's set on the
-  * storage's *tag* port and compares — a narrow mux, so the compare never chains behind the line's — and the result
-  * stage reads the same entry's set on the *row* port, where the way the compare settled picks the word. The head's
-  * address comes from the queue's registers, so the compare's result goes into registers (the result stage, or the miss
-  * slot), never back into an address.
+  * The hit path is a two-stage pipeline that accepts one request per cycle: the head cycle reads the head's set — the
+  * four ways' whole rows — into the result stage's registers, and the result stage compares the captured tags, settles
+  * the way and picks the word from those same registers. The read is what the stage holds, so the array's read mux — a
+  * 64-set mux per bit per way — ends at a register instead of reaching the answer, and neither the read nor the
+  * compare's result ever goes back into an address.
   *
   * A miss freezes the queue — the in-order fetch cannot be answered around it — and hands the line's address to
   * [[CacheRefill]]; when the engine answers, the line is installed, the replacement state touched, and the missed word
@@ -138,13 +138,20 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         val tailUser = Reg(UInt(parameter.userWidth))
         val tailId = Reg(UInt(parameter.idWidth))
 
-        // ── The result stage: the entry whose answer is being formed, held until the fetch takes it ──
+        // ── The result stage: the head's read captured, held until the fetch takes the answer ──
+        // The stage holds the *read* — the four ways' whole rows of the head's set, and the set's valid bits — so the
+        // compare, the way and the word all start from registers: the array's read mux ends here instead of reaching
+        // the answer. One request per cycle, the same as before; after that the stage is held until the fetch takes
+        // what it formed.
         val t1Valid = RegInit(false.B)
-        val t1Miss = RegInit(false.B)
+        val t1Rows = Reg(Vec(c.ways, UInt(rowWidth)))
+        val t1Vd = Reg(Vec(c.ways, Bool()))
         val t1Addr = Reg(UInt(aw))
-        val t1Way = Reg(UInt(wayBits))
         val t1User = Reg(UInt(parameter.userWidth))
         val t1Id = Reg(UInt(parameter.idWidth))
+        // The stage's one-shot: the first cycle a request is in it, its compare settles the miss slot or the
+        // replacement touch. The stage may be held for cycles after, and neither may fire twice.
+        val t1Decided = RegInit(false.B)
 
         // ── The miss the engine is working on: what the install needs once it answers ──
         // The slot is written when the miss is promoted and stands until the engine takes it, so a miss promoted in
@@ -162,48 +169,52 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         val touchSet = Reg(UInt(idxBits))
         val touchWay = Reg(UInt(wayBits))
 
-        // The answer's word: the row port reads the result stage's set, and the way the compare settled selects the
-        // line the word comes from — a chain that starts after the compare, not through it.
-        val t1Word =
-            muxTree(t1Way, (0 until c.ways).map(w => lineOf(storage.io.rdRows.ref(w)).data.ref(addrOf(t1Addr).word)))
+        // The stage's view of the captured read: the tag is the row's own slice, the set's valids came along, and the
+        // answer's word is the line's, selected by the address's word bits. All of it starts from registers.
+        val t1 = addrOf(t1Addr)
+        val t1Tag = t1.tag
+        val t1Cacheable = cacheableOf(t1Addr)
+        val t1Hits = (0 until c.ways).map(w => t1Vd.ref(w) & (lineOf(t1Rows(w)).tag === t1Tag))
+        val t1Hit = t1Hits.reduce(_ | _) & t1Cacheable
+        val t1Miss = !t1Hit
+        val t1Way = muxCase(0.U(wayBits), t1Hits.zipWithIndex.map((hit, w) => (hit, w.U(wayBits))))
+        val t1Word = muxTree(t1Way, (0 until c.ways).map(w => lineOf(t1Rows(w)).data.ref(t1.word)))
+
+        // The victim: a free way first, the replacement state only once the set is full.
+        val freeWay = muxCase(0.U(wayBits), (0 until c.ways).map(w => (!t1Vd.ref(w), w.U(wayBits))))
+        val hasFree = (0 until c.ways).map(w => !t1Vd.ref(w)).reduce(_ | _)
+        val victim = hasFree ? (freeWay, repl.way(t1.set))
+
         val missReady = refill.io.done
+        // The answer to the fetch, through a skid: the fetch's readiness is the core's whole back-pressure cone, and the
+        // queue's own handover below — `t1Free`, hence `promote` and `accept` — reads it. Buffered, the handover depends
+        // only on the buffer's own state, so the consumer's readiness stays outside the cache; the bypass keeps the
+        // common case at the same latency. The refill's ack follows the handover, not the consumer's take: once the
+        // answer is in the buffer, the engine is free to start the next line.
+        val topResp = Wire(io.top.resp.getType)
+        responseConnect(topResp, io.top.resp, "topResp")
         val respValid = t1Valid & (!t1Miss | missReady)
-        io.top.resp.valid := respValid
-        io.top.resp.bits.data := t1Miss ? (refill.io.bypassData, t1Word)
-        io.top.resp.bits.user := t1User
-        io.top.resp.bits.id := t1Id
-        val respFire = respValid & io.top.resp.ready
+        topResp.valid := respValid
+        topResp.bits.data := t1Miss ? (refill.io.bypassData, t1Word)
+        topResp.bits.user := t1User
+        topResp.bits.id := t1Id
+        val respFire = respValid & topResp.ready
 
         // The result stage will be free next cycle: the head's row may be handed over.
         val t1Free = !t1Valid | respFire
         val promote = headValid & t1Free
 
-        // The head, live: the tag port reads its set this cycle, so the compare never chains behind the line's mux.
+        // The head, live: its set is what the read muxes, and the result stage captures the read at the handover.
         val head = addrOf(headAddr)
         val headSet = head.set
-        val headTag = head.tag
-        val headWordOff = head.word
-        val headCacheable = cacheableOf(headAddr)
-        val headTags = (0 until c.ways).map(w => storage.io.rdTags.ref(w))
-        val headHits = (0 until c.ways).map(w => storage.io.vdBits.ref(w) & (headTags(w) === headTag))
-        val headHit = headHits.reduce(_ | _) & headCacheable
-        val headWay = muxCase(0.U(wayBits), headHits.zipWithIndex.map((hit, w) => (hit, w.U(wayBits))))
-
-        // The victim: a free way first, the replacement state only once the set is full.
-        val freeWay = muxCase(0.U(wayBits), (0 until c.ways).map(w => (!storage.io.vdBits.ref(w), w.U(wayBits))))
-        val hasFree = (0 until c.ways).map(w => !storage.io.vdBits.ref(w)).reduce(_ | _)
-        val victim = hasFree ? (freeWay, repl.way(headSet))
 
         val accept = !headValid | !tailValid | promote
         io.top.req.ready := accept
         val acceptFire = io.top.req.valid & accept
 
-        // ── The storage's two read ports ──
-        // The tag port reads the head's set combinationally — the compare's own narrow path — and the row port reads the
-        // result stage's set, whose line the settled way selects a word from. One address each, no chain between.
-        storage.io.tagSet := headSet
-        storage.io.rdSet := addrOf(t1Addr).set
-        storage.io.rdEn := t1Valid
+        // ── The storage's read: the head's set, live — the whole row per way, what the result stage captures ──
+        storage.io.rdSet := headSet
+        storage.io.rdEn := headValid
         storage.io.vdSet := headSet
 
         // ── The engine ──
@@ -269,39 +280,47 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
             tailId := io.top.req.bits.id
         }.otherwise { when(promote & tailValid) { tailValid := false.B } }
 
-        when(promote) {
-            t1Valid := true.B
-            t1Miss := !headHit
-            t1Addr := headAddr
-            t1Way := headWay
-            t1User := headUser
-            t1Id := headId
-        }.otherwise { when(respFire) { t1Valid := false.B } }
-
-        when(promote & !headHit) {
+        // The stage's decision, once per request: a miss fills the slot the engine works from, a hit touches the
+        // replacement tree. The promotion below overrides `t1Decided`'s set, so a request promoted in the same cycle
+        // the previous one leaves starts undecided.
+        val t1Settling = t1Valid & !t1Decided
+        when(t1Settling) { t1Decided := true.B }
+        when(t1Settling & t1Miss) {
             missPending := true.B
-            missAddr := headAddr
-            missSet := headSet
-            missTag := headTag
+            missAddr := t1Addr
+            missSet := t1.set
+            missTag := t1Tag
             missWay := victim
-            missWordOff := headWordOff
-            missCacheable := headCacheable
+            missWordOff := t1.word
+            missCacheable := t1Cacheable
         }
-        when(promote & headHit) {
+        when(t1Settling & !t1Miss) {
             touchPending := true.B
-            touchSet := headSet
-            touchWay := headWay
+            touchSet := t1.set
+            touchWay := t1Way
         }.otherwise { touchPending := false.B }
         when(touchPending) { repl.touch(touchSet, touchWay) }
+
+        // ── The pipeline advance: the head's read goes to the result stage, and a successor takes its place ──
+        when(promote) {
+            t1Valid := true.B
+            t1Decided := false.B
+            t1Addr := headAddr
+            t1User := headUser
+            t1Id := headId
+            for way <- 0 until c.ways do
+                t1Rows(way) := storage.io.rdRows.ref(way)
+                t1Vd(way) := storage.io.vdBits.ref(way)
+        }.otherwise { when(respFire) { t1Valid := false.B } }
 
         /** What the cache answers: how often the store answered and how often it had to go to memory. */
         def counters(): Unit =
             val hits = parameter.stats.stat("hit", CacheRegions.Cache, "fetches answered by the cache")
             val misses = parameter.stats.stat("miss", CacheRegions.Cache, "fetches the cache had to refill")
             val uncached = parameter.stats.stat("uncached", CacheRegions.Cache, "fetches outside the cacheable windows")
-            hits.inc(promote & headHit)
-            misses.inc(promote & !headHit & headCacheable)
-            uncached.inc(promote & !headCacheable)
+            hits.inc(t1Settling & t1Hit)
+            misses.inc(t1Settling & t1Miss & t1Cacheable)
+            uncached.inc(t1Settling & !t1Cacheable)
 
         if parameter.flow.counters then counters()
 

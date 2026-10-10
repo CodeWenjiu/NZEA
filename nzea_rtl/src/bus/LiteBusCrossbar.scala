@@ -25,9 +25,11 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *
   * Each master owns a [[ShiftFifo]] of answers, and a slave's answer is deposited there the cycle it arrives — the
   * slave frees without waiting on the master to be ready, so a slow master cannot stall the slave it used and, through
-  * it, every other master sharing that slave (head-of-line blocking). An answer that finds the FIFO empty bypasses it
-  * and goes straight to the master, saving the deposit cycle. At most one answer lands per master per cycle: the miss
-  * (a decode miss is answered zero, immediately) outranks the slaves, and the lowest-index slave outranks the rest.
+  * it, every other master sharing that slave (head-of-line blocking). A master's answer is always the FIFO's head — a
+  * register — so the answer's select and muxes are the deposit's and never reach a master's own logic; the one cycle
+  * that costs is the round trip's, and it is what keeps a master's response cone out of the fabric's. At most one
+  * answer lands per master per cycle: the miss (a decode miss is answered zero, immediately) outranks the slaves, and
+  * the lowest-index slave outranks the rest.
   */
 case class LiteBusCrossbarParameter(map: AddressMap, addrWidth: Int, dataWidth: Int, outstanding: Int)
     extends Parameter:
@@ -143,14 +145,11 @@ object LiteBusCrossbar
         // Where each master's answer comes from this cycle: a decode miss, or the slave that owns one of its requests.
         val fromSlave = (0 until m).map(mm => (0 until s).map(ss => resp(ss) & ownerIs(mm, ss)))
         val incoming = (0 until m).map(mm => missAccept(mm) | fromSlave(mm).reduce(_ | _))
-        val bypassValid = (0 until m).map(mm => incoming(mm) & !answers(mm).nonEmpty)
-        // Bypass: an answer that finds an empty FIFO goes straight to the master instead of landing for a cycle first. The
-        // grant never reads it — only `mOcc`, a register — so this shortens the round trip without a combinational loop.
-        val bypass = (0 until m).map(mm => bypassValid(mm) & master(mm).resp.ready)
-        val push = (0 until m).map(mm => incoming(mm) & !bypass(mm))
+        // The answer is deposited the cycle it arrives and the master takes it the next: a master's response is the
+        // FIFO's head, never the slaves' own logic. `resp(ss)` already asked for room, so a deposit always lands.
+        val push = incoming
         val head = (0 until m).map(mm => answers(mm).nonEmpty)
         val pop = (0 until m).map(mm => head(mm) & master(mm).resp.ready)
-        val take = (0 until m).map(mm => pop(mm) | bypass(mm))
 
         // Per-slave arbitration: candidates are masters that hit it and are free, granted round-robin from the pointer.
         val cand = (0 until s).map { ss =>
@@ -189,11 +188,11 @@ object LiteBusCrossbar
             master(mm).req.ready := granted
             mOcc(mm) := subWrap(
                 addWrap(mOcc(mm), granted ? (1.U(cntW), 0.U(cntW)), cntW),
-                take(mm) ? (1.U(cntW), 0.U(cntW)),
+                pop(mm) ? (1.U(cntW), 0.U(cntW)),
                 cntW
             )
 
-        // The answer FIFOs: deposit what was not bypassed, pop the head the master takes.
+        // The answer FIFOs: deposit what arrived, hand the head to the master when it takes it.
         for mm <- 0 until m do
             val pushData = muxCase(0.U(dw), (0 until s).map(ss => (fromSlave(mm)(ss), slave(ss).resp.bits.data)))
             val pushUser = muxCase(
@@ -206,10 +205,10 @@ object LiteBusCrossbar
             answers(mm).push(push(mm), pop(mm), Seq(pushData, pushUser, pushId))
             answers(mm).updateCount(push(mm), pop(mm))
 
-            master(mm).resp.valid := head(mm) | bypassValid(mm)
-            master(mm).resp.bits.data := head(mm) ? (answers(mm).head(0), pushData)
-            master(mm).resp.bits.user := head(mm) ? (answers(mm).head(1), pushUser)
-            master(mm).resp.bits.id := head(mm) ? (answers(mm).head(2), pushId)
+            master(mm).resp.valid := head(mm)
+            master(mm).resp.bits.data := answers(mm).head(0)
+            master(mm).resp.bits.user := answers(mm).head(1)
+            master(mm).resp.bits.id := answers(mm).head(2)
 
 /** Named ports of a crossbar: the address map turns a name into the position, so no caller counts an index. */
 extension (io: Interface[LiteBusCrossbarIO])
