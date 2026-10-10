@@ -186,19 +186,17 @@ object ICache extends Generator[ICacheParameter, ICacheLayers, ICacheIO, ICacheP
         val victim = hasFree ? (freeWay, repl.way(t1.set))
 
         val missReady = refill.io.done
-        // The answer to the fetch, through a skid: the fetch's readiness is the core's whole back-pressure cone, and the
-        // queue's own handover below — `t1Free`, hence `promote` and `accept` — reads it. Buffered, the handover depends
-        // only on the buffer's own state, so the consumer's readiness stays outside the cache; the bypass keeps the
-        // common case at the same latency. The refill's ack follows the handover, not the consumer's take: once the
-        // answer is in the buffer, the engine is free to start the next line.
-        val topResp = Wire(io.top.resp.getType)
-        responseConnect(topResp, io.top.resp, "topResp")
+        // The answer leaves on the port, and the handover below — `t1Free`, hence `promote` and `accept` — reads the
+        // port's ready. That ready is the consumer's, but the consumer's own boundary buffers it (the core's bus
+        // boundary, [[responseConnect]]): what this port sees is a buffer's count, not the pipeline's back-pressure
+        // cone. A skid here would only add a second stage of the same state. The refill's ack follows the handover, not
+        // the consumer's take.
         val respValid = t1Valid & (!t1Miss | missReady)
-        topResp.valid := respValid
-        topResp.bits.data := t1Miss ? (refill.io.bypassData, t1Word)
-        topResp.bits.user := t1User
-        topResp.bits.id := t1Id
-        val respFire = respValid & topResp.ready
+        io.top.resp.valid := respValid
+        io.top.resp.bits.data := t1Miss ? (refill.io.bypassData, t1Word)
+        io.top.resp.bits.user := t1User
+        io.top.resp.bits.id := t1Id
+        val respFire = respValid & io.top.resp.ready
 
         // The result stage will be free next cycle: the head's row may be handed over.
         val t1Free = !t1Valid | respFire

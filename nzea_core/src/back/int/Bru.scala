@@ -90,5 +90,12 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         // rebuilding the comparator behind the dispatch's merge — and it is the same fact the resolve-side counters
         // report on. At `Off` the prediction is the fall-through, so the check reduces to the resolved next pc not being
         // it.
-        val mispredict: Referable[Bool] = io.nextPc =/= io.predNextPc
+        //
+        // `nextPc` is `taken ? target : fallThrough`, so the check is its two arms compared apart and `taken` selects at
+        // the end: a compare hung off the resolved pc waits on the comparator's whole chain, while the arms start where
+        // their inputs do — the fall-through arm at registers, the target arm at the adder — beside the comparator
+        // instead of behind it. At `Off` the fall-through arm folds to a constant.
+        val tgtMismatch: Referable[Bool] = io.target =/= io.predNextPc
+        val fallMismatch: Referable[Bool] = io.fallThrough =/= io.predNextPc
+        val mispredict: Referable[Bool] = taken ? (tgtMismatch, fallMismatch)
         io.mispredict := mispredict

@@ -226,8 +226,10 @@ def responseConnect[T <: HardwareDataType](
   *
   * {{{io.ibus :<>= front.io.ibus.buffered("ibusBuffer", BufferPolicy.Skid, Some(middle.io.flush.valid))}}}
   *
-  * The request channel carries the policy and the flush; the response channel passes through combinationally, so
-  * nothing crosses the buffer in that direction.
+  * The request channel carries the policy and the flush; the read-only flavour's response channel is buffered too
+  * ([[responseConnect]]), because its consumer is the pipeline itself — the ready cone the request buffer keeps out of
+  * the fabric would otherwise come back in through the answer. The read/write flavour's response stays combinational:
+  * its consumers drain (a store's acknowledgment, a refill's beats), so a buffer there is state nobody reads.
   *
   * `flush` exists on the read-only flavour only: dropping a request is a promise that no one is waiting on its answer,
   * and only a read-only producer can make it — a fetch's redirect digests its responses by epoch, while a store's write
@@ -253,10 +255,9 @@ extension (bus: Ref[LiteBusRO])
         val far = Wire(bus.getType)
         bufferConnect(bus.req, far.req, policy, name, flush)
 
-        // Response: straight through; the fabric drives valid/bits and the master drives ready.
-        bus.resp.valid := far.resp.valid
-        bus.resp.bits :<>= far.resp.bits
-        far.resp.ready := bus.resp.ready
+        // The answer is the mirror buffer: the consumer's ready — the middle's whole readiness, an in-order fetch's
+        // back-pressure — stops at this boundary instead of reaching into the fabric.
+        responseConnect(far.resp, bus.resp, s"${name}Resp")
 
         far
 
