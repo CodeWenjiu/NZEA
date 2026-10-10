@@ -105,5 +105,31 @@ object Btb extends Generator[BtbParameter, BtbLayers, BtbIO, BtbProbe]:
         val entry: Node[Bits] = Node(table.io.rData.asBits)
         val storedTag: Node[UInt] = entry.bits(tagBits + targetBits - 1, targetBits).asUInt
         val storedTarget: Node[UInt] = (entry.bits(targetBits - 1, 0) ## 0.B(2)).asUInt
-        io.pred_hit := valids.ref(indexOf(readPc)) & (storedTag === tagOf(readPc))
+
+        /** The stored tag against the outstanding read's, in four-bit groups under a kept tree.
+          *
+          * The compare is the fetch loop's longest single cone — the loop is one cycle by construction, so its depth is
+          * the whole budget — and a mapper left to itself reads a wide equality as one function and folds it into a weak
+          * two-input chain. The groups are the equality's own depth written down, and `dontTouch` is what keeps the
+          * mapping from re-reading them whole: one group's answer is one comparison, and the tree above them is kept
+          * level by level, the same treatment the prefix primitives get for the same reason.
+          */
+        def tagMatch(stored: Node[UInt], lookup: Node[UInt]): Node[Bool] =
+            val storedBits: Node[Bits] = Node(stored.asBits)
+            val lookupBits: Node[Bits] = Node(lookup.asBits)
+            def group(lo: Int): Node[Bool] =
+                val hi = math.min(lo + 3, tagBits - 1)
+                dontTouch(storedBits.bits(hi, lo).asUInt === lookupBits.bits(hi, lo).asUInt)
+            def tree(parts: Seq[Node[Bool]]): Node[Bool] =
+                if parts.sizeIs == 1 then parts.head
+                else
+                    tree(
+                        parts
+                            .grouped(2)
+                            .map(pair => dontTouch(if pair.sizeIs == 1 then pair.head else pair(0) & pair(1)))
+                            .toSeq
+                    )
+            tree((0 until (tagBits + 3) / 4).map(i => group(i * 4)).toSeq)
+
+        io.pred_hit := valids.ref(indexOf(readPc)) & tagMatch(storedTag, tagOf(readPc))
         io.pred_target := storedTarget
