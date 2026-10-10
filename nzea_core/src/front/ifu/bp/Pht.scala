@@ -24,6 +24,7 @@ class PhtLayers(parameter: PhtParameter) extends LayerInterface(parameter):
 class PhtIO(parameter: PhtParameter) extends HWBundle(parameter):
     private val width = parameter.config.width
     val clock = Flipped(Clock())
+    val resetN = Flipped(Reset())
 
     /** The pc being predicted: the read is issued with it, and the answer is out a cycle later. */
     val lookup_pc = Flipped(UInt(width))
@@ -52,8 +53,9 @@ class PhtProbe(parameter: PhtParameter) extends DVBundle[PhtParameter, PhtLayers
   * of the two increments is lost — a slower learn on conflicting slots, never a wrong prediction. The read and the
   * write in the same cycle are the classic read-first pair: the read gets the entry as it was.
   *
-  * Nothing here is reset — a memory entry has no reset value. A fresh table therefore predicts what its storage starts
-  * as, which in the two-state simulation this design is verified in is zero: not-taken, exactly the empty table.
+  * Nothing here is reset but the write controls — a memory entry has no reset value. A fresh table therefore predicts
+  * what its storage starts as, which in the two-state simulation this design is verified in is zero: not-taken, exactly
+  * the empty table. The controls are reset so the table never writes on power-up.
   */
 @generator
 object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
@@ -62,6 +64,7 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
     def architecture(parameter: PhtParameter) =
         val io = summon[Interface[PhtIO]]
         given ClockScope = ClockScope.posedge(io.clock)
+        given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
         val entries = parameter.entries
         val indexBits = log2Ceil(entries)
@@ -87,6 +90,17 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
         table.io.rAddr := indexOf(io.lookup_pc)
         io.pred_taken := Node(table.io.rData.asBits).bit(1)
         io.count := table.io.rData
-        table.io.wEn := io.update_valid
-        table.io.wAddr := indexOf(io.update_pc)
-        table.io.wData := saturating(io.update_count, io.update_taken)
+
+        // The write controls are registered at the table's own boundary: the write data fans out to every row's flop,
+        // and the training bus arrives from the back across the whole design, so a register here keeps the table's own
+        // load off that path — the write lands a cycle later, which the freshness the table already trades away covers.
+        // The read-first pair is unaffected: a read never sees a write from its own cycle either way.
+        val wEn = RegInit(false.B)
+        val wAddr = Reg(UInt(indexBits))
+        val wData = Reg(UInt(BpUpdate.phtCountBits))
+        wEn := io.update_valid
+        wAddr := indexOf(io.update_pc)
+        wData := saturating(io.update_count, io.update_taken)
+        table.io.wEn := wEn
+        table.io.wAddr := wAddr
+        table.io.wData := wData

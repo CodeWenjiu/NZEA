@@ -99,6 +99,7 @@ object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:
                         val btb = Btb.instantiate(BtbParameter(parameter.isa, parameter.defaultPc, btbEntries))
 
                         pht.io.clock := io.clock
+                        pht.io.resetN := io.resetN
                         pht.io.lookup_pc := io.lookup_pc
                         pht.io.update_valid := update.valid
                         pht.io.update_pc := update.bits.pc
