@@ -154,14 +154,14 @@ object DecodeTablesTest extends TestSuite:
 
             check("LUI", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.ImmZero, Some(ImmType.U), true)
             check("AUIPC", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.PcImm, Some(ImmType.U), true)
-            check("JAL", Backend.INT, intWindow(IntOp.Bru(BruOp.JAL)), Srcs.NoOperand, Some(ImmType.J), true)
+            check("JAL", Backend.INT, intWindow(IntOp.Bru(BruOp.JAL)), Srcs.PcImm, Some(ImmType.J), true)
             check("JALR", Backend.INT, intWindow(IntOp.Bru(BruOp.JALR)), Srcs.Rs1Imm, Some(ImmType.I), true)
             check("LW", Backend.MEM, memWindow(LsuOp.LW), Srcs.Rs1Imm, Some(ImmType.I), true)
             check("SB", Backend.MEM, memWindow(LsuOp.SB), Srcs.Rs1ImmRs2, Some(ImmType.S), false)
             check("ADDI", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.Rs1Imm, Some(ImmType.I), true)
             check("SLLI", Backend.INT, intWindow(IntOp.Alu(AluOp.Sll)), Srcs.Rs1Imm, Some(ImmType.I), true)
             check("ADD", Backend.INT, intWindow(IntOp.Alu(AluOp.Add)), Srcs.Rs1Rs2, None, true)
-            check("BEQ", Backend.INT, intWindow(IntOp.Bru(BruOp.BEQ)), Srcs.Rs1Rs2, Some(ImmType.B), false)
+            check("BEQ", Backend.INT, intWindow(IntOp.Bru(BruOp.BEQ)), Srcs.PcRs1Rs2, Some(ImmType.B), false)
             check(
                 "ECALL",
                 Backend.INT,

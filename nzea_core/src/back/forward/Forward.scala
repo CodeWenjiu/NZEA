@@ -63,6 +63,11 @@ class ForwardIO(parameter: ForwardParameter) extends HWBundle(parameter):
       */
     val exec = Flipped(ValidIO(new PathResult(width)))
 
+    /** The slot's sysu offer: the CSR the uop leaves defined and the value it leaves — the CSR column's youngest
+      * writer, named by the CSR rather than by a destination index.
+      */
+    val csr_offer = Flipped(ValidIO(new CsrOffer(width)))
+
     /** The execute slot's uop: the youngest writer in flight, named by its destination. */
     val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
 
@@ -112,15 +117,17 @@ object Forward extends Generator[ForwardParameter, ForwardLayers, ForwardIO, For
         io.forward.arf_offers.ref(0).index := io.issue.bits.rd_index
         io.forward.arf_offers.ref(0).data := io.exec.bits.data
 
-        /** The slot's CSR write, the same youngest writer in the CSR's index space: the completion's `csr_type` names
-          * the CSR the uop writes — none for every uop the sysu does not run — and its `csr_data` is the value.
+        /** The slot's CSR offer, the same youngest writer in the CSR's index space: the sysu's own offer names the CSR
+          * the uop leaves defined and the value it leaves, and it is ready with the uop — the sysu is combinational, so
+          * nothing but the level's reach stands between the offer and the read. What the commit makes of it (a
+          * zero-source CSRRS/CSRRC stores nothing) is the commit's refinement, not the read's.
           */
-        val csrSlotValid = io.issue.valid & (io.exec.bits.csr_type =/= CsrType.None.lit.U(CsrType.width))
-        val csrSlotArmed = csrSlotValid & (if parameter.bypass.execute then io.exec.valid else false.B)
+        val csrSlotValid = io.issue.valid & io.csr_offer.valid
+        val csrSlotArmed = csrSlotValid & (if parameter.bypass.execute then true.B else false.B)
         io.forward.csr_offers.ref(0).valid := csrSlotValid
         io.forward.csr_offers.ref(0).armed := csrSlotArmed
-        io.forward.csr_offers.ref(0).index := io.exec.bits.csr_type
-        io.forward.csr_offers.ref(0).data := io.exec.bits.csr_data
+        io.forward.csr_offers.ref(0).index := io.csr_offer.bits.csr_type
+        io.forward.csr_offers.ref(0).data := io.csr_offer.bits.data
 
         /** The queue's entries, from the tail back to the head: offer `1 + k` is the entry at position `entryCount - 1
           * \- k`, so the column reads youngest first and a consumer never sees the ring.

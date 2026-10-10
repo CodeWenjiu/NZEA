@@ -23,17 +23,23 @@ class SysuIO(parameter: SysuParameter) extends HWBundle(parameter):
     val csrRdata = Flipped(UInt(parameter.width))
     val csrType = Flipped(UInt(CsrType.width))
     val data = Aligned(UInt(parameter.width))
+    val leaves = Aligned(Bool())
     val write = Aligned(Bool())
 
 class SysuProbe(parameter: SysuParameter) extends DVBundle[SysuParameter, SysuLayers](parameter)
 
-/** System unit: the CSR data an instruction offers, and whether it writes the CSR at all.
+/** System unit: the CSR value an instruction leaves behind, and whether the commit writes the CSR at all.
   *
   * The read data is already in the uop — the CSR file is read combinationally while the instruction issues — so this
   * unit only combines it. Its operand is the slot the form filled: rs1 for the register forms, the immediate for the
   * immediate forms.
   *
-  * Combinational, and it carries no valid: the path gates `data` and `write` with the tag it issued.
+  * `data` is the CSR's post-state for every form the unit runs — a set or clear with a zero source combines to the
+  * value it read — so a reader behind the uop takes `data` whenever `leaves` says the CSR stays defined. `write` is
+  * the commit's own refinement of that: whether the file is stored at all, which only a zero-source CSRRS/CSRRC
+  * falsifies.
+  *
+  * Combinational, and it carries no valid: the path gates `data`, `leaves` and `write` with the tag it issued.
   */
 @generator
 object Sysu extends Generator[SysuParameter, SysuLayers, SysuIO, SysuProbe]:
@@ -62,12 +68,16 @@ object Sysu extends Generator[SysuParameter, SysuLayers, SysuIO, SysuProbe]:
             )
         )
 
-        // A CSRRS/CSRRC with a zero source reads without writing, which is not the same as writing the old value back. Only
-        // the six CSR ops write at all: the address field of the others (ECALL, EBREAK, FENCE) is not a CSR address, even
-        // when it happens to alias one.
+        // The six CSR ops leave the addressed CSR defined. The ops above them (ECALL, EBREAK, FENCE) touch no CSR: their
+        // address field is not an address, even when it happens to alias one.
+        val leaves = (io.csrType =/= CsrType.None.lit.U(CsrType.width)) & (op < SysuOp.ECALL.lit.U(SysuOp.width))
+
+        // A CSRRS/CSRRC with a zero source reads without writing, which is not the same as writing the old value back —
+        // but a reader cannot tell the difference, because `data` is the post-state either way. So the refinement sits
+        // on `write` alone, where the commit and the trace read it.
         val csrRw = isOp(SysuOp.CSRRS) | isOp(SysuOp.CSRRC) | isOp(SysuOp.CSRRSI) | isOp(SysuOp.CSRRCI)
-        val write = (io.csrType =/= CsrType.None.lit.U(CsrType.width)) & (op < SysuOp.ECALL.lit.U(SysuOp.width)) &
-            (csrRw ? (io.rs1 =/= 0.U(width), true.B))
+        val write = leaves & (csrRw ? (io.rs1 =/= 0.U(width), true.B))
 
         io.data := data
+        io.leaves := leaves
         io.write := write

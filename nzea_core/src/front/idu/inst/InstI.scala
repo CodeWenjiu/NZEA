@@ -18,7 +18,7 @@ private[idu] object InstI:
     val AUIPC = RVInst("AUIPC", uType("0010111"), Some(ImmType.U), alu(AluOp.Add, Srcs.PcImm))
 
     // J-type: JAL=1101111
-    val JAL = RVInst("JAL", uType("1101111"), Some(ImmType.J), bru(BruOp.JAL, Srcs.NoOperand))
+    val JAL = RVInst("JAL", uType("1101111"), Some(ImmType.J), bru(BruOp.JAL, Srcs.PcImm))
 
     // I-type
     val JALR = RVInst("JALR", iType("000", "1100111"), Some(ImmType.I), bru(BruOp.JALR, Srcs.Rs1Imm))
@@ -69,13 +69,13 @@ private[idu] object InstI:
     val SH = RVInst("SH", iType("001", "0100011"), Some(ImmType.S), mem(LsuOp.SH, Srcs.Rs1ImmRs2), gprWr = false)
     val SW = RVInst("SW", iType("010", "0100011"), Some(ImmType.S), mem(LsuOp.SW, Srcs.Rs1ImmRs2), gprWr = false)
 
-    // B-type: rs1, rs2 for compare; no rd
-    val BEQ = RVInst("BEQ", iType("000", "1100011"), Some(ImmType.B), bru(BruOp.BEQ, Srcs.Rs1Rs2), gprWr = false)
-    val BNE = RVInst("BNE", iType("001", "1100011"), Some(ImmType.B), bru(BruOp.BNE, Srcs.Rs1Rs2), gprWr = false)
-    val BLT = RVInst("BLT", iType("100", "1100011"), Some(ImmType.B), bru(BruOp.BLT, Srcs.Rs1Rs2), gprWr = false)
-    val BGE = RVInst("BGE", iType("101", "1100011"), Some(ImmType.B), bru(BruOp.BGE, Srcs.Rs1Rs2), gprWr = false)
-    val BLTU = RVInst("BLTU", iType("110", "1100011"), Some(ImmType.B), bru(BruOp.BLTU, Srcs.Rs1Rs2), gprWr = false)
-    val BGEU = RVInst("BGEU", iType("111", "1100011"), Some(ImmType.B), bru(BruOp.BGEU, Srcs.Rs1Rs2), gprWr = false)
+    // B-type: the pc it branches from, then rs1, rs2 for the compare; no rd
+    val BEQ = RVInst("BEQ", iType("000", "1100011"), Some(ImmType.B), bru(BruOp.BEQ, Srcs.PcRs1Rs2), gprWr = false)
+    val BNE = RVInst("BNE", iType("001", "1100011"), Some(ImmType.B), bru(BruOp.BNE, Srcs.PcRs1Rs2), gprWr = false)
+    val BLT = RVInst("BLT", iType("100", "1100011"), Some(ImmType.B), bru(BruOp.BLT, Srcs.PcRs1Rs2), gprWr = false)
+    val BGE = RVInst("BGE", iType("101", "1100011"), Some(ImmType.B), bru(BruOp.BGE, Srcs.PcRs1Rs2), gprWr = false)
+    val BLTU = RVInst("BLTU", iType("110", "1100011"), Some(ImmType.B), bru(BruOp.BLTU, Srcs.PcRs1Rs2), gprWr = false)
+    val BGEU = RVInst("BGEU", iType("111", "1100011"), Some(ImmType.B), bru(BruOp.BGEU, Srcs.PcRs1Rs2), gprWr = false)
 
     // R-type: rs1, rs2
     val ADD = RVInst("ADD", rType("0000000", "000", "0110011"), None, alu(AluOp.Add, Srcs.Rs1Rs2))

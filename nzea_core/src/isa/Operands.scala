@@ -30,6 +30,11 @@ enum Srcs(val a: Operand, val b: Operand, val c: Operand) extends Encoding.OneHo
     case PcImm extends Srcs(Operand.Pc, Operand.Imm, Operand.Zero)
     case Rs1ImmRs2 extends Srcs(Operand.Rs1, Operand.Imm, Operand.Rs2)
 
+    /** A branch: the pc it branches from, then the two registers it compares. The base rides the first slot like every
+      * other operand, so the branch unit's adder hangs off a placed operand instead of a mux its own op decode selects.
+      */
+    case PcRs1Rs2 extends Srcs(Operand.Pc, Operand.Rs1, Operand.Rs2)
+
 object Srcs extends OneHotSet[Srcs]:
     def variants: Seq[Srcs] = values.toSeq
 

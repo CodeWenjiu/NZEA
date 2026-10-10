@@ -104,14 +104,16 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         def bruUnit() =
             val bru = Bru.instantiate(BruParameter(width, parameter.bpu))
             bru.io.op := Encoding.take(fuOp, BruOp.width)
-            bru.io.pc := u.pc
+            // The form already placed the target's base in the first slot and the compared registers behind it, so the
+            // unit reads its operands where they lie instead of selecting a base out of its own op.
+            bru.io.base := u.src_a
             // The prediction is data, and it has been since the fetch: the uop carries the next pc the fetcher predicted
             // when it read this instruction. A predictor that lands later replaces the fetcher's one value, not this unit.
             bru.io.predNextPc := u.next_pc
             bru.io.fallThrough := fallThrough
             bru.io.offset := u.imm
-            bru.io.rs1 := u.src_a
-            bru.io.rs2 := u.src_b
+            bru.io.rs1 := u.src_b
+            bru.io.rs2 := u.src_c
             bru
 
         def sysuUnit() =
@@ -206,6 +208,18 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
             io.path.result.mispredict := branchMispred
 
         result()
+
+        /** The sysu's offer to the readers behind it: the CSR the held uop leaves defined and the value it leaves there.
+          * It rides the path's own face rather than the result, because the result is the commit's account — gated by
+          * whether the commit stores at all — while a reader behind the uop takes the post-state either way, and it must
+          * be there the cycle the uop is held.
+          */
+        def csrOffer(): Unit =
+            io.path.csr_offer.valid := isSysu & sysu.io.leaves
+            io.path.csr_offer.bits.csr_type := u.csr_type
+            io.path.csr_offer.bits.data := sysu.io.data
+
+        csrOffer()
 
         /** The predictor's training data: the branch unit's own outcome, registered on the cycle it resolves. The port
           * is the predictor's own — the same config that builds the front's tables builds this end — and every signal

@@ -110,6 +110,13 @@ object BackPathTest extends TestSuite:
         s"${prefix}_mispredict" -> 1
     )
 
+    /** The sysu offer's fields, under whichever prefix the port carries them. */
+    private def csrOfferPorts(prefix: String): Map[String, Int] = Map(
+        s"${prefix}_valid" -> 1,
+        s"${prefix}_bits_csr_type" -> CsrType.width,
+        s"${prefix}_bits_data" -> width
+    )
+
     val tests = Tests:
         test("the int path's boundary is the dispatch's face and the resolved branches"):
             assert(
@@ -123,7 +130,7 @@ object BackPathTest extends TestSuite:
                         "bp_update_bits_taken" -> 1,
                         "bp_update_bits_target" -> width,
                         "bp_update_bits_pht_count" -> BpUpdate.phtCountBits
-                    ) ++ issuePorts("path_issue") ++ resultPorts("path_result")
+                    ) ++ issuePorts("path_issue") ++ resultPorts("path_result") ++ csrOfferPorts("path_csr_offer")
             )
 
         test("the memory path's boundary is the dispatch's face and the data bus"):

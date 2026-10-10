@@ -19,12 +19,21 @@ class BruLayers(parameter: BruParameter) extends LayerInterface(parameter):
 
 class BruIO(parameter: BruParameter) extends HWBundle(parameter):
     val op = Flipped(UInt(BruOp.width))
-    val pc = Flipped(UInt(parameter.width))
+
+    /** The target's base, placed by the instruction's form: the pc every jump and branch bases on, the register operand
+      * JALR bases on. The unit never selects it — the read already did — which is what keeps this unit's op decode off
+      * the adder's path.
+      */
+    val base = Flipped(UInt(parameter.width))
     val predNextPc = Flipped(UInt(parameter.width))
 
     /** The pc's own fall-through, for the paths the prediction did not take. */
     val fallThrough = Flipped(UInt(parameter.width))
     val offset = Flipped(UInt(parameter.width))
+
+    /** The compared operands, from the form's `b` and `c` slots: the branch's two registers. A jump compares nothing,
+      * so its form leaves those slots unread and what they carry is never selected.
+      */
     val rs1 = Flipped(UInt(parameter.width))
     val rs2 = Flipped(UInt(parameter.width))
     val taken = Aligned(Bool())
@@ -55,9 +64,10 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         val rs1Bits: Node[Bits] = Node(io.rs1.asBits)
         val rs2Bits: Node[Bits] = Node(io.rs2.asBits)
 
-        // JALR bases its target on its register operand; every other jump and branch bases on the pc.
-        val isJalr = op === BruOp.JALR.lit.U(BruOp.width)
-        val target = prefixAdder(isJalr ? (io.rs1, io.pc), io.offset, false.B, width)
+        // The target's base arrives placed by the form — the pc for every jump and branch, the register operand for
+        // JALR — so the adder hangs off the slot, and the op's decode, which would otherwise pick the base here, stays
+        // off the adder's path.
+        val target = prefixAdder(io.base, io.offset, false.B, width)
         // The orderings are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a
         // one-gate-per-bit borrow ripple (see `lessThan`), and four of the eight outcomes ride it — the same cone the ALU
         // already took off its compares. Signed shares the unsigned scan (when the signs differ, the negative side is the

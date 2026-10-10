@@ -186,7 +186,9 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
             io.rs2_index := dec.rs2_index
             // The file's answer feeds the form resolve; the network's answer does not — a slot whose form reads Rs1/Rs2 takes
             // it straight. The hit terms are the forms that read that register in that slot: one OR of form bits each, off
-            // the decode's register, so the forwarding path is [offer, one mux] and the resolve stays off it.
+            // the decode's register, so the forwarding path is [offer, one mux] and the resolve stays off it. Which read a
+            // slot takes is the form's own answer — the form decides where each register goes — so the wake follows the
+            // operand the slot names, never a fixed slot.
             val (srcA, srcB, srcC) = Srcs.resolve(
                 dec.srcs,
                 Seq[(Operand, Referable[UInt])](
@@ -198,14 +200,16 @@ object OperandRead extends Generator[OperandReadParameter, OperandReadLayers, Op
                 ),
                 width
             )
-            val bypassA = readsSlot(_.a, Operand.Rs1) & wake1.from_net
-            val bypassB = readsSlot(_.b, Operand.Rs2) & wake2.from_net
-            val bypassC = readsSlot(_.c, Operand.Rs2) & wake2.from_net
-            (
-                bypassA ? (wake1.value, srcA),
-                bypassB ? (wake2.value, srcB),
-                bypassC ? (wake2.value, srcC)
-            )
+
+            /** One slot placed: the file's answer, or the wake of the register the form names for that slot. A slot names
+              * one register, so the two tests are exclusive and the two muxes are one select.
+              */
+            def placeSlot(pick: Srcs => Operand, src: Referable[UInt]): Referable[UInt] =
+                val fromRs1 = readsSlot(pick, Operand.Rs1) & wake1.from_net
+                val fromRs2 = readsSlot(pick, Operand.Rs2) & wake2.from_net
+                fromRs1 ? (wake1.value, fromRs2 ? (wake2.value, src))
+
+            (placeSlot(_.a, srcA), placeSlot(_.b, srcB), placeSlot(_.c, srcC))
 
         /** The read is placeable when nothing it reads is held back — the operand form and the op tag are the only
           * gates: a slot no register feeds owes no wait, and neither does an instruction the sysu will not run.

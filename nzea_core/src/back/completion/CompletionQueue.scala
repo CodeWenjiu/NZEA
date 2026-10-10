@@ -213,9 +213,11 @@ object CompletionQueue
         )
 
         /** One instruction's entry, written whole when the slot releases it: the retire record from the completion, the
-          * destination from the held uop, and the memory path's tag and offset for a load's later answer. A load's
-          * entry starts unfinished and without a value — its data is not on the bus yet — so `data` is zeroed rather
-          * than taken from the result, whose data belongs to whatever answer is on the bus this cycle.
+          * destination from the held uop, and the memory path's tag and offset for a load's later answer. A load's entry
+          * starts unfinished — its answer is not on the bus yet — and the answer writes its `data` when it arrives; the
+          * value the completion carries at the release is don't-care until then, because a read takes a value only from
+          * an armed offer. So the record's data is written through, not gated to zero: the gate would put the
+          * completion's valid — and the whole load-hit cone behind it — on the entry's data path for every instruction.
           */
         def writeEntry(): Unit =
             val record = RetireEvent.of(width, io.complete.bits, io.issue.bits.rd_index)
@@ -223,7 +225,6 @@ object CompletionQueue
                 for index <- 0 until depth do
                     when(tail === index.U(ptrW)) {
                         entries.ref(index).record :<= record
-                        entries.ref(index).record.data := io.complete.valid ? (io.complete.bits.data, 0.U(width))
                         entries.ref(index).done := io.complete.valid
                         entries.ref(index).valid := true.B
                         entries.ref(index).tag := io.reqTag

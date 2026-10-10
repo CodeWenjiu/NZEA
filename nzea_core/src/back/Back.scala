@@ -192,6 +192,10 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
         forward.io.exec.valid := dispatch.io.int.done
         forward.io.exec.bits :<= dispatch.io.int.result
 
+        // The sysu's offer is the same uop in the CSR's index space: the value it leaves behind, reported on the path's
+        // face and armed into the CSR column's youngest slot.
+        forward.io.csr_offer :<= dispatch.io.int.csr_offer
+
         // ── The completion path, and the queue's face with the memory path ──
         // The retire stream the middle waits on, and the queue's own face with the memory path — the one face of the
         // queue that does not leave this module.
