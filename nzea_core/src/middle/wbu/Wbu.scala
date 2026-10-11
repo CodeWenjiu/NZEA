@@ -86,35 +86,33 @@ object Wbu extends Generator[WbuParameter, WbuLayers, WbuIO, WbuProbe]:
         val wb = io.retire.bits
         val flushing = retire & wb.mispredicted
 
-        /** The write-back cycle: the record the register presents, turned into the register write, the CSR write, the
-          * commit, the flush event and the retire facts the issue stage reads.
-          */
-        def retireStage(): Unit =
-            io.flush.valid := flushing
-            // The restart is wherever the branch actually resolved to: `next_pc`, not the target — under a predictor a
-            // mispredict on a not-taken resolution points back at the fall-through.
-            io.flush.next_pc := wb.next_pc
+        // The write-back cycle: the record the register presents, turned into the register write, the CSR write, the
+        // commit, the flush event and the retire facts the issue stage reads.
+        io.flush.valid := flushing
+        // The restart is wherever the branch actually resolved to: `next_pc`, not the target — under a predictor a
+        // mispredict on a not-taken resolution points back at the fall-through.
+        io.flush.next_pc := wb.next_pc
 
-            // The commit's write faces: the register file's write port and the CSR write.
-            io.arf_write.valid := retire
-            io.arf_write.bits.index := wb.rd_index
-            io.arf_write.bits.data := wb.data
+        // The commit's write faces: the register file's write port and the CSR write.
+        io.arf_write.valid := retire
+        io.arf_write.bits.index := wb.rd_index
+        io.arf_write.bits.data := wb.data
 
-            io.csr_write.valid := retire
-            io.csr_write.bits.csr_type := wb.csr_type
-            io.csr_write.bits.data := wb.csr_data
+        io.csr_write.valid := retire
+        io.csr_write.bits.csr_type := wb.csr_type
+        io.csr_write.bits.data := wb.csr_data
 
-            io.commit.valid := retire
-            io.commit.bits.next_pc := wb.next_pc
-            io.commit.bits.rd_index := wb.rd_index
-            io.commit.bits.rd_value := wb.data
-            io.commit.bits.is_mmio := wb.is_mmio
-            // The trace reports the CSR as an architectural fact: resolve the internal type to `(addr, valid)` here,
-            // so no consumer of the commit bus has to know `CsrType`.
-            val (csrAddr, csrValid) = CsrType.toImmValid(wb.csr_type)
-            io.commit.bits.csr_valid := csrValid
-            io.commit.bits.csr_addr := csrAddr
-            io.commit.bits.csr_data := wb.csr_data
+        io.commit.valid := retire
+        io.commit.bits.next_pc := wb.next_pc
+        io.commit.bits.rd_index := wb.rd_index
+        io.commit.bits.rd_value := wb.data
+        io.commit.bits.is_mmio := wb.is_mmio
+        // The trace reports the CSR as an architectural fact: resolve the internal type to `(addr, valid)` here,
+        // so no consumer of the commit bus has to know `CsrType`.
+        val (csrAddr, csrValid) = CsrType.toImmValid(wb.csr_type)
+        io.commit.bits.csr_valid := csrValid
+        io.commit.bits.csr_addr := csrAddr
+        io.commit.bits.csr_data := wb.csr_data
 
         /** Counters the simulator reads back: declared here, where the commit and the cycle are both known, and emitted
           * from this one call — a dump reads the registered set back out after elaboration.
@@ -135,5 +133,4 @@ object Wbu extends Generator[WbuParameter, WbuLayers, WbuIO, WbuProbe]:
                 "instructions per cycle"
             )
 
-        retireStage()
         if parameter.flow.counters then counters()

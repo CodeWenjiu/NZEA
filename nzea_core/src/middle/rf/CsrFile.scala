@@ -16,9 +16,9 @@ class CsrWrite(width: Int) extends Bundle:
     val csr_type = Aligned(UInt(CsrType.width))
     val data = Aligned(UInt(width))
 
-/** The file's read side: the address the reader asks for, and the value the file answers with. */
+/** The file's read side: the code the reader asks for, and the value the file answers with. */
 class CsrReadPort(width: Int) extends Bundle:
-    val addr = Flipped(UInt(12))
+    val code = Flipped(UInt(CsrType.width))
     val data = Aligned(UInt(width))
 
 case class CsrFileParameter(width: Int) extends Parameter
@@ -36,15 +36,16 @@ class CsrFileIO(parameter: CsrFileParameter) extends HWBundle(parameter):
 
 class CsrFileProbe(parameter: CsrFileParameter) extends DVBundle[CsrFileParameter, CsrFileLayers](parameter)
 
-/** Machine-mode CSRs: written at commit, read combinationally by address while the instruction issues.
+/** Machine-mode CSRs: written at commit, read combinationally by code while the instruction issues. The address→code
+  * mapping is the level's above ([[Rf]]), so the file reads what the reader resolved.
   *
   * Storage only, like the register file: a read answers what the file holds, and the write lands at the end of its
   * cycle. Anything younger — the write the retiring instruction makes this cycle, the writer still in flight — is the
   * forwarding network's to offer, not this file's; the read's consumer selects between the network's answer and the
   * file's own.
   *
-  * `mstatus` resets to 0x1800 (matching the legacy core: MPP = M), the rest to zero. An address that maps to no
-  * implemented CSR reads as zero, and a write to one is dropped — the baseline has no illegal-CSR trap.
+  * `mstatus` resets to 0x1800 (matching the legacy core: MPP = M), the rest to zero. A code that names no implemented
+  * CSR reads as zero, and a write to one is dropped — the baseline has no illegal-CSR trap.
   */
 @generator
 object CsrFile extends Generator[CsrFileParameter, CsrFileLayers, CsrFileIO, CsrFileProbe]:
@@ -70,15 +71,14 @@ object CsrFile extends Generator[CsrFileParameter, CsrFileLayers, CsrFileIO, Csr
             when(io.write.bits.csr_type === CsrType.Mscratch.lit.U(CsrType.width)) { mscratch := io.write.bits.data }
         }
 
-        val addressed = CsrType.fromAddr(io.read.addr)
         val stored: Referable[UInt] = muxCase(
             0.U(width),
             Seq(
-                (addressed === CsrType.Mstatus.lit.U(CsrType.width), mstatus),
-                (addressed === CsrType.Mtvec.lit.U(CsrType.width), mtvec),
-                (addressed === CsrType.Mepc.lit.U(CsrType.width), mepc),
-                (addressed === CsrType.Mcause.lit.U(CsrType.width), mcause),
-                (addressed === CsrType.Mscratch.lit.U(CsrType.width), mscratch)
+                (io.read.code === CsrType.Mstatus.lit.U(CsrType.width), mstatus),
+                (io.read.code === CsrType.Mtvec.lit.U(CsrType.width), mtvec),
+                (io.read.code === CsrType.Mepc.lit.U(CsrType.width), mepc),
+                (io.read.code === CsrType.Mcause.lit.U(CsrType.width), mcause),
+                (io.read.code === CsrType.Mscratch.lit.U(CsrType.width), mscratch)
             )
         )
         io.read.data := stored

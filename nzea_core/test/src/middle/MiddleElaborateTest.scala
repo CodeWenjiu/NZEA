@@ -10,7 +10,8 @@ import utest.*
 
 /** Structural checks: the middle's boundary is the decoded stream it consumes, the back's face it holds with the
   * execution subsystem, and the two things it hands the top (the flush event, the commit trace). Inside, it holds the
-  * two files both stages face and the one elastic register whose two ends are its own.
+  * architectural state both stages face — the RF, the two files with the commit's own cycle — and the one elastic
+  * register whose two ends are its own.
   */
 object MiddleElaborateTest extends TestSuite:
 
@@ -139,23 +140,26 @@ object MiddleElaborateTest extends TestSuite:
                 Seq("queue_canAccept", "queue_flushRisk", "int_issue_valid", "mem_issue_valid")
             for port <- internal do assert(!ports.contains(port))
 
-        test("the middle instantiates its two stages and the files they face"):
+        test("the middle instantiates its two stages and the units they face"):
             assert(sv.contains("module Isu"))
             assert(sv.contains("module Wbu"))
+            assert(sv.contains("module Rf"))
             assert(sv.contains("module Arf"))
             assert(sv.contains("module CsrFile"))
             assert(sv.contains("module OperandRead"))
             for unit <- Seq("Exu", "Back", "Dispatch", "Completion", "Forward", "IntPath", "MemPath") do
                 assert(!sv.contains(s"module $unit("))
 
-        // The read resolves the network's columns and its own retiring writes: the offer comparisons and the waits are
-        // the read's, and the middle knows nothing of the level — an offer that is not armed is all the wait there is.
+        // The read resolves the network's columns and applies the level's verdict to the RF's own commit view: the
+        // offer comparisons and the waits are the read's, the retiring write's match is the RF's, and the middle knows
+        // nothing of the level — an offer that is not armed is all the wait there is.
         test("the read resolves the forward columns"):
             val read = TestFlow.ports(sv, "OperandRead")
             assert(read.contains("forward_arf_offers_0_armed") && read.contains("forward_arf_offers_1_armed"))
             assert(read.contains("forward_csr_offers_0_armed") && read.contains("forward_csr_offers_1_armed"))
-            assert(read.contains("forward_commit_armed") && read.contains("arf_commit_bits_index"))
-            assert(read.contains("csr_commit_bits_csr_type"))
+            assert(read.contains("forward_commit_armed"))
+            assert(read.contains("rs1_commit_hit") && read.contains("rs2_commit_hit"))
+            assert(read.contains("csr_read_commit_hit") && read.contains("csr_read_code"))
             assert(sv.contains("~forward_arf_offers_0_armed"))
 
         // The stage registers are the middle's own — the units between them are combinational — and the IS/EX register

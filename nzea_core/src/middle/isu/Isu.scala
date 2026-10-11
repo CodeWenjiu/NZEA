@@ -12,7 +12,7 @@ import nzea_core.config.CoreConfig
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.Isa
 import nzea_core.back.{ExecSlot, ForwardBus, ForwardParameter}
-import nzea_core.middle.rf.{ArfReadPort, ArfWrite, CsrReadPort, CsrWrite}
+import nzea_core.middle.rf.{ArfPort, CsrPort}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
@@ -49,24 +49,19 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
       */
     val moved = Aligned(Decoupled(new ExecSlot(parameter.config)))
 
-    /** The register file's read side, from the reader's view: the indexes go out, the values come back. */
-    val arf_rs1 = Flipped(new ArfReadPort(width))
-    val arf_rs2 = Flipped(new ArfReadPort(width))
+    /** The register file's read side, from the reader's view: the indexes go out, the values and the RF's commit view
+      * come back. rs1 is port 0, rs2 port 1.
+      */
+    val arf_read = Flipped(StaticVec[ArfPort, 2](new ArfPort(width)))
 
     /** The CSR file's read side, passed through to the read unit: the reader is the read's, the file is the middle's.
       */
-    val csr_read = Flipped(new CsrReadPort(width))
+    val csr_read = Flipped(new CsrPort(width))
 
     /** The forward network's face, passed through to the read unit: the columns it resolves its reads against and the
       * level's verdict for the retiring writes ([[nzea_core.back.ForwardBus]]).
       */
     val forward = Flipped(new ForwardBus(width, parameter.offerCount))
-
-    /** The retiring instruction's writes — the middle's own producers, older than everything in the columns — the
-      * register file's and the CSR file's.
-      */
-    val arf_commit = Flipped(ValidIO(new ArfWrite(width)))
-    val csr_commit = Flipped(ValidIO(new CsrWrite(width)))
 
 class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers](parameter)
 
@@ -94,48 +89,40 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
         val read =
             OperandRead.instantiate(OperandReadParameter(parameter.isa, parameter.defaultPc, parameter.lsqDepth))
 
-        /** The read: the payload's indexes and CSR address out to the files and the network, the answers back in, and
-          * the placement of the three operand slots, with the pace this read can move at.
-          */
-        def readUnit(): Unit =
-            read.io.clock := io.clock
-            read.io.resetN := io.resetN
-            read.io.decoded :<= io.decoded.bits
-            read.io.rs1_data := io.arf_rs1.data
-            read.io.rs2_data := io.arf_rs2.data
-            io.arf_rs1.index := read.io.rs1_index
-            io.arf_rs2.index := read.io.rs2_index
-            // The read unit's own port is the connect's sink side; the boundary port is the source — the reader drives
-            // the address out, the file's answer comes back in.
-            read.io.csr_read :<>= io.csr_read
+        // The read: the payload's indexes and CSR address out to the files and the network, the answers back in, and the
+        // placement of the three operand slots, with the pace this read can move at.
+        read.io.clock := io.clock
+        read.io.resetN := io.resetN
+        read.io.decoded :<= io.decoded.bits
+        io.arf_read.ref(0).index := read.io.rs1_index
+        io.arf_read.ref(1).index := read.io.rs2_index
+        read.io.rs1_data := io.arf_read.ref(0).data
+        read.io.rs2_data := io.arf_read.ref(1).data
+        read.io.rs1_commit_hit := io.arf_read.ref(0).commit_hit
+        read.io.rs2_commit_hit := io.arf_read.ref(1).commit_hit
+        // The read unit's own port is the connect's sink side; the boundary port is the source — the reader drives the
+        // address out, the file's answer comes back in.
+        read.io.csr_read :<>= io.csr_read
 
-            // The forward face and the retiring writes: the read resolves its own indexes against the network's
-            // columns, and the middle's own registers against the level's verdict.
-            read.io.forward :<= io.forward
-            read.io.arf_commit :<= io.arf_commit
-            read.io.csr_commit :<= io.csr_commit
+        // The forward face: the read resolves its own indexes against the network's columns.
+        read.io.forward :<= io.forward
 
-        /** The uop that moves: the read's operands and CSR, and the payload's held fields with the destination riding
-          * in it — the IS/EX register's write side.
-          */
-        def moveUop(): Unit =
-            val dec = io.decoded.bits
-            io.moved.bits.pc := dec.pc
-            io.moved.bits.next_pc := dec.next_pc
-            io.moved.bits.fall_through := dec.fall_through
-            io.moved.bits.pht_count := dec.pht_count
-            io.moved.bits.imm := dec.imm
-            io.moved.bits.src_a := read.io.src_a
-            io.moved.bits.src_b := read.io.src_b
-            io.moved.bits.src_c := read.io.src_c
-            io.moved.bits.backend := dec.backend
-            io.moved.bits.op := dec.op
-            io.moved.bits.rd_index := dec.rd_index
-            io.moved.bits.csr_type := read.io.csr_type
-            io.moved.bits.csr_rdata := read.io.csr_rdata
-
-        readUnit()
-        moveUop()
+        // The uop that moves: the read's operands and CSR, and the payload's held fields with the destination riding in
+        // it — the IS/EX register's write side.
+        val dec = io.decoded.bits
+        io.moved.bits.pc := dec.pc
+        io.moved.bits.next_pc := dec.next_pc
+        io.moved.bits.fall_through := dec.fall_through
+        io.moved.bits.pht_count := dec.pht_count
+        io.moved.bits.imm := dec.imm
+        io.moved.bits.src_a := read.io.src_a
+        io.moved.bits.src_b := read.io.src_b
+        io.moved.bits.src_c := read.io.src_c
+        io.moved.bits.backend := dec.backend
+        io.moved.bits.op := dec.op
+        io.moved.bits.rd_index := dec.rd_index
+        io.moved.bits.csr_type := read.io.csr_type
+        io.moved.bits.csr_rdata := read.io.csr_rdata
 
         // The handover: ID/IS is consumed when the read has placed the payload's operands — the read owns that test,
         // including the in-flight writers it had to wait for — and the register below reports room: its own accept side

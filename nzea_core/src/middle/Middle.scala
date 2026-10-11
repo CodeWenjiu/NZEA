@@ -13,7 +13,7 @@ import nzea_core.config.CoreConfig
 import nzea_core.front.idu.IduOut
 import nzea_core.isa.{CsrType, Gpr, Isa}
 import nzea_core.middle.isu.{Isu, IsuParameter}
-import nzea_core.middle.rf.{Arf, ArfParameter, CsrFile, CsrFileParameter}
+import nzea_core.middle.rf.{Rf, RfParameter}
 import nzea_core.middle.wbu.{Wbu, WbuParameter}
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
@@ -69,8 +69,8 @@ class MiddleProbe(parameter: MiddleParameter) extends DVBundle[MiddleParameter, 
   * combinational commit behind the write-back register. Between them the stream leaves the module: the read's uop
   * crosses to the back, which registers it as its own input, executes it, and hands back what these two stages wait on
   * — the slot's pace is the register's room there, the retire stream is the completion path's, the face is the
-  * network's. The two files sit here, where both stages face them: the read sides are the issue stage's and the write
-  * sides the write-back register's.
+  * network's. The architectural state — [[nzea_core.middle.rf.Rf]], the two files and the commit's own cycle — sits
+  * here, where both stages face it: the read sides are the issue stage's and the write sides the write-back register's.
   *
   * The stage boundaries are declared here, beside the front-end's own (`pipelineConnect`, one per boundary): the units
   * inside the stages are combinational, and every register the pipeline has is one the module that consumes it names —
@@ -96,8 +96,7 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         val isu =
             Isu.instantiate(IsuParameter(c.isa, c.defaultPc, parameter.flow, parameter.lsqDepth, middleStats))
         val wbu = Wbu.instantiate(WbuParameter(c.isa, c.defaultPc, parameter.flow, middleStats))
-        val csr = CsrFile.instantiate(CsrFileParameter(c.width))
-        val arf = Arf.instantiate(ArfParameter(c.width))
+        val rf = Rf.instantiate(RfParameter(c.width))
 
         val flush = wbu.io.flush
 
@@ -105,10 +104,8 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         isu.io.resetN := io.resetN
         wbu.io.clock := io.clock
         wbu.io.resetN := io.resetN
-        csr.io.clock := io.clock
-        csr.io.resetN := io.resetN
-        arf.io.clock := io.clock
-        arf.io.resetN := io.resetN
+        rf.io.clock := io.clock
+        rf.io.resetN := io.resetN
 
         // The middle's stage registers, declared here as the front-end declares its own: the stages' units are
         // combinational, and the boundaries between them are this module's. ID/IS is the elastic one, and it takes a
@@ -126,20 +123,15 @@ object Middle extends Generator[MiddleParameter, MiddleLayers, MiddleIO, MiddleP
         // The back's verdicts: the forward network's face the read resolves against.
         isu.io.forward :<= io.forward
 
-        // The two files both stages face: both read sides are the issue stage's — the register file's two ports and the
-        // CSR's one — and both write sides are the retire register's. The reader is the destination side of a read port
-        // (its index flows out of it), so the stage's port is the connect's destination — a submodule's output port
-        // cannot be one.
-        isu.io.arf_rs1 :<>= arf.io.rs1
-        isu.io.arf_rs2 :<>= arf.io.rs2
-        isu.io.csr_read :<>= csr.io.read
-        arf.io.write :<= wbu.io.arf_write
-        csr.io.write :<= wbu.io.csr_write
-
-        // The retiring writes are the write-back stage's own register, and the reads are their forward: one register,
-        // seen by the files' write ports and by the read at once.
-        isu.io.arf_commit :<= wbu.io.arf_write
-        isu.io.csr_commit :<= wbu.io.csr_write
+        // The architectural state both stages face: both read sides are the issue stage's — the register file's two
+        // ports and the CSR's one — and both write sides are the retire register's. The RF resolves the commit's own
+        // cycle for the reader (its write-through), so the retiring write is compared in one place. The reader is the
+        // destination side of a read port (its index flows out of it), so the stage's port is the connect's destination
+        // — a submodule's output port cannot be one.
+        isu.io.arf_read :<>= rf.io.arf_read
+        isu.io.csr_read :<>= rf.io.csr_read
+        rf.io.arf_write :<= wbu.io.arf_write
+        rf.io.csr_write :<= wbu.io.csr_write
 
         // The boundary's outputs.
         io.flush :<= flush
