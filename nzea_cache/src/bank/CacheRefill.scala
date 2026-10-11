@@ -1,4 +1,4 @@
-package nzea_cache
+package nzea_cache.bank
 
 import java.lang.foreign.Arena
 
@@ -76,10 +76,14 @@ class CacheRefillProbe(parameter: CacheRefillParameter)
 @generator
 object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, CacheRefillIO, CacheRefillProbe]:
 
-    /** The module is named by its bus and line shape — the engine is the body — so two caches do not share one. */
+    /** The module is named by its whole shape — the engine is the body — so two caches share one engine only when every
+      * width of it matches; the framework elaborates one module per distinct parameter, and the name has to be as
+      * distinct as the parameter is.
+      */
     override def moduleName(parameter: CacheRefillParameter): String =
-        s"CacheRefill_dataWidth${parameter.dataWidth}_lineBeats${parameter.lineBeats}" +
-            s"_outstanding${parameter.outstanding}"
+        s"CacheRefill_addrWidth${parameter.addrWidth}_dataWidth${parameter.dataWidth}" +
+            s"_userWidth${parameter.userWidth}_idWidth${parameter.idWidth}_lineBeats${parameter.lineBeats}" +
+            s"_wordOffBits${parameter.wordOffBits}_outstanding${parameter.outstanding}"
 
     def architecture(parameter: CacheRefillParameter) =
         val io = summon[Interface[CacheRefillIO]]
@@ -107,7 +111,10 @@ object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, Ca
         val recv = RegInit(0.U(cntW))
 
         val total = uncached ? (1.U(cntW), parameter.lineBeats.U(cntW))
-        val room = subWrap(sent, recv, cntW) < parameter.outstanding.U(cntW)
+        // The fabric's depth, capped at the line's own length: more beats than the line has can never be in flight, and
+        // the count's width is the line's — a fabric deeper than the line is long must not overflow it.
+        val depth = math.min(parameter.outstanding, parameter.lineBeats).U(cntW)
+        val room = subWrap(sent, recv, cntW) < depth
         val issue = (state === run) & (sent < total) & room
         val beatOffset =
             muxTree(sent, (0 until parameter.lineBeats).map(i => (i * wordBytes).U(parameter.addrWidth)))

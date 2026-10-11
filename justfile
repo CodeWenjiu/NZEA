@@ -71,6 +71,10 @@ clean:
 clean-all: clean
     @mill --no-server clean
 
+[group('utility')]
+wave path:
+    @nix run --impure github:nix-community/nixGL#nixGLIntel -- surfer {{ path }}
+
 # ---- legacy oracle ----
 # Runs `git worktree add .oracle legacy-baseline`; the worktree has its own flake, see legacy/README.md.
 # Bring up the frozen pre-migration Chisel core in .oracle/.

@@ -30,6 +30,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
                     ++ Seq("--lsqDepth", parameter.lsqDepth.toString)
                     ++ parameter.icache.toSeq.flatMap(icache => Seq("--icache", icache.name))
+                    ++ parameter.dcache.toSeq.flatMap(dcache => Seq("--dcache", dcache.name))
                     ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
             ),
         cfg => NzeaTile.main(Array("design", cfg.toString))
@@ -40,7 +41,7 @@ object NzeaTileElaborateTest extends TestSuite:
             assert(TestFlow.ports(sv, "NzeaTile") == Map("clock" -> 1, "reset" -> 1))
 
         test(
-            "the design is the core, the queue, the cache, the fabric adapters, one device per window and the debugger"
+            "the design is the core, the queue, the caches, the fabric adapters, one device per window and the debugger"
         ):
             val exact = Seq(
                 "Core",
@@ -48,6 +49,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 "Completion",
                 "CompletionQueue",
                 "ICache",
+                "DCache",
                 "LiteBusCrossbar",
                 "LiteBusUserWiden",
                 "RamFabricSlave",
@@ -57,7 +59,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 "Debugger"
             )
             // Parameterized bodies carry their shape in the name, so the check is on the prefix.
-            val prefixed = Seq("LiteBusTiming_", "CacheStorage_", "CacheRefill_")
+            val prefixed = Seq("LiteBusTiming_", "CacheStorage_", "CacheRefill_", "CacheBank_")
             assert(exact.filterNot(module => sv.contains(s"module $module(")).isEmpty)
             assert(prefixed.filterNot(prefix => sv.contains(s"module $prefix")).isEmpty)
 

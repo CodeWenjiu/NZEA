@@ -6,9 +6,10 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_cache.{ICache, ICacheParameter}
+import nzea_cache.{DCache, ICache}
+import nzea_cache.config.CacheParameter
 import nzea_core.{Core, CoreParameter}
-import nzea_core.back.mem.DbusUser
+import nzea_core.back.mem.{DbusUser, MemPath}
 import nzea_core.config.CoreConfig
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{CsrType, Gpr}
@@ -82,7 +83,7 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         parameter.icache match
             case Some(config) =>
                 val icache = ICache.instantiate(
-                    ICacheParameter(
+                    CacheParameter(
                         c.width,
                         c.width,
                         IbusUser.userWidth(c.width),
@@ -105,13 +106,34 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
                 xbar.io.in(map, "ibus") :<>= ibus.io.rw
 
         // The data master speaks a narrow tag payload; it is widened to the fabric's width and enters the fabric
-        // directly. The LSU holds its request until the fabric takes it, so no register is needed to hold it off the
-        // arbitration — and a register here would be one more cycle on every load's round trip, which the in-order
-        // pipeline cannot hide.
+        // through the adapter. The LSU holds its request until the fabric takes it, so the adapter needs no register of
+        // its own to hold it off the arbitration — and one would be another cycle on every load's round trip, which the
+        // in-order pipeline cannot hide. The data cache, when the platform has one, sits between the two: its memory
+        // side is the adapter's narrow shape, so a cached data path needs no widening of its own.
         val dbus = LiteBusUserWiden.instantiate(
             LiteBusUserWidenParameter(c.width, c.width, DbusUser.userWidth, map.userWidth, map.idWidth)
         )
-        dbus.io.narrow :<>= core.io.dbus
+        parameter.dcache match
+            case Some(config) =>
+                val dcache = DCache.instantiate(
+                    CacheParameter(
+                        c.width,
+                        c.width,
+                        DbusUser.userWidth,
+                        MemPath.busIdWidth,
+                        config,
+                        map.slaves.filter(_.kind == SlaveKind.Memory).map(_.range),
+                        outstanding = 4,
+                        parameter.flow,
+                        parameter.stats.child("dcache")
+                    )
+                )
+                dcache.io.clock := clock
+                dcache.io.resetN := resetN
+                dcache.io.top :<>= core.io.dbus
+                dbus.io.narrow :<>= dcache.io.bottom
+            case None =>
+                dbus.io.narrow :<>= core.io.dbus
         xbar.io.in(map, "dbus") :<>= dbus.io.wide
 
         // The debugger is the commit trace's consumer; what the flow makes of it — the simulator in the bridge flow,

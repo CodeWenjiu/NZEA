@@ -1,4 +1,4 @@
-package nzea_cache
+package nzea_cache.bank
 
 import java.lang.foreign.Arena
 
@@ -7,6 +7,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_cache.config.CacheStorageKind
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -127,9 +128,11 @@ object CacheStorage extends Generator[CacheStorageParameter, CacheStorageLayers,
                             ram.io.wEn := selected
                             ram.io.wData := io.wrData
                             ram.io.wMask := fill(parameter.rowWidth / 8, true.B).asUInt
+                        case other =>
+                            // Unreachable: the parameter's requirement admits only 1r1w and 1rw.
+                            throw new IllegalArgumentException(s"CacheStorage port shape ${other.name} is not admitted")
                     ram.io.rData
-                for way <- 0 until parameter.ways do
-                    io.rdRows.ref(way) := rows(way)
+                for way <- 0 until parameter.ways do io.rdRows.ref(way) := rows(way)
 
             case CacheStorageKind.Registers =>
                 // One flop array per way; the read is the addressed set's row, the write one decoded entry, and the row

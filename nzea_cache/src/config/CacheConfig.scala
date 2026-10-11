@@ -1,4 +1,4 @@
-package nzea_cache
+package nzea_cache.config
 
 import mainargs.TokensReader
 import nzea_rtl.stdlib.{log2Ceil, SyncRamPorts}

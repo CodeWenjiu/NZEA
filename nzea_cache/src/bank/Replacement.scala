@@ -1,4 +1,4 @@
-package nzea_cache
+package nzea_cache.bank
 
 import java.lang.foreign.Arena
 
@@ -6,6 +6,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_cache.config.Replacement
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
