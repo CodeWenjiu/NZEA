@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.IssueSlot
+import nzea_core.back.{ExecSlot, FuView, IssueSlot}
 import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -19,6 +19,27 @@ class DivInput(config: CoreConfig) extends Bundle:
     val opA = Aligned(UInt(config.width))
     val opB = Aligned(UInt(config.width))
     val op = Aligned(UInt(DivOp.set(config.isa).width))
+
+object DivInput:
+
+    /** The divider's view of the uop's union: the pool's first two slots, and its slice of the shared op window. */
+    given FuView[DivInput] with
+
+        def view(u: Referable[ExecSlot], config: CoreConfig)(using
+            Arena,
+            Context,
+            Block,
+            sourcecode.File,
+            sourcecode.Line,
+            sourcecode.Name.Machine,
+            InstanceContext,
+            TypeImpl
+        ): Wire[DivInput] =
+            val in = Wire(new DivInput(config))
+            in.opA := u.src.ref(0)
+            in.opB := u.src.ref(1)
+            in.op := Encoding.take(IntOp.set(config.isa).payload(u.op), DivOp.set(config.isa).width)
+            in
 
 case class DivParameter(isa: Isa, defaultPc: Long) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -44,9 +65,9 @@ class DivProbe(parameter: DivParameter) extends DVBundle[DivParameter, DivLayers
   *
   * The loop's operands are latched at issue: the divisor's magnitude, the two signs and the op the result will be read
   * under are registers for the whole residence, so nothing in the iteration waits on operand decode — the deficit of
-  * the old shape, where the divide cone started at the issue register's own op field. The sign fix and the op select are
-  * deferred to the completion cycle and run on the loop's registered raw pair, so the iteration and the result select
-  * never share a path: the loop's worst path is shift, borrow, mux.
+  * the old shape, where the divide cone started at the issue register's own op field. The sign fix and the op select
+  * are deferred to the completion cycle and run on the loop's registered raw pair, so the iteration and the result
+  * select never share a path: the loop's worst path is shift, borrow, mux.
   *
   * The unit takes no flush: the middle holds the uop until the completion is reported, so a uop that disappears means
   * the completion was consumed (or abandoned) and the FSM returns to idle either way. RISC-V's special cases (a zero

@@ -69,7 +69,7 @@ class ForwardIO(parameter: ForwardParameter) extends HWBundle(parameter):
     val csr_offer = Flipped(ValidIO(new CsrOffer(width)))
 
     /** The execute slot's uop: the youngest writer in flight, named by its destination. */
-    val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
+    val issue = Flipped(new IssueSlot(new ExecSlot(parameter.config)))
 
     /** The queue as this network reads it: the writers between the completing instruction and the retiring write, in
       * program order — the head is the oldest, the position `(index - head) mod depth` the age.

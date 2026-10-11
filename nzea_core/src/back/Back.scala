@@ -11,7 +11,7 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.back.int.{IntPath, IntPathParameter}
 import nzea_core.back.mem.{MemPath, MemPathParameter}
 import nzea_core.config.{BpuConfig, BypassLevel, CoreConfig}
-import nzea_core.isa.{Backend, CsrType, Gpr, Isa}
+import nzea_core.isa.Isa
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
@@ -139,32 +139,15 @@ object Back extends Generator[BackParameter, BackLayers, BackIO, BackProbe]:
         val slotFirst = RegInit(false.B)
         slotFirst := io.moved.fire
 
-        val view = Wire(new IssueSlot(new IssueUop(c)))
+        val view = Wire(new IssueSlot(new ExecSlot(c)))
 
-        /** The uop the units work on, as the slot presents it: the payload reversed into the backend's contract, the
-          * CSR read it carries included. A memory instruction's `inst[31:20]` was an address offset, not a CSR address,
-          * so its code is none, and a flush silences the roles — the units take a vanished uop as abandoned.
-          */
-        def issueView(): Unit =
-            val bits = slot.bits
-            val isMem = bits.backend === Backend.MEM.lit.U(Backend.width)
-            view.valid := slot.valid
-            view.first := slotFirst & !io.flush.valid
-            view.bits.pc := bits.pc
-            view.bits.next_pc := bits.next_pc
-            view.bits.fall_through := bits.fall_through
-            view.bits.pht_count := bits.pht_count
-            view.bits.imm := bits.imm
-            view.bits.src_a := bits.src_a
-            view.bits.src_b := bits.src_b
-            view.bits.src_c := bits.src_c
-            view.bits.backend := bits.backend
-            view.bits.op := bits.op
-            view.bits.rd_index := bits.rd_index
-            view.bits.csr_type := isMem ? (CsrType.None.lit.U(CsrType.width), bits.csr_type)
-            view.bits.csr_rdata := bits.csr_rdata
-
-        issueView()
+        // The uop the units work on, as the slot presents it: the slot's own payload, with the arrival edge beside it. A
+        // flush silences the roles — the units take a vanished uop as abandoned. Nothing is remasked on the way out: the
+        // CSR code rides only where the form names the CSR (the read's own gate), so a memory op's address field cannot
+        // be read as one.
+        view.valid := slot.valid
+        view.first := slotFirst & !io.flush.valid
+        view.bits :<= slot.bits
 
         // ── The uop's three readers ──
         // One view, three readers: the dispatch decides its path, the completion path writes an entry from it and takes

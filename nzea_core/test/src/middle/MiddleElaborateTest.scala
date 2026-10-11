@@ -57,15 +57,14 @@ object MiddleElaborateTest extends TestSuite:
         "moved_bits_next_pc" -> width,
         "moved_bits_fall_through" -> width,
         "moved_bits_pht_count" -> BpUpdate.phtCountBits,
-        "moved_bits_imm" -> width,
-        "moved_bits_src_a" -> width,
-        "moved_bits_src_b" -> width,
-        "moved_bits_src_c" -> width,
+        "moved_bits_src_0" -> width,
+        "moved_bits_src_1" -> width,
+        "moved_bits_src_2" -> width,
+        "moved_bits_src_3" -> width,
         "moved_bits_backend" -> Backend.width,
         "moved_bits_op" -> OpWindow.width(config),
         "moved_bits_rd_index" -> Gpr.indexWidth,
-        "moved_bits_csr_type" -> CsrType.width,
-        "moved_bits_csr_rdata" -> width
+        "moved_bits_csr_type" -> CsrType.width
     )
 
     /** One retiring record, under its own prefix: the elastic handshake and the record's fields. */

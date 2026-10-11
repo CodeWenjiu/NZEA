@@ -35,7 +35,7 @@ class CompletionIO(parameter: CompletionParameter) extends HWBundle(parameter):
     val resetN = Flipped(Reset())
 
     /** The execute slot's uop: the destination a retire record takes, and what the queue writes an entry from. */
-    val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
+    val issue = Flipped(new IssueSlot(new ExecSlot(parameter.config)))
 
     /** The merge's conclusion: the completing value, and the release before the queue's room. */
     val merged = Flipped(new Merged(width))

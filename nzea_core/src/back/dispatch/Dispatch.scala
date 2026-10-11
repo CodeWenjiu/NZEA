@@ -34,7 +34,7 @@ class DispatchIO(parameter: DispatchParameter) extends HWBundle(parameter):
     val resetN = Flipped(Reset())
 
     /** The issued uop, as the issue stage presents it: a level for its whole residence. */
-    val issue = Flipped(new IssueSlot(new IssueUop(parameter.config)))
+    val issue = Flipped(new IssueSlot(new ExecSlot(parameter.config)))
 
     /** The two paths' faces, in the middle's own shapes: the gated uop out, the reports in. */
     val int = Aligned(new IntFace(parameter.config))

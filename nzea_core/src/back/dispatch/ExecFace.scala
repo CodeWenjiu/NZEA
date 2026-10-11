@@ -27,7 +27,7 @@ class CsrOffer(width: Int) extends Bundle:
   * drift.
   */
 class IntFace(config: CoreConfig) extends Bundle:
-    val issue = Aligned(new IssueSlot(new IssueUop(config)))
+    val issue = Aligned(new IssueSlot(new ExecSlot(config)))
 
     /** The completion handshake's valid: high while the uop in the slot is finished, held until the slot's pace takes
       * it — the middle's release can be deferred by the queue's room after a unit has already reported.
@@ -44,7 +44,7 @@ class IntFace(config: CoreConfig) extends Bundle:
   * — the slot's uop is finished with the slot when its request is accepted, a load's answer still in flight.
   */
 class MemFace(config: CoreConfig) extends Bundle:
-    val issue = Aligned(new IssueSlot(new IssueUop(config)))
+    val issue = Aligned(new IssueSlot(new ExecSlot(config)))
     val done = Flipped(Bool())
     val result = Flipped(new PathResult(config.width))
     val slotRelease = Flipped(Bool())

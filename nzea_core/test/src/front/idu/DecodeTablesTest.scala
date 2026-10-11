@@ -170,12 +170,12 @@ object DecodeTablesTest extends TestSuite:
                 Some(ImmType.I),
                 false
             )
-            check("CSRRW", Backend.INT, intOps.lit(IntOp.Sysu(SysuOp.CSRRW)), Srcs.Rs1, Some(ImmType.I), true)
+            check("CSRRW", Backend.INT, intOps.lit(IntOp.Sysu(SysuOp.CSRRW)), Srcs.Rs1Csr, Some(ImmType.I), true)
             check(
                 "CSRRWI",
                 Backend.INT,
                 intOps.lit(IntOp.Sysu(SysuOp.CSRRWI)),
-                Srcs.ImmZero,
+                Srcs.ImmCsr,
                 Some(ImmType.Z),
                 true
             )

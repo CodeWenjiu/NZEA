@@ -45,7 +45,7 @@ object BackTest extends TestSuite:
             assert(withM.tagWidth == 3)
             assert(BruOp.width == 8)
             assert(SysuOp.width == 4)
-            assert(Srcs.width == 8)
+            assert(Srcs.width == 9)
             assert(AluOp.set(isa32).width == 10)
             assert(MulOp.set(isa32im).width == 4)
             assert(DivOp.set(isa32im).width == 4)

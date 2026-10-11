@@ -89,14 +89,13 @@ object BackPathTest extends TestSuite:
         s"${prefix}_bits_next_pc" -> width,
         s"${prefix}_bits_fall_through" -> width,
         s"${prefix}_bits_pht_count" -> BpUpdate.phtCountBits,
-        s"${prefix}_bits_imm" -> width,
-        s"${prefix}_bits_src_a" -> width,
-        s"${prefix}_bits_src_b" -> width,
-        s"${prefix}_bits_src_c" -> width,
+        s"${prefix}_bits_src_0" -> width,
+        s"${prefix}_bits_src_1" -> width,
+        s"${prefix}_bits_src_2" -> width,
+        s"${prefix}_bits_src_3" -> width,
         s"${prefix}_bits_backend" -> Backend.width,
         s"${prefix}_bits_op" -> OpWindow.width(config),
         s"${prefix}_bits_csr_type" -> CsrType.width,
-        s"${prefix}_bits_csr_rdata" -> width,
         s"${prefix}_bits_rd_index" -> Gpr.indexWidth
     )
 

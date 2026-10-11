@@ -6,6 +6,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_core.back.{ExecSlot, FuView}
 import nzea_core.config.CoreConfig
 import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
@@ -19,11 +20,35 @@ given upickle.default.ReadWriter[AluParameter] = upickle.default.macroRW
 class AluLayers(parameter: AluParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
+/** The ALU's own input: the op code it runs and the two operands it reads, named the way it reads them. */
+class AluInput(config: CoreConfig) extends Bundle:
+    val op = Aligned(UInt(AluOp.set(config.isa).width))
+    val opA = Aligned(UInt(config.width))
+    val opB = Aligned(UInt(config.width))
+
+object AluInput:
+
+    /** The ALU's view of the uop's union: its slice of the shared op window, and the pool's first two slots. */
+    given FuView[AluInput] with
+
+        def view(u: Referable[ExecSlot], config: CoreConfig)(using
+            Arena,
+            Context,
+            Block,
+            sourcecode.File,
+            sourcecode.Line,
+            sourcecode.Name.Machine,
+            InstanceContext,
+            TypeImpl
+        ): Wire[AluInput] =
+            val in = Wire(new AluInput(config))
+            in.op := Encoding.take(IntOp.set(config.isa).payload(u.op), AluOp.set(config.isa).width)
+            in.opA := u.src.ref(0)
+            in.opB := u.src.ref(1)
+            in
+
 class AluIO(parameter: AluParameter) extends HWBundle(parameter):
-    private val ops = AluOp.set(parameter.config.isa)
-    val op = Flipped(UInt(ops.width))
-    val opA = Flipped(UInt(parameter.config.width))
-    val opB = Flipped(UInt(parameter.config.width))
+    val in = Flipped(new AluInput(parameter.config))
     val data = Aligned(UInt(parameter.config.width))
 
 class AluProbe(parameter: AluParameter) extends DVBundle[AluParameter, AluLayers](parameter)
@@ -50,9 +75,9 @@ object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
         val width = parameter.config.width
         val ops = AluOp.set(parameter.config.isa)
         val hasWord = ops.contains(AluOp.Addw)
-        val opBits: Node[Bits] = Node(io.op.asBits)
-        val aBitsFull: Node[Bits] = Node(io.opA.asBits)
-        val bBits: Node[Bits] = Node(io.opB.asBits)
+        val opBits: Node[Bits] = Node(io.in.op.asBits)
+        val aBitsFull: Node[Bits] = Node(io.in.opA.asBits)
+        val bBits: Node[Bits] = Node(io.in.opB.asBits)
 
         // Word mode: any bit of the word block being set. The shift amount is then the low five bits, the operand is the low
         // word zero-extended (the low bits of a sum or a left shift are the same either way, and a logical right shift wants
@@ -97,13 +122,13 @@ object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
                 ((aBits.asUInt >> i).asBits.pad(width) | fill).asUInt
         )
 
-        val add = prefixAdder(io.opA, io.opB, false.B, width)
-        val sub = prefixAdder(io.opA, (~bBits).asUInt, true.B, width)
+        val add = prefixAdder(io.in.opA, io.in.opB, false.B, width)
+        val sub = prefixAdder(io.in.opA, (~bBits).asUInt, true.B, width)
         // The compares are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a one-gate-
         // per-bit borrow ripple (see `lessThan`), which is what put the execute loop's longest cone on this class. The
         // one-bit answer is zero-extended by concatenation: `? (1, 0)` would spend two more gates on the cone for a value
         // that is a wire.
-        val sltu = Node(BigInt(0).B(width - 1) ## lessThan(io.opA, io.opB, width).asBits)
+        val sltu = Node(BigInt(0).B(width - 1) ## lessThan(io.in.opA, io.in.opB, width).asBits)
         // Signed: when the signs differ the negative side is the smaller; otherwise the words order like unsigned.
         val signDiff: Referable[Bool] = aBits.bit(width - 1) ^ bBits.bit(width - 1)
         val slt = Node(

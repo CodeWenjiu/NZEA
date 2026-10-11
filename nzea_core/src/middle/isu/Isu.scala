@@ -114,15 +114,14 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
         io.moved.bits.next_pc := dec.next_pc
         io.moved.bits.fall_through := dec.fall_through
         io.moved.bits.pht_count := dec.pht_count
-        io.moved.bits.imm := dec.imm
-        io.moved.bits.src_a := read.io.src_a
-        io.moved.bits.src_b := read.io.src_b
-        io.moved.bits.src_c := read.io.src_c
+        io.moved.bits.src.ref(0) := read.io.src_a
+        io.moved.bits.src.ref(1) := read.io.src_b
+        io.moved.bits.src.ref(2) := read.io.src_c
+        io.moved.bits.src.ref(3) := read.io.src_d
         io.moved.bits.backend := dec.backend
         io.moved.bits.op := dec.op
         io.moved.bits.rd_index := dec.rd_index
         io.moved.bits.csr_type := read.io.csr_type
-        io.moved.bits.csr_rdata := read.io.csr_rdata
 
         // The handover: ID/IS is consumed when the read has placed the payload's operands — the read owns that test,
         // including the in-flight writers it had to wait for — and the register below reports room: its own accept side

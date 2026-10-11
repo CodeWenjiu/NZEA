@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.{MemFace, QueueFace}
+import nzea_core.back.{viewOf, ExecSlot, FuView, MemFace, QueueFace}
 import nzea_core.isa.{CsrType, Isa}
 import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
@@ -34,6 +34,41 @@ given upickle.default.ReadWriter[MemPathParameter] = upickle.default.macroRW
 
 class MemPathLayers(parameter: MemPathParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
+
+/** The memory path's own input: its op window's code, the address base and offset, the store data, and the pc the
+  * prediction goes on with.
+  */
+class LsuInput(config: CoreConfig) extends Bundle:
+    val op = Aligned(UInt(MemOp.set(config.isa).width))
+    val base = Aligned(UInt(config.width))
+    val offset = Aligned(UInt(config.width))
+    val storeData = Aligned(UInt(config.width))
+    val nextPc = Aligned(UInt(config.width))
+
+object LsuInput:
+
+    /** The memory path's view of the uop's union: the pool's first three slots — the form places the address base, its
+      * offset and the store data there — and the fetch's carried next pc.
+      */
+    given FuView[LsuInput] with
+
+        def view(u: Referable[ExecSlot], config: CoreConfig)(using
+            Arena,
+            Context,
+            Block,
+            sourcecode.File,
+            sourcecode.Line,
+            sourcecode.Name.Machine,
+            InstanceContext,
+            TypeImpl
+        ): Wire[LsuInput] =
+            val in = Wire(new LsuInput(config))
+            in.op := MemOp.set(config.isa).payload(u.op)
+            in.base := u.src.ref(0)
+            in.offset := u.src.ref(1)
+            in.storeData := u.src.ref(2)
+            in.nextPc := u.next_pc
+            in
 
 class MemPathIO(parameter: MemPathParameter) extends HWBundle(parameter):
     private val width = parameter.config.width
@@ -81,13 +116,13 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
         val width = parameter.config.width
         val uopValid = io.path.issue.valid
         val u = io.path.issue.bits
+        val lsuIn = u.viewOf[LsuInput](parameter.config)
 
-        val memOps = MemOp.set(parameter.config.isa)
         val lsuOps = LsuOp.set(parameter.config.isa)
-        val op: Node[UInt] = memOps.payload(u.op)
+        val op: Referable[UInt] = lsuIn.op
         val isStore = LsuOp.isStore(op, lsuOps)
 
-        val addr = prefixAdder(u.src_a, u.src_b, false.B, width)
+        val addr = prefixAdder(lsuIn.base, lsuIn.offset, false.B, width)
         val addrBits: Node[Bits] = Node(addr.asBits)
         // One bus word is `lanes` bytes (four at xlen 32, eight at xlen 64), and the low address bits are the offset inside
         // it: the request carries the word address, the path selects inside the word with the offset it holds.
@@ -116,7 +151,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
 
         /** The store data, shifted into the addressed lane by the same offset bits. */
         def storeWord() =
-            val storeData: Node[Bits] = Node(u.src_c.asBits)
+            val storeData: Node[Bits] = Node(lsuIn.storeData.asBits)
             muxTree(offset, (0 until lanes).map(i => (storeData << (i * 8)).bits(width - 1, 0)))
 
         /** One request per uop, presented in the uop's first cycle — address, data and strobe are combinational from
@@ -205,7 +240,7 @@ object MemPath extends Generator[MemPathParameter, MemPathLayers, MemPathIO, Mem
         def result(): Unit =
             io.path.done := (reqFire & isStore) | hit
             io.path.result.data := (isStore ? (0.U(width), loadData.asUInt))
-            io.path.result.next_pc := u.next_pc
+            io.path.result.next_pc := lsuIn.nextPc
             io.path.result.csr_type := CsrType.None.lit.U(CsrType.width)
             io.path.result.csr_data := 0.U(width)
             io.path.result.is_mmio := isMmio

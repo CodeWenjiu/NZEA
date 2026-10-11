@@ -6,7 +6,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_core.config.BpuConfig
+import nzea_core.back.{ExecSlot, FuView}
+import nzea_core.config.{BpuConfig, CoreConfig}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -17,25 +18,53 @@ given upickle.default.ReadWriter[BruParameter] = upickle.default.macroRW
 class BruLayers(parameter: BruParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
+/** The branch unit's own input: its op, the target's base and offset, the two compared registers, and the fetch's two
+  * carried pcs — the prediction it resolves against and the fall-through. The base arrives placed by the instruction's
+  * form — the pc every jump and branch bases on, the register operand JALR bases on — so the unit never selects it,
+  * which is what keeps its op decode off the adder's path.
+  */
+class BruInput(width: Int) extends Bundle:
+    val op = Aligned(UInt(BruOp.width))
+    val base = Aligned(UInt(width))
+    val offset = Aligned(UInt(width))
+
+    /** The compared operands, from the pool's third and fourth slots: the branch's two registers. A jump compares
+      * nothing, so its form leaves those slots zero and what they carry is never selected.
+      */
+    val rs1 = Aligned(UInt(width))
+    val rs2 = Aligned(UInt(width))
+    val predNextPc = Aligned(UInt(width))
+    val fallThrough = Aligned(UInt(width))
+
+object BruInput:
+
+    /** The branch unit's view of the uop's union: the pool's four slots — the form places the branch's base, its offset
+      * and the two registers it compares there — and the fetch's carried pcs.
+      */
+    given FuView[BruInput] with
+
+        def view(u: Referable[ExecSlot], config: CoreConfig)(using
+            Arena,
+            Context,
+            Block,
+            sourcecode.File,
+            sourcecode.Line,
+            sourcecode.Name.Machine,
+            InstanceContext,
+            TypeImpl
+        ): Wire[BruInput] =
+            val in = Wire(new BruInput(config.width))
+            in.op := Encoding.take(IntOp.set(config.isa).payload(u.op), BruOp.width)
+            in.base := u.src.ref(0)
+            in.offset := u.src.ref(1)
+            in.rs1 := u.src.ref(2)
+            in.rs2 := u.src.ref(3)
+            in.predNextPc := u.next_pc
+            in.fallThrough := u.fall_through
+            in
+
 class BruIO(parameter: BruParameter) extends HWBundle(parameter):
-    val op = Flipped(UInt(BruOp.width))
-
-    /** The target's base, placed by the instruction's form: the pc every jump and branch bases on, the register operand
-      * JALR bases on. The unit never selects it — the read already did — which is what keeps this unit's op decode off
-      * the adder's path.
-      */
-    val base = Flipped(UInt(parameter.width))
-    val predNextPc = Flipped(UInt(parameter.width))
-
-    /** The pc's own fall-through, for the paths the prediction did not take. */
-    val fallThrough = Flipped(UInt(parameter.width))
-    val offset = Flipped(UInt(parameter.width))
-
-    /** The compared operands, from the form's `b` and `c` slots: the branch's two registers. A jump compares nothing,
-      * so its form leaves those slots unread and what they carry is never selected.
-      */
-    val rs1 = Flipped(UInt(parameter.width))
-    val rs2 = Flipped(UInt(parameter.width))
+    val in = Flipped(new BruInput(parameter.width))
     val taken = Aligned(Bool())
     val mispredict = Aligned(Bool())
     val nextPc = Aligned(UInt(parameter.width))
@@ -60,22 +89,22 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         val io = summon[Interface[BruIO]]
 
         val width = parameter.width
-        val op: Referable[UInt] = io.op
-        val rs1Bits: Node[Bits] = Node(io.rs1.asBits)
-        val rs2Bits: Node[Bits] = Node(io.rs2.asBits)
+        val op: Referable[UInt] = io.in.op
+        val rs1Bits: Node[Bits] = Node(io.in.rs1.asBits)
+        val rs2Bits: Node[Bits] = Node(io.in.rs2.asBits)
 
         // The target's base arrives placed by the form — the pc for every jump and branch, the register operand for
         // JALR — so the adder hangs off the slot, and the op's decode, which would otherwise pick the base here, stays
         // off the adder's path.
-        val target = prefixAdder(io.base, io.offset, false.B, width)
+        val target = prefixAdder(io.in.base, io.in.offset, false.B, width)
         // The orderings are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a
         // one-gate-per-bit borrow ripple (see `lessThan`), and four of the eight outcomes ride it — the same cone the ALU
         // already took off its compares. Signed shares the unsigned scan (when the signs differ, the negative side is the
         // smaller), and equality is one compare with its negation beside it.
-        val lessU = lessThan(io.rs1, io.rs2, width)
+        val lessU = lessThan(io.in.rs1, io.in.rs2, width)
         val signDiff: Referable[Bool] = rs1Bits.bit(width - 1) ^ rs2Bits.bit(width - 1)
         val lessS: Referable[Bool] = signDiff ? (rs1Bits.bit(width - 1), lessU)
-        val equal: Referable[Bool] = io.rs1 === io.rs2
+        val equal: Referable[Bool] = io.in.rs1 === io.in.rs2
         val taken = mux1H(
             op,
             Seq(true.B, true.B, equal, !equal, lessS, !lessS, lessU, !lessU)
@@ -83,7 +112,7 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
 
         io.taken := taken
         io.target := target
-        io.nextPc := taken ? (target, io.fallThrough)
+        io.nextPc := taken ? (target, io.in.fallThrough)
 
         // The prediction check, `predNextPc =/= nextPc`: where the stream went against where the branch resolved. The
         // verdict is made here and rides the path's result to the retire record — the record takes it as made instead of
@@ -95,7 +124,7 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         // the end: a compare hung off the resolved pc waits on the comparator's whole chain, while the arms start where
         // their inputs do — the fall-through arm at registers, the target arm at the adder — beside the comparator
         // instead of behind it. At `Off` the fall-through arm folds to a constant.
-        val tgtMismatch: Referable[Bool] = io.target =/= io.predNextPc
-        val fallMismatch: Referable[Bool] = io.fallThrough =/= io.predNextPc
+        val tgtMismatch: Referable[Bool] = io.target =/= io.in.predNextPc
+        val fallMismatch: Referable[Bool] = io.in.fallThrough =/= io.in.predNextPc
         val mispredict: Referable[Bool] = taken ? (tgtMismatch, fallMismatch)
         io.mispredict := mispredict

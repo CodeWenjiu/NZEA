@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.{BpuConfig, CoreConfig}
-import nzea_core.back.{BpUpdate, IntFace}
+import nzea_core.back.{viewOf, BpUpdate, FuView, IntFace}
 import nzea_core.isa.{CsrType, Isa}
 import nzea_core.stats.Regions
 import nzea_rtl.RtlFlow
@@ -48,9 +48,9 @@ class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParamete
   * middle raises the flush event the front restarts from).
   *
   * This is where the unit select and the op mean something — decode only packed them into [[IntOp]]'s columns. Each
-  * unit owns its own op encoding and its own operand use, so all this path does is slice the shared field per unit,
-  * merge the results by tag, and gate the completion: ALU, BRU and SYSU are combinational and report completion for as
-  * long as the uop is held, MUL and DIV are multi-cycle units that report it from their FSM.
+  * unit owns its own op encoding, its own operand use and its own view of the uop (its `XInput.view`), so all this path
+  * does is wire the views, merge the results by tag, and gate the completion: ALU, BRU and SYSU are combinational and
+  * report completion for as long as the uop is held, MUL and DIV are multi-cycle units that report it from their FSM.
   */
 @generator
 object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, IntPathProbe]:
@@ -71,7 +71,6 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
         val ops = IntOp.set(parameter.config.isa)
         val op: Referable[UInt] = u.op
-        val fuOp: Node[UInt] = ops.payload(op)
 
         def selects(caseOf: IntOp): Node[Bool] = ops.isCase(caseOf, op)
         val isAlu = selects(IntOp.alu)
@@ -91,42 +90,22 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         val branchResolved = Wire(Bool())
         branchResolved := uopFirst & isBru
 
-        /** The three combinational units. The operands are the uop's slots — decode already resolved them — and each
-          * unit slices its own width out of the shared op field.
+        /** The three combinational units, each fed its own view of the held uop: the unit owns its op encoding, its
+          * operand use and where it reads them (its [[nzea_core.back.FuView]]), so the path only wires the view and
+          * reads the answers.
           */
-        def aluUnit() =
-            val alu = Alu.instantiate(AluParameter(parameter.config.isa, parameter.config.defaultPc))
-            alu.io.op := Encoding.take(fuOp, AluOp.set(parameter.config.isa).width)
-            alu.io.opA := u.src_a
-            alu.io.opB := u.src_b
-            alu
+        val aluIn = u.viewOf[AluInput](parameter.config)
+        val bruIn = u.viewOf[BruInput](parameter.config)
+        val sysuIn = u.viewOf[SysuInput](parameter.config)
 
-        def bruUnit() =
-            val bru = Bru.instantiate(BruParameter(width, parameter.bpu))
-            bru.io.op := Encoding.take(fuOp, BruOp.width)
-            // The form already placed the target's base in the first slot and the compared registers behind it, so the
-            // unit reads its operands where they lie instead of selecting a base out of its own op.
-            bru.io.base := u.src_a
-            // The prediction is data, and it has been since the fetch: the uop carries the next pc the fetcher predicted
-            // when it read this instruction. A predictor that lands later replaces the fetcher's one value, not this unit.
-            bru.io.predNextPc := u.next_pc
-            bru.io.fallThrough := fallThrough
-            bru.io.offset := u.imm
-            bru.io.rs1 := u.src_b
-            bru.io.rs2 := u.src_c
-            bru
+        val alu = Alu.instantiate(AluParameter(parameter.config.isa, parameter.config.defaultPc))
+        alu.io.in :<= aluIn
 
-        def sysuUnit() =
-            val sysu = Sysu.instantiate(SysuParameter(width))
-            sysu.io.op := Encoding.take(fuOp, SysuOp.width)
-            sysu.io.rs1 := u.src_a
-            sysu.io.csrRdata := u.csr_rdata
-            sysu.io.csrType := u.csr_type
-            sysu
+        val bru = Bru.instantiate(BruParameter(width, parameter.bpu))
+        bru.io.in :<= bruIn
 
-        val alu = aluUnit()
-        val bru = bruUnit()
-        val sysu = sysuUnit()
+        val sysu = Sysu.instantiate(SysuParameter(width))
+        sysu.io.in :<= sysuIn
 
         // The resolved branch rides the result as data: `next_pc` is wherever it actually goes — under a predictor, a
         // mispredict on a not-taken resolution points back at the fall-through — and `mispredict` is the branch unit's
@@ -149,17 +128,13 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
                 m.io.resetN := io.resetN
                 m.io.issue.valid := uopValid & selects(IntOp.mul)
                 m.io.issue.first := uopFirst
-                m.io.issue.bits.opA := u.src_a
-                m.io.issue.bits.opB := u.src_b
-                m.io.issue.bits.op := Encoding.take(fuOp, MulOp.set(parameter.config.isa).width)
+                m.io.issue.bits :<= u.viewOf[MulInput](parameter.config)
             for d <- div do
                 d.io.clock := io.clock
                 d.io.resetN := io.resetN
                 d.io.issue.valid := uopValid & selects(IntOp.div)
                 d.io.issue.first := uopFirst
-                d.io.issue.bits.opA := u.src_a
-                d.io.issue.bits.opB := u.src_b
-                d.io.issue.bits.op := Encoding.take(fuOp, DivOp.set(parameter.config.isa).width)
+                d.io.issue.bits :<= u.viewOf[DivInput](parameter.config)
             (mul, div)
 
         val (mul, div) = mulDivUnits()
@@ -183,7 +158,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
             val unitData: IntOp => Referable[UInt] =
                 case IntOp.Alu(_)  => alu.io.data
                 case IntOp.Bru(_)  => fallThrough
-                case IntOp.Sysu(_) => u.csr_rdata
+                case IntOp.Sysu(_) => sysuIn.csrRdata
                 case IntOp.Mul(_)  => mulData
                 case IntOp.Div(_)  => divData
             val (aluCases, otherCases) = ops.cases.partition { case IntOp.Alu(_) => true; case _ => false }
@@ -209,10 +184,10 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
         result()
 
-        /** The sysu's offer to the readers behind it: the CSR the held uop leaves defined and the value it leaves there.
-          * It rides the path's own face rather than the result, because the result is the commit's account — gated by
-          * whether the commit stores at all — while a reader behind the uop takes the post-state either way, and it must
-          * be there the cycle the uop is held.
+        /** The sysu's offer to the readers behind it: the CSR the held uop leaves defined and the value it leaves
+          * there. It rides the path's own face rather than the result, because the result is the commit's account —
+          * gated by whether the commit stores at all — while a reader behind the uop takes the post-state either way,
+          * and it must be there the cycle the uop is held.
           */
         def csrOffer(): Unit =
             io.path.csr_offer.valid := isSysu & sysu.io.leaves

@@ -57,12 +57,12 @@ private[idu] object InstI:
         gprWr = false
     )
 
-    val CSRRW = RVInst("CSRRW", iType("001", "1110011"), Some(ImmType.I), sysu(SysuOp.CSRRW, Srcs.Rs1))
-    val CSRRS = RVInst("CSRRS", iType("010", "1110011"), Some(ImmType.I), sysu(SysuOp.CSRRS, Srcs.Rs1))
-    val CSRRC = RVInst("CSRRC", iType("011", "1110011"), Some(ImmType.I), sysu(SysuOp.CSRRC, Srcs.Rs1))
-    val CSRRWI = RVInst("CSRRWI", iType("101", "1110011"), Some(ImmType.Z), sysu(SysuOp.CSRRWI, Srcs.ImmZero))
-    val CSRRSI = RVInst("CSRRSI", iType("110", "1110011"), Some(ImmType.Z), sysu(SysuOp.CSRRSI, Srcs.ImmZero))
-    val CSRRCI = RVInst("CSRRCI", iType("111", "1110011"), Some(ImmType.Z), sysu(SysuOp.CSRRCI, Srcs.ImmZero))
+    val CSRRW = RVInst("CSRRW", iType("001", "1110011"), Some(ImmType.I), sysu(SysuOp.CSRRW, Srcs.Rs1Csr))
+    val CSRRS = RVInst("CSRRS", iType("010", "1110011"), Some(ImmType.I), sysu(SysuOp.CSRRS, Srcs.Rs1Csr))
+    val CSRRC = RVInst("CSRRC", iType("011", "1110011"), Some(ImmType.I), sysu(SysuOp.CSRRC, Srcs.Rs1Csr))
+    val CSRRWI = RVInst("CSRRWI", iType("101", "1110011"), Some(ImmType.Z), sysu(SysuOp.CSRRWI, Srcs.ImmCsr))
+    val CSRRSI = RVInst("CSRRSI", iType("110", "1110011"), Some(ImmType.Z), sysu(SysuOp.CSRRSI, Srcs.ImmCsr))
+    val CSRRCI = RVInst("CSRRCI", iType("111", "1110011"), Some(ImmType.Z), sysu(SysuOp.CSRRCI, Srcs.ImmCsr))
 
     // S-type: rs1=base, rs2=data; no rd
     val SB = RVInst("SB", iType("000", "0100011"), Some(ImmType.S), mem(LsuOp.SB, Srcs.Rs1ImmRs2), gprWr = false)

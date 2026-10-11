@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
-import nzea_core.back.IssueSlot
+import nzea_core.back.{ExecSlot, FuView, IssueSlot}
 import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -19,6 +19,27 @@ class MulInput(config: CoreConfig) extends Bundle:
     val opA = Aligned(UInt(config.width))
     val opB = Aligned(UInt(config.width))
     val op = Aligned(UInt(MulOp.set(config.isa).width))
+
+object MulInput:
+
+    /** The multiplier's view of the uop's union: the pool's first two slots, and its slice of the shared op window. */
+    given FuView[MulInput] with
+
+        def view(u: Referable[ExecSlot], config: CoreConfig)(using
+            Arena,
+            Context,
+            Block,
+            sourcecode.File,
+            sourcecode.Line,
+            sourcecode.Name.Machine,
+            InstanceContext,
+            TypeImpl
+        ): Wire[MulInput] =
+            val in = Wire(new MulInput(config))
+            in.opA := u.src.ref(0)
+            in.opB := u.src.ref(1)
+            in.op := Encoding.take(IntOp.set(config.isa).payload(u.op), MulOp.set(config.isa).width)
+            in
 
 case class MulParameter(isa: Isa, defaultPc: Long) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
@@ -37,8 +58,8 @@ class MulIO(parameter: MulParameter) extends HWBundle(parameter):
 
 class MulProbe(parameter: MulParameter) extends DVBundle[MulParameter, MulLayers](parameter)
 
-/** Pipelined multiplier: radix-4 Booth partial products, a Wallace-tree compression, and one final carry-propagate
-  * add — the legacy `MUL` FU's three arithmetic stages (`legacy/nzea_core/src/back/int/MUL.scala`), rebuilt on today's
+/** Pipelined multiplier: radix-4 Booth partial products, a Wallace-tree compression, and one final carry-propagate add
+  * — the legacy `MUL` FU's three arithmetic stages (`legacy/nzea_core/src/back/int/MUL.scala`), rebuilt on today's
   * issue/done contract, with the result select as the last stage's combinational tail.
   *
   * The point of the shape is that no cycle carries a full-width carry propagation through a loop. The Booth stage is
