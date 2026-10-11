@@ -3,6 +3,7 @@ package nzea_core.middle
 import nzea_core.config.CoreConfig
 import nzea_core.back.{BpUpdate, OpWindow}
 import nzea_core.isa.{Backend, CsrType, Gpr, Isa, Srcs}
+import nzea_core.middle.rf.{Arf, ArfParameter}
 import nzea_rtl.{RtlFlow, TestFlow}
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
@@ -11,9 +12,10 @@ import utest.*
 /** Structural checks: the middle's boundary is the decoded stream it consumes, the back's face it holds with the
   * execution subsystem, and the two things it hands the top (the flush event, the commit trace). Inside, it holds the
   * architectural state both stages face — the RF, the two files with the commit's own cycle — and the one elastic
-  * register whose two ends are its own.
+  * register whose two ends are its own. The RF's own file is pinned beside it: the write port and the two reads, and
+  * nothing between them.
   */
-object MiddleElaborateTest extends TestSuite:
+object MiddleTest extends TestSuite:
 
     private val width = 32
     private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
@@ -95,6 +97,19 @@ object MiddleElaborateTest extends TestSuite:
         s"forward_csr_offers_${index}_index" -> CsrType.width,
         s"forward_csr_offers_${index}_data" -> width
     )
+
+    /** The RF's own lowering, at a width the middle's own elaboration does not use: a second lowering of the same
+      * parameter writes no module — a generator elaborates a given parameter once per process.
+      */
+    private val arfParameter = ArfParameter(64)
+
+    private lazy val arfSv = TestFlow.lower(
+        Arf.moduleName(arfParameter),
+        cfg => Arf.main(Array("config", cfg.toString, "--width", "64")),
+        cfg => Arf.main(Array("design", cfg.toString))
+    )
+
+    private lazy val arfPorts = TestFlow.ports(arfSv, Arf.moduleName(arfParameter))
 
     val tests = Tests:
         test("the middle's boundary is the decoded stream, the back's face, the commit and the flush"):
@@ -189,3 +204,25 @@ object MiddleElaborateTest extends TestSuite:
             assert(start >= 0)
             val body = sv.substring(start, sv.indexOf("endmodule", start))
             assert(!body.contains("always @(posedge"))
+
+        // ── The register file ──
+        test("the file's boundary is the write port and the two reads"):
+            assert(arfSv.contains(s"module ${Arf.moduleName(arfParameter)}("))
+            assert(
+                arfPorts == Map(
+                    "clock" -> 1,
+                    "resetN" -> 1,
+                    "write_valid" -> 1,
+                    "write_bits_index" -> Gpr.indexWidth,
+                    "write_bits_data" -> 64,
+                    "rs1_index" -> Gpr.indexWidth,
+                    "rs1_data" -> 64,
+                    "rs2_index" -> Gpr.indexWidth,
+                    "rs2_data" -> 64
+                )
+            )
+
+        test("the reads are the file's own muxes"):
+            // A forwarding mux would make the read select the write port's data; the read muxes only select registers.
+            assert(arfSv.contains("casez_tmp = xregs_"))
+            assert(!arfSv.contains("casez_tmp = write_bits_data"))

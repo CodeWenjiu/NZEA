@@ -1,16 +1,78 @@
 package nzea_core.back
 
+import me.jiuyang.zaozi.*
+import me.jiuyang.zaozi.default.{*, given}
+import me.jiuyang.zaozi.reftpe.*
+import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.config.CoreConfig
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
-import nzea_core.isa.{Isa, Srcs}
+import nzea_core.isa.{Backend, Isa, Srcs}
+import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** The field encodings the decode stage and the backends share: their field widths are load bearing numbers, so they
-  * are pinned here rather than left implicit in the consumers. Each backend owns its own table and its own window in
-  * the shared op field, and each op set answers with the configuration: the widths below are that answer, not a
-  * literal.
+case class BackElaborateTestParameter(isa: Isa) extends Parameter:
+    val config: CoreConfig = CoreConfig(isa, 0x80000000L)
+
+given upickle.default.ReadWriter[BackElaborateTestParameter] = upickle.default.macroRW
+
+class BackElaborateTestLayers(parameter: BackElaborateTestParameter) extends LayerInterface(parameter):
+    def layers = Seq.empty
+
+/** The decode result the middle hands to a backend, read the way the backends read it. */
+class BackElaborateTestIO(parameter: BackElaborateTestParameter) extends HWBundle(parameter):
+    private val intOps = IntOp.set(parameter.config.isa)
+    private val isa = parameter.config.isa
+
+    val backend = Flipped(UInt(Backend.width))
+    val op = Flipped(UInt(OpWindow.width(parameter.config)))
+    val int_fu_type = Aligned(UInt(intOps.tagWidth))
+    val alu_op = Aligned(UInt(AluOp.set(isa).width))
+    val bru_op = Aligned(UInt(BruOp.width))
+
+    /** The multiplier's own op column: there when the multiplier is — a unit that is not built has no op field, so a
+      * configuration without M has no column to read it out of.
+      */
+    val mul_op: Option[BundleField[UInt]] = Option.when(isa.hasM)(Aligned(UInt(MulOp.set(isa).width)))
+
+    val mem_op = Aligned(UInt(LsuOp.set(isa).width))
+    val is_store = Aligned(Bool())
+    val is_load = Aligned(Bool())
+
+class BackElaborateTestProbe(parameter: BackElaborateTestParameter)
+    extends DVBundle[BackElaborateTestParameter, BackElaborateTestLayers](parameter)
+
+/** Dispatches on `backend`, then unpacks the window each side owns — no consumer outside a backend reads its layout. */
+@generator
+object BackElaborateTestModule
+    extends Generator[BackElaborateTestParameter, BackElaborateTestLayers, BackElaborateTestIO, BackElaborateTestProbe]:
+    override def moduleName(p: BackElaborateTestParameter): String = "BackElaborateTest"
+
+    def architecture(parameter: BackElaborateTestParameter) =
+        val io = summon[Interface[BackElaborateTestIO]]
+
+        val intOps = IntOp.set(parameter.config.isa)
+        val isa = parameter.config.isa
+        val lsuOps = LsuOp.set(isa)
+        val isMem = io.backend === Backend.MEM.lit.U(Backend.width)
+
+        // The int path unpacks its own window, and its FUs eat the low column straight from it.
+        io.int_fu_type := intOps.tag(io.op)
+        io.alu_op := intOps.payload(io.op)
+        io.bru_op := Encoding.take(io.op, BruOp.width)
+        if isa.hasM then io.mul_op.get := Encoding.take(io.op, MulOp.set(isa).width)
+
+        // The mem path unpacks its own, which starts at bit 0 as well: the windows alias.
+        val memOp = MemOp.set(isa).payload(io.op)
+        io.mem_op := memOp
+        io.is_store := isMem & LsuOp.isStore(memOp, lsuOps)
+        io.is_load := isMem & !LsuOp.isStore(memOp, lsuOps)
+
+/** The op field the decode stage and the backends share: its field widths are load-bearing numbers, so they are pinned
+  * here rather than left implicit in the consumers — as values, and as the window reading they lower to. Each backend
+  * owns its own table and its own window in the shared op field, and each op set answers with the configuration: the
+  * widths below are that answer, not a literal.
   */
 object BackTest extends TestSuite:
 
@@ -38,6 +100,20 @@ object BackTest extends TestSuite:
 
     private val withoutM = IntOp.set(isa32)
     private val withM = IntOp.set(rv32imConfig.isa)
+
+    /** The elaborated reader: one shared field sized by the longest window, and each backend's own column widths. */
+    private val isa = Isa("riscv32i")
+    private val config = CoreConfig(isa, 0x80000000L)
+    private val intOps = IntOp.set(config.isa)
+    private val module = BackElaborateTestModule.moduleName(BackElaborateTestParameter(isa))
+
+    private lazy val sv = TestFlow.lower(
+        module,
+        cfg => BackElaborateTestModule.main(Array("config", cfg.toString, "--isa", isa.name)),
+        cfg => BackElaborateTestModule.main(Array("design", cfg.toString))
+    )
+
+    private lazy val ports = TestFlow.ports(sv, module)
 
     val tests = Tests:
         test("the encodings keep their field widths"):
@@ -122,3 +198,33 @@ object BackTest extends TestSuite:
             assert(OpWindow.width(rv64iConfig) == 17)
             assert(OpWindow.width(rv64imConfig) == 18)
             for window <- Seq(withM.width, MemOp.set(isa32).width) do assert(window <= OpWindow.width(rv32imConfig))
+
+        test("the shared field is the union width, the columns are each backend's own"):
+            assert(sv.contains(s"module $module("))
+            assert(
+                ports == Map(
+                    "backend" -> Backend.width,
+                    "op" -> OpWindow.width(config),
+                    "int_fu_type" -> intOps.tagWidth,
+                    "alu_op" -> intOps.payloadWidth,
+                    "bru_op" -> BruOp.width,
+                    "mem_op" -> MemOp.set(config.isa).payloadWidth,
+                    "is_store" -> 1,
+                    "is_load" -> 1
+                )
+            )
+            // Without M there is no multiplier, and so no multiplier op column either.
+            assert(!ports.contains("mul_op") && !config.isa.hasM)
+
+        test("the int window follows the configuration, in both directions"):
+            val withM = IntOp.set(CoreConfig(Isa("riscv32im"), 0x80000000L).isa)
+            val rv64i = IntOp.set(CoreConfig(Isa("riscv64i"), 0x80000000L).isa)
+            val rv64im = IntOp.set(CoreConfig(Isa("riscv64im"), 0x80000000L).isa)
+            // The units come and go with M...
+            assert(intOps.cases.size == 3 && intOps.tagWidth == 2)
+            assert(withM.cases.size == 5 && withM.tagWidth == 3)
+            assert(rv64i.cases.size == 3 && rv64i.tagWidth == 2)
+            assert(rv64im.cases.size == 5 && rv64im.tagWidth == 3)
+            // ...and the payload column follows the op set: the word forms are five one-hot bits above the base ALU ops.
+            assert(rv64i.width == intOps.width + 5)
+            assert(rv64im.width == rv64i.width + 1)

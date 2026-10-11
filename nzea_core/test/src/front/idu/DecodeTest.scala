@@ -6,17 +6,19 @@ import nzea_core.back.OpWindow
 import nzea_core.back.int.{AluOp, BruOp, DivOp, IntOp, MulOp, SysuOp}
 import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.front.idu.inst.*
-import nzea_core.isa.{Backend, Isa, Srcs}
+import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
 import nzea_rtl.PlaSim
-import nzea_rtl.stdlib.{Encoding, Qmc}
+import nzea_rtl.stdlib.*
 import utest.*
 
 /** The decode tables, checked the way the IDU consumes them: through the minimized PLA.
   *
   * Every instruction is fed to the minimizer, and the PLA's output for it is compared with what the table declared.
   * That covers the whole path — patterns, field encodings and the minimization itself — without elaborating hardware.
+  * Beside the tables, the stage's own load-bearing facts: the immediate shapes are one-hot in the order the IDU selects
+  * them, and every window decode can produce fits the field the IDU hands out.
   */
-object DecodeTablesTest extends TestSuite:
+object DecodeTest extends TestSuite:
 
     private val withM = CoreConfig(Isa("riscv32im"), 0x80000000L)
     private val withoutM = CoreConfig(Isa("riscv32i"), 0x80000000L)
@@ -30,6 +32,8 @@ object DecodeTablesTest extends TestSuite:
     private lazy val pla = Qmc(tables)
     private lazy val tables64 = DecodeTables.all(rv64im)
     private lazy val pla64 = Qmc(tables64)
+
+    private val configs = Seq(withM, withoutM, rv64i, rv64im)
 
     /** The decode output fields, in the order they are concatenated into the PLA output. */
     private def fields(config: CoreConfig): Seq[(String, Int)] = Seq(
@@ -74,6 +78,52 @@ object DecodeTablesTest extends TestSuite:
     private def declared(inst: RVInst): Map[String, BigInt] = declaredWith(intOps, inst)
 
     val tests = Tests:
+        // ── The stage's facts ──
+        test("immediate shapes are one-hot in the order the IDU selects them"):
+            assert(ImmType.values.toSeq == Seq(ImmType.I, ImmType.S, ImmType.B, ImmType.U, ImmType.J, ImmType.Z))
+            assert(ImmType.values.map(_.lit).toSeq == ImmType.values.indices.map(1 << _))
+            assert(ImmType.width == 6)
+
+        test("the register file is xlen-independent"):
+            assert(Gpr.depth == 32)
+            assert(Gpr.indexWidth == 5)
+            assert(1 << Gpr.indexWidth == Gpr.depth)
+
+        test("the tables follow the register width: the 64-bit rows and the shift-immediate encodings"):
+            val rv32i = CoreConfig(Isa("riscv32i"), 0x80000000L)
+            val rv64i = CoreConfig(Isa("riscv64i"), 0x80000000L)
+            val rv64im = CoreConfig(Isa("riscv64im"), 0x80000000L)
+            def names(config: CoreConfig): Set[String] = RiscvInsts.all(config.isa).map(_.name).toSet
+
+            assert(names(rv64i).contains("LD") && names(rv64i).contains("ADDIW") && names(rv64i).contains("SRAW"))
+            assert(!names(rv32i).contains("LD") && !names(rv32i).contains("ADDIW"))
+            // MULW is a word form: it needs M and 64-bit registers, so the riscv32im table has no row for it.
+            assert(names(rv64im).contains("MULW") && names(rv64im).contains("REMUW"))
+            assert(!names(CoreConfig(Isa("riscv32im"), 0x80000000L)).contains("MULW"))
+            // SLLI's shift amount is six bits at xlen 64 (bit 25 is part of it) and five at xlen 32 (bit 25 is pinned).
+            def pattern(config: CoreConfig, name: String): String =
+                RiscvInsts.all(config.isa).find(_.name == name).get.bitPatStr
+            assert(pattern(rv64i, "SLLI") != pattern(rv32i, "SLLI"))
+            // The re-encoding lands on the base row in place, and only once: RV64's table is RV32's order with rows appended.
+            for name <- Seq("SLLI", "SRLI", "SRAI") do
+                assert(RiscvInsts.all(rv64i.isa).count(_.name == name) == 1)
+                assert(
+                    RiscvInsts.all(rv64i.isa).indexWhere(_.name == name) == RiscvInsts
+                        .all(rv32i.isa)
+                        .indexWhere(_.name == name)
+                )
+
+        test("every decoded window fits the shared op field"):
+            for
+                config <- configs
+                inst <- RiscvInsts.all(config.isa)
+            do
+                val ops = IntOp.set(config.isa)
+                assert(inst.dispatch.window(ops) > 0)
+                assert(inst.dispatch.window(ops) < (1 << OpWindow.width(config)))
+                assert(inst.dispatch.backend.lit < (1 << Backend.width))
+
+        // ── The tables through the PLA ──
         test("every instruction minimizes into the PLA and decodes back to its declared fields"):
             for inst <- RiscvInsts.all(withM.isa) do assert(decode(sample(inst)) == declared(inst))
 

@@ -1,5 +1,6 @@
 package nzea_core.config
 
+import mainargs.TokensReader
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
@@ -71,8 +72,16 @@ object CoreParamsUsageTestModule
         io.alu_op := intOps.payload(io.op)
         io.mem_op := MemOp.set(parameter.config.isa).payload(io.op)
 
-/** The usage: the resolved contract sizes the field, and each backend still unpacks its own window out of it. */
-object CoreParamsUsageTest extends TestSuite:
+/** The configuration tree's contracts: the bypass ladder's one token and its predicates, the resolver's pure-function
+  * checks, and the resolved contract as it reaches hardware.
+  */
+object ConfigTest extends TestSuite:
+
+    /** riscv32i: no M units, so the int window is a payload column plus a two-bit tag for the three units that exist.
+      */
+    private val intOps = IntOp.set(CoreConfig(Isa("riscv32i"), 0x80000000L).isa)
+    private val config = CoreConfig(Isa("riscv32i"), 0x80000000L)
+    private val declared = Seq(OpProducer("int", 0, 17), OpProducer("mem", 1, 9))
 
     private val module = CoreParamsUsageTestModule.moduleName(
         CoreParamsUsageTestParameter(Isa("riscv32i"), 0x80000000L)
@@ -89,11 +98,69 @@ object CoreParamsUsageTest extends TestSuite:
 
     private lazy val ports = TestFlow.ports(sv, module)
 
-    /** riscv32i: no M units, so the int window is a payload column plus a two-bit tag for the three units that exist.
-      */
-    private val intOps = IntOp.set(CoreConfig(Isa("riscv32i"), 0x80000000L).isa)
-
     val tests = Tests:
+        // ── The bypass ladder ──
+        test("every level round-trips through the file and the token"):
+            for level <- BypassLevel.values do
+                assert(BypassLevel.parseOrThrow(level.name) == level)
+                assert(upickle.default.read[BypassLevel](upickle.default.write(level)) == level)
+
+        test("the flag reader takes the same token"):
+            val reader = summon[TokensReader[BypassLevel]]
+            for level <- BypassLevel.values do assert(reader.read(Seq("--bypass", level.name)) == Right(level))
+
+        test("a deeper level implies the shallower link"):
+            assert(!BypassLevel.None.commit)
+            assert(!BypassLevel.Commit.execute)
+            assert(BypassLevel.Commit.commit)
+            assert(BypassLevel.Execute.commit && BypassLevel.Execute.execute)
+
+        test("unknown levels are rejected, and the old spellings with them"):
+            assert(BypassLevel.parse("wb").isLeft)
+            assert(BypassLevel.parse("writeback").isLeft)
+            assert(BypassLevel.parse("none") == Right(BypassLevel.None))
+            assert(BypassLevel.parse("COMMIT") == Right(BypassLevel.Commit))
+            assert(BypassLevel.parse("execute") == Right(BypassLevel.Execute))
+
+        test("the report names the links that reach the read"):
+            assert(BypassLevel.None.report == "none")
+            assert(BypassLevel.Commit.report == "commit -> register read")
+            assert(BypassLevel.Execute.report == "execute -> register read")
+
+        // ── The resolver ──
+        test("the longest window sizes the shared field"):
+            val params = CoreParams(config, dispatchWidth = 1, declared)
+            println(params.report)
+            assert(params.opWidth == 17)
+            assert(params.widestOp == "int")
+            assert(params.dispatchWidth == 1)
+            assert(params.dataWidth == 32)
+            assert(params.pcWidth == 32)
+
+        test("adding a wider producer moves the field for everyone"):
+            val params = CoreParams(config, dispatchWidth = 2, declared :+ OpProducer("fp", 2, 25))
+            println(params.report)
+            assert(params.opWidth == 25)
+            assert(params.widestOp == "fp")
+
+        test("a declaration that breaks the contract fails before any hardware exists"):
+            val outOfField =
+                intercept[IllegalArgumentException](
+                    CoreParams(config, dispatchWidth = 1, declared :+ OpProducer("fp", 2, 8))
+                )
+            println(outOfField.getMessage)
+            assert(outOfField.getMessage.contains("dispatch id does not fit the 1-bit field: fp=2"))
+
+            val duplicate =
+                intercept[IllegalArgumentException](
+                    CoreParams(config, dispatchWidth = 2, declared :+ OpProducer("int", 2, 8))
+                )
+            assert(duplicate.getMessage.contains("duplicate producer names: int, mem, int"))
+
+            val empty = intercept[IllegalArgumentException](CoreParams(config, dispatchWidth = 1, Seq.empty))
+            assert(empty.getMessage.contains("no op producer declared"))
+
+        // ── The contract in hardware ──
         test("the resolved contract is what reaches the hardware"):
             assert(sv.contains(s"module $module("))
             assert(

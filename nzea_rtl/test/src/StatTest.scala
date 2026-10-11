@@ -2,12 +2,24 @@ package nzea_rtl
 
 import java.nio.file.{Files, Paths}
 
+import mainargs.TokensReader
 import nzea_rtl.stat.*
 import utest.*
 
-/** Schema contract tests: expression grammar, in-order rule resolution, TOML emission. */
-object StatSchemaTest extends TestSuite:
+/** The statistics contracts: one counter's box — its Verilog and the naming the emitter and the instantiating module
+  * agree on; the scope a parent hands a child; and the schema's expression grammar, in-order rule resolution and TOML
+  * emission.
+  */
+object StatTest extends TestSuite:
 
+    // ── The box ──
+    private val BoxRegion = StatRegion("test", "test region")
+    private val Cycle = StatCounter("stat_core_middle_cycle", 32, "middle", BoxRegion, "cycle count")
+
+    // ── The scope ──
+    private val reader = summon[TokensReader[StatScope]]
+
+    // ── The schema ──
     private val Region = StatRegion("g", "group")
     private val a = StatCounter("stat_a", 8, "core", Region, "counter a")
     private val b = StatCounter("stat_b", 8, "core", Region, "counter b")
@@ -20,6 +32,65 @@ object StatSchemaTest extends TestSuite:
     private val values = Map("stat_a" -> 5L, "stat_b" -> 2L)
 
     val tests = Tests:
+        // ── The box ──
+        test("verilog generation: module header, the named register and the write port"):
+            val v = StatBox.verilog("StatBox_abc", Cycle)
+            assert(v.contains("module StatBox_abc("))
+            assert(v.contains("input clock") && v.contains("input resetN"))
+            assert(v.contains("input en"))
+            assert(v.contains(s"input [${StatBox.Width - 1}:0] data"))
+            assert(v.contains(s"output [${StatBox.Width - 1}:0] value"))
+            assert(v.contains("reg [31:0] stat_core_middle_cycle /*verilator public_flat_rd*/;"))
+            assert(v.contains("assign value = stat_core_middle_cycle;"))
+            assert(v.contains("if (!resetN) stat_core_middle_cycle <= '0;"))
+            assert(v.contains("else if (en) stat_core_middle_cycle <= data;"))
+
+        test("the box module is named after the counter, and only that counter"):
+            assert(StatRegistry.boxModuleName(Cycle) == Cycle.name)
+            assert(
+                StatRegistry.boxModuleName(Cycle) !=
+                    StatRegistry.boxModuleName(Cycle.copy(name = "stat_core_middle_inst_commit"))
+            )
+
+        test("emit writes each box named after its module and appends it to the file list"):
+            val dir = os.temp.dir(prefix = "nzea-stats")
+            os.write.over(dir / "filelist.f", "Middle.sv")
+            try
+                StatRegistry.reset()
+                StatRegistry.declare(Cycle)
+                StatRegistry.declare(Cycle.copy(name = "stat_core_middle_inst_commit"))
+                val names = StatRegistry.emitBoxes(dir)
+                val moduleNames = StatRegistry.declaredCounters.map(StatRegistry.boxModuleName)
+                assert(names == moduleNames.map(_ + ".sv"))
+                StatRegistry.declaredCounters.zip(moduleNames).foreach { (counter, moduleName) =>
+                    assert(os.read(dir / s"$moduleName.sv") == StatBox.verilog(moduleName, counter))
+                }
+                assert(os.read(dir / "filelist.f") == (Seq("Middle.sv") ++ names).mkString("", "\n", "\n"))
+            finally
+                StatRegistry.reset()
+                os.remove.all(dir)
+
+        // ── The scope ──
+        test("a child appends its own segment"):
+            assert(StatScope.root.path.isEmpty)
+            assert(StatScope.root.child("core").child("middle").path == Seq("core", "middle"))
+
+        test("the flag spells the path in dots, or `root` for the design's own scope"):
+            assert(reader.read(Seq("root")) == Right(StatScope.root))
+            assert(reader.read(Seq("core.back.int")) == Right(StatScope(Seq("core", "back", "int"))))
+            assert(reader.read(Seq.empty).isLeft)
+
+        test("the scope's spelling inverts the reader"):
+            assert(StatScope.root.name == "root")
+            assert(StatScope(Seq("core", "back", "int")).name == "core.back.int")
+            assert(reader.read(Seq(StatScope(Seq("core", "middle")).name)) == Right(StatScope(Seq("core", "middle"))))
+
+        test("the scope round-trips through the parameter JSON"):
+            val scope = StatScope(Seq("core", "middle"))
+            val text = upickle.default.write(scope)
+            assert(upickle.default.read[StatScope](text) == scope)
+
+        // ── The schema ──
         test("expression grammar: precedence, unary minus, parentheses and functions"):
             val v = Map("x" -> 3.0)
             def ev(expr: String) = StatExpr.eval(StatExpr.parse(expr), v.get(_))
