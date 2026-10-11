@@ -21,7 +21,6 @@ case class CacheRefillParameter(
     userWidth: Int,
     idWidth: Int,
     lineBeats: Int,
-    wordOffBits: Int,
     outstanding: Int
 ) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
@@ -37,15 +36,16 @@ class CacheRefillLayers(parameter: CacheRefillParameter) extends LayerInterface(
     def layers = Seq.empty
 
 class CacheRefillIO(parameter: CacheRefillParameter) extends HWBundle(parameter):
+    private val cntW = log2Ceil(parameter.lineBeats + 1)
+
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The miss that starts a refill: the line's base address (the word's own, when uncached), which word to answer
-      * with, and whether the line is to be installed at all.
+    /** The miss that starts a refill: the line's base address (the word's own, when uncached), and whether the line is
+      * to be installed at all.
       */
     val start = Flipped(Bool())
     val startAddr = Flipped(UInt(parameter.addrWidth))
-    val startWordOff = Flipped(UInt(parameter.wordOffBits))
     val startUncached = Flipped(Bool())
 
     /** The memory side. */
@@ -55,23 +55,24 @@ class CacheRefillIO(parameter: CacheRefillParameter) extends HWBundle(parameter)
     /** The engine is running: the cache must not accept while it is. */
     val busy = Aligned(Bool())
 
-    /** The assembled line, one cycle before the answer: the cache installs it and touches its replacement state. */
-    val install = Aligned(Bool())
+    /** The line as it fills: the address it belongs to, the beats received so far — a cache serves a request of this
+      * line from the beats the moment its own arrives, before the line is installed — and the assembled beats, low beat
+      * first. The beats stay readable until the next refill starts, so a late answer never reads a torn line.
+      */
+    val lineAddr = Aligned(UInt(parameter.addrWidth))
+    val received = Aligned(UInt(cntW))
     val line = Aligned(UInt(parameter.lineBeats * parameter.dataWidth))
 
-    /** The answer is ready, held until the cache takes it. */
-    val done = Aligned(Bool())
-    val ack = Flipped(Bool())
-    val bypassData = Aligned(UInt(parameter.dataWidth))
+    /** The line is installed this cycle: the cache writes it back and touches its replacement state. */
+    val install = Aligned(Bool())
 
 class CacheRefillProbe(parameter: CacheRefillParameter)
     extends DVBundle[CacheRefillParameter, CacheRefillLayers](parameter)
 
 /** The line a miss needs, off the memory bus: beats issued back to back and collected in order, assembled into one
-  * line, with the word the miss asked for picked back out for its answer.
-  *
-  * The engine knows nothing of tags, sets or ways — the cache that started it installs the line and answers from
-  * `bypassData` — so the I- and D-caches share it. An uncached miss is the same stream with one beat and no install.
+  * line. The engine knows nothing of tags, sets or ways — the cache serves the miss from the beats as they arrive
+  * (`lineAddr`/`received`/`line`), installs the assembled line when it is complete, and answers no one itself — so the
+  * I- and D-caches share it. An uncached miss is the same stream with one beat and no install.
   */
 @generator
 object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, CacheRefillIO, CacheRefillProbe]:
@@ -83,7 +84,7 @@ object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, Ca
     override def moduleName(parameter: CacheRefillParameter): String =
         s"CacheRefill_addrWidth${parameter.addrWidth}_dataWidth${parameter.dataWidth}" +
             s"_userWidth${parameter.userWidth}_idWidth${parameter.idWidth}_lineBeats${parameter.lineBeats}" +
-            s"_wordOffBits${parameter.wordOffBits}_outstanding${parameter.outstanding}"
+            s"_outstanding${parameter.outstanding}"
 
     def architecture(parameter: CacheRefillParameter) =
         val io = summon[Interface[CacheRefillIO]]
@@ -99,13 +100,11 @@ object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, Ca
         val idle = 0.U(3)
         val run = 1.U(3)
         val finish = 2.U(3)
-        // One cycle between the install and the answer: the storage's read port needs it to show the installed row's
-        // set again (a single-port macro reads what it just wrote), and the cache's held head reads through that port.
+        // One cycle between the install and the array holding it: a single-port macro reads what it just wrote, and a
+        // flop array's write lands the cycle after its command.
         val settle = 3.U(3)
-        val held = 4.U(3)
         val state = RegInit(idle)
         val addr = RegInit(0.U(parameter.addrWidth))
-        val wordOff = RegInit(0.U(parameter.wordOffBits))
         val uncached = RegInit(false.B)
         val sent = RegInit(0.U(cntW))
         val recv = RegInit(0.U(cntW))
@@ -130,18 +129,17 @@ object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, Ca
 
         io.busy := state =/= idle
         io.install := state === finish
+        io.lineAddr := addr
+        io.received := recv
         // The line, low beat first: beat 0 is the line's own base, so it sits at the bottom of the word.
         io.line := (parameter.lineBeats - 1 to 0 by -1)
             .map(i => Node(beats.ref(i).asBits))
             .reduce(_ ## _)
             .asUInt
-        io.done := state === held
-        io.bypassData := beats.ref(wordOff)
 
         when(state === idle) {
             when(io.start) {
                 addr := io.startAddr
-                wordOff := io.startWordOff
                 uncached := io.startUncached
                 sent := 0.U(cntW)
                 recv := 0.U(cntW)
@@ -158,5 +156,4 @@ object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, Ca
             when((sent === total) & (recv === total)) { state := finish }
         }
         when(state === finish) { state := settle }
-        when(state === settle) { state := held }
-        when((state === held) & io.ack) { state := idle }
+        when(state === settle) { state := idle }

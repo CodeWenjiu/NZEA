@@ -40,9 +40,10 @@ class ICacheProbe(parameter: CacheParameter) extends DVBundle[CacheParameter, IC
 /** The instruction cache: a [[CacheBank]] behind the fetch's own hit path, and nothing else.
   *
   * The path is the shared [[CacheQueue]]: requests queue up two deep, the head's read is captured into the result
-  * stage, and the stage compares the captured tags — a miss hands its address to the bank, which serves it from memory
-  * and installs the line, and the answer comes back as the miss's word. A request outside the cacheable windows is a
-  * miss the bank serves with a single beat and installs nothing of.
+  * stage, and the stage compares the captured tags — a miss hands its address to the bank, which fills the line from
+  * memory: the miss's word comes back the moment its own beat lands, and a request of the same line staged behind it
+  * rides the same fill until the line installs. A request outside the cacheable windows is a miss the bank serves with
+  * a single beat and installs nothing of.
   *
   * What is this cache's own is the port it answers on: a read-only top (the type says it never writes, so no store
   * rides along), a load-only answer, and the boundary that keeps the fabric's ready out of the pipeline.
@@ -101,10 +102,10 @@ object ICache extends Generator[CacheParameter, ICacheLayers, ICacheIO, ICachePr
         // That ready is the consumer's, but the consumer's own boundary buffers it (the core's bus boundary,
         // [[responseConnect]]): what this port sees is a buffer's count, not the pipeline's back-pressure cone. The
         // refill's ack follows the handover, not the consumer's take.
-        val missReady = bank.io.done
+        val missReady = bank.io.fillReady
         val respValid = queue.stageValid & (!stage.miss | missReady)
         io.top.resp.valid := respValid
-        io.top.resp.bits.data := stage.miss ? (bank.io.bypassData, stage.word)
+        io.top.resp.bits.data := stage.miss ? (bank.io.fillData, stage.word)
         io.top.resp.bits.user := queue.stageReq.user
         io.top.resp.bits.id := queue.stageReq.id
         val respFire = respValid & io.top.resp.ready
@@ -121,7 +122,8 @@ object ICache extends Generator[CacheParameter, ICacheLayers, ICacheIO, ICachePr
             val misses = parameter.stats.stat("miss", CacheRegions.Cache, "fetches the cache had to refill")
             val uncached = parameter.stats.stat("uncached", CacheRegions.Cache, "fetches outside the cacheable windows")
             hits.inc(queue.stageSettling & stage.hit)
-            misses.inc(queue.stageSettling & stage.miss & stage.cacheableHit)
+            // A miss served from the line already arriving did not go to memory: only the one that starts a refill counts.
+            misses.inc(queue.stageSettling & stage.miss & stage.cacheableHit & !bank.io.fillMatch)
             uncached.inc(queue.stageSettling & !stage.cacheableHit)
 
         if parameter.flow.counters then counters()

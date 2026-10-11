@@ -1,0 +1,61 @@
+-- Cache events, relative to a cache's own scope (TOP.NzeaTile.icache / TOP.NzeaTile.dcache).
+--
+-- What the core's events cannot answer: whether the cache took the request or held it, and what a held request is
+-- held behind. The port events read the same names in both caches; the store events exist only in the data cache
+-- (the instruction path has no write channel), and `refill_wait` only makes sense in the instruction cache — the
+-- data cache's unanswered stage may be a store, so it reads `load_wait` there. The memory side's beats read the same
+-- names in both caches. The bank's own signals (the miss slot, the refill state, the fill) are inlined away by the
+-- simulator's flattening, so every event here is one the cache shows at its own boundary.
+--
+-- Bind them with --event, e.g. what the fetch is held behind, and what the data cache's port is held behind:
+--   pulse property --event nzea_cache/src/cache.pulse <ICACHE> Cache --eval 'Cache.blocked && Cache.refill_wait'
+--   pulse property --event nzea_cache/src/cache.pulse <DCACHE> Cache --eval 'Cache.blocked_by_store'
+
+-- ── The port (both caches) ──
+
+-- The cache took one request: the cycle a load, store or fetch enters it.
+accept = top_req_valid && top_req_ready
+
+-- A request is waiting at the port: the cache held it this cycle.
+blocked = top_req_valid && !top_req_ready
+
+-- A response left the port.
+resp = respFire
+
+-- The answer is ready and the consumer has not taken it: the level above is the one stalling.
+answer_wait = respValid && !top_resp_ready
+
+-- The port is held, and what it is held behind: the cache's own serialization (a refill, a store) or the consumer.
+blocked_by_consumer = blocked && answer_wait
+
+-- ── The port, instruction cache ──
+
+-- The stage holds a request with no answer yet — the miss waiting for its line's fill (no write channel exists to
+-- confuse it).
+refill_wait = queue_1 && !respValid
+blocked_by_refill = blocked && refill_wait
+
+-- ── The port, data cache ──
+
+-- The stage holds a store; a load behind it waits for the slot.
+store_held = queue_1 && queue_wen_1
+
+-- ... and the store has not left for the bus yet: it is waiting for the fabric to take it.
+store_pending = store_held && !t1StoreSent
+
+-- ... or it is on the bus and the array's update has not landed: a successor must not sample the old row.
+store_landing = store_held && t1StoreSent && !storeWriteLanded
+
+-- A load with no answer yet — the miss waiting for its line's fill.
+load_wait = queue_1 && !respValid && !queue_wen_1
+blocked_by_store = blocked && store_held
+blocked_by_load_miss = blocked && load_wait
+
+-- ... and the wait is the stores' acknowledgments draining: the engine starts only once the count is zero. Zero in
+-- the instruction cache, whose engine is never gated.
+starved = load_wait && storeAcks != 0
+
+-- ── The memory side (both caches) ──
+
+-- One beat of a refill (or a store's write-through) left on the memory bus.
+beat = bottom_req_valid && bottom_req_ready
