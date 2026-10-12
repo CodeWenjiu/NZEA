@@ -57,8 +57,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
       * module's own statement, and a level that watches nothing simply carries the wires.
       */
     private lazy val blinkSv = TestFlow.lower(
-        Blink.moduleName(BlinkParameter(27)),
-        cfg => Blink.main(Array("config", cfg.toString, "--width", "27")),
+        Blink.moduleName(BlinkParameter(27, 1.0)),
+        cfg => Blink.main(Array("config", cfg.toString, "--width", "27", "--duty", "1")),
         cfg => Blink.main(Array("design", cfg.toString))
     )
 

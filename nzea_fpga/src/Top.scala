@@ -90,7 +90,8 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         val resetN = sync.io.syncN
 
         // The 50 MHz domain: the first blinker, straight off the oscillator.
-        val blink50 = Blink.instantiate(BlinkParameter(26))
+        // The duty dims the LEDs — 0.25 is a comfortable level for bring-up blinkers; 1 is the plain full-on toggle.
+        val blink50 = Blink.instantiate(BlinkParameter(26, 0.25))
         blink50.io.clock := clk50
         blink50.io.resetN := resetN
         led1 := blink50.io.led
@@ -106,7 +107,7 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         val clk100 = clockingWizard.io.field[Clock]("clk_out2")
 
         // The wizard's domain: the second blinker, held in reset while the button is pressed or the clock is unsettled.
-        val blink100 = Blink.instantiate(BlinkParameter(26))
+        val blink100 = Blink.instantiate(BlinkParameter(26, 0.25))
         blink100.io.clock := clk100
         blink100.io.resetN := (resetN.asBool | !locked).asReset
         led2 := blink100.io.led

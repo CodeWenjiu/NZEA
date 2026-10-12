@@ -201,6 +201,20 @@ object DevicesElaborateTest extends TestSuite:
         cfg => Debugger.main(Array("design", cfg.toString))
     )
 
+    /** The blinker at full duty: the plain toggle, with no PWM window built. */
+    private lazy val blink = TestFlow.lower(
+        Blink.moduleName(BlinkParameter(28, 1.0)),
+        cfg => Blink.main(Array("config", cfg.toString, "--width", "28", "--duty", "1")),
+        cfg => Blink.main(Array("design", cfg.toString))
+    )
+
+    /** The blinker dimmed: its lit phase is gated by a counted window. */
+    private lazy val blinkDim = TestFlow.lower(
+        Blink.moduleName(BlinkParameter(28, 0.25)),
+        cfg => Blink.main(Array("config", cfg.toString, "--width", "28", "--duty", "0.25")),
+        cfg => Blink.main(Array("design", cfg.toString))
+    )
+
     val tests = Tests:
         test("the finisher is a bus slave with a finished flag"):
             assert(finisher.contains("module SifiveTestFinisher("))
@@ -249,3 +263,12 @@ object DevicesElaborateTest extends TestSuite:
                 )
             do assert(debugger.contains(port))
             assert(debugger.contains("commit_trace"))
+
+        test("the blinker at full duty is the plain toggle — no PWM window is built"):
+            assert(blink.contains("module Blink("))
+            for port <- Seq("clock", "resetN", "led", "count") do assert(blink.contains(port))
+            assert(!blink.contains("window"))
+
+        test("a duty below 1 gates the lit phase with a counted PWM window"):
+            assert(blinkDim.contains("module Blink("))
+            assert(blinkDim.contains("window"))
