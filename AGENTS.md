@@ -1,6 +1,6 @@
 # 仓库指南
 
-> **迁移进行中（2026-09-26）**：核心正在从 Chisel/Scala 2.13 重写到 Scala 3 + zaozi。旧实现冻结在 tag `legacy-baseline` / `legacy/`（不参与构建、不产生 LSP 目标，见 `legacy/README.md`）；下文「项目结构与模块组织」及命令表中的 `nzea_*` 路径与该批命令是**迁移前**形态，`just dump` / `just iv` / `just test <模块>` / FPGA 流程只在 oracle 工作区（`just legacy-oracle`）里有效。重写树用 `nix develop`（JDK 25 + CIRCT）与 `just zaozi-publish`，命令随模块落地逐条补回。
+> **迁移进行中（2026-09-26）**：核心正在从 Chisel/Scala 2.13 重写到 Scala 3 + zaozi。旧实现冻结在 tag `legacy-baseline` / `legacy/`（不参与构建、不产生 LSP 目标，见 `legacy/README.md`）；下文「项目结构与模块组织」及命令表中的 `nzea_*` 路径与该批命令是**迁移前**形态。重写树用 `nix develop`（JDK 25 + CIRCT）与 `just zaozi-publish`，命令以 justfile 为准。
 >
 > **重写树已落地**：`nzea_rtl`、`nzea_core`（`Core` = 前端/中端/后端本体，总线与提交 trace 无条件为端口）、`nzea_top`（层级 Top 及其 parameter/配置树 `NzeaCoreParameter`/`TopConfig`：`sim` 接 DPI bridge，否则抬成本层端口；生成名 = 层级名）、`nzea_cli`（`just dump --target core`）。
 

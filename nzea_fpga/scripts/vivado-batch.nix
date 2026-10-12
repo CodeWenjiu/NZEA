@@ -4,7 +4,7 @@
 # launch stripped from the profile. The original profile ends with a bare
 # `vivado` that starts the GUI and blocks, so it cannot be used for batch flows.
 # This file keeps the full library set (Vivado needs them at runtime) but only
-# sets up PATH/library env vars, letting `just vivado-build` / `just vivado-program`
+# sets up PATH/library env vars, letting `just fpga build` / `just fpga program`
 # drive Vivado headlessly.
 #
 # Enter it and run commands via stdin, e.g.:

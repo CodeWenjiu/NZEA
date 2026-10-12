@@ -12,7 +12,7 @@ knowledge (Vivado is not on PATH, runs in an FHS nix shell) and the exact comman
 **Current state (2026-10-12)**: the board top is the bring-up design — `nzea_fpga/src/Top.scala` (`Top`, module
 `Top`) = the clocking wizard + two blinkers, watched by an ILA debug core the netlist flow creates — so the pipeline below
 ends at "the LEDs blink and an ILA window is readable". The tile (and with it the
-UART boot loader, `just uart-load`/`uart-reset`/`uart-monitor`, and the reset-triggered ILA mode) is not on the
+UART boot loader, `just probe load`/`reset`/`monitor`, and the reset-triggered ILA mode) is not on the
 board yet; those recipes come back when it is.
 
 ## The pipeline (one command per stage)
@@ -22,24 +22,24 @@ board yet; those recipes come back when it is.
 #    Positional args: board, isa. The ILA is part of the board design, not a flag.
 #    Do NOT use `name=value` (`board=lxb_artix7`): just 1.58 passes it through literally, and the CLI
 #    then rejects `board=lxb_artix7` as an argument. Positional or plain flags (`just dump --target fpga …`) work.
-just fpga-dump lxb_artix7 riscv32i
+just fpga dump lxb_artix7 riscv32i
 
 # 2. Build the bitstream (synth + impl) — headless, ~5 min on this machine.
-just vivado-build
+just fpga build
 
 # 3. Program the FPGA over JTAG — board must be connected via the Digilent JTAG cable.
-just vivado-program
+just fpga program
 
 # 4. Capture an ILA window (board programmed with an ila build) and analyze it.
-just ila-capture                       # mode='snapshot' (default)
+just fpga capture                      # mode='snapshot' (default)
 pulse --wave build/fpga/lxb_artix7/riscv32i/vivado/capture.named.vcd info
 ```
 
-`just vivado-flow` does build + program in one step. `just fpga-project` regenerates only the Vivado project
-from the RTL already dumped (no re-elaboration).
+`just fpga project` regenerates only the Vivado project from the RTL already dumped (no re-elaboration).
+The stages are independent recipes — `just fpga build && just fpga program` when the RTL has not changed.
 
-Success signals: `just vivado-build` ends with `Bitstream generation completed` and writes
-`build/fpga/lxb_artix7/<isa>/vivado/nzea_fpga.bit`; `just vivado-program` prints
+Success signals: `just fpga build` ends with `Bitstream generation completed` and writes
+`build/fpga/lxb_artix7/<isa>/vivado/nzea_fpga.bit`; `just fpga program` prints
 `INFO: FPGA xc7a200tfbg484-2 programmed.`; on the board, LED1 blinks (50 MHz domain, ~0.7 Hz) and LED2 blinks
 (the wizard's 100 MHz domain, ~3 Hz) — **if only LED1 blinks, the wizard's IP or its clock path is at fault**, which is why
 there are two. A capture tells the same story without eyes: `reset` 0, `locked` 1, and the two counters counting —
@@ -78,22 +78,22 @@ board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 
 | Path | Written by | Purpose |
 |------|-----------|---------|
-| `*.sv`, `filelist.f` | `just fpga-dump` (firtool) | the design's RTL and its file list |
+| `*.sv`, `filelist.f` | `just fpga dump` (firtool) | the design's RTL and its file list |
 | `layers-*.sv` | same, only when the design has layer blocks | the `bind` fragments; the dump adds the roots to `filelist.f` (see the probe section) |
-| `Bufg.sv` | `just fpga-dump` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
+| `Bufg.sv` | `just fpga dump` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
 | `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`Ila.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
 | `ip_*.tcl` | same (`ClockingWizard.emit`) | one snippet per instantiated vendor IP, listed in `ipfiles.f` |
-| `vivado/build_all.tcl` | `just fpga-project` (edalize) | one-shot: project → synthesis → impl → bitstream |
+| `vivado/build_all.tcl` | `just fpga project` (edalize) | one-shot: project → synthesis → impl → bitstream |
 | `vivado/program.tcl` | same | JTAG programming, attaching the impl's `.ltx` probes file |
 | `vivado/nzea_fpga.bit` | `build_all.tcl` | the bitstream |
 | `vivado/nzea_fpga.runs/impl_1/*.ltx` | impl | ILA probes file (without it the hw manager cannot see the ILA core) |
-| `vivado/capture.vcd`, `capture.named.vcd` | `just ila-capture` | the raw and probe-renamed capture |
+| `vivado/capture.vcd`, `capture.named.vcd` | `just fpga capture` | the raw and probe-renamed capture |
 
 Both `build_all.tcl` and `program.tcl` `cd` to the work root first (edalize's scripts assume cwd = work root,
 e.g. run.tcl copies the bitstream to `[pwd]/nzea_fpga.bit`), so they work wherever Vivado is launched.
 
-**Pitfall: `just vivado-build` does NOT regenerate RTL.** It synthesizes the `.sv` files already under
-`build/fpga/.../`. After any Scala/zaozi change you must re-run `just fpga-dump` first, or you build a
+**Pitfall: `just fpga build` does NOT regenerate RTL.** It synthesizes the `.sv` files already under
+`build/fpga/.../`. After any Scala/zaozi change you must re-run `just fpga dump` first, or you build a
 bitstream from stale RTL.
 
 ## IP: how it is created, and where the facts live
@@ -162,7 +162,7 @@ below), so nothing about it goes through the IP machinery.
   (`probe_count[0]` … `[25]`) and is connected in index order; the clock is kept as its own wire (`ila_clock`, the
   sampled domain's net) and resolved like a mark. A search that does not come back with the number of nets the width
   declares fails the build loudly (`ILA: '…' matched N nets`), never silently.
-- `just ila-capture` drives the dump-generated `ila_capture.tcl` in the same batch FHS env: it finds the part,
+- `just fpga capture` drives the dump-generated `ila_capture.tcl` in the same batch FHS env: it finds the part,
   attaches the impl `.ltx` (required — without it `get_hw_ilas` is empty), sets `TRIGGER_POSITION` to
   `depth/4`, triggers immediately (`snapshot` mode; the legacy `reset` mode armed on the tile's uart-reset and
   comes back with the tile), uploads the window and writes `capture.vcd`. Then `probe vcd-rename` applies
@@ -198,7 +198,7 @@ ls -l /dev/serial/by-id/
 
 The `probe` Rust workspace (`probe/cli`, binary `probe/target/release/probe`) already implements
 `load`/`reset`/`monitor`/`memread`/`vcd-rename`, but the tile's boot loader is not on the board yet, so only
-`vcd-rename` is in use today (by `ila-capture.nu`). The `just uart-*` recipes return with the tile.
+`vcd-rename` is in use today (by `ila-capture.nu`). The `just probe` subcommands become useful when the tile lands.
 Note: `probe` is a separate Rust workspace; `linkedProjects` in `.zed/settings.json` disables rust-analyzer
 auto-discovery, so **every new Rust workspace in this repo must be listed there** or rust-analyzer will
 silently not load it.

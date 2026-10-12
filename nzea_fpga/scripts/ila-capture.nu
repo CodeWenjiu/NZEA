@@ -23,7 +23,7 @@ def main [
     let tcl = $"($rtl_dir)/ila_capture.tcl"
     if not ($tcl | path exists) {
         print $"ERROR: ($tcl) missing — this RTL was dumped without the ILA"
-        print "Re-dump and rebuild with just vivado-build, then program."
+        print "Re-dump and rebuild with just fpga build, then program."
         exit 1
     }
 

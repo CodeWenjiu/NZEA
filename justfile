@@ -30,25 +30,12 @@ sta *ARGS:
 test module='nzea_rtl':
     @mill --no-server {{ module }}.test
 
-# Assemble a core-level difftest program (`nzea_core/test/asm/<name>.S`) for one ISA into an ELF under `build/asm/`.
-# The run belongs to remu's own shell — the program's header carries the command.
+# Assemble a core-level difftest program (`nzea_core/test/asm/<name>.S`) for one ISA into an ELF under
+# `build/asm/` (the builder is `nzea_core/test/asm/build-elf.sh`). The run belongs to remu's own shell — the
+# program's header carries the command.
 [group('test')]
 asm-elf name target='riscv32im':
-    #!/usr/bin/env bash
-    set -euo pipefail
-    src="nzea_core/test/asm/{{ name }}.S"
-    dir="build/asm"
-    mkdir -p "$dir"
-    out="$dir/{{ name }}-{{ target }}"
-    case "{{ target }}" in
-    riscv32*) triple=riscv32-unknown-none-elf; march=rv32im; abi=ilp32 ;;
-    riscv64*) triple=riscv64-unknown-none-elf; march=rv64im; abi=lp64  ;;
-    *) echo "asm-elf: unknown target '{{ target }}' (want riscv32* or riscv64*)" >&2; exit 1 ;;
-    esac
-    clang -target "$triple" -march="$march" -mabi="$abi" -mno-relax -c "$src" -o "$out.o"
-    printf 'OUTPUT_ARCH(riscv)\nENTRY(_start)\nSECTIONS {\n  . = 0x80000000;\n  .text : { *(.text*) }\n  .rodata : { *(.rodata*) }\n}\n' > "$out.ld"
-    rust-lld -flavor gnu -T "$out.ld" -o "$out.elf" "$out.o"
-    echo "built $out.elf"
+    @bash nzea_core/test/asm/build-elf.sh {{ name }} {{ target }}
 
 # Run tests matching a class name pattern (e.g., "PrefixAdderTest")
 [group('test')]
@@ -76,91 +63,20 @@ wave path:
     @nix run --impure github:nix-community/nixGL#nixGLIntel -- surfer {{ path }}
 
 # ---- FPGA (lxb_artix7 / Vivado) ----
-# The board's RTL plus its Vivado project in one step: `just dump --target fpga` and the project generator
-# (edalize) that writes build_all.tcl / program.tcl into the board's work root. Positional args are board and isa;
-# the ILA is part of the board design, not a knob. (`name=value` does not work here: just 1.58 passes it through
-# literally.)
-[group('fpga')]
-fpga-dump board='lxb_artix7' isa='riscv32i':
-    @just dump --target fpga --board {{ board }} --isa {{ isa }}
-    @just fpga-project {{ board }} {{ isa }}
-
-# Regenerate only the Vivado project from the RTL already dumped (no re-elaboration).
-[group('fpga')]
-fpga-project board='lxb_artix7' isa='riscv32i':
-    @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
-
-# Build the bitstream headlessly (synth + impl, ~5 min). Requires `just fpga-dump` first: this does not regenerate RTL.
-[group('fpga')]
-vivado-build board='lxb_artix7' isa='riscv32i':
-    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only
-
-# Program the FPGA over JTAG headlessly (board connected, programmed with the ILA build for captures).
-[group('fpga')]
-vivado-program board='lxb_artix7' isa='riscv32i':
-    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
-
-# Build then program, in sequence.
-[group('fpga')]
-vivado-flow board='lxb_artix7' isa='riscv32i':
-    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }}
-
-# Capture an ILA window to VCD and rename its probes for pulse (board programmed with a current build).
-[group('fpga')]
-ila-capture board='lxb_artix7' isa='riscv32i' mode='snapshot':
-    @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --mode {{ mode }}
-
-# ---- legacy oracle ----
-# Runs `git worktree add .oracle legacy-baseline`; the worktree has its own flake, see legacy/README.md.
-# Bring up the frozen pre-migration Chisel core in .oracle/.
-[group('oracle')]
-legacy-oracle:
-    @git worktree add .oracle legacy-baseline
-    @echo "oracle ready — run: cd .oracle && nix develop"
-
-[group('oracle')]
-legacy-oracle-remove:
-    @git worktree remove --force .oracle
-
-# Compare one file against its frozen predecessor while porting it, e.g.
-#   just legacy-diff nzea_rtl/src/bus/LiteBus.scala
-[group('oracle')]
-legacy-diff path:
-    @if [ -f "{{ path }}" ]; then git diff --no-index "legacy/{{ path }}" "{{ path }}" || true; else echo "not ported yet — frozen copy: legacy/{{ path }}"; fi
+# The board flow lives in its own module, beside the scripts that implement it:
+# `just fpga dump|project|build|program|capture` (`just --list fpga`).
+mod fpga 'nzea_fpga/justfile'
 
 # ---- board tools (probe/) ----
-# These talk to a programmed board and do not depend on the core sources.
+# The toolbox talks to a programmed board and does not depend on the core sources. Both recipes are plain
+# pass-throughs: the subcommands and their defaults live in the tools' own `--help`, not in a second copy here.
 
-# Assemble an RV32IM .S test program into a tile boot hex (file mode).
-# Built-in DDR test programs make references to the shared common.S helpers and
-# therefore cannot be assembled standalone - use asm2hex-test for those.
+# probe_cli: `load <hex> <port>`, `reset <port>`, `memread <addr> [port]`, `monitor <port>` — `just probe --help`.
 [group('probe')]
-asm2hex src out:
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p asm2hex -- {{ src }} {{ out }}
+probe *ARGS:
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- {{ ARGS }}
 
-# Assemble a built-in DDR test program into a tile boot hex (see asm2hex --list)
+# asm2hex: assemble a built-in (`--test <name>`, `--list`) or file test program into a tile boot hex.
 [group('probe')]
-asm2hex-test name out:
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p asm2hex -- --test {{ name }} {{ out }}
-
-# Send hex file to tile via UART bootloader (BootFsm protocol through the probe tool)
-[group('probe')]
-uart-load hex port baud='115200':
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- load {{ hex }} {{ port }} --baud {{ baud }}
-
-# Reset the tile CPU over UART (keeps RAM, restarts from the reset vector)
-[group('probe')]
-uart-reset port baud='115200':
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- reset {{ port }} --baud {{ baud }}
-
-# Read one word from a tile address over UART (generated probe program);
-# port empty = auto-discover the CH340 via /dev/serial/by-id
-[group('probe')]
-uart-read addr port='' baud='115200':
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- memread {{ addr }} {{ port }} --baud {{ baud }}
-
-# Attach a streaming serial monitor (timestamps); --reset restarts the CPU right after attaching
-[group('probe')]
-[arg("reset", long="reset", value="--reset")]
-uart-monitor port baud='115200' reset='':
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- monitor {{ port }} --baud {{ baud }} {{ reset }}
+asm2hex *ARGS:
+    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p asm2hex -- {{ ARGS }}

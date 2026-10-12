@@ -1,0 +1,31 @@
+# The fpga level's board flow — `just fpga <recipe>` from the root. It works on the level's own dump tree
+# (`dump --target fpga`), then the Vivado project (edalize), the bitstream, JTAG programming and ILA captures.
+# Positional args are board and isa; `name=value` does not work here (just 1.58 passes it through literally).
+
+# The recipes address mill and the build/ tree from the repo root, like their old homes in the root justfile.
+set working-directory := '..'
+
+_default:
+    @just --list fpga
+
+# The board's RTL plus its Vivado project in one step: the fpga dump and the project generator that writes
+# build_all.tcl / program.tcl into the board's work root.
+dump board='lxb_artix7' isa='riscv32i':
+    @mill --no-server nzea_cli.runMain nzea_cli.Main --target fpga --board {{ board }} --isa {{ isa }}
+    @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
+
+# Regenerate only the Vivado project from the RTL already dumped (no re-elaboration).
+project board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
+
+# Build the bitstream headlessly (synth + impl, ~5 min). Requires `just fpga dump` first: this does not regenerate RTL.
+build board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only
+
+# Program the FPGA over JTAG headlessly (board connected).
+program board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
+
+# Capture an ILA window to VCD and rename its probes for pulse (board programmed with a current build).
+capture board='lxb_artix7' isa='riscv32i' mode='snapshot':
+    @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --mode {{ mode }}

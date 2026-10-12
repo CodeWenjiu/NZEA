@@ -19,7 +19,7 @@ result*
 __pycache__
 *.pyc
 
-# Side worktree holding the frozen pre-migration core (`just legacy-oracle`)
+# Side worktree holding the frozen pre-migration core (see legacy/README.md)
 .oracle
 
 # Agent scratch

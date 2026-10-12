@@ -3,7 +3,7 @@
 Status: **复盘记录** — 记录 DDR3 从"无法工作"到"稳定读写"的完整调试历程，提炼项目可改进点。作为后续优化的设计参考。
 
 路径说明（2026-09-27）：文中的 `nzea_fpga/`、`nzea_tile/` 等路径是迁移前（Chisel 树）的快照，现已冻结在 `legacy/`
-（tag `legacy-baseline`）；文中的 `just vivado-*` 等命令需在 `just legacy-oracle` 工作区里运行。
+（tag `legacy-baseline`）；文中的 `just vivado-*` 等命令需在 `legacy-baseline` 的 worktree 里运行（见 `legacy/README.md`）。
 
 ## 背景
 

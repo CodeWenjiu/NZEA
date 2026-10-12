@@ -26,14 +26,16 @@ The complete, buildable pre-migration repository is frozen at tag
 `legacy-baseline`. To run it, materialize it in a side worktree:
 
 ```sh
-just legacy-oracle            # git worktree add .oracle legacy-baseline
+git worktree add .oracle legacy-baseline
 cd .oracle && nix develop     # its own flake pins JDK + mill + CIRCT
 just iv tile yosys riscv32i   # the legacy commands work there unchanged
-just legacy-oracle-remove     # back at the repo root, delete it again
+cd .. && git worktree remove --force .oracle   # back at the root, delete it again
 ```
 
 Use it to re-measure a baseline (IPC, WNS, cell counts), to generate reference
 RTL for comparison, or to run the FPGA flow while the rewrite is in flight.
+To compare one file against its frozen predecessor while porting it:
+`git diff --no-index legacy/<path> <path>`.
 
 ## Rules
 
