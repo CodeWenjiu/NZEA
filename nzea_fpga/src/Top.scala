@@ -6,8 +6,10 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_fpga.ip.{ClockPlan, ClockingWizard, ClockingWizardParameter, IlaProbes}
+import nzea_fpga.debug.Ila
+import nzea_fpga.ip.{ClockPlan, ClockingWizard, ClockingWizardParameter}
 import nzea_fpga.primitives.{Bufg, BufgParameter}
+import nzea_rtl.probe.Probes
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -36,8 +38,8 @@ class TopProbe(parameter: TopParameter) extends DVRecord[TopParameter, TopLayers
 /** The fpga level's top: a bring-up design — the clocking wizard and two blinkers, one per clock domain — plus the
   * level's IP paths.
   *
-  * Nothing here is board-specific but the pin names, which the constraints (the xdc files under `boards/<board>/`)
-  * bind by name — a board whose pins differ forks this file when it needs to.
+  * Nothing here is board-specific but the pin names, which the constraints (the xdc files under `boards/<board>/`) bind
+  * by name — a board whose pins differ forks this file when it needs to.
   *
   * Two blinkers on purpose: LED1 is driven from the 50 MHz oscillator directly, LED2 from the wizard's 100 MHz output,
   * so a board where only LED1 blinks says the wizard's clock path (or its IP) is at fault. The button is asynchronous
@@ -67,18 +69,18 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         clk50Buffer.io.I := clk50Pin
         val clk50 = clk50Buffer.io.O
 
-        // The board's instrumentation, opened first: the ILA is a debug core the netlist flow creates, and the RTL
-        // states what it watches. The table opens before anything is instantiated — a submodule that declares a
-        // watchable signal (`Blink`'s counter) runs its body at its instantiation.
+        // The board's instrumentation: what the design watches is declared where the signal lives (`Probes` — the
+        // declarations are unconditional, there is no table to open first), and the ILA is this level's consumer of
+        // that table. It is a debug core the netlist flow creates, not an RTL instance.
         //
         // Not the probe mechanism (`nzea_rtl.probe`): it lowers to SystemVerilog `bind`, and Vivado *synthesis*
         // silently drops `bind` (verified: the bound module never reaches the netlist, and the ILA core disappears from
         // the build without a warning). What does reach it is `mark_debug`: a declaration keeps a wire named after the
         // signal and marks it for the netlist debug flow, which connects the ILA core to those nets after synthesis
-        // ([[IlaProbes]] writes the script; `create_debug_core` only exists on the synthesized netlist). A declaration
+        // ([[Ila]] writes the script; `create_debug_core` only exists on the synthesized netlist). A declaration
         // can sit beside the signal it declares at any depth — no port threading — which is the point of the mechanism.
-        val probes = IlaProbes("u_ila_0", 1024)
-        probes.clock(clk50)
+        val ila = Ila("u_ila_0", 1024)
+        ila.clock(clk50)
 
         // The reset chain: the button is asynchronous and active-low, and the synchronizer hands on an active-low reset
         // (a `Reset` whose zero is the asserted state, which is the polarity every module below declares).
@@ -112,10 +114,11 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         // What is watched: the top's own observables, marked where it holds them, and the blinkers' counters,
         // declared beside the counters (`Blink`) and bound to the instances that matter — the binding is stated where
         // the instance is named, which a shared module body cannot know for itself. Each probe's width is the signal's
-        // own, so the core's probe list, the debug script, the rename map and the capture script all come from here.
-        probes.mark("reset")(!resetN.asBool)
-        probes.mark("locked")(locked)
-        probes.mark("led1")(led1)
-        probes.mark("led2")(led2)
-        probes.watch(blink50, "count")
-        probes.watch(blink100, "count")
+        // own, so the core's probe list, the debug script, the rename map and the capture script all come from these
+        // declarations.
+        Probes.mark("reset")(!resetN.asBool)
+        Probes.mark("locked")(locked)
+        Probes.mark("led1")(led1)
+        Probes.mark("led2")(led2)
+        Probes.watch(blink50, "count")
+        Probes.watch(blink100, "count")

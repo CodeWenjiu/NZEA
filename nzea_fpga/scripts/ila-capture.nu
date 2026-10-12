@@ -2,7 +2,7 @@
 
 # Capture an ILA window to VCD on a programmed board, then rename the probes to their semantic names for pulse.
 #
-# Drives the dump-generated `ila_capture.tcl` (written by IlaProbes.emit beside the RTL) inside the batch Vivado FHS
+# Drives the dump-generated `ila_capture.tcl` (written by Ila.emit beside the RTL) inside the batch Vivado FHS
 # environment, then runs `probe vcd-rename` with the map the same emission wrote.
 #
 # Usage:

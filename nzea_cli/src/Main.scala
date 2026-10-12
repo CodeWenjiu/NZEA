@@ -3,7 +3,8 @@ package nzea_cli
 import mainargs.{arg, main, ParserForClass}
 import nzea_core.config.CoreConfig
 import nzea_fpga.{FpgaElaborate, TopParameter}
-import nzea_fpga.ip.{ClockingWizard, IlaProbes}
+import nzea_fpga.debug.Ila
+import nzea_fpga.ip.ClockingWizard
 import nzea_fpga.primitives.Bufg
 import nzea_rtl.{Elaborate, RtlFlow}
 import nzea_rtl.stat.{StatRegistry, StatSchema}
@@ -147,7 +148,7 @@ object Main:
             SyncRam.emitModules(outDir)
             Bufg.emitModules(outDir)
             ClockingWizard.emit(outDir)
-            IlaProbes.emit(outDir)
+            Ila.emit(outDir)
         println(s"elaborated fpga:${cli.board} into $outDir")
 
     /** The hand-written bodies and the counter schema the RTL instantiates, written beside the RTL they belong to. */

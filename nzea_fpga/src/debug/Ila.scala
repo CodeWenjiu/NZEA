@@ -1,4 +1,4 @@
-package nzea_fpga.ip
+package nzea_fpga.debug
 
 import java.lang.foreign.Arena
 
@@ -7,100 +7,53 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.DumpRegistry
-import org.llvm.mlir.scalalib.capi.ir.{given_AttributeApi, given_OperationApi, Block, Context}
+import nzea_rtl.probe.{ProbePlace, Probes}
+import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 import scala.collection.mutable
 
-/** The ILA's probe table: what the design watches, stated by declaring it where the signal lives and binding it where
-  * the instance is known.
+/** The fpga level's consumer of the probe table ([[Probes]]): the ILA — a debug core the netlist debug flow creates on
+  * the synthesized netlist, not an RTL instance.
   *
-  * A signal is *declared* beside itself — [[IlaProbes.declare]] keeps a wire named `ila_<name>` for it and declares it
-  * `mark_debug` (the attribute Vivado's netlist debug flow preserves nets by) — and a *binding* ([[watch]]) turns a
-  * declaration into a probe of one instance: the debug script resolves that instance's net by name in the synthesized
-  * netlist, so nothing has to be threaded up the hierarchy, which is what lets a declaration sit at any depth.
+  * The RTL's half is the declarations: each keeps a wire named `probe_<name>` carrying `mark_debug`, which is what the
+  * netlist debug flow preserves the net by. This half turns the declared entries into the three artifacts the flow
+  * reads — the debug script the implementation run sources (`ila_debug.tcl`), the capture script the hardware manager
+  * runs (`ila_capture.tcl`), and the rename map the capture flow applies (`ila_probes.map`) — and keeps the sampling
+  * clock's own wire.
   *
-  * The two statements exist because a module's body is shared by every instance of it: the body can state that a signal
-  * is watchable, but not *which* instance a probe should mean — that is stated where the instance is named. [[mark]] is
-  * the one-line form of both, for a signal whose instance is known where it lives (the top's own signals, a module
-  * instantiated once).
-  *
-  * Names are one namespace: a declaration's name is what a binding searches for, and the search must come back with the
-  * number of nets the declaration's width says — so a name must be unique in the design, and a binding is per instance.
-  *
-  * One ILA per dump: the core's name and its depth belong to the table, and its artifacts are single files, named after
+  * One ILA per dump: the core's name and its depth are this consumer's, and its artifacts are single files, named after
   * what the flow hands the project rather than after the core.
   */
-object IlaProbes:
+object Ila:
 
-    /** The tables this dump built, in construction order; cleared with the rest of a dump's state. */
-    private val built = mutable.ArrayBuffer.empty[IlaProbes]
+    /** The ILAs this dump opened, in construction order; cleared with the rest of a dump's state. */
+    private val built = mutable.ArrayBuffer.empty[Ila]
 
     DumpRegistry.onReset(() => built.clear())
 
-    /** The dump's probe table: what the artifacts are written from and what a check reads. */
-    def table: IlaProbes = built.headOption.getOrElse(
-        throw new IllegalStateException("no ILA probes were marked in this elaboration")
+    /** The dump's ILA: what the artifacts are written from and what a check reads. */
+    def table: Ila = built.headOption.getOrElse(
+        throw new IllegalStateException("no ILA was opened in this elaboration")
     )
 
-    /** Open a table for the ILA the debug script creates: `coreName` names the debug core and `depth` is the capture
-      * window (a power of two — the core's `C_DATA_DEPTH`).
+    /** Open an ILA for the debug script to create: `coreName` names the debug core and `depth` is the capture window (a
+      * power of two — the core's `C_DATA_DEPTH`).
       */
-    def apply(coreName: String, depth: Int): IlaProbes =
+    def apply(coreName: String, depth: Int): Ila =
         require(depth >= 2 && Integer.bitCount(depth) == 1, s"depth must be a power of two >= 2, got $depth")
-        val probes = new IlaProbes(coreName, depth)
-        built += probes
-        probes
-
-    /** Declare `value` watchable, from where the signal lives: keep a wire named `ila_<name>` for it, declare it
-      * `mark_debug`, and record the declaration for a binding to name.
-      *
-      * The wire is what synthesis preserves the net as, and its width is the value's own. `name` is the one fact the
-      * caller states; a design with no ILA has nothing to record for and only carries the wire.
-      */
-    def declare[T <: Element](name: String)(value: Referable[T])(using
-        arena: Arena,
-        context: Context,
-        block: Block,
-        typeImpl: TypeImpl,
-        instanceContext: InstanceContext,
-        file: sourcecode.File,
-        line: sourcecode.Line
-    ): Unit =
-        keep(s"ila_$name", value, Seq(VerilogAttribute("mark_debug", Some("\"true\""))))
-        val width = value.width(using arena, context, typeImpl)
-        built.foreach(_.recordDeclaration(name, width))
+        val ila = new Ila(coreName, depth)
+        built += ila
+        ila
 
     /** Write the table's artifacts into `dir`: the debug script (what the implementation run sources), the capture
       * script (the depth's trigger position baked in) and the rename map.
       */
     def emit(dir: os.Path): Unit = table.emit(dir)
 
-    /** The kept wire and its name: the one statement [[declare]] and [[clock]] both make. `NodeWithAttributes` names by
-      * `sourcecode.Name.Machine`, so the wire is named by the caller rather than after whatever binds the call: the
-      * name is part of the interface (the debug script's search, the rename map's key), not an accident of the call
-      * site. It also holds the value down (the dont-touch annotation): an attribute rides a declaration, and a value
-      * the compiler folds into its user leaves the attribute nowhere to go.
-      */
-    private def keep[T <: Element](net: String, value: Referable[T], attributes: Seq[VerilogAttribute])(using
-        arena: Arena,
-        context: Context,
-        block: Block,
-        file: sourcecode.File,
-        line: sourcecode.Line,
-        instanceContext: InstanceContext
-    ): Unit =
-        val _ = NodeWithAttributes(value, attributes)(using
-            arena,
-            context,
-            block,
-            file,
-            line,
-            sourcecode.Name.Machine(net),
-            instanceContext
-        )
-
-/** One elaboration's probe table, built by [[IlaProbes.apply]] and filled in by [[IlaProbes.declare]] and [[watch]]. */
-final class IlaProbes private (val coreName: String, val depth: Int):
+/** One elaboration's ILA: [[Probes.table]] read as the debug flow's artifacts. It holds nothing but its own identity —
+  * the probes are read from the table when the artifacts are, which is the dump's own window.
+  */
+final class Ila private (val coreName: String, val depth: Int):
 
     /** One probe: how the debug script resolves it, the netlist name pattern it resolves to, the name a waveform shows
       * it as, its width, and the keys the export's signal names are expected to contain ([[probeMap]]).
@@ -113,64 +66,20 @@ final class IlaProbes private (val coreName: String, val depth: Int):
     private enum Resolve:
         case Leaf, Path
 
-    private val probes = mutable.ArrayBuffer.empty[Probe]
-
     private var clockNet: Option[String] = None
 
-    /** The signals the design declared watchable, by name: what a binding looks up. */
-    private val declared = mutable.LinkedHashMap.empty[String, Int]
-
-    private def recordDeclaration(name: String, width: Int): Unit =
-        require(
-            !declared.contains(name),
-            s"'$name' is declared watchable twice — a declaration's name is what a binding searches for, so it names one signal"
-        )
-        declared(name) = width
-
-    /** Mark `value` watched: declare it and bind it here — the one-line form for a signal whose instance is known where
-      * it lives (the top's own signals, a module instantiated once). Otherwise declare it at the signal
-      * ([[IlaProbes.declare]]) and bind it ([[watch]]) where the instance is named.
+    /** The declared entries as probes, in binding order: a leaf entry resolves by its unique name (`*<net>*`), an
+      * instance binding at the instance's own level (`*<instance>/<net>*`) and shows as `<instance>_<name>`.
       */
-    def mark[T <: Element](name: String)(value: Referable[T])(using
-        arena: Arena,
-        context: Context,
-        block: Block,
-        typeImpl: TypeImpl,
-        instanceContext: InstanceContext,
-        file: sourcecode.File,
-        line: sourcecode.Line
-    ): Unit =
-        IlaProbes.declare(name)(value)
-        probes += Probe(Resolve.Leaf, s"*ila_$name*", name, declared(name), Seq(s"ila_$name"))
-
-    /** Bind the signal an instance declares: one probe of that instance, named `<instance>_<name>`. The instance's own
-      * name is read from its op — the binding repeats no string the instantiation already made.
-      *
-      * A synthesized net carries its hierarchy path around the leaf, so the probe addresses the instance's own level
-      * (`*<instance>/<leaf>*`) wherever the instance sits, and a shared body's other instances are simply other levels;
-      * the width check tells a wrong instance or a missing declaration apart from a match that is not the one declared.
-      */
-    def watch(instance: Instance[?, ?], name: String)(using
-        arena: Arena,
-        context: Context,
-        typeImpl: TypeImpl
-    ): Unit =
-        val width = declared.getOrElse(
-            name,
-            throw new IllegalArgumentException(
-                s"no declaration named '$name' — declare it at the signal (`IlaProbes.declare`) first"
-            )
-        )
-        val instanceName =
-            instance.operation(using typeImpl).getInherentAttributeByName("name").stringAttrGetValue(using arena)
-        val leaf = s"ila_$name"
-        probes += Probe(
-            Resolve.Path,
-            s"*${instanceName}/$leaf*",
-            s"${instanceName}_$name",
-            width,
-            Seq(s"$instanceName/$leaf")
-        )
+    private def probes: Seq[Probe] = Probes.table.map { entry =>
+        val net = s"probe_${entry.name}"
+        entry.place match
+            case ProbePlace.Leaf =>
+                Probe(Resolve.Leaf, s"*$net*", entry.name, entry.width, Seq(net))
+            case ProbePlace.Instance(instance) =>
+                val semantic = s"${instance}_${entry.name}"
+                Probe(Resolve.Path, s"*$instance/$net*", semantic, entry.width, Seq(s"$instance/$net"))
+    }
 
     /** Mark the clock the core samples on: keep a wire for it (`ila_clock`) and record it as the core's clock. A debug
       * core has one clock — the domain all its probes must belong to — and the kept wire is a net of that domain (the
@@ -185,13 +94,13 @@ final class IlaProbes private (val coreName: String, val depth: Int):
         sourcecode.Line
     ): Unit =
         require(clockNet.isEmpty, s"the ILA samples one clock; ${clockNet.get} is already kept")
-        IlaProbes.keep("ila_clock", value, Seq(VerilogAttribute("keep", None)))
+        Probes.keepNet("ila_clock", value, Seq(VerilogAttribute("keep", None)))
         clockNet = Some("ila_clock")
 
     /** The name patterns the probes resolve to, in probe order — what the debug script searches for. */
-    def patterns: Seq[String] = probes.map(_.pattern).toSeq
+    def patterns: Seq[String] = probes.map(_.pattern)
 
-    /** Write this table's artifacts into `dir`: the debug script, the capture script and the rename map. */
+    /** Write this ILA's artifacts into `dir`: the debug script, the capture script and the rename map. */
     def emit(dir: os.Path): Unit =
         os.makeDir.all(dir)
         os.write.over(dir / "ila_debug.tcl", debugTcl)
@@ -199,10 +108,10 @@ final class IlaProbes private (val coreName: String, val depth: Int):
         os.write.over(dir / "ila_probes.map", probeMap)
 
     /** The names the probes show as, in probe order. */
-    def names: Seq[String] = probes.map(_.semantic).toSeq
+    def names: Seq[String] = probes.map(_.semantic)
 
     /** The probes' widths, in probe order. */
-    def widths: Seq[Int] = probes.map(_.width).toSeq
+    def widths: Seq[Int] = probes.map(_.width)
 
     /** The debug script: what the implementation run sources before `opt_design` (`build_all.tcl` attaches it as
       * `STEPS.OPT_DESIGN.TCL.PRE` on `impl_1`). There the design is the synthesized netlist — `create_debug_core` only
@@ -214,10 +123,11 @@ final class IlaProbes private (val coreName: String, val depth: Int):
       */
     def debugTcl: String =
         val clock = clockNet.getOrElse(
-            throw new IllegalStateException("the ILA's clock was never kept — call IlaProbes.clock")
+            throw new IllegalStateException("the ILA's clock was never kept — call Ila.clock")
         )
+        val probes = this.probes
         val header = Seq(
-            "# The ILA debug core — generated by IlaProbes.emit, do not edit.",
+            "# The ILA debug core — generated by Ila.emit, do not edit.",
             "#",
             "# The implementation run sources this before opt_design: the design there is the synthesized netlist, the",
             "# wires the RTL declared `mark_debug` are nets by name, and create_debug_core — which only exists after",
@@ -281,13 +191,14 @@ final class IlaProbes private (val coreName: String, val depth: Int):
       * which is unique by construction.
       */
     def probeMap: String =
+        val probes = this.probes
         val netLines = probes.flatMap(probe => probe.netKeys.map(key => s"$key ${probe.semantic}"))
         val portLines = probes.zipWithIndex.map((probe, i) => s"probe$i ${probe.semantic}")
         (netLines ++ portLines).mkString("", "\n", "\n")
 
     /** The capture script, with the depth-derived trigger position baked in. */
     def captureTcl: String =
-        s"""# ILA capture for the board top — generated by IlaProbes.emit, do not edit.
+        s"""# ILA capture for the board top — generated by Ila.emit, do not edit.
            |#
            |# Usage: vivado -mode batch -source ila_capture.tcl -tclargs <part> [mode]
            |#   part  the FPGA's part, e.g. xc7a200tfbg484-2

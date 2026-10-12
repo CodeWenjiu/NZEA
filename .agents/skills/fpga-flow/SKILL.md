@@ -81,7 +81,7 @@ board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 | `*.sv`, `filelist.f` | `just fpga-dump` (firtool) | the design's RTL and its file list |
 | `layers-*.sv` | same, only when the design has layer blocks | the `bind` fragments; the dump adds the roots to `filelist.f` (see the probe section) |
 | `Bufg.sv` | `just fpga-dump` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
-| `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`IlaProbes.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
+| `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`Ila.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
 | `ip_*.tcl` | same (`ClockingWizard.emit`) | one snippet per instantiated vendor IP, listed in `ipfiles.f` |
 | `vivado/build_all.tcl` | `just fpga-project` (edalize) | one-shot: project → synthesis → impl → bitstream |
 | `vivado/program.tcl` | same | JTAG programming, attaching the impl's `.ltx` probes file |
@@ -128,19 +128,22 @@ below), so nothing about it goes through the IP machinery.
 
 ## ILA: probes, capture, and pulse
 
-- **The ILA is a debug core the netlist flow creates, not RTL.** The RTL only states what to watch, in two steps: a
-  signal is *declared* where it lives — `IlaProbes.declare("<name>")(<value>)`, one line in the owning module (e.g.
-  `Blink`'s counter) — and *bound* where the instance is named, `probes.watch(<instance>, "<name>")`, which makes one
-  probe of that instance, shown as `<instance>_<name>`. Each declaration keeps a wire named `ila_<name>` carrying
+- **The ILA is a debug core the netlist flow creates, not RTL.** The RTL only states what to watch: a signal is
+  *declared* where it lives — `Probes.declare("<name>")(<value>)` (`nzea_rtl.probe`, one line in the owning module,
+  e.g. `Blink`'s counter) — and *bound* where the instance is named, `Probes.watch(<instance>, "<name>")`, which makes
+  one probe of that instance, shown as `<instance>_<name>`. Each declaration keeps a wire named `probe_<name>` carrying
   `(* mark_debug = "true" *)` (what Vivado preserves a net by) and takes the value's **own width**;
-  `probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
+  `Probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
   (the top's own). Current probes: `reset, locked, led1, led2` (top-level marks) and `blink50_count, blink100_count`
   (the blinkers' counters, declared in `Blink`, bound per instance), depth 1024, sampled on the design's buffered
   50 MHz clock (kept as the wire `ila_clock`).
+- **Declarations are unconditional; the consumer is the level's.** They are collected in a dump-level table
+  (`nzea_rtl.probe.Probes`, cleared by `DumpRegistry` like the rest of a dump's state), and the fpga level's consumer
+  is `nzea_fpga.debug.Ila` — `Ila("<core>", <depth>)`, `Ila.clock(<net>)` for the anchor, `Ila.emit(<dir>)` for the
+  three artifacts. A level with no consumer simply carries the wires; a future consumer (a simulator, another vendor's
+  flow) reads the same `Probes.table` its own way.
 - **Why two steps**: a module body is shared by every instance, so it cannot say *which* instance a probe means — the
-  binding is stated where the instance is named. Declaration names are one namespace and must be unique in the design;
-  a declaration made in a design with no ILA table is a no-op that still carries the wire (`IlaProbes.declare` is on
-  the object, not the table).
+  binding is stated where the instance is named. Declaration names are one namespace and must be unique in the design.
 - **A declaration can sit beside its signal at any depth — no port threading — which is the point of the mechanism.** The
   layer/probe mechanism (`nzea_rtl/test/src/probe/ProbeLayerTest.scala` pins it) is *not* usable for a board ILA: it
   lowers to SystemVerilog `bind`, and **Vivado synthesis silently drops `bind`** — the bound module never reaches the
@@ -153,9 +156,9 @@ below), so nothing about it goes through the IP machinery.
   implements debug cores automatically — do **not** call `implement_debug_core` there, it demands a saved design).
 - **The script finds every net by name, in the mode the binding made**: a marked signal by leaf through the hierarchy
   (`get_nets -hier` — which is what lets a declaration sit at any depth), a bound one at the instance's own level by
-  path (`get_nets` *without* `-hier`, e.g. `*blink50/ila_count*`; `-hier` matches leaf names only, so a path is the
+  path (`get_nets` *without* `-hier`, e.g. `*blink50/probe_count*`; `-hier` matches leaf names only, so a path is the
   only way to tell a shared body's instances apart). A declared bus survives synthesis bit by bit
-  (`ila_count[0]` … `[25]`) and is connected in index order; the clock is kept as its own wire (`ila_clock`, the
+  (`probe_count[0]` … `[25]`) and is connected in index order; the clock is kept as its own wire (`ila_clock`, the
   sampled domain's net) and resolved like a mark. A search that does not come back with the number of nets the width
   declares fails the build loudly (`ILA: '…' matched N nets`), never silently.
 - `just ila-capture` drives the dump-generated `ila_capture.tcl` in the same batch FHS env: it finds the part,
@@ -164,7 +167,7 @@ below), so nothing about it goes through the IP machinery.
   comes back with the tile), uploads the window and writes `capture.vcd`. Then `probe vcd-rename` applies
   `ila_probes.map` → `capture.named.vcd`.
 - **The rename map keys on the declared nets, not on `probeN`.** Vivado's export names the probes after the *nets* the
-  core samples (`reset` for `ila_reset`; a bound bus as `blink50/ila_count[25:0]`), so the map's net keys do the
+  core samples (`reset` for `probe_reset`; a bound bus as `blink50/probe_count[25:0]`), so the map's net keys do the
   renaming; the bare `probeN` keys beside them catch an export that names the signal after the core's port. Every key
   is generated from the declarations, so a rename cannot make the map and the RTL drift apart.
 - **pulse semantics for this export**: the VCD's timescale is `1 ps` and timestamps are per-sample (10 ns step

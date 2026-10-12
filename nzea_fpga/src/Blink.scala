@@ -6,7 +6,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_fpga.ip.IlaProbes
+import nzea_rtl.probe.Probes
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -53,6 +53,7 @@ object Blink extends Generator[BlinkParameter, BlinkLayers, BlinkIO, BlinkProbe]
         io.led := !Node(count.asBits).bit(parameter.width - 1)
 
         // The counter is this module's signal, so it declares itself watchable here: the declaration keeps a wire and
-        // marks it for the netlist debug flow. Whether an instance is watched is the parent's call — this body is shared
-        // by every instance, so only the parent knows which one a probe should mean.
-        IlaProbes.declare("count")(count)
+        // marks it for the netlist debug flow (`nzea_rtl.probe.Probes`; whether a level consumes the table is that
+        // level's business). Whether an instance is watched is the parent's call — this body is shared by every
+        // instance, so only the parent knows which one a probe should mean.
+        Probes.declare("count")(count)

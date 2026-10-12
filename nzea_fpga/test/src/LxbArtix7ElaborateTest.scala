@@ -2,7 +2,8 @@ package nzea_fpga
 
 import utest.*
 
-import nzea_fpga.ip.{ClockPlan, ClockPrimitive, ClockingWizard, ClockingWizardParameter, IlaProbes}
+import nzea_fpga.debug.Ila
+import nzea_fpga.ip.{ClockPlan, ClockPrimitive, ClockingWizard, ClockingWizardParameter}
 import nzea_rtl.TestFlow
 
 /** What the board top's shape is: its pins (the XDC's names), the modules and IP it instantiates, the tcl the IPs are
@@ -27,8 +28,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
     private val clockPlan = ClockPlan(50.0, Seq(200.0, 100.0))
 
     /** The probes the board watches, as its `mark` and `watch` calls state them: each name a waveform shows and its
-      * width. The table itself is built during the elaboration ([[IlaProbes.table]]), and there is one elaboration in
-      * this suite, so every test below reads the table of the dump `sv` names.
+      * width. The table itself is built during the elaboration ([[Ila.table]]), and the snapshots below are taken in
+      * the dump's own window, so every test reads this dump's table.
       */
     private val watched = Seq(
         "reset" -> 1,
@@ -43,17 +44,17 @@ object LxbArtix7ElaborateTest extends TestSuite:
       * the instance's own level by path — the binding knows the instance, the shared module body does not.
       */
     private val patterns = Seq(
-        "*ila_reset*",
-        "*ila_locked*",
-        "*ila_led1*",
-        "*ila_led2*",
-        "*blink50/ila_count*",
-        "*blink100/ila_count*"
+        "*probe_reset*",
+        "*probe_locked*",
+        "*probe_led1*",
+        "*probe_led2*",
+        "*blink50/probe_count*",
+        "*blink100/probe_count*"
     )
 
     /** One blinker of its own, at a width the top's build did not use — a generator dumps its module once per parameter
-      * per JVM, so the same parameter would be served from that dump. Lowered with no ILA table open: a declaration is
-      * the module's own statement, and a design with nothing to watch simply has nothing to record for.
+      * per JVM, so the same parameter would be served from that dump. Lowered with no consumer: a declaration is the
+      * module's own statement, and a level that watches nothing simply carries the wires.
       */
     private lazy val blinkSv = TestFlow.lower(
         Blink.moduleName(BlinkParameter(27)),
@@ -61,10 +62,23 @@ object LxbArtix7ElaborateTest extends TestSuite:
         cfg => Blink.main(Array("design", cfg.toString))
     )
 
-    /** The table of the elaboration `sv` lowered, taken now rather than read per test: a later elaboration in this JVM
-      * (the standalone blinker below) resets the per-dump registries, and this table is this dump's.
+    /** The dump's ILA and its views, snapped in the dump's own window: a later elaboration in this JVM (the standalone
+      * blinker below) resets the registry the probes were collected in, so everything derived from the collection is
+      * read here, before that elaboration runs. The artifacts are written the same way — the emit and the reads of its
+      * files happen now, not when the test below runs.
       */
-    private val table = { val _ = sv; IlaProbes.table }
+    private val ila = { val _ = sv; Ila.table }
+    private val probeNames = ila.names
+    private val probeWidths = ila.widths
+    private val probePatterns = ila.patterns
+    private val debugTcl = ila.debugTcl
+
+    private val artifacts =
+        val dir = os.temp.dir(prefix = "nzea-ila")
+        try
+            ila.emit(dir)
+            (os.read(dir / "ila_debug.tcl"), os.read(dir / "ila_probes.map"), os.read(dir / "ila_capture.tcl"))
+        finally os.remove.all(dir)
 
     val tests = Tests:
 
@@ -117,19 +131,19 @@ object LxbArtix7ElaborateTest extends TestSuite:
 
         test("a declaration is the module's own: the wire and the attribute are in its Verilog, ports unchanged"):
             assert(blinkSv.contains("(* mark_debug = \"true\" *)"))
-            assert(blinkSv.contains("ila_count"))
+            assert(blinkSv.contains("probe_count"))
             assert(TestFlow.ports(blinkSv, "Blink") == Map("clock" -> 1, "resetN" -> 1, "led" -> 1, "count" -> 27))
 
         test("the probe table is the wiring's: what is watched, as what, and how it resolves"):
-            assert(table.names == watched.map(_._1))
-            assert(table.widths == watched.map(_._2))
-            assert(table.patterns == patterns)
+            assert(probeNames == watched.map(_._1))
+            assert(probeWidths == watched.map(_._2))
+            assert(probePatterns == patterns)
 
         test("a binding names a declaration that exists"):
             // The bound probes are in the table, so `watch` found the blinkers' declarations; a binding of a name no
             // module declared fails the elaboration instead of reaching a build.
-            assert(table.patterns.contains("*blink50/ila_count*"))
-            assert(table.patterns.contains("*blink100/ila_count*"))
+            assert(probePatterns.contains("*blink50/probe_count*"))
+            assert(probePatterns.contains("*blink100/probe_count*"))
 
         test("the clocking wizard's tcl follows the plan"):
             val tcl = ClockingWizard.tcl(ClockingWizardParameter("clk_wiz_0", clockPlan))
@@ -167,9 +181,9 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(intercept[IllegalArgumentException](ClockPlan(50.0, Seq(33.3333))).getMessage.contains("kHz grid"))
 
         test("the ILA's debug script follows the probe table"):
-            val tcl = table.debugTcl
+            val tcl = debugTcl
             assert(tcl.contains("create_debug_core u_ila_0 ila"))
-            assert(tcl.contains(s"set_property C_DATA_DEPTH ${table.depth} [get_debug_cores u_ila_0]"))
+            assert(tcl.contains(s"set_property C_DATA_DEPTH ${ila.depth} [get_debug_cores u_ila_0]"))
             // probe0 comes with the core; every further probe is one more port, at the width declared.
             assert(tcl.split("create_debug_port u_ila_0 probe").length - 1 == watched.size - 1)
             assert(tcl.contains("connect_debug_port u_ila_0/clk [ila_leaf {*ila_clock*} 1]"))
@@ -183,24 +197,20 @@ object LxbArtix7ElaborateTest extends TestSuite:
                 )
 
         test("the ILA's artifacts follow the probe table"):
-            val dir = os.temp.dir(prefix = "nzea-ila")
-            try
-                table.emit(dir)
-                // The debug script is the table's own text: what the implementation run sources is what was stated.
-                assert(os.read(dir / "ila_debug.tcl") == table.debugTcl)
-                val map = os.read(dir / "ila_probes.map")
-                // One net key and one probe-port key per probe: the net name when the export keeps it, the port name when
-                // it does not.
-                val netKeys = Seq(
-                    "ila_reset" -> "reset",
-                    "ila_locked" -> "locked",
-                    "ila_led1" -> "led1",
-                    "ila_led2" -> "led2",
-                    "blink50/ila_count" -> "blink50_count",
-                    "blink100/ila_count" -> "blink100_count"
-                )
-                for (key, name) <- netKeys do assert(map.contains(s"$key $name"))
-                for (name, i) <- watched.map(_._1).zipWithIndex do assert(map.contains(s"probe$i $name"))
-                // The capture script bakes the depth's trigger position in, so it tracks the map.
-                assert(os.read(dir / "ila_capture.tcl").contains(s"CONTROL.TRIGGER_POSITION ${table.depth / 4}"))
-            finally os.remove.all(dir)
+            val (debug, map, capture) = artifacts
+            // The debug script is the table's own text: what the implementation run sources is what was stated.
+            assert(debug == debugTcl)
+            // One net key and one probe-port key per probe: the net name when the export keeps it, the port name when
+            // it does not.
+            val netKeys = Seq(
+                "probe_reset" -> "reset",
+                "probe_locked" -> "locked",
+                "probe_led1" -> "led1",
+                "probe_led2" -> "led2",
+                "blink50/probe_count" -> "blink50_count",
+                "blink100/probe_count" -> "blink100_count"
+            )
+            for (key, name) <- netKeys do assert(map.contains(s"$key $name"))
+            for (name, i) <- watched.map(_._1).zipWithIndex do assert(map.contains(s"probe$i $name"))
+            // The capture script bakes the depth's trigger position in, so it tracks the map.
+            assert(capture.contains(s"CONTROL.TRIGGER_POSITION ${ila.depth / 4}"))
