@@ -1,4 +1,4 @@
-package nzea_fpga
+package nzea_device.devices
 
 import java.lang.foreign.Arena
 

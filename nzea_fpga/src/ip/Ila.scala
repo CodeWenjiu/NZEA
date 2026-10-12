@@ -1,4 +1,4 @@
-package nzea_fpga.debug
+package nzea_fpga.ip
 
 import java.lang.foreign.Arena
 

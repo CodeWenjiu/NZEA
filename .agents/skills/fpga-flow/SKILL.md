@@ -9,7 +9,7 @@ Run the FPGA pipeline for the lxb_artix7 board headlessly: generate RTL → buil
 impl) → program the board over JTAG → capture an ILA window for pulse. This skill captures the environment
 knowledge (Vivado is not on PATH, runs in an FHS nix shell) and the exact commands.
 
-**Current state (2026-10-12)**: the board top is the bring-up design — `boards/lxb_artix7/Top.scala` (`Top`, module
+**Current state (2026-10-12)**: the board top is the bring-up design — `nzea_fpga/src/Top.scala` (`Top`, module
 `Top`) = the clocking wizard + two blinkers, watched by an ILA debug core the netlist flow creates — so the pipeline below
 ends at "the LEDs blink and an ILA window is readable". The tile (and with it the
 UART boot loader, `just uart-load`/`uart-reset`/`uart-monitor`, and the reset-triggered ILA mode) is not on the
@@ -130,16 +130,17 @@ below), so nothing about it goes through the IP machinery.
 
 - **The ILA is a debug core the netlist flow creates, not RTL.** The RTL only states what to watch: a signal is
   *declared* where it lives — `Probes.declare("<name>")(<value>)` (`nzea_rtl.probe`, one line in the owning module,
-  e.g. `Blink`'s counter) — and *bound* where the instance is named, `Probes.watch(<instance>, "<name>")`, which makes
-  one probe of that instance, shown as `<instance>_<name>`. Each declaration keeps a wire named `probe_<name>` carrying
-  `(* mark_debug = "true" *)` (what Vivado preserves a net by) and takes the value's **own width**;
+  e.g. `Blink`'s counter in `nzea_device`) — and *bound* where the instance is named,
+  `Probes.watch(<instance>, "<name>")`, which makes one probe of that instance, shown as `<instance>_<name>`.
+  Each declaration keeps a wire named `probe_<name>` carrying `(* mark_debug = "true" *)` (what Vivado preserves a net
+  by) and takes the value's **own width**;
   `Probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
   (the top's own). Current probes: `reset, locked, led1, led2` (top-level marks) and `blink50_count, blink100_count`
   (the blinkers' counters, declared in `Blink`, bound per instance), depth 1024, sampled on the design's buffered
   50 MHz clock (kept as the wire `ila_clock`).
 - **Declarations are unconditional; the consumer is the level's.** They are collected in a dump-level table
   (`nzea_rtl.probe.Probes`, cleared by `DumpRegistry` like the rest of a dump's state), and the fpga level's consumer
-  is `nzea_fpga.debug.Ila` — `Ila("<core>", <depth>)`, `Ila.clock(<net>)` for the anchor, `Ila.emit(<dir>)` for the
+  is `nzea_fpga.ip.Ila` — `Ila("<core>", <depth>)`, `Ila.clock(<net>)` for the anchor, `Ila.emit(<dir>)` for the
   three artifacts. A level with no consumer simply carries the wires; a future consumer (a simulator, another vendor's
   flow) reads the same `Probes.table` its own way.
 - **Why two steps**: a module body is shared by every instance, so it cannot say *which* instance a probe means — the

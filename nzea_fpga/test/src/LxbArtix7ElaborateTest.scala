@@ -2,8 +2,8 @@ package nzea_fpga
 
 import utest.*
 
-import nzea_fpga.debug.Ila
-import nzea_fpga.ip.{ClockPlan, ClockPrimitive, ClockingWizard, ClockingWizardParameter}
+import nzea_device.devices.{Blink, BlinkParameter}
+import nzea_fpga.ip.{ClockPlan, ClockPrimitive, ClockingWizard, ClockingWizardParameter, Ila}
 import nzea_rtl.TestFlow
 
 /** What the board top's shape is: its pins (the XDC's names), the modules and IP it instantiates, the tcl the IPs are

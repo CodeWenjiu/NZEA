@@ -6,8 +6,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_fpga.debug.Ila
-import nzea_fpga.ip.{ClockPlan, ClockingWizard, ClockingWizardParameter}
+import nzea_device.devices.{Blink, BlinkParameter}
+import nzea_fpga.ip.{ClockPlan, ClockingWizard, ClockingWizardParameter, Ila}
 import nzea_fpga.primitives.{Bufg, BufgParameter}
 import nzea_rtl.probe.Probes
 import nzea_rtl.stdlib.*
