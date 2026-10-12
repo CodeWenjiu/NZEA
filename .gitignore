@@ -14,6 +14,11 @@ out
 build
 result*
 
+# Python tooling (the Vivado project generator runs through `uv`)
+.venv
+__pycache__
+*.pyc
+
 # Side worktree holding the frozen pre-migration core (`just legacy-oracle`)
 .oracle
 

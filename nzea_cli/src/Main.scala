@@ -2,6 +2,9 @@ package nzea_cli
 
 import mainargs.{arg, main, ParserForClass}
 import nzea_core.config.CoreConfig
+import nzea_fpga.{FpgaElaborate, TopParameter}
+import nzea_fpga.ip.{ClockingWizard, IlaProbes}
+import nzea_fpga.primitives.Bufg
 import nzea_rtl.{Elaborate, RtlFlow}
 import nzea_rtl.stat.{StatRegistry, StatSchema}
 import nzea_rtl.stdlib.SyncRam
@@ -18,18 +21,21 @@ import nzea_top.{NzeaCore, NzeaCoreElaborate, NzeaCoreParameter, TopConfig, TopC
   * spellings of a field name (`--defaultPc` and `--default-pc`). The map is the tile level's own knob and is ignored by
   * the core target.
   */
-@main(name = "nzea dump", doc = "Elaborate one design to Verilog. The core and tile targets are ported.")
+@main(name = "nzea dump", doc = "Elaborate one design to Verilog. The core, tile and fpga targets are ported.")
 case class CliArgs(
     @arg(doc = "which level to elaborate") target: String = "core",
-    @arg(doc = "the platform the RTL is shaped for") platform: String = "yosys",
+    @arg(doc = "the platform the RTL is shaped for; an fpga build's platform is its --board") platform: String =
+        "yosys",
     config: TopConfigArgs,
-    @arg(doc = "verilator-shaped RTL or synthesis-shaped RTL") flow: RtlFlow = CliArgs.coreBaseline.flow,
+    @arg(doc = "verilator-shaped RTL or synthesis-shaped RTL; a board is always synthesis-shaped")
+    flow: RtlFlow = CliArgs.coreBaseline.flow,
     @arg(doc = "the tile's devices (JSON, repeatable); defaults to the platform's") devices: Seq[DeviceSpec],
     @arg(doc = "load/store queue depth (a power of two), 0 builds none") lsqDepth: Int = CliArgs.coreBaseline.lsqDepth,
     @arg(doc = "instruction cache: a geometry, or 'none'") icache: CacheChoice =
         CacheChoice.of(CliArgs.tileBaseline.icache),
     @arg(doc = "data cache: a geometry, or 'none'") dcache: CacheChoice = CacheChoice.of(CliArgs.tileBaseline.dcache),
-    @arg(doc = "output dir; defaults to build/<target>/<platform>/<isa>/<flow>") outDir: String = ""
+    @arg(doc = "the FPGA board (--target fpga)") board: String = "lxb_artix7",
+    @arg(doc = "output dir; defaults to build/<target>/<platform>/<isa>") outDir: String = ""
 ):
 
     /** The ISA both levels are built for: what the out dir and the message name. */
@@ -100,16 +106,22 @@ object Main:
     def main(args: Array[String]): Unit =
         val cli = ParserForClass[CliArgs].constructOrExit(args.toSeq)
         require(cli.platform == "yosys" || cli.platform == "fpga", s"unknown platform '${cli.platform}'")
+        // The build tree is `<target>/<platform>/<isa>` under `build/`: which level, what it is built for, and the ISA.
+        // The flow is what a dump *is*, not where it goes — a path names one directory per design, so a level's
+        // directory holds the dump its last command made (the simulators name their own with `--outDir`). An fpga
+        // build's platform is its board: it is what the RTL is shaped for, and it is how boards stay apart.
+        val platform = if cli.target == "fpga" then cli.board else cli.platform
         val outDir =
             if cli.outDir.nonEmpty then os.Path(cli.outDir, os.pwd)
-            else os.pwd / "build" / cli.target / cli.platform / cli.isaName / cli.flow.segment
+            else os.pwd / "build" / cli.target / platform / cli.isaName
 
-        // Generating a level is that level's top's concern (`NzeaCoreElaborate` / `NzeaTileElaborate`); what stays here
-        // is the CLI's: lowering the linked circuit and writing the bodies that travel with the RTL they belong to.
+        // Generating a level is that level's top's concern (`NzeaCoreElaborate` / `NzeaTileElaborate` / `FpgaElaborate`);
+        // what stays here is the CLI's: lowering the linked circuit and writing the bodies that travel with the RTL.
         cli.target match
             case "core" => dumpCore(cli.coreParameter, outDir)
             case "tile" => dumpTile(cli.tileParameter, outDir)
-            case other  => require(false, s"unknown --target '$other' (ported: core, tile)")
+            case "fpga" => dumpFpga(cli, outDir)
+            case other  => require(false, s"unknown --target '$other' (ported: core, tile, fpga)")
 
     private def dumpCore(parameter: NzeaCoreParameter, outDir: os.Path): Unit =
         NzeaCoreElaborate.withLinked(parameter): circuit =>
@@ -122,6 +134,21 @@ object Main:
             Elaborate.verilogInto(circuit, outDir, lowering(parameter.flow))
             emitBodies(outDir, parameter.flow, NzeaTile.moduleName(parameter))
         println(s"elaborated tile:${parameter.config.isa.name} into $outDir")
+
+    /** The FPGA level: a board top, always shaped for synthesis — a board build is not a flow's choice, so `--flow`
+      * does not reach it. What travels with the RTL is what the design itself owns: the vendor-IP tcl snippets each
+      * instantiated IP needs, and the board's ILA artifacts (the debug script, the capture script, the rename map).
+      */
+    private def dumpFpga(cli: CliArgs, outDir: os.Path): Unit =
+        require(cli.board == "lxb_artix7", s"unknown --board '${cli.board}' (ported: lxb_artix7)")
+        val parameter = TopParameter()
+        FpgaElaborate.withLinked(parameter): circuit =>
+            Elaborate.verilogInto(circuit, outDir, yosysLowering)
+            SyncRam.emitModules(outDir)
+            Bufg.emitModules(outDir)
+            ClockingWizard.emit(outDir)
+            IlaProbes.emit(outDir)
+        println(s"elaborated fpga:${cli.board} into $outDir")
 
     /** The hand-written bodies and the counter schema the RTL instantiates, written beside the RTL they belong to. */
     private def emitBodies(outDir: os.Path, flow: RtlFlow, design: String): Unit =

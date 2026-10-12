@@ -1,50 +1,66 @@
 ---
 name: fpga-flow
-description: Use this skill when you need to build a bitstream and program the lxb_artix7 FPGA board (Vivado 2023.2), or load and run a program on it via UART. Covers the headless build/program/load pipeline and the environment quirks needed to drive Vivado from the CLI.
+description: Run the lxb_artix7 FPGA pipeline headlessly — dump the board's RTL, generate its Vivado project (edalize), build the bitstream, program the board over JTAG, and capture an ILA window for pulse. Use when building or programming the board, when Vivado is not found or fails to start, or when an on-board capture is needed; it holds the FHS nix-shell environment and the batch invocation quirks.
 ---
 
 # fpga-flow
 
-Run the full FPGA pipeline for the lxb_artix7 board headlessly: generate RTL →
-build bitstream (Vivado synth + impl) → program the board over JTAG → load a
-program over UART. This skill captures the environment knowledge (Vivado is not
-on PATH, runs in an FHS nix shell) and the exact commands, all verified end-to-end.
+Run the FPGA pipeline for the lxb_artix7 board headlessly: generate RTL → build a bitstream (Vivado synth +
+impl) → program the board over JTAG → capture an ILA window for pulse. This skill captures the environment
+knowledge (Vivado is not on PATH, runs in an FHS nix shell) and the exact commands.
 
-## The full pipeline (one command per stage)
+**Current state (2026-10-12)**: the board top is the bring-up design — `boards/lxb_artix7/Top.scala` (`Top`, module
+`Top`) = the clocking wizard + two blinkers, watched by an ILA debug core the netlist flow creates — so the pipeline below
+ends at "the LEDs blink and an ILA window is readable". The tile (and with it the
+UART boot loader, `just uart-load`/`uart-reset`/`uart-monitor`, and the reset-triggered ILA mode) is not on the
+board yet; those recipes come back when it is.
+
+## The pipeline (one command per stage)
 
 ```sh
-# 1. Generate RTL + Vivado project (also emits build_all.tcl and program.tcl)
-just dump --target fpga --fpgaBoard lxb_artix7 --isa riscv32im
+# 1. Dump the board's RTL and generate its Vivado project (project tcl + build_all.tcl + program.tcl).
+#    Positional args: board, isa. The ILA is part of the board design, not a flag.
+#    Do NOT use `name=value` (`board=lxb_artix7`): just 1.58 passes it through literally, and the CLI
+#    then rejects `board=lxb_artix7` as an argument. Positional or plain flags (`just dump --target fpga …`) work.
+just fpga-dump lxb_artix7 riscv32i
 
-# 2. Build bitstream (synth + impl) — headless, ~5 min on this machine
+# 2. Build the bitstream (synth + impl) — headless, ~5 min on this machine.
 just vivado-build
 
-# 3. Program the FPGA over JTAG — board must be connected via Digilent JTAG
+# 3. Program the FPGA over JTAG — board must be connected via the Digilent JTAG cable.
 just vivado-program
 
-# 4. Load and run a program over UART
-just uart-load nzea_sim/sim/tile/hello_loop.hex /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 115200
+# 4. Capture an ILA window (board programmed with an ila build) and analyze it.
+just ila-capture                       # mode='snapshot' (default)
+pulse --wave build/fpga/lxb_artix7/riscv32i/vivado/capture.named.vcd info
 ```
 
-Or combine 2+3 with one command: `just vivado-flow` (build then program).
+`just vivado-flow` does build + program in one step. `just fpga-project` regenerates only the Vivado project
+from the RTL already dumped (no re-elaboration).
+
+Success signals: `just vivado-build` ends with `Bitstream generation completed` and writes
+`build/fpga/lxb_artix7/<isa>/vivado/nzea_fpga.bit`; `just vivado-program` prints
+`INFO: FPGA xc7a200tfbg484-2 programmed.`; on the board, LED1 blinks (50 MHz domain, ~0.7 Hz) and LED2 blinks
+(the wizard's 100 MHz domain, ~3 Hz) — **if only LED1 blinks, the wizard's IP or its clock path is at fault**, which is why
+there are two. A capture tells the same story without eyes: `reset` 0, `locked` 1, and the two counters counting —
+`blink50_count` +1 per sample (50 MHz exactly), `blink100_count` +2 per sample (its 100 MHz domain seen through the
+50 MHz trigger clock) — so the domain whose counter is not counting is the domain whose clocking is at fault.
 
 ## Environment knowledge (critical, non-obvious)
 
 Vivado 2023.2 is **not on PATH** and will not run from a plain shell:
 
 - Install root: `/mnt/data/tools/Xilinx/Vivado/2023.2`
-- It is a Linux binary with a `/bin/bash` shebang, but NixOS has no `/bin/bash`,
-  so it must run inside an FHS environment: `nix-shell nzea_fpga/scripts/vivado-batch.nix`
-- `vivado-batch.nix` is a copy of the Xilinx `shell.nix` (full library set) with
-  the **blocking GUI launch stripped** from the profile. The original `shell.nix`
-  ends with a bare `vivado` that starts the GUI and blocks forever — never use it
-  for batch work.
+- It is a Linux binary with a `/bin/bash` shebang, but NixOS has no `/bin/bash`, so it must run inside an FHS
+  environment: `nix-shell nzea_fpga/scripts/vivado-batch.nix`
+- `vivado-batch.nix` is a copy of the Xilinx `shell.nix` (full library set) with the **blocking GUI launch
+  stripped** from the profile. The original `shell.nix` ends with a bare `vivado` that starts the GUI and blocks
+  forever — never use it for batch work.
 
 ### How to drive Vivado headlessly
 
-`nix-shell --run` / `--command` are **unreliable** under this FHS env (the
-`runScript` is an interactive bash). The working pattern is to **pipe commands
-via stdin** (a heredoc), as `vivado-flow.sh` does:
+`nix-shell --run` / `--command` are **unreliable** under this FHS env (the `runScript` is an interactive bash).
+The working pattern is to **pipe commands via stdin**, which is what `vivado-flow.nu` / `ila-capture.nu` do:
 
 ```bash
 nix-shell nzea_fpga/scripts/vivado-batch.nix <<NIXEOF
@@ -55,215 +71,145 @@ NIXEOF
 
 Always use `-mode batch -nolog -nojournal`; batch exits after the script runs.
 
-## The generated scripts (from vivado-project.py / edalize)
+## Generated artifacts
 
-Under `build/fpga/lxb_artix7/<isa>/hw/vivado/`:
+A board's build tree follows the one layout rule every level's dump uses — `build/<target>/<platform>/<isa>` — with the
+board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 
-| File | Purpose |
-|------|---------|
-| `build_all.tcl` | One-shot: create project + synth + impl + write bitstream |
-| `program.tcl` | Self-contained JTAG programming: find part, attach PROGRAM.FILE + PROBES.FILE (.ltx), program |
-| `nzea_fpga.bit` | Final bitstream (copied there by run.tcl from impl_1) |
-| `nzea_fpga.runs/impl_1/*.ltx` | ILA probes file (auto-generated by impl; attached by program.tcl) |
+| Path | Written by | Purpose |
+|------|-----------|---------|
+| `*.sv`, `filelist.f` | `just fpga-dump` (firtool) | the design's RTL and its file list |
+| `layers-*.sv` | same, only when the design has layer blocks | the `bind` fragments; the dump adds the roots to `filelist.f` (see the probe section) |
+| `Bufg.sv` | `just fpga-dump` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
+| `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`IlaProbes.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
+| `ip_*.tcl` | same (`ClockingWizard.emit`) | one snippet per instantiated vendor IP, listed in `ipfiles.f` |
+| `vivado/build_all.tcl` | `just fpga-project` (edalize) | one-shot: project → synthesis → impl → bitstream |
+| `vivado/program.tcl` | same | JTAG programming, attaching the impl's `.ltx` probes file |
+| `vivado/nzea_fpga.bit` | `build_all.tcl` | the bitstream |
+| `vivado/nzea_fpga.runs/impl_1/*.ltx` | impl | ILA probes file (without it the hw manager cannot see the ILA core) |
+| `vivado/capture.vcd`, `capture.named.vcd` | `just ila-capture` | the raw and probe-renamed capture |
 
-Both `build_all.tcl` and `program.tcl` **`cd` to the work root first** — required
-because edalize's scripts assume cwd = work root (e.g. run.tcl copies the
-bitstream to `[pwd]/nzea_fpga.bit`). This makes them work regardless of where
-Vivado was launched.
+Both `build_all.tcl` and `program.tcl` `cd` to the work root first (edalize's scripts assume cwd = work root,
+e.g. run.tcl copies the bitstream to `[pwd]/nzea_fpga.bit`), so they work wherever Vivado is launched.
 
-`program.tcl` guards on the bitstream existing, then searches the hw targets for
-part `xc7a200tfbg484-2`, sets PROGRAM.FILE (+ PROBES.FILE if an impl `.ltx`
-exists — required for the hw manager to see ILA cores), and programs.
+**Pitfall: `just vivado-build` does NOT regenerate RTL.** It synthesizes the `.sv` files already under
+`build/fpga/.../`. After any Scala/zaozi change you must re-run `just fpga-dump` first, or you build a
+bitstream from stale RTL.
 
-## Invocation reference
+## IP: how it is created, and where the facts live
 
-### `just vivado-build`
-Run `build_all.tcl` headlessly (synth + impl + bitstream). Produces/refreshes
-`nzea_fpga.bit`. **Every run fully rebuilds** because the project is recreated
-with `create_project -force` — expect ~5 min, longer on first run (FHS env build).
+The project is generated by `nzea_fpga/tools/vivado/vivado-project.py` (**edalize**, run through `uv`), which:
 
-**Pitfall: `vivado-build` does NOT regenerate RTL.** It synthesizes whatever
-`.sv` files already exist under `build/fpga/<board>/<isa>/hw/`. After any
-Scala/Chisel change you must re-run `just dump --target fpga --fpgaBoard <board>
---isa <isa> --sim false` first, or you will build a bitstream from stale RTL
-(e.g. the `uart-reset` size=0 command silently hanging the CPU in reset).
+- reads the RTL through the dump's `filelist.f` (not a directory glob — a glob would pick up modules a previous
+  dump left behind);
+- `source`s the vendor-IP snippets the dump listed in `ipfiles.f`;
+- writes `build_all.tcl` and `program.tcl`.
 
-### `just vivado-program`
-Run `program.tcl` headlessly. Searches the hardware server for a JTAG target
-containing part `xc7a200tfbg484-2`, programs it. Requires the board connected
-via the Digilent USB-JTAG cable. Success looks like:
-`INFO: SUCCESS! FPGA xc7a200tfbg484-2 successfully programmed` and
-`End of startup status: HIGH`.
+The IPs themselves are generated by the modules that instantiate them (`nzea_fpga/src/ip/`: `ClockingWizard.scala`):
+`instantiate` records the parameter in a registry, `emit` writes `ip_<name>.tcl` at dump time and adds
+it to `ipfiles.f`, so the IP's ports and its configuration cannot disagree with the RTL. `ClockPlan`
+(`inMHz:outMHz[,…]`) is the clocking fact, and the **primitive is derived from it**, never stated: the PLL when a PLL
+configuration expresses the plan exactly (a small integer search against the PLL's own ranges), the MMCM — the superset —
+otherwise; the board's 50 → 100/200 plan is an exact integer ratio, so its IP is a PLL. The module is named after the IP
+(`clk_wiz_0`), because a `VerilogWrapper` only merges with the generated IP when `moduleName` and `verilogModuleName` are
+equal.
 
-### `just vivado-flow`
-Build then program, in sequence.
+**The clock path is the design's, and it matters** (`Top.scala`): the oscillator feeds the wizard's input *as it is* —
+a clock generator's input wants the IO buffer's own path, which is what its compensation is about — and the design's own
+logic (both blinkers, the reset synchronizer, the ILA's clock) runs off a **global buffer** of it (`nzea_fpga/src/
+primitives/Bufg.scala`, a hand-written `BUFG` body the dump emits like `SyncRam`'s). Letting the tool insert that buffer
+instead puts it on the generator's input too, and a **PLL then fails the IO-clock DRC** (`REQP-1712: ... with
+COMPENSATION mode ZHOLD must be driven by a clock capable IO`) — the pin itself is fine (J19 is an MRCC); the buffer on
+the input path is not. The MMCM's rule tolerates it, which is how the design got away with it until the plan derived a
+PLL.
 
-All three accept `board='lxb_artix7'` and `isa='riscv32im'` (defaults).
+The ILA is **not** an IP here: it is a debug core the implementation run creates on the synthesized netlist (see
+below), so nothing about it goes through the IP machinery.
 
-## Loading a program over UART
+## ILA: probes, capture, and pulse
 
-`just uart-load <hex> <port> <baud>` sends a hex file to the tile through the
-UART bootloader baked into the bitstream, then the program runs on the core.
+- **The ILA is a debug core the netlist flow creates, not RTL.** The RTL only states what to watch, in two steps: a
+  signal is *declared* where it lives — `IlaProbes.declare("<name>")(<value>)`, one line in the owning module (e.g.
+  `Blink`'s counter) — and *bound* where the instance is named, `probes.watch(<instance>, "<name>")`, which makes one
+  probe of that instance, shown as `<instance>_<name>`. Each declaration keeps a wire named `ila_<name>` carrying
+  `(* mark_debug = "true" *)` (what Vivado preserves a net by) and takes the value's **own width**;
+  `probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
+  (the top's own). Current probes: `reset, locked, led1, led2` (top-level marks) and `blink50_count, blink100_count`
+  (the blinkers' counters, declared in `Blink`, bound per instance), depth 1024, sampled on the design's buffered
+  50 MHz clock (kept as the wire `ila_clock`).
+- **Why two steps**: a module body is shared by every instance, so it cannot say *which* instance a probe means — the
+  binding is stated where the instance is named. Declaration names are one namespace and must be unique in the design;
+  a declaration made in a design with no ILA table is a no-op that still carries the wire (`IlaProbes.declare` is on
+  the object, not the table).
+- **A declaration can sit beside its signal at any depth — no port threading — which is the point of the mechanism.** The
+  layer/probe mechanism (`nzea_rtl/test/src/probe/ProbeLayerTest.scala` pins it) is *not* usable for a board ILA: it
+  lowers to SystemVerilog `bind`, and **Vivado synthesis silently drops `bind`** — the bound module never reaches the
+  netlist (verified with a minimal `dont_touch`-marked tap that came out of `synth_design` as nothing, and by a board
+  build whose only clue was `CRITICAL WARNING: Could not find module 'u_ila_0'`). The fpga test asserts the board dump
+  contains no `bind` and no RTL ILA instance.
+- **The debug script is the dump's `ila_debug.tcl`, and `build_all.tcl` attaches it to the implementation run** as
+  `STEPS.OPT_DESIGN.TCL.PRE` on `impl_1` (presence-driven: no file, no hook). The impl run sources it with the
+  *synthesized* netlist open, where `create_debug_core` exists; the core is implemented by the run itself (opt_design
+  implements debug cores automatically — do **not** call `implement_debug_core` there, it demands a saved design).
+- **The script finds every net by name, in the mode the binding made**: a marked signal by leaf through the hierarchy
+  (`get_nets -hier` — which is what lets a declaration sit at any depth), a bound one at the instance's own level by
+  path (`get_nets` *without* `-hier`, e.g. `*blink50/ila_count*`; `-hier` matches leaf names only, so a path is the
+  only way to tell a shared body's instances apart). A declared bus survives synthesis bit by bit
+  (`ila_count[0]` … `[25]`) and is connected in index order; the clock is kept as its own wire (`ila_clock`, the
+  sampled domain's net) and resolved like a mark. A search that does not come back with the number of nets the width
+  declares fails the build loudly (`ILA: '…' matched N nets`), never silently.
+- `just ila-capture` drives the dump-generated `ila_capture.tcl` in the same batch FHS env: it finds the part,
+  attaches the impl `.ltx` (required — without it `get_hw_ilas` is empty), sets `TRIGGER_POSITION` to
+  `depth/4`, triggers immediately (`snapshot` mode; the legacy `reset` mode armed on the tile's uart-reset and
+  comes back with the tile), uploads the window and writes `capture.vcd`. Then `probe vcd-rename` applies
+  `ila_probes.map` → `capture.named.vcd`.
+- **The rename map keys on the declared nets, not on `probeN`.** Vivado's export names the probes after the *nets* the
+  core samples (`reset` for `ila_reset`; a bound bus as `blink50/ila_count[25:0]`), so the map's net keys do the
+  renaming; the bare `probeN` keys beside them catch an export that names the signal after the core's port. Every key
+  is generated from the declarations, so a rename cannot make the map and the RTL drift apart.
+- **pulse semantics for this export**: the VCD's timescale is `1 ps` and timestamps are per-sample (10 ns step
+  at 50 MHz); there is no clock signal in the dump, so analyze with `value`/`property` at sample indices rather
+  than the default posedge-clock `--on`. `_TRIGGER`/`_WINDOW`/`_GAP` marker signals are included.
+- **A build that lost its ILA** now fails loudly in the impl run (the script's name search errors on 0 matches); if
+  the capture says `no ILA core in the programmed device`, check the impl run's log for the `ILA:` lines and the
+  `.ltx` (`nzea_fpga.runs/impl_1/*.ltx`) before blaming the capture script.
+- **`REQP-1712` (IO clock DRC) points at the clock path, not at the pin.** A PLL whose `CLKIN` ends up behind *any*
+  buffer fails it; the design must feed the generator's input from the IO buffer's own net (see the clock path note
+  above) and buffer the fabric itself.
+- Vivado 2023.2 trigger quirks (verified on-board): per-probe compare values live on the `hw_probe` object
+  (`TRIGGER_COMPARE_VALUE`, e.g. `eq1'b1`); `CONTROL.TRIGGER_CONDITION` only accepts AND/OR, and edge values
+  like `eq1'bF` are accepted but never fire.
+- A timed-out capture can leave orphan `cs_server`/`hw_server` processes spinning at 100% CPU — kill them with
+  `pkill -9 -f cs_server; pkill -9 -f hw_server` before the next build.
 
-```sh
-just uart-load nzea_sim/sim/tile/hello_loop.hex /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 115200
-```
+## Serial / UART (not on the board yet)
 
-`hello_loop.hex` prints `Hello World` in a loop — repeated output is the success
-signal. (`nzea_sim/sim/tile/hello.hex` runs once and exits.)
-
-## Reset and monitor over UART
-
-The BootFsm protocol doubles as a debug control plane:
-
-- `just uart-reset <port>` — sends `magic + addr + size=0` (12 bytes). No RAM is
-  written; the CPU is held in reset through the header and released, so it
-  **restarts the program already resident in RAM** from the reset vector. This is
-  the agent's "press the reset button".
-- `just uart-monitor <port> [--reset]` — attaches a streaming monitor with
-  per-chunk timestamps (Ctrl-C to stop). With `--reset` the reset command is
-  sent *right after attaching*: UART TX/RX are full-duplex, so the reset command
-  never appears in the RX stream and **no boot output is missed** — this is the
-  this is the
-  canonical "open terminal, press reset, observe" debug flow.
-- `just uart-read <addr> [port]` — reads one word from a tile address (e.g.
-  `0x88000000` for the DDR window) via a tiny generated probe program built on
-  the fly (`probe memread` + asm2hex lib). Distinguishes "stale residue" from
-  "write failed" without reflashing.
-
-All UART commands live in the `probe` Rust workspace (`just` builds it on
-demand via `cargo run`). The port argument may be omitted on every command —
-`probe` auto-discovers the CH340 via `/dev/serial/by-id`. Magic semantics worth
-remembering:
-
-- `size = 0` is the reset-only command; a normal load has `size ≥ 1` (wire format
-  unchanged, backwards compatible).
-- A program whose **final 4 bytes equal `0xB007B007`** does not re-trigger boot
-  (the scanner is cleared when a load completes).
-- The magic scanner is **always armed** while the CPU runs: any host-sent byte
-  stream containing `0xB007B007` (e.g. hand-typed binary) starts a boot. Keep the
-  host scripted (`just uart-load` / `uart-reset` / `uart-monitor --reset`).
-- `probe` is a separate Rust workspace; `linkedProjects` in `.zed/settings.json`
-  disables rust-analyzer auto-discovery, so **every new Rust workspace in this repo
-  must be listed there** or rust-analyzer will silently not load it.
-
-## ILA on-chip capture → pulse
-
-When an on-board bug needs precise signal-level visibility, capture an ILA window
-and analyze it with pulse:
-
-```sh
-# 1. Enable the ILA in RTL (probes: cpu_reset, uart tx/rx, finisher, RAM req/resp/boot/addr)
-just dump --target fpga --fpgaBoard lxb_artix7 --isa riscv32im --sim false --ila
-
-# 2. Build + program the ILA bitstream
-just vivado-build && just vivado-program
-
-# 3. Load the program under test
-just uart-load nzea_sim/sim/tile/hello_loop.hex <port> 115200
-
-# 4. Capture: arms on the cpu_reset RELEASE edge, sends uart-reset, exports VCD,
-#    renames probes to semantic names (capture.named.vcd)
-just ila-capture                       # mode='reset' (default)
-just ila-capture mode='snapshot'       # immediate window, no reset interaction
-
-# 5. Analyze with pulse
-pulse --wave build/fpga/lxb_artix7/riscv32im/hw/vivado/capture.named.vcd info
-```
-
-Semantics and constraints:
-
-- The ILA is **board-layer instrumentation** (`nzea_fpga/boards/lxb_artix7`,
-  instantiated by `LxbArtix7Core` when `--debugIla`). The tile stays
-  ILA-agnostic: it only exposes a generic debug observation port
-  (`TileIo.debug`, a `DebugIo` bundle whose `cpuReset` member carries the
-  tile-internal reset root — the uart-reset event, invisible at the top
-  otherwise). All other probes come from signals already on the tile boundary
-  (uart tx/rx, finisher, extRamBus req/resp/boot/addr). Capture depth is
-  **131072 samples = 1.31 ms @ 100 MHz**, enough for one window to span the
-  whole uart-reset command.
-- **Trigger (Vivado 2023.2 quirks, all verified on-board)**: per-probe compare
-  values are set on the `hw_probe` object — `TRIGGER_COMPARE_VALUE eq1'b1` on
-  probe0 (cpu_reset assert). `CONTROL.TRIGGER_CONDITION` only accepts AND/OR;
-  edge values like `eq1'bF` are accepted by the property but **never fire** in
-  this ILA config, so the default triggers on the *assert* level with
-  `TRIGGER_POSITION 32768` (25% pre-trigger): the window covers pre-reset state,
-  the reset pulse, the release, and the first post-reset cycles.
-- **Reset semantics**: uart-reset resets the whole tile (core, fabric, slices,
-  CLINT, finisher — all under `cpuReset`), except the UART itself, the BootFsm,
-  and the external RAM. The UART lives in the `bootReset` domain (board
-  power-on/calibration only): BootFsm holds `cpu_reset` high during a load
-  (sAddr/sSize/sData), and a UART under `cpuReset` would have its RX path reset
-  mid-load, losing the very bytes being decoded. So a capture triggered by
-  uart-reset shows a clean program start with all tile state zeroed (UART
-  aside) and the loaded program preserved.
-- Probes are fixed (8): `cpu_reset, uart_txd, uart_rxd, finisher_finished,
-  ram_req_valid, ram_resp_valid, ram_boot_valid, ram_req_addr` — order/widths
-  defined by `IlaProbes.widths` (single source of truth for RTL + IP). The addr
-  probe comes out 17-bit (impl folds the high bits to constants → a few
-  `<const0>` junk probes appear in exports; harmless).
-- `program.tcl` is self-contained now (no edalize pgm snippet): it attaches
-  PROGRAM.FILE **and the impl-generated PROBES.FILE (.ltx)** — without the .ltx
-  the hw manager cannot see the ILA core.
-- **pulse semantics**: the exported VCD timescale is `1 ps` and timestamps are
-  per-**sample** (step = 10 ns real at 100 MHz); there is no clock signal in the
-  dump, so analyze with `value`/`property` at sample indices rather than the
-  default posedge-clock `--on`. `_TRIGGER`/`_WINDOW`/`_GAP` marker signals are
-  included.
-- `ila_capture.tcl` + `ila_probes.map` are regenerated by every dump; if RTL
-  changed, re-dump + rebuild before capturing.
-- On-board quirks: `just ila-capture` needs the board programmed with the ILA
-  bitstream and reachable over JTAG; the tcl sends the uart reset itself via the
-  `probe` binary (built on demand, path passed as a tclarg). A timed-out capture
-  can leave orphan `cs_server`/`hw_server` processes spinning at 100% CPU — kill
-  them with `pkill -9 -f cs_server; pkill -9 -f hw_server` before the next build.
-
-### Finding the correct serial port
-
-**Prefer the stable `by-id` alias over `/dev/ttyUSB*`.** The board's UART is a
-CH340 (QinHeng, USB vendor `1a86`, driver `ch341`), and udev exposes a stable
-symlink that does not change with enumeration:
+The board's UART is a CH340 (`1a86:xxxx`, driver `ch341`); prefer the stable `/dev/serial/by-id/` alias over
+`/dev/ttyUSB*`, whose number changes between sessions:
 
 ```sh
 ls -l /dev/serial/by-id/
 # → usb-1a86_USB_Serial-if00-port0 -> ../../ttyUSB1
 ```
 
-Use that path directly, or **omit the port entirely** — `probe` auto-discovers
-the CH340 via `/dev/serial/by-id` (prefers the `if00-port0` alias, errors with
-the candidate list if several CH340s are plugged in):
-
-```sh
-just uart-load ... /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 115200
-just uart-load hello.hex   # empty port = auto-discover
-```
-
-To identify the port (e.g. when several USB serials are plugged in), inspect the
-USB vendor ID — the CH340 reports `1a86`:
-
-```sh
-udevadm info --query=property --name=/dev/ttyUSB0 | grep -E 'ID_VENDOR_ID|ID_MODEL_ID|ID_USB_DRIVER'
-# → ID_VENDOR_ID=1a86  (CH340)
-#    ID_USB_DRIVER=ch341
-# → ID_VENDOR_ID=0403  (would be an FTDI, a different device)
-```
-
-### Pitfall: serial device name changes
-The USB-UART enumerates as `/dev/ttyUSB*`, and the number **is not stable** — it
-can be `ttyUSB0` one session and `ttyUSB1` the next (or after replug). The
-`/dev/serial/by-id/` symlink is immune to this, which is why it is preferred. If
-you must use a raw `ttyUSB*` path, check `ls /dev/ttyUSB*` first and use the one
-that actually exists.
+The `probe` Rust workspace (`probe/cli`, binary `probe/target/release/probe`) already implements
+`load`/`reset`/`monitor`/`memread`/`vcd-rename`, but the tile's boot loader is not on the board yet, so only
+`vcd-rename` is in use today (by `ila-capture.nu`). The `just uart-*` recipes return with the tile.
+Note: `probe` is a separate Rust workspace; `linkedProjects` in `.zed/settings.json` disables rust-analyzer
+auto-discovery, so **every new Rust workspace in this repo must be listed there** or rust-analyzer will
+silently not load it.
 
 ## Troubleshooting
 
-- **`vivado` not found / bad interpreter** — you're outside the FHS env. Run
-  through `vivado-flow.sh` / `nix-shell vivado-batch.nix`.
-- **nix-shell hangs** — you're using the original `/mnt/data/tools/Xilinx/shell.nix`
-  (GUI profile blocks). Use `vivado-batch.nix`.
+- **`vivado` not found / bad interpreter** — you're outside the FHS env. Run through `vivado-flow.nu` /
+  `ila-capture.nu`, which pipe into `nix-shell vivado-batch.nix`.
+- **nix-shell hangs** — you're using the original `/mnt/data/tools/Xilinx/shell.nix` (GUI profile blocks). Use
+  `vivado-batch.nix`.
 - **`create_project -force` wipes runs** — expected; each build is a full rebuild.
-- **Program finds no target** — board not connected / JTAG cable unplugged /
-  hardware server not running. Check `open_hw_manager` connectivity manually in
-  a Vivado Tcl shell.
-- **Vivado residue files** (`vivado.jou`, `vivado_pid*.str`, `*.backup.log`) are
-  gitignored; delete freely.
+- **Program finds no target** — board not connected / JTAG cable unplugged / hw_server not running. Check with
+  `lsusb` (the Digilent cable shows as `0403:…`, the CH340 as `1a86:…`).
+- **A constraint on a missing port** — an XDC line for a port the top does not declare is an error in Vivado.
+  `nzea_fpga/src/boards/lxb_artix7/pins.xdc` carries only the ports the design has (the board's full pin
+  map, including DDR3/UART/HDMI, is the vendor's `A7_lite.xdc` beside it, kept as reference); add lines there
+  as the top grows.
+- **Vivado residue files** (`vivado.jou`, `vivado_pid*.str`, `*.backup.log`) are gitignored; delete freely.

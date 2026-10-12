@@ -47,7 +47,7 @@ Status: **全部搁置（2026-09-14）** — 用户决定暂停执行剩余任�
   1. 语义名能否从 RTL 带到导出的 VCD（探针端口名 / `.ltx` / ILA IP 探针名属性）？**假设前必读 PG172**。
   2. `probe` 应拥有整个采集流程（arm/trigger/upload/rename）而非只 rename？
   3. VCD 是否正确导出格式？ILA 采样是周期索引，VCD 是时间戳且只记变化——CSV（一行一采样）可能匹配 `pulse --cycles` 周期语义更准。
-  4. 探针接线仍硬编码在 `LxbArtix7Core`（`ila.probeN := …`），加探针要改 RTL + 全量重建。能否做成可注入配置？
+  4. 探针接线仍硬编码在 `Top`（`ila.probeN := …`），加探针要改 RTL + 全量重建。能否做成可注入配置？
 
 ### T2. remu 与 DDR 的 difftest 缺口（继承 G4）
 

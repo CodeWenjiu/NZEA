@@ -201,7 +201,29 @@ object nzea_tile extends ZaoziModule {
 
 }
 
+/** The FPGA layer: board tops — the board's own pins, clocking and IP — plus the Vivado flow's inputs (the project
+  * generator and the scripts). A board top is a level like any other: it owns its parameter and its pins, and the
+  * layers below it are instantiated inside it. The layer's RTL is shaped for synthesis (ports, no bridges), so it
+  * depends on the shared RTL only.
+  */
+object nzea_fpga extends ZaoziModule {
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
+
+        // Reuse nzea_rtl's elaborate -> firtool helper, and load libMLIR/libCIRCT through the FFM API.
+        override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+
+        override def forkArgs = Task {
+            super.forkArgs() ++ zaoziJvmFlags
+        }
+
+    }
+
+}
+
 /** Command line: the one place that turns flags into an elaboration (which module, which platform, where it goes). */
 object nzea_cli extends ZaoziModule {
-    override def moduleDeps = super.moduleDeps ++ Seq(nzea_tile, nzea_top, nzea_core, nzea_rtl)
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_tile, nzea_top, nzea_core, nzea_rtl, nzea_fpga)
 }

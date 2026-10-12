@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # Yosys synthesis (yosys-sta style)
-# Reads build/<target>/<platform>/<isa>/yosys/*.sv from filelist.f, outputs to .../yosys/synth/
+# Reads build/<target>/<platform>/<isa>/*.sv from filelist.f, outputs to .../synth/
 #   - <NzeaCore|NzeaTile>.netlist.v (netlist)
 #   - synth_stat.txt (area/cell report, transistor estimate)
 #   - synth_check.txt (check report)
@@ -14,7 +14,7 @@ def main [
   hdl_dir?: string
   synth_dir?: string
 ] {
-  let base_dir = $hdl_dir | default $"build/($target)/($platform)/($isa)/yosys"
+  let base_dir = $hdl_dir | default $"build/($target)/($platform)/($isa)"
   let hdl_dir = $base_dir
   let synth_dir = $synth_dir | default $"($base_dir)/synth"
 

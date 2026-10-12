@@ -8,7 +8,7 @@ package nzea_rtl
 object TestFlow:
 
     /** firtool flags the tests lower with: packed arrays and `always_comb` are what the synthesis flows refuse. */
-    private val loweringOptions: Seq[String] = Seq("--lowering-options=disallowPackedArrays,noAlwaysComb")
+    val loweringOptions: Seq[String] = Seq("--lowering-options=disallowPackedArrays,noAlwaysComb")
 
     /** Run `writeConfig` then `design`, link every module the design produced, and lower the top to Verilog. */
     def lower(moduleName: String, writeConfig: os.Path => Unit, design: os.Path => Unit): String =

@@ -6,8 +6,8 @@ init:
     @mill --no-server mill.bsp.BSP/install
 
 # Elaborate RTL to Verilog. `just dump --target core --isa riscv32im [--outDir <dir>]` is what the simulators
-# call, so the flags are passed through to the CLI (defaults live there); without --outDir the legacy layout
-# build/<target>/<platform>/<isa>/<flow> is used.
+# call, so the flags are passed through to the CLI (defaults live there); without --outDir the layout is
+# build/<target>/<platform>/<isa> — for a board, build/fpga/<board>/<isa>, the directory its Vivado work root sits in.
 [group('build')]
 dump *ARGS:
     @mill --no-server nzea_cli.runMain nzea_cli.Main {{ ARGS }}
@@ -74,6 +74,41 @@ clean-all: clean
 [group('utility')]
 wave path:
     @nix run --impure github:nix-community/nixGL#nixGLIntel -- surfer {{ path }}
+
+# ---- FPGA (lxb_artix7 / Vivado) ----
+# The board's RTL plus its Vivado project in one step: `just dump --target fpga` and the project generator
+# (edalize) that writes build_all.tcl / program.tcl into the board's work root. Positional args are board and isa;
+# the ILA is part of the board design, not a knob. (`name=value` does not work here: just 1.58 passes it through
+# literally.)
+[group('fpga')]
+fpga-dump board='lxb_artix7' isa='riscv32i':
+    @just dump --target fpga --board {{ board }} --isa {{ isa }}
+    @just fpga-project {{ board }} {{ isa }}
+
+# Regenerate only the Vivado project from the RTL already dumped (no re-elaboration).
+[group('fpga')]
+fpga-project board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
+
+# Build the bitstream headlessly (synth + impl, ~5 min). Requires `just fpga-dump` first: this does not regenerate RTL.
+[group('fpga')]
+vivado-build board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only
+
+# Program the FPGA over JTAG headlessly (board connected, programmed with the ILA build for captures).
+[group('fpga')]
+vivado-program board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
+
+# Build then program, in sequence.
+[group('fpga')]
+vivado-flow board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }}
+
+# Capture an ILA window to VCD and rename its probes for pulse (board programmed with a current build).
+[group('fpga')]
+ila-capture board='lxb_artix7' isa='riscv32i' mode='snapshot':
+    @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --mode {{ mode }}
 
 # ---- legacy oracle ----
 # Runs `git worktree add .oracle legacy-baseline`; the worktree has its own flake, see legacy/README.md.

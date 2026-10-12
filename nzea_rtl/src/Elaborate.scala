@@ -1,5 +1,6 @@
 package nzea_rtl
 
+import nzea_rtl.DumpRegistry
 import nzea_rtl.stat.StatRegistry
 import nzea_rtl.stdlib.SyncRam
 
@@ -24,8 +25,9 @@ object Elaborate:
     ): T =
         val config = scratch / "config.json"
         val before = intermediates
-        // The hand-written bodies a lowering has to emit (stat boxes, sync rams) are read back after it: start from an
-        // empty set so each run reports its own.
+        // The hand-written bodies a lowering has to emit (stat boxes, sync rams, vendor-IP snippets) are read back after
+        // it: start from an empty set so each run reports its own.
+        DumpRegistry.reset()
         StatRegistry.reset()
         SyncRam.reset()
         try
@@ -58,9 +60,38 @@ object Elaborate:
     def verilog(mlir: os.Path, params: Seq[String]): String =
         os.proc("firtool", mlir.toString, params).call().out.text()
 
-    /** Lower `mlir` into `outDir`, one file per module plus the file list, as the simulators expect to find it. */
+    /** Lower `mlir` into `outDir`, one file per module plus the file list, as the simulators expect to find it, and
+      * the layer fragments firtool writes beside them ([[layerRoots]]).
+      *
+      * The fragments of an earlier lowering are removed first: they are firtool's own output and are rewritten by this
+      * one, so a stale fragment — from a design that had layers where this one does not — would otherwise be found by
+      * [[layerRoots]] and compiled into the project.
+      */
     def verilogInto(mlir: os.Path, outDir: os.Path, params: Seq[String]): Unit =
         os.makeDir.all(outDir)
+        os.list(outDir)
+            .filter(path => (path.last.startsWith("layers-") || path.last.startsWith("ref_")) && path.ext == "sv")
+            .foreach(os.remove(_))
         os.proc("firtool", mlir.toString, params, "-o", outDir.toString).call()
+        val roots = layerRoots(outDir)
+        if roots.nonEmpty then FileList.append(outDir, roots)
+
+    /** The root layer fragments of a split lowering: each `layers-*.sv` firtool writes holds the `bind` statements of
+      * one module's layer blocks, and the roots include their children’s, so compiling the roots compiles the tree once.
+      * firtool leaves them out of `filelist.f` — it writes the list of the modules, and a fragment is not one — but they
+      * are part of the design: without them the layer modules (a bound probe consumer, an ILA) are never instantiated.
+      *
+      * A fragment that only guards its macro carries nothing — a module captured *through* by a layer block gets an empty
+      * one — and those are left out of the list.
+      */
+    private def layerRoots(outDir: os.Path): Seq[String] =
+        val include = "`include \"([^\"]+)\"".r
+        val fragments = os
+            .list(outDir)
+            .filter(path => path.last.startsWith("layers-") && path.ext == "sv")
+            .map(path => (path, os.read(path)))
+        val machinery = fragments.filter((_, text) => text.contains("bind ") || include.findFirstIn(text).isDefined)
+        val included = machinery.flatMap((_, text) => include.findAllMatchIn(text).map(_.group(1))).toSet
+        machinery.filterNot((path, _) => included.contains(path.last)).map(_._1.last).sorted
 
     private def intermediates: Set[os.Path] = os.list(os.pwd).filter(_.ext == "mlirbc").toSet
