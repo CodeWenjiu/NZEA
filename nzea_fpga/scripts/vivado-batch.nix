@@ -33,27 +33,27 @@
       ncurses5
 
       # X11 and graphics (enhanced for Vivado compatibility)
-      xorg.libX11
-      xorg.libXext
-      xorg.libXrender
-      xorg.libXtst
-      xorg.libXi
-      xorg.libXft
-      xorg.libxcb
-      xorg.libXrandr
-      xorg.libXinerama
-      xorg.libXcursor
-      xorg.libXmu
-      xorg.libXpm
-      xorg.libXaw
-      xorg.libXt
-      xorg.libSM
-      xorg.libICE
-      xorg.libXcomposite
-      xorg.libXdamage
-      xorg.libXfixes
-      xorg.libXv
-      xorg.libXvMC
+      libx11
+      libxext
+      libxrender
+      libxtst
+      libxi
+      libxft
+      libxcb
+      libxrandr
+      libxinerama
+      libxcursor
+      libxmu
+      libxpm
+      libxaw
+      libxt
+      libsm
+      libice
+      libxcomposite
+      libxdamage
+      libxfixes
+      libxv
+      libxvmc
 
       # OpenGL (enhanced)
       libGL
@@ -103,10 +103,10 @@
       systemd
 
       # Java and graphics compatibility
-      xorg.xhost
-      xorg.xauth
-      xorg.xset
-      xorg.xdpyinfo
+      xhost
+      xauth
+      xset
+      xdpyinfo
     ];
 
   multiPkgs =
