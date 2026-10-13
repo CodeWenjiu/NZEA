@@ -77,13 +77,13 @@ flowchart TD
 - 详细命令见 `../remu` 的 `justfile`/`README.md`。
 
 ## 编码风格与命名规范
-遵循文件现有风格，不要重新格式化无关代码。Scala：类/对象/模块 `PascalCase`，val/方法 `camelCase`。Rust：`snake_case` 函数，`CamelCase` 类型。注释和文档仅英文。优先小模块，注释解释意图或风险。
+遵循文件现有风格，不要重新格式化无关代码。Scala：类/对象/模块 `PascalCase`，val/方法 `camelCase`。Rust：`snake_case` 函数，`CamelCase` 类型。注释和文档仅英文（justfile 的注释除外——它是使用者的界面文档，用中文）。优先小模块，注释解释意图或风险。
 
 **格式化**：Scala 用 `scalafmt`（`.scalafmt.conf`），Rust 用 `cargo fmt` + `cargo clippy`。
 
 ## 仓库特定规则
 - 不要解压 JAR/归档到仓库目录；用 `jar tf` 或解压到 `/tmp`。
-- 注释和文档仅英文。
+- 注释和文档仅英文（justfile 的注释除外——它是使用者的界面文档，用中文）。
 - 禁止重新引入已删除的命令（如 `just run`）。
 - 修改综合或 STA 脚本时，保持命令示例与 `justfile` 一致。
 - **事件文件按需添加**：`.pulse` 事件文件遵循“用到再说”原则——调试到某个具体问题、确认事件确实被查询需要时，才为对应模块添加，并**留在该模块的源文件旁**（`nzea_core/src/back/int/branch.pulse` 等即此原则的产物，可作示例模板）。禁止提前为未调试模块批量创建事件文件。

@@ -1,31 +1,32 @@
-# The fpga level's board flow — `just fpga <recipe>` from the root. It works on the level's own dump tree
-# (`dump --target fpga`), then the Vivado project (edalize), the bitstream, JTAG programming and ILA captures.
-# Positional args are board and isa; `name=value` does not work here (just 1.58 passes it through literally).
+# fpga 层的板级流程 —— 从仓库根以 `just fpga <recipe>` 进入。它作用于本层自己的 dump 树（`dump --target fpga`），
+# 然后是 Vivado 工程（edalize）、比特流、JTAG 烧录与 ILA 抓取。
+# 位置参数是 board 和 isa；这里 `name=value` 不可用（just 1.58 会原样透传）。
 
-# The recipes address mill and the build/ tree from the repo root, like their old homes in the root justfile.
+# recipe 从仓库根寻址 mill 和 build/ 树，就像它们原先在根 justfile 里的家一样。
 set working-directory := '..'
 
 _default:
     @just --list fpga
 
-# The board's RTL plus its Vivado project in one step: the fpga dump and the project generator that writes
-# build_all.tcl / program.tcl into the board's work root.
+# 一步到位：fpga dump，然后是写 build_all.tcl / program.tcl 到工作根的工程生成器。
+
+# dump 板子的 RTL 并生成它的 Vivado 工程。
 dump board='lxb_artix7' isa='riscv32i':
     @mill --no-server nzea_cli.runMain nzea_cli.Main --target fpga --board {{ board }} --isa {{ isa }}
     @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
 
-# Regenerate only the Vivado project from the RTL already dumped (no re-elaboration).
+# 只从已 dump 的 RTL 重新生成 Vivado 工程（不重新 elaborate）。
 project board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
 
-# Build the bitstream headlessly (synth + impl, ~5 min). Requires `just fpga dump` first: this does not regenerate RTL.
+# 无头构建比特流（synth + impl，约 5 分钟；需先 `just fpga dump`）。
 build board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only
 
-# Program the FPGA over JTAG headlessly (board connected).
+# 无头地经 JTAG 烧录 FPGA（板子要连着）。
 program board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
 
-# Capture an ILA window to VCD and rename its probes for pulse (board programmed with a current build).
+# 抓一窗 ILA 波形到 VCD，并把探针改名为语义名供 pulse 使用。
 capture board='lxb_artix7' isa='riscv32i' mode='snapshot':
     @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --mode {{ mode }}
