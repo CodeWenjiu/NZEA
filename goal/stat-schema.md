@@ -6,15 +6,14 @@ it and renders it (`remu_simulator_nzea::stat_schema`). The acceptance values in
 
 Scope: the statistics path only (`stat` command / `stat_*` VPI counters / derived values). Nothing else in remu.
 
-Migration note (2026-09-26; updated 2026-09-27, 2026-09-29): the core rewrite on Scala 3 / zaozi landed and the stats path was
-re-ported with it, so the implementation paths in §11 are current again. **Schema v2** (2026-09-29, handoff in
-`stat-schema-v2.md`) adds the required `source` on counters and derived entries and is implemented on both sides. The
+Migration note (2026-09-26; updated 2026-09-27, 2026-09-29, 2026-10-13): the core rewrite on Scala 3 / zaozi landed and
+the stats path was re-ported with it, so the implementation paths in §11 are current again. **Schema v2** (2026-09-29)
+adds the required `source` on counters and derived entries and is implemented on both sides. The
 v2 follow-up (same day) moved declaration to the call site: a module declares a counter where the event is, its scope
 comes down in its own parameter, and the name is the scope's path plus the local name — `stat_core_middle_cycle`,
 `stat_core_back_int_bp_branch` — so `source` is the declaring block and the name carries where in the design it sits.
 One black box per counter, named after the counter, carries the `public_flat_rd` register. The specification below was
-not changed otherwise; `legacy/` (tag `legacy-baseline`) keeps the pre-rewrite version, and the tile / fpga side is still
-frozen there.
+not changed otherwise; `legacy/` (tag `legacy-baseline`) keeps the pre-rewrite version.
 
 Verification owner: the nzea side provides the artifact, the reference values (§8) and the acceptance run; the
 requirements below are testable one by one.
