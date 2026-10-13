@@ -51,8 +51,7 @@ flowchart TD
 
 - `just init`：安装 BSP 元数据。
 - `just dump <args>`：生成 RTL 到 `build/<target>/<platform>/<isa>/<sim|sta>/`。
-- `just synth <args>`：生成综合就绪 RTL 并运行综合。
-- `just sta <args>`：综合 + STA；需要 `PDK_PATH`。
+- `just sta <args>`：生成综合产物并对网表跑 STA；需要 `PDK_PATH` 与 iEDA。
 - `just clean-all`：清理 `build/` 和 Mill 缓存。
 - `mill nzea_core.compile` / `mill nzea_tile.compile`：快速编译检查。
 

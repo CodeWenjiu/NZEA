@@ -14,18 +14,14 @@ init:
 dump *ARGS:
     @mill --no-server nzea_cli.runMain nzea_cli.Main {{ ARGS }}
 
-# 先生成综合用顶层（`--flow yosys`，总线外露、无 DPI bridge），再综合它；设置 PDK_PATH 时映射到 PDK。
+# 三段一条链：生成综合用顶层（`--flow yosys`，总线外露、无 DPI bridge）、Yosys 综合（设置 PDK_PATH 时映
+# 射到 PDK）、STA。需要 PDK_PATH 与 iEDA。
 
-# 跑 Yosys 综合。
-[group('synth')]
-synth *ARGS:
+# 综合并对网表跑 STA（面积在 synth_stat.txt，时序在 *.rpt）。
+[group('build')]
+sta *ARGS:
     @just dump --flow yosys {{ ARGS }}
     @nu synth/flow/synth.nu {{ ARGS }}
-
-# 对综合后的网表跑 STA（需先 `just synth`；需要 PDK_PATH 与 iEDA）。
-[group('synth')]
-sta *ARGS:
-    @just synth {{ ARGS }}
     @nu synth/flow/sta.nu {{ ARGS }}
 
 # 跑某个模块的测试套件（如 `just test nzea_rtl`）。
@@ -70,8 +66,9 @@ wave path:
 
 # ---- FPGA (lxb_artix7 / Vivado) ----
 # 板级流程住在自己的模块里，和实现它的脚本放在一起（用 `just --list fpga` 列出）。
+# RTL 走本表的 `just dump --target fpga`，模块从那份 dump 树出发。
 
-# 板子的 RTL、Vivado 工程、比特流与 ILA 抓取 —— `just fpga dump|project|build|program|capture`。
+# 板子的 Vivado 工程、比特流与 ILA 抓取 —— `just fpga build|program|capture`。
 mod fpga 'nzea_fpga/justfile'
 
 # ---- board tools (probe/) ----

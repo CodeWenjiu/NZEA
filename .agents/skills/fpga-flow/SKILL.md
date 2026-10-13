@@ -18,11 +18,9 @@ board yet; those recipes come back when it is.
 ## The pipeline (one command per stage)
 
 ```sh
-# 1. Dump the board's RTL and generate its Vivado project (project tcl + build_all.tcl + program.tcl).
-#    Positional args: board, isa. The ILA is part of the board design, not a flag.
-#    Do NOT use `name=value` (`board=lxb_artix7`): just 1.58 passes it through literally, and the CLI
-#    then rejects `board=lxb_artix7` as an argument. Positional or plain flags (`just dump --target fpga …`) work.
-just fpga dump lxb_artix7 riscv32i
+# 1. Dump the board's RTL — the main dump, `--target fpga` (board and isa default to lxb_artix7 / riscv32i).
+#    The ILA is part of the board design, not a flag.
+just dump --target fpga
 
 # 2. Build the bitstream (synth + impl) — headless, ~5 min on this machine.
 just fpga build
@@ -35,8 +33,9 @@ just fpga capture                      # mode='snapshot' (default)
 pulse --wave build/fpga/lxb_artix7/riscv32i/vivado/capture.named.vcd info
 ```
 
-`just fpga project` regenerates only the Vivado project from the RTL already dumped (no re-elaboration).
-The stages are independent recipes — `just fpga build && just fpga program` when the RTL has not changed.
+`just fpga build` regenerates the Vivado project from the dumped RTL first — the project's file list follows the
+dump — so the only RTL step to remember is `just dump --target fpga`. To regenerate the project alone, the
+underlying `nzea_fpga/scripts/vivado-project.nu` can still be run directly.
 
 Success signals: `just fpga build` ends with `Bitstream generation completed` and writes
 `build/fpga/lxb_artix7/<isa>/vivado/nzea_fpga.bit`; `just fpga program` prints
@@ -78,12 +77,12 @@ board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 
 | Path | Written by | Purpose |
 |------|-----------|---------|
-| `*.sv`, `filelist.f` | `just fpga dump` (firtool) | the design's RTL and its file list |
+| `*.sv`, `filelist.f` | `just dump --target fpga` (firtool) | the design's RTL and its file list |
 | `layers-*.sv` | same, only when the design has layer blocks | the `bind` fragments; the dump adds the roots to `filelist.f` (see the probe section) |
-| `Bufg.sv` | `just fpga dump` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
+| `Bufg.sv` | `just dump --target fpga` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
 | `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`Ila.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
 | `ip_*.tcl` | same (`ClockingWizard.emit`) | one snippet per instantiated vendor IP, listed in `ipfiles.f` |
-| `vivado/build_all.tcl` | `just fpga project` (edalize) | one-shot: project → synthesis → impl → bitstream |
+| `vivado/build_all.tcl` | `just fpga build` (its first step, edalize) | one-shot: project → synthesis → impl → bitstream |
 | `vivado/program.tcl` | same | JTAG programming, attaching the impl's `.ltx` probes file |
 | `vivado/nzea_fpga.bit` | `build_all.tcl` | the bitstream |
 | `vivado/nzea_fpga.runs/impl_1/*.ltx` | impl | ILA probes file (without it the hw manager cannot see the ILA core) |
@@ -92,9 +91,9 @@ board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 Both `build_all.tcl` and `program.tcl` `cd` to the work root first (edalize's scripts assume cwd = work root,
 e.g. run.tcl copies the bitstream to `[pwd]/nzea_fpga.bit`), so they work wherever Vivado is launched.
 
-**Pitfall: `just fpga build` does NOT regenerate RTL.** It synthesizes the `.sv` files already under
-`build/fpga/.../`. After any Scala/zaozi change you must re-run `just fpga dump` first, or you build a
-bitstream from stale RTL.
+**Pitfall: `just fpga build` does NOT regenerate RTL.** It regenerates the Vivado project and synthesizes the
+`.sv` files already under `build/fpga/.../`. After any Scala/zaozi change you must re-run `just dump --target fpga`
+first, or you build a bitstream from stale RTL.
 
 ## IP: how it is created, and where the facts live
 

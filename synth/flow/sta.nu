@@ -26,7 +26,7 @@ def main [
   $env.SRAM_CLK_PORT_NAME = (if $target == "tile" { "ram_clock" } else { "" })
 
   if not ($netlist_v | path exists) {
-    print -e $"Error: ($netlist_v) not found. Run: just synth --isa ($isa)"
+    print -e $"Error: ($netlist_v) not found. Run: just sta --isa ($isa) — the synthesis is its first step"
     exit 1
   }
 

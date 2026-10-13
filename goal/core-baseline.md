@@ -1,7 +1,7 @@
 # 核心基线：最简 in-order 核
 
 Status: **基线已落地（已重写到 Scala 3 + zaozi）** — 三段式 in-order 基线（`NzeaCore` = Front + Middle + Back），
-500 MHz 约束下 `just synth` / `just sta` 通过，remu difftest（core 级）通过。后续微架构按"挂载顺序"逐步加回。
+500 MHz 约束下 `just sta` 通过，remu difftest（core 级）通过。后续微架构按"挂载顺序"逐步加回。
 
 ## 目标形态（三段）
 

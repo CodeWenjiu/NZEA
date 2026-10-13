@@ -21,7 +21,7 @@ def main [
     let rtl_dir = fpga_rtl_dir $board $isa
     if not ($rtl_dir | path exists) {
         print $"FPGA RTL not found at ($rtl_dir)"
-        print "Run: just fpga dump <board> <isa>"
+        print "Run: just dump --target fpga"
         exit 1
     }
 

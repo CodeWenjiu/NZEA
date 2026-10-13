@@ -1,6 +1,6 @@
-# fpga 层的板级流程 —— 从仓库根以 `just fpga <recipe>` 进入。它作用于本层自己的 dump 树（`dump --target fpga`），
-# 然后是 Vivado 工程（edalize）、比特流、JTAG 烧录与 ILA 抓取。
-# 位置参数是 board 和 isa；这里 `name=value` 不可用（just 1.58 会原样透传）。
+# fpga 层的板级流程 —— 从仓库根以 `just fpga <recipe>` 进入。RTL 来自主表的 `just dump --target fpga`；这里从
+# 那份 dump 树出发：Vivado 工程（edalize）、比特流、JTAG 烧录与 ILA 抓取。
+# 需要时用位置参数给出 board 和 isa（默认 lxb_artix7 / riscv32i；`name=value` 不可用，just 1.58 会原样透传）。
 
 # recipe 从仓库根寻址 mill 和 build/ 树，就像它们原先在根 justfile 里的家一样。
 set working-directory := '..'
@@ -8,19 +8,11 @@ set working-directory := '..'
 _default:
     @just --list fpga
 
-# 一步到位：fpga dump，然后是写 build_all.tcl / program.tcl 到工作根的工程生成器。
+# 先按 dump 出的 filelist 重新生成 Vivado 工程（build_all.tcl / program.tcl 随之更新），再 synth + impl。
 
-# dump 板子的 RTL 并生成它的 Vivado 工程。
-dump board='lxb_artix7' isa='riscv32i':
-    @mill --no-server nzea_cli.runMain nzea_cli.Main --target fpga --board {{ board }} --isa {{ isa }}
-    @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
-
-# 只从已 dump 的 RTL 重新生成 Vivado 工程（不重新 elaborate）。
-project board='lxb_artix7' isa='riscv32i':
-    @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
-
-# 无头构建比特流（synth + impl，约 5 分钟；需先 `just fpga dump`）。
+# 重新生成工程并构建比特流（约 5 分钟；需先 `just dump --target fpga`）。
 build board='lxb_artix7' isa='riscv32i':
+    @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only
 
 # 无头地经 JTAG 烧录 FPGA（板子要连着）。
