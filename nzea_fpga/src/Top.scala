@@ -109,7 +109,7 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         // The wizard's domain: the second blinker, held in reset while the button is pressed or the clock is unsettled.
         val blink100 = Blink.instantiate(BlinkParameter(26, 0.25))
         blink100.io.clock := clk100
-        blink100.io.resetN := (resetN.asBool | !locked).asReset
+        blink100.io.resetN := (resetN.asBool & locked).asReset
         led2 := blink100.io.led
 
         // What is watched: the top's own observables, marked where it holds them, and the blinkers' counters,
