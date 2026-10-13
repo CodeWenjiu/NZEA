@@ -1,6 +1,7 @@
 # fpga 层的板级流程 —— 从仓库根以 `just fpga <recipe>` 进入。RTL 来自主表的 `just dump --target fpga`；这里从
 # 那份 dump 树出发：Vivado 工程（edalize）、比特流、JTAG 烧录与 ILA 抓取。
-# 需要时用位置参数给出 board 和 isa（默认 lxb_artix7 / riscv32i；`name=value` 不可用，just 1.58 会原样透传）。
+# 需要时用位置参数给出 board 和 isa（默认 lxb_artix7 / riscv32i；capture 的第三个位置参数是 trigger；
+# `name=value` 不可用，just 1.58 会原样透传）。
 
 # recipe 从仓库根寻址 mill 和 build/ 树，就像它们原先在根 justfile 里的家一样。
 set working-directory := '..'
@@ -19,6 +20,8 @@ build board='lxb_artix7' isa='riscv32i':
 program board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
 
+# trigger 为空时立即触发抓一窗；填 <探针>[=<值>]（如 led1、blink50_count=100）则等条件满足再抓（探针是语义名）。
+#
 # 抓一窗 ILA 波形到 VCD，并把探针改名为语义名供 pulse 使用。
-capture board='lxb_artix7' isa='riscv32i' mode='snapshot':
-    @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --mode {{ mode }}
+capture board='lxb_artix7' isa='riscv32i' trigger='':
+    @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --trigger '{{ trigger }}'

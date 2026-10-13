@@ -6,7 +6,7 @@
 # environment, then runs `probe vcd-rename` with the map the same emission wrote.
 #
 # Usage:
-#   nu nzea_fpga/scripts/ila-capture.nu [--board lxb_artix7] [--isa riscv32i] [--mode snapshot]
+#   nu nzea_fpga/scripts/ila-capture.nu [--board lxb_artix7] [--isa riscv32i] [--trigger '<probe>[=<value>]']
 
 const chips_script = (path self . | path join "chips.nu")
 const batch_nix = (path self . | path join "vivado-batch.nix")
@@ -15,7 +15,7 @@ source $chips_script
 def main [
     --board: string = "lxb_artix7"
     --isa: string = "riscv32i"
-    --mode: string = "snapshot"   # snapshot: trigger immediately and capture one window
+    --trigger: string = ""   # empty: trigger immediately; '<probe>[=<value>]': arm on that probe's compare value
 ] {
     let info = board_info $board
     let rtl_dir = fpga_rtl_dir $board $isa
@@ -31,9 +31,10 @@ def main [
     cargo build --release --quiet --manifest-path probe/Cargo.toml -p probe_cli
     let probe_bin = "probe/target/release/probe" | path expand
 
-    print $"Capturing ILA in ($mode) mode…"
+    let what = if $trigger == "" { "immediate trigger" } else { $"armed on ($trigger)" }
+    print $"Capturing ILA ($what)…"
     let script = $"cd ($vivado_dir)
-vivado -mode batch -source ($tcl) -nolog -nojournal -tclargs ($info.part) ($mode)
+vivado -mode batch -source ($tcl) -nolog -nojournal -tclargs ($info.part) '($trigger)'
 exit
 "
     $script | ^nix-shell $batch_nix

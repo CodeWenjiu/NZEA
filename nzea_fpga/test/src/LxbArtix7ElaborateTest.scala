@@ -214,3 +214,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
             for (name, i) <- watched.map(_._1).zipWithIndex do assert(map.contains(s"probe$i $name"))
             // The capture script bakes the depth's trigger position in, so it tracks the map.
             assert(capture.contains(s"CONTROL.TRIGGER_POSITION ${ila.depth / 4}"))
+            // The trigger form: empty (or `snapshot`) triggers immediately; `<probe>[=<value>]` arms on one probe's
+            // compare value, the probe resolved to the manager's name through the map beside the script.
+            assert(capture.contains("run_hw_ila -trigger_now $hw_ila"))
+            assert(capture.contains("set_property TRIGGER_COMPARE_VALUE $literal $probe"))
+            assert(capture.contains("ila_probes.map"))

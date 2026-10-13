@@ -29,7 +29,8 @@ just fpga build
 just fpga program
 
 # 4. Capture an ILA window (board programmed with an ila build) and analyze it.
-just fpga capture                      # mode='snapshot' (default)
+just fpga capture                                 # trigger immediately (default)
+just fpga capture lxb_artix7 riscv32i 'led1=0'    # or arm on one probe's compare value
 pulse --wave build/fpga/lxb_artix7/riscv32i/vivado/capture.named.vcd info
 ```
 
@@ -162,10 +163,11 @@ below), so nothing about it goes through the IP machinery.
   sampled domain's net) and resolved like a mark. A search that does not come back with the number of nets the width
   declares fails the build loudly (`ILA: '…' matched N nets`), never silently.
 - `just fpga capture` drives the dump-generated `ila_capture.tcl` in the same batch FHS env: it finds the part,
-  attaches the impl `.ltx` (required — without it `get_hw_ilas` is empty), sets `TRIGGER_POSITION` to
-  `depth/4`, triggers immediately (`snapshot` mode; the legacy `reset` mode armed on the tile's uart-reset and
-  comes back with the tile), uploads the window and writes `capture.vcd`. Then `probe vcd-rename` applies
-  `ila_probes.map` → `capture.named.vcd`.
+  attaches the impl `.ltx` (required — without it `get_hw_ilas` is empty), sets `TRIGGER_POSITION` to `depth/4`,
+  and triggers — immediately by default, or armed on one probe's compare value
+  (`just fpga capture lxb_artix7 riscv32i '<probe>[=<value>]'`; the probe is the semantic name, resolved through
+  `ila_probes.map` to the manager's net name, the value decimal or `0x…`, default 1) — uploads the window and
+  writes `capture.vcd`. Then `probe vcd-rename` applies `ila_probes.map` → `capture.named.vcd`.
 - **The rename map keys on the declared nets, not on `probeN`.** Vivado's export names the probes after the *nets* the
   core samples (`reset` for `probe_reset`; a bound bus as `blink50/probe_count[25:0]`), so the map's net keys do the
   renaming; the bare `probeN` keys beside them catch an export that names the signal after the core's port. Every key
