@@ -194,7 +194,10 @@ object ClockingWizard:
            |generate_target all [get_ips ${parameter.ipName}]
            |""".stripMargin
 
-    /** Write one tcl per instantiated IP into `dir` and add them to its IP list. */
+    /** Write one tcl per instantiated IP into `dir`, add them to its IP list, and list the simulation sources the xsim
+      * flow compiles: each IP's structural sim netlist, the path it takes under the generated-IP root (one directory
+      * per module name).
+      */
     def emit(dir: os.Path): Unit =
         if instantiated.nonEmpty then
             os.makeDir.all(dir)
@@ -204,6 +207,7 @@ object ClockingWizard:
                 name
             }.toSeq
             FileList.appendIp(dir, names)
+            FileList.appendSim(dir, instantiated.keys.toSeq.map(ipName => s"$ipName/${ipName}_sim_netlist.v"))
 
     /** Instantiate the IP, recording it so the dump writes its tcl. */
     def instantiate(parameter: ClockingWizardParameter)(using

@@ -32,6 +32,9 @@ just fpga program
 just fpga capture                                 # trigger immediately (default)
 just fpga capture lxb_artix7 riscv32i 'led1=0'    # or arm on one probe's compare value
 pulse --wave build/fpga/lxb_artix7/riscv32i/vivado/capture.named.vcd info
+
+# No board needed: a scenario under xsim, against the IP's official models.
+just fpga sim
 ```
 
 `just fpga build` regenerates the Vivado project from the dumped RTL first — the project's file list follows the
@@ -83,11 +86,14 @@ board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 | `Bufg.sv` | `just dump --target fpga` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
 | `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`Ila.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
 | `ip_*.tcl` | same (`ClockingWizard.emit`) | one snippet per instantiated vendor IP, listed in `ipfiles.f` |
+| `simfiles.f` | same (`ClockingWizard.emit`) | the IP's simulation sources, paths under the generated-IP root (see the xsim section) |
 | `vivado/build_all.tcl` | `just fpga build` (its first step, edalize) | one-shot: project → synthesis → impl → bitstream |
 | `vivado/program.tcl` | same | JTAG programming, attaching the impl's `.ltx` probes file |
 | `vivado/nzea_fpga.bit` | `build_all.tcl` | the bitstream |
 | `vivado/nzea_fpga.runs/impl_1/*.ltx` | impl | ILA probes file (without it the hw manager cannot see the ILA core) |
 | `vivado/capture.vcd`, `capture.named.vcd` | `just fpga capture` | the raw and probe-renamed capture |
+| `xsim/ipgen/` | `just fpga sim` (when needed) | the flow's own copy of the IP project, keyed by the snippets — simulating never touches the board's tree |
+| `xsim/<name>/` | `just fpga sim` | a scenario's work dir: `files.prj`, `xsim.log`, `<name>.vcd` |
 
 Both `build_all.tcl` and `program.tcl` `cd` to the work root first (edalize's scripts assume cwd = work root,
 e.g. run.tcl copies the bitstream to `[pwd]/nzea_fpga.bit`), so they work wherever Vivado is launched.
@@ -186,6 +192,39 @@ below), so nothing about it goes through the IP machinery.
   like `eq1'bF` are accepted but never fire.
 - A timed-out capture can leave orphan `cs_server`/`hw_server` processes spinning at 100% CPU — kill them with
   `pkill -9 -f cs_server; pkill -9 -f hw_server` before the next build.
+
+## xsim scenarios (IP simulation)
+
+Board-only debug of anything touching a vendor IP is the slowest loop there is; a scenario simulates the dumped RTL
+against the IP's official models under xsim. It works from the dump alone — no bitstream, no board:
+
+```sh
+just fpga sim                                    # run the default scenario (TopSmoke)
+just fpga sim TopSmoke lxb_artix7 riscv32i 1     # ...and let it dump a waveform
+nu nzea_fpga/scripts/xsim.nu --list              # enumerate the scenarios
+```
+
+What a scenario is (`nzea_fpga/sim/<name>.sv`, module name = file stem):
+
+- **self-checking**: `$fatal` on failure, and print `<name>: PASS` on success — the flow fails a run whose log lacks
+  that line, and the recipe fails with the flow;
+- a **watchdog** (`#<n>; $fatal`) so a stuck design fails instead of hanging the recipe;
+- `$test$plusargs("dump")` gating `$dumpfile("<name>.vcd")` — the waveform is opt-in (`--vcd`);
+- it never hand-writes an IP model: the simulation must run the vendor's own files (that is xsim's whole point). A
+  vendor TB that ships with an IP is reused verbatim, with only the name of the instantiated module changed.
+
+The flow compiles three lists in `build/fpga/<board>/<isa>/xsim/<name>/`:
+
+- the design: the dump's `filelist.f` (the same list the board build compiles);
+- the IP's simulation sources: the dump's `simfiles.f` — one path per line, under the generated-IP root — elaborated
+  with `-L unisims_ver -L secureip`. The flow generates its own copy of the IP project under `xsim/ipgen/`, keyed by
+  the snippets' content (a changed snippet regenerates; nothing else does);
+- the scenario itself, plus `glbl.v`.
+
+Reading the waveform: the VCD carries the real timescale and, unlike an ILA export, every module's `clock` port —
+so pulse's default clock (`posedge clock`) may pick the wrong one. Give it the scenario's own when querying:
+`pulse value --wave <name>.vcd --on 'posedge CLK_50M' ...`. (An ILA export has no clock signal at all; there pulse
+falls back to one cycle per sample.)
 
 ## Serial / UART (not on the board yet)
 

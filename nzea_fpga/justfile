@@ -1,5 +1,5 @@
 # fpga 层的板级流程 —— 从仓库根以 `just fpga <recipe>` 进入。RTL 来自主表的 `just dump --target fpga`；这里从
-# 那份 dump 树出发：Vivado 工程（edalize）、比特流、JTAG 烧录与 ILA 抓取。
+# 那份 dump 树出发：Vivado 工程（edalize）、比特流、JTAG 烧录、ILA 抓取，以及 xsim 场景仿真。
 # 需要时用位置参数给出 board 和 isa（默认 lxb_artix7 / riscv32i；capture 的第三个位置参数是 trigger；
 # `name=value` 不可用，just 1.58 会原样透传）。
 
@@ -25,3 +25,9 @@ program board='lxb_artix7' isa='riscv32i':
 # 抓一窗 ILA 波形到 VCD，并把探针改名为语义名供 pulse 使用。
 capture board='lxb_artix7' isa='riscv32i' trigger='':
     @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --trigger '{{ trigger }}'
+
+# wave 非空时场景会 dump 波形到运行目录（<name>.vcd），供 pulse。
+#
+# 跑一个 xsim 场景（nzea_fpga/sim/<name>.sv）：设计取自 dump 的 filelist.f，IP 官方模型取自 simfiles.f；场景自检，失败非零退出。
+sim name='TopSmoke' board='lxb_artix7' isa='riscv32i' wave='':
+    @nu nzea_fpga/scripts/xsim.nu --name {{ name }} --board {{ board }} --isa {{ isa }} {{ if wave != "" { "--vcd" } else { "" } }}

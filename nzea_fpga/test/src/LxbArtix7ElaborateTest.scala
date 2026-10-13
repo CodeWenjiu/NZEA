@@ -80,6 +80,16 @@ object LxbArtix7ElaborateTest extends TestSuite:
             (os.read(dir / "ila_debug.tcl"), os.read(dir / "ila_probes.map"), os.read(dir / "ila_capture.tcl"))
         finally os.remove.all(dir)
 
+    /** The IP's tcl and the lists it appears in, from the same dump's window: `ipfiles.f` for the project generator,
+      * `simfiles.f` (paths under the generated-IP root) for the xsim flow.
+      */
+    private val ipArtifacts =
+        val dir = os.temp.dir(prefix = "nzea-ip")
+        try
+            ClockingWizard.emit(dir)
+            (os.read(dir / "ip_clk_wiz_0.tcl"), os.read(dir / "ipfiles.f"), os.read(dir / "simfiles.f"))
+        finally os.remove.all(dir)
+
     val tests = Tests:
 
         test("the top's ports are the board's pins, and nothing else"):
@@ -111,6 +121,9 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains(".clock  (_clk50Buffer_O)"))
             // The 100 MHz blinker waits for the wizard's `locked`.
             assert(sv.contains("clk_out2"))
+            // And it is held in reset while the button is down or the wizard has not locked: released only with
+            // both (`syncN` is the raw active-low level — one is released).
+            assert(sv.contains(".resetN (_sync_syncN & _clockingWizard_locked)"))
 
         // Vivado synthesis silently drops SystemVerilog `bind`, so a layer-hosted observer vanishes from the netlist
         // without a warning (see `nzea_rtl.probe.ProbeLayerTest` for the mechanism and the experiment). What watches a
@@ -219,3 +232,10 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(capture.contains("run_hw_ila -trigger_now $hw_ila"))
             assert(capture.contains("set_property TRIGGER_COMPARE_VALUE $literal $probe"))
             assert(capture.contains("ila_probes.map"))
+
+        test("the clocking wizard declares its sim sources beside its tcl"):
+            val (tcl, ips, sims) = ipArtifacts
+            assert(tcl.contains("create_ip -name clk_wiz"))
+            assert(ips == "ip_clk_wiz_0.tcl\n")
+            // The entries the xsim flow resolves under its own generated copy of the IP: one directory per module name.
+            assert(sims == "clk_wiz_0/clk_wiz_0_sim_netlist.v\n")
