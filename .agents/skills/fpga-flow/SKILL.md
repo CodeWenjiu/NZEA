@@ -1,6 +1,6 @@
 ---
 name: fpga-flow
-description: Run the lxb_artix7 FPGA pipeline headlessly — dump the board's RTL, generate its Vivado project (edalize), build the bitstream, program the board over JTAG, and capture an ILA window for pulse. Use when building or programming the board, when Vivado is not found or fails to start, or when an on-board capture is needed; it holds the FHS nix-shell environment and the batch invocation quirks.
+description: Run the lxb_artix7 FPGA pipeline headlessly — dump the board's RTL, generate its Vivado project (edalize), build the bitstream, program the board over JTAG, and capture an ILA window for pulse. Use when building or programming the board, when Vivado is not found or fails to start, or when an on-board capture is needed; it holds the FHS nix-shell environment and the batch invocation quirks. Board-facing work (build, program, capture) is always a separate task that is asked for first — never run it as a side effect of another request.
 ---
 
 # fpga-flow
@@ -9,9 +9,34 @@ Run the FPGA pipeline for the lxb_artix7 board headlessly: generate RTL → buil
 impl) → program the board over JTAG → capture an ILA window for pulse. This skill captures the environment
 knowledge (Vivado is not on PATH, runs in an FHS nix shell) and the exact commands.
 
-**Current state (2026-10-12)**: the board top is the bring-up design — `nzea_fpga/src/Top.scala` (`Top`, module
-`Top`) = the clocking wizard + two blinkers, watched by an ILA debug core the netlist flow creates — so the pipeline below
-ends at "the LEDs blink and an ILA window is readable". The tile (and with it the
+## Hard rules for on-board work (read before anything else)
+
+1. **On-board verification is its own task, and it is asked for first.** A bitstream build, a `program` and a capture
+   are the slow, board-facing steps (build ≈ 30–45 min; program + two captures ≈ 10–15 min). Before starting any of
+   them, **stop and ask** — say what will run, what it validates, and what the wall-clock cost is — then wait for a yes.
+   Never run them "along the way" inside another request (an edit, a refactor, a question), however related they look:
+   the user decides when the board's time is spent, and the machine's. A *simulation* is not board work and needs no
+   such ask, but rule 2 applies to it all the same.
+2. **No `sleep`-based polling of running jobs — ever, and no background job to "wait for".** A long command belongs in
+   the **foreground with a generous `timeout_ms`** (e.g. `just fpga build` with `timeout_ms = 3600000`): the call returns
+   exactly when the process ends, and the next command follows immediately. Background execution (`setsid nohup … &`) is
+   justified only when there is *real* concurrent work to do; completion is then established by `wait`ing on the job's
+   own PID (or by a sentinel file the job writes at its end) — never by sleeping and checking, and never by matching a
+   command-line pattern. (Measured: `pgrep -f vivado` also matches the shell running the check, so a build that had
+   finished at 12:38 looked "still running" for the next fifty minutes while a `sleep` loop polled it.)
+
+**Current state (2026-10-16)**: the board carries the DDR3 bring-up design — `nzea_fpga/src/Top.scala`, which *is* the
+board's top (the module named `Top` owns the pins, the DDR3 pads included: `src/device/ddr3/Ddr3Pads.scala` holds the
+I/O cells' primitives as modules of the circuit) = the clocking wizard, the LED panel (`src/logic/Blinkers.scala`), and
+the DDR3 bus (`src/device/ddr3/`) put through this level's own campaign (`src/logic/Ddr3Soak.scala` — the transport is
+the device's, the test is the level's; `README_zh.md` §12 records the split), watched by an ILA debug core the netlist
+flow creates — so the pipeline below ends at "the LEDs blink, the soak counts, and an ILA window is readable". The DDR3
+device keeps its own side (`src/device/ddr3/Ddr3Side.scala`: controller, pads, probes, the grids they run on and its own
+reset), the resets are a network of named reasons with one synchronizer per clock domain
+(`nzea_rtl/src/stdlib/Resets.scala`), and the top hands each part the pins it declares and nothing else — the resets
+included, each part stating which reasons hold it.
+A scenario reaches into the
+design as `dut.<instance>` (`dut` is the top itself; there is no wrapper above it). The tile (and with it the
 UART boot loader, `just probe load`/`reset`/`monitor`, and the reset-triggered ILA mode) is not on the
 board yet; those recipes come back when it is.
 
@@ -22,7 +47,9 @@ board yet; those recipes come back when it is.
 #    The ILA is part of the board design, not a flag.
 just dump --target fpga
 
-# 2. Build the bitstream (synth + impl) — headless, ~5 min on this machine.
+# 2. Build the bitstream (synth + impl) — headless, ~20-45 min on this machine (the implementation runs with
+#    `Performance_ExplorePostRoutePhysOpt` plus `AggressiveExplore` on the route and post-route phys-opt steps: the
+#    command side's 4.375 ns cross-grid path and the DDR3 controller's congested pocket both need it).
 just fpga build
 
 # 3. Program the FPGA over JTAG — board must be connected via the Digilent JTAG cable.
@@ -84,8 +111,10 @@ board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 | `*.sv`, `filelist.f` | `just dump --target fpga` (firtool) | the design's RTL and its file list |
 | `layers-*.sv` | same, only when the design has layer blocks | the `bind` fragments; the dump adds the roots to `filelist.f` (see the probe section) |
 | `Bufg.sv` | `just dump --target fpga` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
+| `Ddr3*Pads.sv`, `Ddr3IdelayCtrl.sv` | same (`Ddr3Pads.emitModules`) | the DDR3 I/O cells' bodies — one module per pad group the design instantiated — listed in `filelist.f` |
 | `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`Ila.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
 | `ip_*.tcl` | same (`ClockingWizard.emit`) | one snippet per instantiated vendor IP, listed in `ipfiles.f` |
+| `board.xdc`, `ddr3.xdc`, `xcdfiles.f` | same (`XdcRegistry`, registered by `BoardXdc` / `Ddr3Xdc`) | the constraints, one file per part of the design that declares pins — the level's own pins, the DDR3 bus — listed in `xcdfiles.f`; edit the Scala, not the tree |
 | `simfiles.f` | same (`ClockingWizard.emit`) | the IP's simulation sources, paths under the generated-IP root (see the xsim section) |
 | `vivado/build_all.tcl` | `just fpga build` (its first step, edalize) | one-shot: project → synthesis → impl → bitstream |
 | `vivado/program.tcl` | same | JTAG programming, attaching the impl's `.ltx` probes file |
@@ -114,9 +143,14 @@ The project is generated by `nzea_fpga/tools/vivado/vivado-project.py` (**edaliz
 The IPs themselves are generated by the modules that instantiate them (`nzea_fpga/src/ip/`: `ClockingWizard.scala`):
 `instantiate` records the parameter in a registry, `emit` writes `ip_<name>.tcl` at dump time and adds
 it to `ipfiles.f`, so the IP's ports and its configuration cannot disagree with the RTL. `ClockPlan`
-(`inMHz:outMHz[,…]`) is the clocking fact, and the **primitive is derived from it**, never stated: the PLL when a PLL
-configuration expresses the plan exactly (a small integer search against the PLL's own ranges), the MMCM — the superset —
-otherwise; the board's 50 → 100/200 plan is an exact integer ratio, so its IP is a PLL. The module is named after the IP
+(`inMHz:outMHz[@deg,…]`) is the clocking fact, and the **primitive is derived from it**, never stated: the PLL when a
+PLL configuration expresses the plan exactly (a small integer search against the PLL's own ranges), the MMCM — the
+superset — otherwise. The plan itself is not stated by anyone: the design asks for each grid where it needs it
+(`nzea_fpga/src/Clocks.scala`, key = frequency+phase, so `200@0` and `200@45` are two grids), and the wizard is built
+once from those asks. A device that owns its own clocking does not ask with `clock` but with **`Clocks.bind(<its own
+instance's port>, <grid>)`**, which is a statement that needs no elaboration context: the connection is made when the
+wizard is built, so the file that names the instance's ports states its own grids and the level above writes no clock
+(`src/device/ddr3/Ddr3Clocks.scala` + `Ddr3Side`). The module is named after the IP
 (`clk_wiz_0`), because a `VerilogWrapper` only merges with the generated IP when `moduleName` and `verilogModuleName` are
 equal.
 
@@ -141,16 +175,29 @@ below), so nothing about it goes through the IP machinery.
   Each declaration keeps a wire named `probe_<name>` carrying `(* mark_debug = "true" *)` (what Vivado preserves a net
   by) and takes the value's **own width**;
   `Probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
-  (the top's own). Current probes: `reset, locked, led1, led2` (top-level marks) and `blink50_count, blink100_count`
-  (the blinkers' counters, declared in `Blink`, bound per instance), depth 1024, sampled on the design's buffered
-  50 MHz clock (kept as the wire `ila_clock`).
+  (the top's own). Current probes (34): the reset network's six — three reasons (`buttonPin`, `pllLocked`,
+  `ddr3TapsReady`) and three domains (`board50Reset`, `board100Reset`, `ddr3Reset`, each 1 = in reset),
+  marked where `Resets` declares them (`nzea_rtl/src/stdlib/Resets.scala`) — the DDR3 bus's fifteen (`state` …
+  `dqIn`, marked in `Ddr3.scala` where the signals live), the campaign's nine (`rounds` … `missMask`, marked in
+  `logic/Ddr3Soak.scala`), the blinkers' two (`blink50_count`, `blink100_count`, declared in `Blink`, bound per instance)
+  and the top's own two (`led1`, `led2`); depth 1024, sampled on the design's buffered 50 MHz clock (kept as the wire
+  `ila_clock`). The table's order is the order the statements were made — the reset network's first, then the bus's,
+  then the campaign's, because the bus is built before the level's own logic — so a probe's index moves if that order
+  does; the rename map keeps the queries by name. A declared name must also not *contain* another (the leaf search is a
+  substring match, so both searches would find both nets): the elaboration refuses it rather than a build failing on the
+  count twenty minutes later.
 - **Declarations are unconditional; the consumer is the level's.** They are collected in a dump-level table
   (`nzea_rtl.probe.Probes`, cleared by `DumpRegistry` like the rest of a dump's state), and the fpga level's consumer
   is `nzea_fpga.ip.Ila` — `Ila("<core>", <depth>)`, `Ila.clock(<net>)` for the anchor, `Ila.emit(<dir>)` for the
   three artifacts. A level with no consumer simply carries the wires; a future consumer (a simulator, another vendor's
   flow) reads the same `Probes.table` its own way.
 - **Why two steps**: a module body is shared by every instance, so it cannot say *which* instance a probe means — the
-  binding is stated where the instance is named. Declaration names are one namespace and must be unique in the design.
+  binding is stated where the instance is named. **A module instantiated once does not need the split**: `Probes.mark`
+  declares and binds in the same statement, and the name is the address (every register-carrying module on this board is
+  instantiated once, so `Ddr3`, `Ddr3Soak` and `Top`'s own signals are marks; only the panel's `Blink` — two instances
+  from one body — is declared-and-bound). If such a module ever gains a second instance, the marked names would have to
+  grow a prefix: two nets with the same name fail the build loudly (the count check), never silently. Declaration names
+  are one namespace and must be unique in the design.
 - **A declaration can sit beside its signal at any depth — no port threading — which is the point of the mechanism.** The
   layer/probe mechanism (`nzea_rtl/test/src/probe/ProbeLayerTest.scala` pins it) is *not* usable for a board ILA: it
   lowers to SystemVerilog `bind`, and **Vivado synthesis silently drops `bind`** — the bound module never reaches the
@@ -204,6 +251,18 @@ just fpga sim TopSmoke lxb_artix7 riscv32i 1     # ...and let it dump a waveform
 nu nzea_fpga/scripts/xsim.nu --list              # enumerate the scenarios
 ```
 
+**The scenario's own wall-clock budget is a flag, and the recipe's default is short.** `xsim.nu --timeout <seconds>`
+kills a run that takes longer (a hung scenario must fail, not hang the recipe); its default is 300 s, and `just fpga sim`
+does not pass one — so anything but the smoke scenarios must go through the script directly. The soak
+(`Ddr3Bringup`, a few hundred rounds plus the sweep) takes ~20–25 min:
+
+```sh
+nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --board lxb_artix7 --isa riscv32i --timeout 5400
+```
+
+A killed run exits 124 and its log simply stops (a 300 s kill looks like a hang until you read the exit code). Run it in
+the foreground per the hard rules above: it is long, not unattended.
+
 What a scenario is (`nzea_fpga/sim/<name>.sv`, module name = file stem):
 
 - **self-checking**: `$fatal` on failure, and print `<name>: PASS` on success — the flow fails a run whose log lacks
@@ -245,6 +304,13 @@ silently not load it.
 
 ## Troubleshooting
 
+- **A timing exception that matches nothing is silent.** Vivado logs `[Vivado 12-508] No pins matched '<pattern>'` in
+  the synth log, drops the command and carries on; the paths are then analyzed at their un-relaxed requirement.
+  Measured on this board: the DDR3 level pins ran 1.5 ns of data against a 1.875 ns requirement, and the build failed
+  timing by up to 0.76 ns; with a matching pattern the same paths read 4.375 ns and pass. For a *hierarchical* search
+  the pattern is matched against the full path, so a leading `*/` names nothing at all — `*levelDrive/D1` is the form
+  that matches. After a build, `grep 'No pins matched' <run>/synth_1/runme.log` (and the same for impl) must print
+  nothing; `Top_timing_summary_postroute_physopted.rpt` must say `All user specified timing constraints are met`.
 - **`vivado` not found / bad interpreter** — you're outside the FHS env. Run through `vivado-flow.nu` /
   `ila-capture.nu`, which pipe into `nix-shell vivado-batch.nix`.
 - **nix-shell hangs** — you're using the original `/mnt/data/tools/Xilinx/shell.nix` (GUI profile blocks). Use
@@ -252,8 +318,10 @@ silently not load it.
 - **`create_project -force` wipes runs** — expected; each build is a full rebuild.
 - **Program finds no target** — board not connected / JTAG cable unplugged / hw_server not running. Check with
   `lsusb` (the Digilent cable shows as `0403:…`, the CH340 as `1a86:…`).
-- **A constraint on a missing port** — an XDC line for a port the top does not declare is an error in Vivado.
-  `nzea_fpga/src/boards/lxb_artix7/pins.xdc` carries only the ports the design has (the board's full pin
-  map, including DDR3/UART/HDMI, is the vendor's `A7_lite.xdc` beside it, kept as reference); add lines there
-  as the top grows.
+- **A constraint on a missing port** — an XDC line for a port the top does not declare is an error in Vivado. The
+  constraints are now generated with the dump, one file per part of the design that declares pins (`board.xdc` for the
+  level's own pins, `ddr3.xdc` for the DDR3 bus; both listed in `xcdfiles.f`), so they follow the top by construction:
+  add the lines in the Scala beside the pads — `nzea_fpga/src/boards/lxb_artix7/BoardXdc.scala`,
+  `nzea_fpga/src/device/ddr3/Ddr3Xdc.scala` — and re-dump. The board's full pin map (UART, HDMI, …) stays the vendor's
+  `A7_lite.xdc` beside them, kept as reference.
 - **Vivado residue files** (`vivado.jou`, `vivado_pid*.str`, `*.backup.log`) are gitignored; delete freely.

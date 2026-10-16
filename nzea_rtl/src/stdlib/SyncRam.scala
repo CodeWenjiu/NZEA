@@ -7,7 +7,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_rtl.FileList
+import nzea_rtl.{DumpRegistry, FileList}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 import scala.collection.mutable
@@ -282,5 +282,6 @@ object SyncRam:
         sourcecode.Name.Machine,
         InstanceContext
     ): Instance[SyncRamIO, SyncRamProbe] =
+        DumpRegistry.onEmit("syncram")(dir => SyncRam.emitModules(dir))
         instantiated.put(SyncRamModule.moduleName(parameter), parameter)
         SyncRamModule.instantiate(parameter)

@@ -43,6 +43,8 @@ object Ila:
         require(depth >= 2 && Integer.bitCount(depth) == 1, s"depth must be a power of two >= 2, got $depth")
         val ila = new Ila(coreName, depth)
         built += ila
+        // Opening one is what says the dump has debug artifacts to write; the emitter holds this ILA, not the table.
+        DumpRegistry.onEmit(s"ila:$coreName")(dir => ila.emit(dir))
         ila
 
     /** Write the table's artifacts into `dir`: the debug script (what the implementation run sources), the capture
@@ -153,16 +155,45 @@ final class Ila private (val coreName: String, val depth: Int):
             "}",
             "",
             "# A marked signal: the declaration names the signal, not a place. The design's own level is tried first — a",
-            "# marked wire is the net where it was declared — and a wire synthesis kept inside the cell that drives it is",
-            "# found through the hierarchy instead.",
-            "proc ila_leaf {pattern count} {",
-            "  set nets [get_nets -quiet $pattern]",
-            "  if {[llength $nets] != $count} { set nets [get_nets -hier -quiet $pattern] }",
-            "  ila_bits $nets $count $pattern",
+            "# marked wire is the net where it was declared — and the rest is found through the hierarchy instead. A kept",
+            "# net may be copied deeper by implementation (a copy inside the cell that drives it), so when the search finds",
+            "# more than the declaration's own, the shallowest level is the declaration's and the copies are dropped. The",
+            "# core's own nets are excluded (`NAME !~ <core>*`): connecting a probe makes the tool insert a net named after",
+            "# it (`<core>_<net>`), and a declared name is a prefix of a longer one (`probe_locked` of `probe_lockedPlane`),",
+            "# so a search that ran after the longer probe was connected would find the core's net for it as well — which",
+            "# depends on the probe order, and is not what the declaration named. No net of the design carries the core's",
+            "# name: the core does not exist in the RTL — the implementation run creates it.",
+            "proc ila_shallow {nets} {",
+            "  set min 0",
+            "  foreach net $nets {",
+            "    set depth [llength [split $net /]]",
+            "    if {$min == 0 || $depth < $min} { set min $depth }",
+            "  }",
+            "  set shallow {}",
+            "  foreach net $nets {",
+            "    if {[llength [split $net /]] == $min} { lappend shallow $net }",
+            "  }",
+            "  return $shallow",
             "}",
+            s"""proc ila_leaf {pattern count} {
+               |  set nets [get_nets -quiet -filter "NAME !~ ${coreName}*" $$pattern]
+               |  if {[llength $$nets] != $$count} {
+               |    set nets [get_nets -hier -quiet -filter "NAME !~ ${coreName}*" $$pattern]
+               |  }
+               |  if {[llength $$nets] > $$count} { set nets [ila_shallow $$nets] }
+               |  ila_bits $$nets $$count $$pattern
+               |}""".stripMargin,
             "",
-            "# A bound signal: the instance's own level in the netlist, addressed by its path from the design top.",
-            "proc ila_path {pattern count} { ila_bits [get_nets -quiet $pattern] $count $pattern }",
+            "# A bound signal: the instance's own level in the netlist, addressed by its path from the design top. The path",
+            "# is searched through the hierarchy — the instance sits wherever its parent put it — and by the name filter:",
+            "# a path only matches as a name once the tool is asked for a filter, since `*` in a plain glob does not cross",
+            "# a `/`. The shallowest matches are the instance's own, the way the leaf search takes the declaration's; the",
+            "# core's own nets are excluded there for the same reason.",
+            s"""proc ila_path {pattern count} {
+               |  set nets [get_nets -hier -quiet -filter "NAME =~ $$pattern && NAME !~ ${coreName}*" ]
+               |  if {[llength $$nets] > $$count} { set nets [ila_shallow $$nets] }
+               |  ila_bits $$nets $$count $$pattern
+               |}""".stripMargin,
             ""
         )
         // probe0 comes with the core; every further probe is one more probe port.

@@ -3,9 +3,10 @@
 # Generate the Vivado project for a board: edalize writes the project tcl, the one-shot build script (build_all.tcl)
 # and the programming script (program.tcl) into the board's work root.
 #
-# Board facts (part, top module, XDC) come from chips.nu. Everything else the project needs travels with the RTL the
-# dump wrote: the sources through `filelist.f`, and the vendor-IP snippets — one tcl per IP the design instantiates —
-# through `ipfiles.f` (see `nzea_fpga/src/ip/`).
+# Board facts (part, top module) come from chips.nu. Everything else the project needs travels with the RTL the
+# dump wrote: the sources through `filelist.f`, the vendor-IP snippets — one tcl per IP the design instantiates —
+# through `ipfiles.f` (see `nzea_fpga/src/ip/`), and the constraints through `xcdfiles.f`, one xdc per part of the
+# design that declares pins (see `nzea_fpga/src/XdcRegistry.scala`).
 #
 # Run from the repo root:
 #   nu nzea_fpga/scripts/vivado-project.nu --board lxb_artix7 --isa riscv32i
@@ -28,5 +29,5 @@ def main [
     let vivado_dir = $"($rtl_dir)/vivado"
     print $"Generating Vivado project via edalize at: ($vivado_dir)"
     cd nzea_fpga/tools/vivado
-    uv run vivado-project.py --rtl-dir $rtl_dir --part $info.part --top $info.top_module --out $vivado_dir --xdc $info.xdc
+    uv run vivado-project.py --rtl-dir $rtl_dir --part $info.part --top $info.top_module --out $vivado_dir
 }

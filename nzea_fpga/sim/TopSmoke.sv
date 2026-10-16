@@ -6,6 +6,8 @@
 // down, and the two domains count at the ratio their clocks imply (the 50 MHz blinker against the 100 MHz output).
 // Self-checking: a failure is `$fatal` — the recipe fails with it; a watchdog fails a run that would otherwise hang.
 // `-testplusarg dump` writes `TopSmoke.vcd` for pulse. The flow requires the `TopSmoke: PASS` line below.
+// The blinkers' instances are `dut.blinkers.blink50` / `dut.blinkers.blink100` (`nzea_fpga/src/logic/Blinkers.scala`):
+// `dut` is the board's top (`Top`), which owns the pins — the DDR3 pads included.
 `timescale 1ns/1ps
 
 module TopSmoke;
@@ -57,8 +59,9 @@ module TopSmoke;
     // down — reports no lock.
     repeat (10) @(posedge CLK_50M);
     check(
-      dut.blink50.count === 26'd0 && dut.blink100.count === 26'd0,
-      $sformatf("the blinkers count while the button is held (%0d, %0d)", dut.blink50.count, dut.blink100.count)
+      dut.blinkers.blink50.count === 26'd0 && dut.blinkers.blink100.count === 26'd0,
+      $sformatf("the blinkers count while the button is held (%0d, %0d)", dut.blinkers.blink50.count,
+          dut.blinkers.blink100.count)
     );
     check(dut.clockingWizard.locked === 1'b0, "the wizard reports lock while the button is held");
 
@@ -74,11 +77,11 @@ module TopSmoke;
     // The counters: the 50 MHz blinker advances one per cycle of this clock; the 100 MHz one two per cycle of it.
     // Both are sampled at this scenario's edges — the first is exact (same clock), the second crosses into the
     // wizard's domain, so the count over 100 edges lands within one edge of 200.
-    c50_0  = dut.blink50.count;
-    c100_0 = dut.blink100.count;
+    c50_0  = dut.blinkers.blink50.count;
+    c100_0 = dut.blinkers.blink100.count;
     repeat (100) @(posedge CLK_50M);
-    c50_1  = dut.blink50.count;
-    c100_1 = dut.blink100.count;
+    c50_1  = dut.blinkers.blink50.count;
+    c100_1 = dut.blinkers.blink100.count;
 
     check(
       c50_1 - c50_0 === 26'd100,

@@ -129,7 +129,24 @@ exit
     let tb_line = xvlog-line ($sim_dir | path join $"($name).sv" | into string) ""
     let glbl_line = 'verilog work $XILINX_VIVADO/data/verilog/src/glbl.v'
 
-    ($design_lines ++ $sim_lines ++ [$glbl_line $tb_line])
+    # A scenario's own compile list (`<name>.f`): extra sources beside the scenario, one entry per line as
+    # "<path> [xvlog flags]" with the path relative to the repo root, `#` starting a comment. Vendor models live
+    # this way — they belong to the scenario, not to an IP emitter.
+    let extra_lines = if (($sim_dir | path join $"($name).f") | path exists) {
+        open ($sim_dir | path join $"($name).f")
+            | lines
+            | each {|l| $l | str trim }
+            | where {|l| $l != "" and not ($l | str starts-with "#") }
+            | each {|e|
+                let bits = ($e | split row -r '\s+')
+                let flags = if ($bits | length) > 1 { $bits | skip 1 | str join ' ' } else { "" }
+                xvlog-line ($bits | first | path expand | into string) $flags
+            }
+    } else {
+        []
+    }
+
+    ($design_lines ++ $sim_lines ++ $extra_lines ++ [$glbl_line $tb_line])
     | str join "\n"
     | save --force ($work | path join "files.prj")
     "run all\nquit\n" | save --force ($work | path join "run.tcl")
@@ -137,7 +154,7 @@ exit
     let plusargs = if $vcd { "-testplusarg dump" } else { "" }
 
     print $"Simulating ($name) under xsim in ($work)"
-    print $"  design: ($design_lines | length) sources from the dump; IP sources: ($sim_lines | length)"
+    print $"  design: ($design_lines | length) sources from the dump; IP sources: ($sim_lines | length); scenario sources: ($extra_lines | length)"
 
     run-in-vivado $"set -eo pipefail
 cd ($work)

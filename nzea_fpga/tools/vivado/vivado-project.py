@@ -4,7 +4,9 @@
 Edalize owns the vendor-neutral scaffolding (create_project / read sources / read constraints / the build chain); the
 board-specific Xilinx IP is not modelled here at all — the dump already wrote one tcl snippet per instantiated IP
 (`ip_*.tcl`, listed in `ipfiles.f`, generated beside the RTL by the modules that instantiate them), and this script
-only attaches them as `tclSource` snippets for edalize to `source` into the project script.
+only attaches them as `tclSource` snippets for edalize to `source` into the project script. The constraints are the
+dump's too: one xdc per part of the design that declares pins, listed in `xcdfiles.f` (`nzea_fpga/XdcRegistry.scala`)
+— a constraint binds by name, so only the part that declares the pins knows them, and neither copy can drift.
 
 Alongside the project it writes two paste-able one-shots into the work root:
 
@@ -19,7 +21,7 @@ Both `cd` to the work root first, because edalize's own scripts assume it is the
 copies the bitstream to `[pwd]/nzea_fpga.bit`).
 
 Usage:
-    uv run vivado-project.py --rtl-dir <dir> --part <part> --top <module> --xdc <path> [--out <work_root>]
+    uv run vivado-project.py --rtl-dir <dir> --part <part> --top <module> [--out <work_root>]
 """
 
 import argparse
@@ -60,11 +62,25 @@ def ip_tcl_sources(rtl_dir):
     return [os.path.join(rtl_dir, name) for name in names]
 
 
-def build_edam(rtl_dir, part, xdc_paths, top):
+def xdc_sources(rtl_dir):
+    """The constraints the dump wrote, from its constraint list (`xcdfiles.f`, `nzea_fpga/XdcRegistry.scala`).
+
+    Same reasoning as the RTL list: a file swept up by glob could constrain a port this dump does not have (an error in
+    Vivado) or outlive the part that wrote it — what is constrained has to be what the design declares.
+    """
+    listed = os.path.join(rtl_dir, "xcdfiles.f")
+    if not os.path.exists(listed):
+        return []
+    with open(listed) as f:
+        names = [line.strip() for line in f if line.strip().endswith(".xdc")]
+    return [os.path.join(rtl_dir, name) for name in names]
+
+
+def build_edam(rtl_dir, part, top):
     files = []
     for sv in rtl_sources(rtl_dir):
         files.append({"name": os.path.abspath(sv), "file_type": "systemVerilogSource"})
-    for xdc in xdc_paths:
+    for xdc in xdc_sources(rtl_dir):
         files.append({"name": os.path.abspath(xdc), "file_type": "xdc"})
     for ip_tcl in ip_tcl_sources(rtl_dir):
         files.append({"name": os.path.abspath(ip_tcl), "file_type": "tclSource"})
@@ -98,7 +114,26 @@ def write_flow_scripts(work_root, part, rtl_dir):
         f.write(f"cd {{{work_root}}}\n")
         f.write("close_project -quiet\n")
         f.write(f"source {{{project_tcl}}}\n")
+        f.write("set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]\n")
+        # The command side's levels cross from the 45 deg grid to the 0 deg grid over a 4.375 ns requirement, and the
+        # budget is route, not logic: measured on the split design (the campaign as its own module, `logic/Ddr3Soak`),
+        # the three failing endpoints are `ddr3/state_reg[*] -> addrPads/padDrive*/D*` with 3 logic levels (0.75 ns) and
+        # 2.9 ns of route (79%); the router and the post-route phys-opt both land on exactly what the placer left them
+        # (routed and post-route-phys-opted reports byte-identical), and the two nets in it are the pocket's own high-
+        # fanout ones (`probe_state`, `DDR3_DQ_OE`). What such a path needs is a placer that spends its effort on
+        # timing, so the place step gets the timing-driven directive (the default `Explore` placement leaves the same
+        # class of path tens of picoseconds short -- see the two directives below, which are the router's half of this).
+        f.write("set_property STEPS.PLACE_DESIGN.ARGS.DIRECTIVE ExtraTimingOpt [get_runs impl_1]\n")
+        # The controller's own 200 MHz domain sits in a congested pocket beside its pads: its worst path's endpoints are
+        # *neighbouring* slices (X144Y153 to X153Y152) and the path still spends 3.8 ns of its 4.75 ns budget on route
+        # — a detour, not distance. What such a domain needs is a router and a phys optimizer that keep trying, so both
+        # steps get the aggressive directive (measured: with `Explore` on both the domain lands 51 ps short, nine
+        # endpoints, reproducibly; the design's logic is unchanged).
+        f.write("set_property STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE AggressiveExplore [get_runs impl_1]\n")
+        f.write("set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE AggressiveExplore [get_runs impl_1]\n")
         if os.path.exists(debug_tcl):
+            # After the strategy: setting it resets the run's per-step properties to that strategy's defaults, which
+            # would drop this hook and write a bitstream without a debug core.
             f.write(f"set_property STEPS.OPT_DESIGN.TCL.PRE {{{debug_tcl}}} [get_runs impl_1]\n")
         f.write(f"source {{{synth_tcl}}}\n")
         f.write(f"source {{{run_tcl}}}\n")
@@ -148,10 +183,9 @@ puts "INFO: FPGA {part} programmed."
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rtl-dir", required=True, help="Directory containing the dumped RTL and its IP snippets")
+    parser.add_argument("--rtl-dir", required=True, help="Directory containing the dumped RTL, its IP snippets and its constraints")
     parser.add_argument("--part", required=True, help="Vivado part number, e.g. xc7a200tfbg484-2")
     parser.add_argument("--top", required=True, help="Top-level module name")
-    parser.add_argument("--xdc", action="append", required=True, help="Constraint file; repeatable")
     parser.add_argument("--out", default=None, help="Work root (default: <rtl-dir>/vivado)")
     args = parser.parse_args()
 
@@ -160,7 +194,7 @@ def main():
         shutil.rmtree(work_root)
     os.makedirs(work_root)
 
-    edam = build_edam(args.rtl_dir, args.part, args.xdc, args.top)
+    edam = build_edam(args.rtl_dir, args.part, args.top)
     VivadoFlow(edam=edam, work_root=work_root).configure()
 
     build_all, program = write_flow_scripts(work_root, args.part, args.rtl_dir)

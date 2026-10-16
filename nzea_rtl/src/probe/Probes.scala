@@ -37,7 +37,8 @@ final case class ProbeEntry(name: String, width: Int, place: ProbePlace)
   * dump level's choice (a consumer, like the fpga level's ILA); a design whose level has none simply carries the wires.
   * The table lives one elaboration: [[DumpRegistry]] clears it with the rest of a dump's state.
   *
-  * Names are one namespace: a declaration's name is what a binding looks up, so it must be unique in the design, and a
+  * Names are one namespace: a declaration's name is what a binding looks up, so it must be unique in the design, and it
+  * must not contain another declaration's — the leaf search that addresses a declared net is a substring match. A
   * binding is per instance.
   */
 object Probes:
@@ -71,6 +72,17 @@ object Probes:
             !declared.contains(name),
             s"'$name' is declared watchable twice — a declaration's name is what a binding searches for, so it names one signal"
         )
+        // A leaf-placed declaration is found by searching the hierarchy for a net named after it, and the search is a
+        // substring match on the leaf name: a name that contains another (or is contained by it) would be found by both
+        // searches, and the count check in the consumer would fail — a build later, or a reading mistake now. Names
+        // must be distinguishable by the search that addresses them.
+        declared.keysIterator.find(other => other.contains(name) || name.contains(other)).foreach { other =>
+            require(
+                false,
+                s"'$name' and '$other' cannot both name a declared net: each is searched for by leaf name, and one name " +
+                    s"contains the other, so the search for '*probe_$other*' would find 'probe_$name' as well"
+            )
+        }
         keepNet(s"probe_$name", value, Seq(VerilogAttribute("mark_debug", Some("\"true\""))))
         declared(name) = value.width(using arena, context, typeImpl)
 

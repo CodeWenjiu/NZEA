@@ -1,17 +1,19 @@
 # FPGA board database: what the Vivado flow needs, one entry per board, and where a board's build tree is.
 #
-# Board facts live here rather than in the RTL: the flow is a shell script and cannot ask the elaborator, and the pin
-# map is the board's, not the design's. The RTL side names the same board by its segment (`--board`, and the platform
-# segment of `build/fpga/<board>/<isa>/<flow>`), which is the table's key.
+# Board facts live here rather than in the RTL: the flow is a shell script and cannot ask the elaborator. What the table
+# holds is what the *flow* needs to address a board — the part and the top module. The constraints are not here either:
+# they travel with the dump, one file per part of the design that declares pins (`xcdfiles.f`, see
+# `nzea_fpga/src/XdcRegistry.scala`) — a path written here would be a second copy of "what the top declares", free to
+# drift from it. The RTL side names the same board by its segment (`--board`, and the platform segment of
+# `build/fpga/<board>/<isa>`), which is the table's key.
 const raw_boards = {
     "lxb_artix7": {
         top_module: "Top",
         part: "xc7a200tfbg484-2",
-        xdc: "nzea_fpga/src/boards/lxb_artix7/pins.xdc",
     },
 }
 
-# Look a board up by its segment (e.g. "lxb_artix7"), expanding its constraint paths.
+# Look a board up by its segment (e.g. "lxb_artix7").
 export def board_info [board: string] {
     let b = $raw_boards | get -o $board
     if ($b | is-empty) {
@@ -21,7 +23,6 @@ export def board_info [board: string] {
         board: $board,
         top_module: $b.top_module,
         part: $b.part,
-        xdc: ($b.xdc | path expand),
     }
 }
 

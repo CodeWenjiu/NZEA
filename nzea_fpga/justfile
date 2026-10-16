@@ -11,7 +11,9 @@ _default:
 
 # 先按 dump 出的 filelist 重新生成 Vivado 工程（build_all.tcl / program.tcl 随之更新），再 synth + impl。
 
-# 重新生成工程并构建比特流（约 5 分钟；需先 `just dump --target fpga`）。
+# 重新生成工程并构建比特流（约 25-45 分钟：实现用 Performance_ExplorePostRoutePhysOpt 策略，且 route 与
+# post-route phys-opt 两步都是 AggressiveExplore——默认的 Explore 会让命令侧那条 4.375 ns 的跨网格电平路径差
+# 十几皮秒，也会让 DDR3 控制器那块拥塞口袋里的路径绕线差五十皮秒；需先 `just dump --target fpga`）。
 build board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only

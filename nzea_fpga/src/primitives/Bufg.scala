@@ -80,4 +80,5 @@ object Bufg:
         InstanceContext
     ): Instance[BufgIO, BufgProbe] =
         used = true
+        DumpRegistry.onEmit("bufg")(dir => Bufg.emitModules(dir))
         BufgModule.instantiate(parameter)

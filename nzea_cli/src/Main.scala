@@ -3,11 +3,8 @@ package nzea_cli
 import mainargs.{arg, main, ParserForClass}
 import nzea_core.config.CoreConfig
 import nzea_fpga.{FpgaElaborate, TopParameter}
-import nzea_fpga.ip.{ClockingWizard, Ila}
-import nzea_fpga.primitives.Bufg
-import nzea_rtl.{Elaborate, RtlFlow}
+import nzea_rtl.{DumpRegistry, Elaborate, RtlFlow}
 import nzea_rtl.stat.{StatRegistry, StatSchema}
-import nzea_rtl.stdlib.SyncRam
 import nzea_tile.*
 import nzea_top.{NzeaCore, NzeaCoreElaborate, NzeaCoreParameter, TopConfig, TopConfigArgs}
 
@@ -126,35 +123,36 @@ object Main:
     private def dumpCore(parameter: NzeaCoreParameter, outDir: os.Path): Unit =
         NzeaCoreElaborate.withLinked(parameter): circuit =>
             Elaborate.verilogInto(circuit, outDir, lowering(parameter.flow))
-            emitBodies(outDir, parameter.flow, NzeaCore.moduleName(parameter))
+            emitCounters(outDir, parameter.flow, NzeaCore.moduleName(parameter))
+            DumpRegistry.emitAll(outDir)
         println(s"elaborated core:${parameter.config.core.isa.name} into $outDir")
 
     private def dumpTile(parameter: NzeaTileParameter, outDir: os.Path): Unit =
         NzeaTileElaborate.withLinked(parameter): circuit =>
             Elaborate.verilogInto(circuit, outDir, lowering(parameter.flow))
-            emitBodies(outDir, parameter.flow, NzeaTile.moduleName(parameter))
+            emitCounters(outDir, parameter.flow, NzeaTile.moduleName(parameter))
+            DumpRegistry.emitAll(outDir)
         println(s"elaborated tile:${parameter.config.isa.name} into $outDir")
 
     /** The FPGA level: a board top, always shaped for synthesis — a board build is not a flow's choice, so `--flow`
-      * does not reach it. What travels with the RTL is what the design itself owns: the vendor-IP tcl snippets each
-      * instantiated IP needs, and the board's ILA artifacts (the debug script, the capture script, the rename map).
+      * does not reach it. What travels with the RTL is what the design itself owns, and the design says so itself:
+      * every part that is used registers its own artifacts as it is instantiated ([[DumpRegistry]], which the pads, the
+      * vendor IPs, the emitted bodies and the debug core all register with). The CLI only asks for what was registered.
       */
     private def dumpFpga(cli: CliArgs, outDir: os.Path): Unit =
         require(cli.board == "lxb_artix7", s"unknown --board '${cli.board}' (ported: lxb_artix7)")
         val parameter = TopParameter()
         FpgaElaborate.withLinked(parameter): circuit =>
             Elaborate.verilogInto(circuit, outDir, yosysLowering)
-            SyncRam.emitModules(outDir)
-            Bufg.emitModules(outDir)
-            ClockingWizard.emit(outDir)
-            Ila.emit(outDir)
+            DumpRegistry.emitAll(outDir)
         println(s"elaborated fpga:${cli.board} into $outDir")
 
-    /** The hand-written bodies and the counter schema the RTL instantiates, written beside the RTL they belong to. */
-    private def emitBodies(outDir: os.Path, flow: RtlFlow, design: String): Unit =
-        // The sync rams the design instantiates travel with the RTL they belong to, like the counters do.
-        SyncRam.emitModules(outDir)
-        // A simulator reads the counters through VPI and interprets them through the schema.
+    /** The counter schema, written beside the RTL it belongs to: a simulator reads the counters through VPI and
+      * interprets them through the schema. It is the one artifact that stays in the CLI's hands, because it is the one
+      * that depends on *how* the dump is taken (a flow that carries no counters has no schema) rather than on what the
+      * design used — everything else registers itself with [[DumpRegistry]].
+      */
+    private def emitCounters(outDir: os.Path, flow: RtlFlow, design: String): Unit =
         if flow.counters then
             StatRegistry.emitBoxes(outDir)
             StatSchema.emit(outDir.toString, design, StatRegistry.schema)
