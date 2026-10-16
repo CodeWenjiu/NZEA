@@ -6,7 +6,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_fpga.device.ddr3.Ddr3PadNames
+import nzea_fpga.device.ddr3.Ddr3BusShape
+import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.probe.Probes
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -19,170 +20,158 @@ class Ddr3SoakLayers(parameter: Ddr3SoakParameter) extends LayerInterface(parame
     def layers = Seq.empty
 
 /** The soak's ports: the domain it runs in — the bus's own, clock and reset handed over by
-  * [[nzea_fpga.device.ddr3.Ddr3Side]] — and the bus's campaign side, named as the bus names it
-  * ([[nzea_fpga.device.ddr3.Ddr3]]).
+  * [[nzea_fpga.device.ddr3.Ddr3Side]] — and the master end of the memory's bus ([[nzea_fpga.device.ddr3.Ddr3BusShape]],
+  * which the device states and this imports rather than restating).
+  *
+  * The master leaves its first request standing from reset: the device's `bus.req.ready` is never asserted before its
+  * bring-up is done, so waiting for the device and waiting for a ready are the same wait.
   */
 class Ddr3SoakIO(parameter: Ddr3SoakParameter) extends HWRecord(parameter):
     Flipped("clock", Clock())
     Flipped("resetN", Reset())
 
-    // What a round carries: this module's registers, held stable for the whole round (the device stages them long after
-    // the round's own edge stepped them, so nothing here has to be latched for it).
-    Aligned("campBeats", UInt(8 * 16))
-    Aligned("campBa", UInt(Ddr3PadNames.baWidth))
-    Aligned("campRow", UInt(Ddr3PadNames.addrWidth))
-    Aligned("campCol", UInt(Ddr3PadNames.addrWidth))
-
-    // What a round answers, on the edge the device says the answer is valid.
-    Flipped("campPass", Bool())
-    Flipped("campRoundEdge", Bool())
-    Flipped("campRoundDone", Bool())
-    Flipped("campTap", UInt(Ddr3PadNames.tapWidth))
-    Flipped("campCalibrating", Bool())
-    Flipped("campLockedTap", UInt(Ddr3PadNames.tapWidth))
+    Aligned(
+        "bus",
+        new LiteBusRW(
+            Ddr3BusShape.addrWidth,
+            Ddr3BusShape.dataWidth,
+            Ddr3BusShape.userWidth,
+            Ddr3BusShape.idWidth
+        )
+    )
 
 class Ddr3SoakProbe(parameter: Ddr3SoakParameter) extends DVRecord[Ddr3SoakParameter, Ddr3SoakLayers](parameter)
 
-/** The board's DDR3 soak: the campaign the device is put through, round after round — the *test*, where
-  * [[nzea_fpga.device.ddr3.Ddr3]] is the transport.
+/** The board's DDR3 soak: the *test*, where [[nzea_fpga.device.ddr3.Ddr3]] is the transport — a LiteBus master that
+  * writes the memory and reads it back, and the account of what came back wrong.
   *
-  * A round is the device's (activate, write, precharge, activate, read, judge, ~230 ns). What this module owns is what
-  * a round *carries* and what the rounds *account to*:
+  * The plan, one step per access, one request outstanding at a time (the device answers one burst per ~230 ns and the
+  * master is not its bottleneck):
   *
-  *   - the two things a round's burst says, stepped together as a *pair*: one of eight patterns ([[patternRows]], the
-  *     eight-beat rows one round writes) and one of eight addresses ([[comboRows]] and its bank and column) — 64 pairs,
-  *     each run once before the next block;
-  *   - a *block*: one whole turn of the device's tap sweep ([[nzea_fpga.device.ddr3.Ddr3]] states the sweep, and
-  *     `campRoundDone` is the round that closes a turn). The pairs step at a block's edge, so every pair is weighed
-  *     against every tap the board may need before the campaign moves on — a pair that only ever ran at one tap could
-  *     fail for the board's timing and pass for the pattern, or the other way round;
-  *   - the account a board reading is made of: `rounds` and `misses` (the rate), and the two 64-bit masks — per pair,
-  *     whether its block ever missed and whether its last block came through clean — which is what says *which* pairs
-  *     fail rather than only how often (the reading guide is `nzea_fpga/src/device/ddr3/README_zh.md`, §6).
+  *   - the *walk*: sixteen addresses, one per step ([[addrTable]]) — every field the device decodes moved: the column's
+  *     bits, the banks, the row's low bits, the top row — each written and read back;
+  *   - the *patterns*: eight data words at one address ([[patternTable]]) — the all-zeros, the all-ones, the
+  *     alternating levels and two mixed walks a stuck or crossed lane shows itself in;
+  *   - the *LFSR*: eight steps of a maximal-length sequence at eight addresses, each step's eight successive states
+  *     staged as one burst's eight beats — data no table could hold, so a *pattern* failure cannot be mistaken for a
+  *     table's;
+  *   - the *mask*: at one address, a full write of the base pattern and then a partial one ([[maskTable]]'s strobe), so
+  *     every byte the strobe does not cover has to come back as the base left it — the write mask's own test, and the
+  *     only one that judges two writes by one read;
+  *   - the *account*: `errors` counts the read-backs that did not match (the plan's verdict is zero), with the first
+  *     one's address, expectation and answer kept beside it (`firstBad*`), and `done` is the plan's own end.
   *
-  * The one bit a round reports arrives on `campPass`, valid on `campRoundEdge` — the same cycle the device's state
-  * machine leaves the round — and everything here is a register updated on that edge. The campaign and the device see
-  * one timeline because the bus's domain is handed over with the campaign's side ([[nzea_fpga.device.ddr3.Ddr3Side]]
-  * wires the clock and the reset), so this module runs on the controller's own grid and leaves reset with it.
-  *
-  * The beats leave one cycle behind the row's own registers ([[beatRegs]]): the words the serializers take are a
-  * register's output, and the worst cone of the table — the streaming row's eight steps of feedback — is spent inside
-  * the cycle rather than in front of the pads.
+  * The expectation a read-back is compared against is *built*, not looked up: every write updates it byte by byte — the
+  * bytes the strobe covers take the write's, the rest keep what they had — so a masked write's expectation is the
+  * base's where the strobe is clear, which is exactly the rule the device is held to.
   */
 @generator
 object Ddr3Soak extends Generator[Ddr3SoakParameter, Ddr3SoakLayers, Ddr3SoakIO, Ddr3SoakProbe]:
     override def moduleName(parameter: Ddr3SoakParameter): String = "Ddr3Soak"
 
-    /** The rows a round's pattern may name, eight 16-bit beats each; the last row is the LFSR's ([[lfsrRow]]), whose
-      * beats are computed rather than tabulated, so only the seven constant rows are here.
-      *
-      * What the rows have to do: every row moves through all sixteen lanes with transitions inside every beat — the
-      * walking rows move one wire at a time, the two mask rows toggle every wire on every beat, the register's row is a
-      * run of pseudorandom words — so a lane that is stuck, crossed with its neighbour or slow to change shows up as
-      * itself instead of being hidden by its neighbours. The rows differ from each other in *which* walk they run: that
-      * is what makes a failing pair's pattern worth reading.
+    /** The walk's sixteen addresses, as byte addresses (a burst is 16-byte aligned, `addr[3:0]` zero): the field each
+      * one moves is named beside it, and they are one table because a step *is* one address.
       */
-    private val patternRows: Seq[Seq[BigInt]] =
-        val rows = Seq(
-            (0 until 8).map(k => BigInt(0xa000 + k)), // a nibble's walk in the top byte, the rest of the word standing
-            (0 until 8).map(k => BigInt(1) << k), // one bit walking the low byte
-            (0 until 8).map(k => BigInt(1) << (k + 8)), // the same walk in the high byte
-            (0 until 8).map(k => ~(BigInt(1) << k) & 0xffff), // one bit low, the rest high — the inverse walk
-            (0 until 8).map(k => ~(BigInt(1) << (k + 8)) & 0xffff),
-            Seq.fill(8)(BigInt(0xaaaa)), // every lane every beat: the densest edges a burst can ask the bus for
-            Seq.fill(8)(BigInt(0x5555))
-        )
-        require(
-            rows.forall(row => row.forall(word => word != 0 && word != 0xffff)),
-            "a pattern row with a 0x0000 or 0xFFFF beat: a burst whose word never changes does not test a wire"
-        )
-        require(
-            rows.distinct.sizeIs == rows.size,
-            "two pattern rows are the same walk — the pairs would spend a block on each of them for one verdict"
-        )
-        rows
+    private val addrTable: Seq[BigInt] = Seq(
+        0x00000000L, // row 0, bank 0, column 0 — the baseline
+        0x00000010L, // the burst address's low bit (A4)
+        0x00000070L, // A5..A6
+        0x000000f0L, // A7
+        0x000007f0L, // the column field's top bit
+        0x00000800L, // bank 1
+        0x00001000L, // bank 2
+        0x00001800L, // bank 3
+        0x00003800L, // bank 7
+        0x00004000L, // row 1 (A14)
+        0x00008000L, // row 2 (A15)
+        0x00020000L, // row 8 (A21)
+        0x01000000L, // row 0x400
+        0x10000000L, // row 0x4000
+        0x1fffc000L, // the top row (0x7fff), bank 0
+        0x1fffd000L // the top row, bank 2
+    )
 
-    /** The row whose beats are the LFSR's ([[lfsr]]): the one row that keeps moving between rounds. */
-    private val lfsrRow = 7
-
-    /** The eight addresses the pairs run at, as the row, bank and column each names — a walk that reaches every field
-      * the device decodes: the row's low bit (0x0001), its A10 (0x0400), all ones (0x7FFF) and an alternating one
-      * (0x2AAA); the banks 1, 7 and 4 beside 0; and the columns 0x8 (A3) and 0x3F8 (A3..A9) beside 0.
-      *
-      * The three are one table because a pair *is* one address: they are selected by the pair index's high bits
-      * (`combo[5:3]`), so an entry here is a whole (row, bank, column), never one field of one.
+    /** The pattern phase's eight data words, at one address. Every word moves all sixteen byte lanes and differs from
+      * every other in *how* — the constant levels (a lane stuck at either), the alternating pair (an edge on every
+      * lane), and the two walks (a lane crossed with its neighbour) — so a failure's pattern is a lead.
       */
-    private val comboRows = Seq(0x0000, 0x0000, 0x0000, 0x0001, 0x0400, 0x7fff, 0x0000, 0x2aaa)
-    private val comboBas = Seq(0, 1, 7, 0, 0, 0, 0, 4)
-    private val comboCols = Seq(0, 0, 0, 0, 0, 0, 8, 0x3f8)
+    private val patternTable: Seq[BigInt] = Seq(
+        BigInt("00000000000000000000000000000000", 16),
+        BigInt("ffffffffffffffffffffffffffffffff", 16),
+        BigInt("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 16),
+        BigInt("55555555555555555555555555555555", 16),
+        BigInt("0123456789abcdef0123456789abcdef", 16),
+        BigInt("fedcba9876543210fedcba9876543210", 16),
+        BigInt("00ff00ff00ff00ff00ff00ff00ff00ff", 16),
+        BigInt("ff00ff00ff00ff00ff00ff00ff00ff00", 16)
+    )
+
+    /** The mask phase's byte strobes: one bit per byte of the beat, so the eight cover a single byte at either end, a
+      * whole byte lane's half, the alternating pairs and the nibble-wide extremes. Every one of them is *partial* by
+      * construction — a full strobe would not test what this phase is for.
+      */
+    private val maskTable: Seq[Int] = Seq(0x0001, 0x8000, 0x00ff, 0xff00, 0x5555, 0xaaaa, 0x0f0f, 0xf0f0)
+
+    /** The mask phase's two words: the base the full write stages, and the inverse the masked one does — so a byte the
+      * strobe covers must have *changed* and a byte it does not must not have.
+      */
+    private val baseWord = BigInt("55555555555555555555555555555555", 16)
+    private val maskedWord = BigInt("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 16)
+
+    /** The plan's length, and the step past it: the walk, the patterns, the LFSR's steps and the masks. */
+    private val planSteps = addrTable.size + patternTable.size + 8 + maskTable.size
+
+    /** The walk's data word as a constant, for the step counter's reset value: beat `k` carries the step's value in its
+      * high bits and a one-hot byte low ([[walkWord]] states the same word as a value).
+      */
+    private def walkWordConst(step: Int): BigInt =
+        (7 to 0 by -1)
+            .map(k => (BigInt(step) << 8) | (BigInt(1) << k))
+            .reduce((high, low) => (high << 16) | low)
 
     def architecture(parameter: Ddr3SoakParameter) =
         val io = summon[Interface[Ddr3SoakIO]]
         given ClockScope = ClockScope.posedge(io.field[Clock]("clock"))
         given ResetScope = ResetScope.asyncActiveLow(io.field[Reset]("resetN"))
 
-        val campBeats = io.field[UInt]("campBeats")
-        val campBa = io.field[UInt]("campBa")
-        val campRow = io.field[UInt]("campRow")
-        val campCol = io.field[UInt]("campCol")
-        val campPass = io.field[Bool]("campPass")
-        val campRoundEdge = io.field[Bool]("campRoundEdge")
-        val campRoundDone = io.field[Bool]("campRoundDone")
-        val campTap = io.field[UInt]("campTap")
-        val campCalibrating = io.field[Bool]("campCalibrating")
-        val campLockedTap = io.field[UInt]("campLockedTap")
+        val bus = io.field[LiteBusRW]("bus")
 
-        // ---- the state ------------------------------------------------------------------------------------------
+        // The fixed addresses the phases after the walk run at (the walk's own are [[addrTable]]'s): row 1 for the
+        // patterns, row 2 (with the step's own column) for the LFSR, row 3 for the masks.
+        val patternAddr = BigInt(0x4000)
+        val lfsrAddress = BigInt(0x8000)
+        val maskAddr = BigInt(0xc000)
+        val allStrobes = (1 << 16) - 1
 
-        /** The pair index: the low three bits are the pattern ([[patternRows]]), the next three the address
-          * ([[comboRows]], [[comboBas]], [[comboCols]]) — so the 64 pairs are one 6-bit walk, and a block's step is one
-          * increment.
+        // ---- the plan's cursor and what a step carries ----------------------------------------------------------
+
+        // The step counter, and the step's own index read out of it: the low four bits are the walk's index (the other
+        // phases use the low three), the bit above them which half of the second sixteen steps (patterns or LFSR), the
+        // pair above those the phase.
+        val step = RegInit(0.U(6))
+        val stepTop = step.asBits.bits(5, 4).asUInt
+        val stepMid = step.asBits.bit(3)
+        val stepIdx = step.asBits.bits(2, 0).asUInt
+        val walkIdx = step.asBits.bits(3, 0).asUInt
+
+        // What the current step carries: the address, the data the base write stages, and the expectation the read-back
+        // is judged against — which the writes update, not the step's set-up (below).
+        val addrReg = RegInit(addrTable.head.U(Ddr3BusShape.addrWidth))
+        val dataReg = RegInit(walkWordConst(0).U(Ddr3BusShape.dataWidth))
+        val expectReg = RegInit(0.U(Ddr3BusShape.dataWidth))
+
+        /** Beat `k` of the walk's data: the step's own value in the beat's high bits and a one-hot byte low, so the
+          * word says which step wrote it and every byte lane carries a different level.
           */
-        val combo = RegInit(0.U(6))
-        val patIdx = RegInit(0.U(3))
-        val rowReg = RegInit(0.U(Ddr3PadNames.addrWidth))
-        val colReg = RegInit(0.U(Ddr3PadNames.addrWidth))
-        val baReg = RegInit(0.U(Ddr3PadNames.baWidth))
-
-        /** The streaming row's state: a 16-bit LFSR whose feedback makes a maximal-length sequence — every word of it
-          * but zero appears once before it repeats, so a burst sampled twice never sees the same run by accident.
-          * Seeded to something with both levels present and a mix of runs, and stepped eight times per round (a burst's
-          * own width), so consecutive rounds of the row are consecutive windows of the sequence.
-          */
-        val lfsr = RegInit(BigInt(0xace1).U(16))
-
-        val rounds = RegInit(0.U(32))
-        val misses = RegInit(0.U(32))
-        val blocks = RegInit(0.U(32))
-
-        /** Where the last miss stood: its pair ([[patIdx]] and the pair index's address bits) and the tap the round ran
-          * at — the sweep's own step while it runs, the locked tap once the device stops it. Kept for the capture's
-          * sake: it is what turns "a round missed" into a lead.
-          */
-        val missPat = RegInit(0.U(3))
-        val missAddr = RegInit(0.U(3))
-        val missTap = RegInit(0.U(Ddr3PadNames.tapWidth))
-
-        /** Whether the block being run has missed, and the two masks it writes when it ends: `passMask` marks the pairs
-          * whose block came through clean, `missMask` the pairs a miss has ever stood at. A pair's own bit is set at
-          * its block's edge (`combo` is still the block's pair there), so the masks read as "which of the 64 pairs this
-          * campaign has cleared, and which it has seen fail" — a miss in any of a block's rounds marks the pair, which
-          * is what a board reading wants: one bad tap fails the pair for the whole board, not for the pattern.
-          */
-        val blockMiss = RegInit(false.B)
-        val passMask = RegInit(0.U(64))
-        val missMask = RegInit(0.U(64))
-
-        // ---- what a round carries -------------------------------------------------------------------------------
+        def walkWord(value: Referable[UInt])(using Arena, Context, Block): Node[UInt] =
+            (7 to 0 by -1)
+                .map(k => (0.U(2).asBits ## value.asBits.bits(5, 0) ## (BigInt(1) << k).U(8).asBits))
+                .reduce((high, low) => high ## low)
+                .asUInt
 
         /** The LFSR's feedback: the register's own bits 15, 13, 12 and 10 xored — the tap set of a maximal-length
           * 16-bit sequence (`XAPP052`'s 16-bit entry: taps 16/14/13/11, which for a register that shifts *up* and takes
           * its feedback at bit 0 are the bits one below each tap).
-          *
-          * A helper that creates ops takes the enclosing context (`Arena`, `Context`, `Block`) as a `using` clause: the
-          * block is what says *where* an op is appended, and a helper without it would append to the architecture's own
-          * block even when it is called inside a `when` — the value would then be defined after the region that uses it
-          * (measured: `firld` refuses the module with `operand #1 does not dominate this use`).
           */
         def lfsrFeedback(value: Referable[UInt])(using Arena, Context, Block): Node[Bool] =
             value.asBits.bit(15) ^ value.asBits.bit(13) ^ value.asBits.bit(12) ^ value.asBits.bit(10)
@@ -192,93 +181,179 @@ object Ddr3Soak extends Generator[Ddr3SoakParameter, Ddr3SoakLayers, Ddr3SoakIO,
             val shifted = (value.asBits << 1).bits(15, 0)
             (shifted | (0.U(15).asBits ## lfsrFeedback(value).asBits)).asUInt
 
-        // The beats the round writes: one 16-bit word per beat, the pattern row's own walk.
-        //
-        // They are latched, not wired: the row's beats are a table lookup for seven of the eight rows and eight steps of
-        // feedback for the streaming one, so the registered words keep that cone inside the campaign's own clock and
-        // give the pads a register to take — the campaign is not the last stage before a serializer. The latch is
-        // unconditional, so a word's value is "the row `patIdx` names, one cycle late": the round's edge steps the row
-        // and the words follow, cycles before the round's write stages them.
-        val beatRegs = (0 until 8).map(_ => Reg(UInt(16)))
+        // The streaming row: a 16-bit LFSR whose feedback makes a maximal-length sequence — every word of it but zero
+        // appears once before it repeats, so a burst sampled twice never sees the same run by accident. Seeded to
+        // something with both levels present and a mix of runs, and stepped eight times per step of its phase (a burst's
+        // own width), so consecutive steps are consecutive windows of the sequence.
+        val lfsr = RegInit(BigInt(0xace1).U(16))
+        // The eight states a step's word is built from: the register's own and the seven above it, each one step of
+        // feedback further.
+        val lfsrStates: Seq[Node[UInt]] = (0 until 8).foldLeft(Seq.empty[Node[UInt]]) { (states, k) =>
+            states :+ lfsrStep(if k == 0 then lfsr else states.last)
+        }
+        val lfsrWord: Node[UInt] =
+            (7 to 0 by -1).map(k => lfsrStates(k).asBits).reduce((high, low) => high ## low).asUInt
+        val lfsrNext: Node[UInt] = lfsrStep(lfsrStates.last)
 
-        /** Beat `k` of the row `patIdx` names: a constant of the table, or — the streaming row — the LFSR's own state
-          * after `k` steps, which is what makes that row's eight beats eight successive states of it.
-          */
-        def tableBeat(k: Int)(using Arena, Context, Block): Node[UInt] =
-            val lfsrBeat = (0 until k).foldLeft(lfsr: Referable[UInt])((value, _) => lfsrStep(value))
-            muxTree(patIdx, patternRows.map(row => row(k).U(16)) :+ lfsrBeat)
+        // ---- the master's shape: one request, one response, one check -------------------------------------------
 
-        for k <- 0 until 8 do beatRegs(k) := tableBeat(k)
+        val sWrite = 0
+        val sWrResp = 1
+        val sMasked = 2
+        val sRead = 3
+        val sRdWait = 4
+        val sDone = 5
+        val sWidth = 3
 
-        // The bus takes the round's beats off this port as one flat word — beat `k` at bits `16k + 15:16k`, the device's
-        // own reading of it ([[nzea_fpga.device.ddr3.Ddr3]]).
-        campBeats := (7 to 0 by -1).map(k => beatRegs(k).asBits).reduce((high, low) => high ## low).asUInt
+        val state = RegInit(sWrite.U(sWidth))
+        // A mask step's second write, still to be issued: set where the masked write is accepted, cleared where the
+        // step's read-back is judged (every other step never sees it set).
+        val maskDone = RegInit(false.B)
 
-        // The round's address: the pair's own row, bank and column, held for the whole round.
-        campBa := baReg
-        campRow := rowReg
-        campCol := colReg
+        // The current step's phase, read out of its index: a mask step is the pair at 2 with its low bit clear.
+        val maskStep = (stepTop === 2.U(2)) & !stepMid
 
-        // ---- the round's edge: what the round was, and what the next one carries ---------------------------------
+        // The mask the masked write stages (the step's own strobe), and what the request carries: the read and the base
+        // write take the step's registers; the masked write takes the inverse pattern and the mask.
+        val maskedWrite = state === sMasked.U(sWidth)
+        val maskedStrobe = muxTree(stepIdx, maskTable.map(_.U(Ddr3BusShape.dataWidth / 8)))
+        val issueData = maskedWrite ? (maskedWord.U(Ddr3BusShape.dataWidth), dataReg)
+        val issueStrobe = maskedWrite ? (maskedStrobe, allStrobes.U(Ddr3BusShape.dataWidth / 8))
+        val writing = (state === sWrite.U(sWidth)) | maskedWrite
+        val issuing = writing | (state === sRead.U(sWidth))
 
-        // One block is one whole turn of the sweep, and the pair steps there: everything the campaign records about a
-        // pair — its mask bits — belongs to the block that just ended, while the pair index still names it.
-        val blockDone = campRoundEdge & campRoundDone
+        bus.req.valid := issuing
+        bus.req.bits.addr := addrReg
+        bus.req.bits.wdata := issueData
+        bus.req.bits.wstrb := issueStrobe
+        bus.req.bits.wen := writing
+        bus.req.bits.user := 0.U(Ddr3BusShape.userWidth)
+        bus.req.bits.id := 0.U(Ddr3BusShape.idWidth)
+        // The master is ready the cycle the device answers: one request is outstanding at a time, so a response has
+        // nothing to wait behind.
+        bus.resp.ready := true.B
 
-        when(campRoundEdge) {
-            rounds := constAdder(rounds, 1, 32)
-            when(!campPass) {
-                misses := constAdder(misses, 1, 32)
-                missPat := patIdx
-                missAddr := combo.asBits.bits(5, 3).asUInt
-                // The tap the round ran at: while the sweep is running that is the step it stands on, and after it the
-                // one the device locked — which is what a capture reads the miss against.
-                missTap := campCalibrating ? (campTap, campLockedTap)
-            }
-            // The block's own verdict, cleared where it ends: the round that closes a block cannot mark it (its miss
-            // belongs to the pair that is stepping away, and the next block's own rounds will say what it deserves).
-            blockMiss := (blockMiss | !campPass) & !blockDone
-            // The streaming row moves every round — eight steps, one burst's width — and the block's end is not
-            // special to it: consecutive rounds of the row are consecutive windows of the sequence, whatever the pair
-            // index is doing at the time.
-            lfsr := (0 until 8).foldLeft(lfsr: Referable[UInt])((value, _) => lfsrStep(value))
+        // ---- the account ----------------------------------------------------------------------------------------
+
+        val issued = RegInit(0.U(32))
+        val errors = RegInit(0.U(32))
+        val anyError = RegInit(false.B)
+        val firstBadAddr = RegInit(0.U(Ddr3BusShape.addrWidth))
+        val firstBadExp = RegInit(0.U(Ddr3BusShape.dataWidth))
+        val firstBadGot = RegInit(0.U(Ddr3BusShape.dataWidth))
+        val done = RegInit(false.B)
+
+        // The expectation the next write leaves behind, bit for bit: the strobe's bytes take the write's, the rest keep
+        // what they had. Stated as a rule rather than per phase, because it *is* the rule the device is held to — and a
+        // byte's eight bits share the one strobe bit that decides them.
+        val expectNext: Node[UInt] = (Ddr3BusShape.dataWidth - 1 to 0 by -1)
+            .map(bit =>
+                issueStrobe.asBits.bit(bit / 8) ? (
+                    issueData.asBits.bit(bit).asBits,
+                    expectReg.asBits.bit(bit).asBits
+                )
+            )
+            .reduce((high, low) => high ## low)
+            .asUInt
+
+        when(issuing & bus.req.ready) {
+            issued := constAdder(issued, 1, 32)
+        }
+        when(writing & bus.req.ready) {
+            expectReg := expectNext
         }
 
-        when(blockDone) {
-            // A block's verdict, per pair: the pair's own bit of the masks, one-hot from the index that is still the
-            // block's (`combo` steps below, after the masks have read it).
-            val oneHot = (1.U(64).asBits << combo).bits(63, 0)
-            when(!blockMiss) {
-                passMask := (passMask.asBits | oneHot).asUInt
+        when(state === sWrite.U(sWidth)) {
+            when(bus.req.ready) {
+                state := sWrResp.U(sWidth)
             }
-            when(blockMiss) {
-                missMask := (missMask.asBits | oneHot).asUInt
+        }
+
+        when(state === sWrResp.U(sWidth)) {
+            when(bus.resp.valid) {
+                // A mask step issues its second write before the read-back; every other step reads next.
+                state := (maskStep & !maskDone) ? (sMasked.U(sWidth), sRead.U(sWidth))
             }
-            blocks := constAdder(blocks, 1, 32)
-            // The next pair: one increment of the walk, and the fields it carries read out of the new index — the
-            // pattern from its low bits, the address from its high ones.
-            val comboNext = constAdder(combo, 1, 6)
-            combo := comboNext
-            patIdx := comboNext.asBits.bits(2, 0).asUInt
-            val addrIdx = comboNext.asBits.bits(5, 3).asUInt
-            rowReg := muxTree(addrIdx, comboRows.map(_.U(Ddr3PadNames.addrWidth)))
-            baReg := muxTree(addrIdx, comboBas.map(_.U(Ddr3PadNames.baWidth)))
-            colReg := muxTree(addrIdx, comboCols.map(_.U(Ddr3PadNames.addrWidth)))
+        }
+
+        when(state === sMasked.U(sWidth)) {
+            when(bus.req.ready) {
+                maskDone := true.B
+                state := sWrResp.U(sWidth)
+            }
+        }
+
+        when(state === sRead.U(sWidth)) {
+            when(bus.req.ready) {
+                state := sRdWait.U(sWidth)
+            }
+        }
+
+        // The read-back and the check: what arrived against what the writes left behind, and then the plan's next step
+        // — its address and data read out of the counter's own next value, so every phase's set-up is one mux.
+        when(state === sRdWait.U(sWidth)) {
+            when(bus.resp.valid) {
+                val got = bus.resp.bits.data
+                when(got =/= expectReg) {
+                    errors := constAdder(errors, 1, 32)
+                    when(!anyError) {
+                        anyError := true.B
+                        firstBadAddr := addrReg
+                        firstBadExp := expectReg
+                        firstBadGot := got
+                    }
+                }
+
+                val stepNext = constAdder(step, 1, 6)
+                val nextTop = stepNext.asBits.bits(5, 4).asUInt
+                val nextMid = stepNext.asBits.bit(3)
+                val nextIdx = stepNext.asBits.bits(2, 0).asUInt
+                val patternStep = (nextTop === 1.U(2)) & !nextMid
+                val lfsrStepSel = (nextTop === 1.U(2)) & nextMid
+                val maskStepSel = (nextTop === 2.U(2)) & !nextMid
+
+                addrReg := muxCase(
+                    muxTree(stepNext.asBits.bits(3, 0).asUInt, addrTable.map(_.U(Ddr3BusShape.addrWidth))),
+                    Seq(
+                        patternStep -> patternAddr.U(Ddr3BusShape.addrWidth),
+                        lfsrStepSel -> constAdder(
+                            (nextIdx.asBits ## 0.U(4).asBits).asUInt,
+                            lfsrAddress,
+                            Ddr3BusShape.addrWidth
+                        ),
+                        maskStepSel -> maskAddr.U(Ddr3BusShape.addrWidth)
+                    )
+                )
+                dataReg := muxCase(
+                    walkWord(stepNext),
+                    Seq(
+                        patternStep -> muxTree(nextIdx, patternTable.map(_.U(Ddr3BusShape.dataWidth))),
+                        lfsrStepSel -> lfsrWord,
+                        maskStepSel -> baseWord.U(Ddr3BusShape.dataWidth)
+                    )
+                )
+                lfsr := lfsrNext
+                step := stepNext
+                maskDone := false.B
+                when(stepNext === planSteps.U(6)) {
+                    done := true.B
+                    state := sDone.U(sWidth)
+                }.otherwise {
+                    state := sWrite.U(sWidth)
+                }
+            }
         }
 
         // ---- what the board watches -----------------------------------------------------------------------------
 
         // The account a board reading is made of, marked here where the registers live: the device's own probes
-        // ([[nzea_fpga.device.ddr3.Ddr3]]) say what the round was, these say what the campaign did with it. One step,
-        // not two (`Probes.mark` = declare + bind): this module is instantiated once — with a second campaign the
-        // names would have to grow a prefix, because a marked signal is found by its name through the hierarchy and
-        // one name is one net.
-        Probes.mark("rounds")(rounds)
-        Probes.mark("misses")(misses)
-        Probes.mark("blocks")(blocks)
-        Probes.mark("combo")(combo)
-        Probes.mark("missPat")(missPat)
-        Probes.mark("missAddr")(missAddr)
-        Probes.mark("missTap")(missTap)
-        Probes.mark("passMask")(passMask)
-        Probes.mark("missMask")(missMask)
+        // ([[nzea_fpga.device.ddr3.Ddr3]]) say what each access was, these say what the plan made of it. `phase` is the
+        // master's own state, `step` the plan's cursor beside it — the first thing a failed plan is read from.
+        Probes.mark("phase")(state)
+        Probes.mark("step")(step)
+        Probes.mark("issued")(issued)
+        Probes.mark("errors")(errors)
+        Probes.mark("done")(done)
+        Probes.mark("firstBadAddr")(firstBadAddr)
+        Probes.mark("firstBadExp")(firstBadExp)
+        Probes.mark("firstBadGot")(firstBadGot)

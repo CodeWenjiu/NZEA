@@ -54,9 +54,34 @@ calibrated PHY is known good on this exact board).
   measures where each byte lane's window is and locks its tap (`Ddr3.scala`'s three planes). The two byte lanes take
   their own tap (`Ddr3PadNames.tapLanes`): what a tap cancels is a byte lane's own delay against the fabric's capture
   clock, which UG586 centres per byte group — and this board's two groups sit in different banks.
+- **The write mask**: `wstrb`'s byte per bus byte reaches the device as `DM`, one level per *transfer* — the mask pins
+  serialize at the data's own rate (`Ddr3DmPads`), because two transfers sharing a mask level are four bytes apart and a
+  master masks bytes, not pairs.
+
+## The bus it answers on
+
+The device is a LiteBus slave (`Ddr3BusShape`): one beat is one BL8 burst — 128 bits = 16 bytes, at a byte address whose
+low four bits a master keeps zero — `user` and `id` are one bit each, and one request is outstanding at a time. Every
+access is precharge, activate and the burst: there is no page state (the row is closed after each access, and the page
+policy is a later step), and a refresh is spliced *between* requests off a 3.75 µs timer — never inside a burst. The
+bring-up is self-driven and its result is the bus's readiness: the sweep's rounds run first, then **one more round at the
+locked taps**, and *that* round's whole-burst verdict is what `calibrated` means — its window's alignment is what the read
+path slices responses out of, which matters because the alignment moves with the tap (the input delay shifts the burst
+inside the window by up to a couple of samples). A master may leave its first request standing from reset: `req.ready` is
+never asserted before that round.
+
+The level's own test (`nzea_fpga/src/logic/Ddr3Soak.scala`) is the master: a 40-step plan — 16 addresses walking the
+row/bank/column fields, 8 data patterns, 8 steps of a maximal-length LFSR, and 8 write-mask steps (a full base write, a
+masked write, and the read-back) — whose verdict is `errors == 0`; the read-back's expectation is built by the writes
+themselves (the strobe's bytes take the write's, the rest keep what they had). `nzea_fpga/sim/Ddr3Bringup.sv` runs that
+plan against the vendor model before anything reaches the board: 88 accesses — 40 write-then-read steps plus the masks'
+8 extra writes — 40 read-backs, 0 mismatched.
 
 ## What this design does not yet do
 
+- **No page state**: every access pays tRP and tRCD again, so consecutive bursts to one page are far slower than they
+  could be. The bus contract (one beat = one burst, one outstanding request) is where a page policy and multiple
+  outstanding requests will land.
 - **No write leveling**: the strobes' launch phase is the *fixed* quarter-period offset the reference uses, not a
   per-part, per-temperature measurement — and on this device it cannot be anything else: there is no `ODELAYE2` and no
   PHASER to level with, and MIG's own write-leveling logic drives blocks this part does not have, so the reference

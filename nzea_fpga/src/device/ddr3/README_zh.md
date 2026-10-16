@@ -26,8 +26,8 @@
 - **读**：固定时钟捕获 + 每条 DQ lane 一个 `IDELAYE2`，步进约 78 ps（`Ddr3PadNames.tapLanes`：**每条字节 lane 一个 tap**，共 10 bit）。
   扫描按"两条 lane 的相对差"分三个平面——同 tap / 上字节 +8 步（≈625 ps）/ 上字节 −8 步——每平面 32 步，每块 96 轮；跑满 64 个 (地址, 模式) 组合后**自动锁定**：取 miss 最少的平面，再取该平面干净窗口的**中点**作为两条 lane 的 tap（`Ddr3.scala` 里的 `planeMiss*` / `first/last` / `locked*`）。
 - **写**：两条选通都从与数据相差四分之一周期的那套网格启动——参考设计 `OCLK`/`OCLK_DELAYED` 的关系（UG586 原文："`OCLK_DELAYED` … to achieve the required 90° phase offset between the write DQS and its associated DQ bits"）。**不做逐字节写调平**，因为本器件没有可用的硬件手段（见第四节第 3、4 条）。
-- **判据**：锁定之后，看 ILA 里 `rounds` 与 `misses` 的**增量**（这一对是测试自身的账号，`Ddr3Soak` 的探针；设备自己的是 `state`/`tap`/`failTaps` 那一组），而不是某个窗口里"看起来对不对"。
-  当前板级：累计通过 **1,820,188,946 轮**，`misses` 停在 **2,144**（全部发生在校准阶段），此后两次隔时抓取分别为 **+562,863,849 轮 / +0 miss** 与 **+991,254,132 轮 / +0 miss**。锁定值稳定在 `plane 0 / tap 15`，该平面 32 步里有 22 步至今零错。
+- **判据**（2026-10-16 第十三节起）：设备是 **LiteBus 从端**，本层测试（`Ddr3Soak`）是主端；结论看 soak 的 `errors`——**0 错**才算通过（不对读回的重试/刷新/时序都不算数），`done=1` 且 `calibrated=1` 同时成立。旧口径（按轮计的 `rounds`/`misses` 增量）已随 `camp*` 端口一起退役。
+  历史板级读数（旧口径，12/13 节之前的实现）：累计通过 **1,820,188,946 轮**，`misses` 停在 **2,144**（全部发生在校准阶段），此后两次隔时抓取分别为 **+562,863,849 轮 / +0 miss** 与 **+991,254,132 轮 / +0 miss**。锁定值稳定在 `plane 0 / tap 15`。
 - **顶层重构之后重测过一次**（2026-10-15，第八节：设计自己成为 `Top`、焊盘进 `Analog` 端口、IO 原语变成模块）：
   xsim 的 `Ddr3Bringup` PASS（`plane 0` 全 32 步干净、锁定 `plane 0 / tap 15`、锁定后 768 轮 0 miss）；板上两次隔时抓取
   **+635,525,751 轮 / +0 miss**，`lockedPlane=0` / `lockedTap=15`，与重构前一致。
@@ -45,7 +45,7 @@
 - 8 × 8 = **64 个 (地址, 模式) 组合**，稳态里循环遍历；累计 18 亿轮里每个组合跑了约 2800 万次。
 - 初始化序列本身也全程在跑：MR2/MR3/MR1/MR0 + DLL reset + ZQCL，每 24 轮一次刷新（在 tREFI 内）。
 
-**没覆盖**：字节屏蔽写（DM）、BC4 / on-the-fly burst、背靠背无空档的流式读写（现在是"一轮一个突发，中间有空档"）、写完隔久再读（保持特性）、刷新边界压力、**全地址空间**（只用了上面 8 个地址）、温度/电压角落、其它板子/其它颗粒；以及**读侧不是 DQS 捕获**——现在的余量是标定出来的固定值，不随 tDQSCK 跟踪。
+**没覆盖**（本节记的是 2026-10-16 之前的旧口径；现在的计划见第十三节）：字节屏蔽写已由第十三节的 mask 步覆盖；仍未覆盖：BC4 / on-the-fly burst、背靠背无空档的流式读写（现在是"访问一个突发，中间有空档"）、写完隔久再读（保持特性）、刷新边界压力、**全地址空间**（只用了 16 个地址）、温度/电压角落、其它板子/其它颗粒；以及**读侧不是 DQS 捕获**——现在的余量是标定出来的固定值，不随 tDQSCK 跟踪。
 
 > 上面这些表（地址、模式）"写什么"属于**测试**，从 2026-10-16 起在 `nzea_fpga/src/logic/Ddr3Soak.scala`（第十二节）；`Ddr3.scala` 只负责把交给它的拍子写下去、读回来、判对错。
 
@@ -120,13 +120,13 @@
 just dump --target fpga --isa riscv32i      # 生成 RTL 到 build/fpga/lxb_artix7/riscv32i
 just fpga build                             # Vivado 工程 + 比特流（~20 分钟，Explore 策略）
 just fpga program                           # JTAG 烧录
+just fpga capture lxb_artix7 riscv32i done=1             # 计划跑完那一窗：errors / issued / phase / step / firstBad*
 just fpga capture lxb_artix7 riscv32i calibrating=0      # 校准后一窗：failTaps / lockedPlane / lockedTap
-just fpga capture lxb_artix7 riscv32i alignedAt=63       # 抓"miss 那一轮"的窗口，看坏在哪些拍/lane
 nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --board lxb_artix7 --isa riscv32i --timeout 5400
 ```
 
 波形落在 `build/fpga/lxb_artix7/riscv32i/vivado/capture.named.vcd`（探针语义名见同目录的 `ila_probes.map`）。
-判读要点：`rounds` / `misses` 的**增量**是结论；`passMask` / `missMask` 是 64 个 (模式, 地址) 对的逐位通过图（miss 图上可以看到哪一对/哪一组坏）；`missPat` / `missAddr` / `missTap` 是最后一次 miss 的归属（模式、地址号、tap）；`blocks` / `combo` 是相位的进度。设备侧：`failTaps` 是 96 bit 的 miss 图（bit `32*plane + step`）；`lockedPlane` / `lockedTap` 是锁定结果；`checked` 是"比对那一轮实际读到的 704 bit 窗口"（beat 0 = 最新）。
+判读要点：**结论是 `errors == 0`（配 `done=1`、`calibrated=1`）**；`firstBadAddr` / `firstBadExp` / `firstBadGot` 是第一次不符的地址、期望与实收（128 bit 各一个字）；`phase` / `step` 是计划的位置（phase 0=写、1=等写响应、2=屏蔽写、3=发读、4=等读、5=完；step 0..39，40=done）。设备侧：`failTaps` 是 96 bit 的扫掠 miss 图（bit `32*plane + step`）；`lockedPlane` / `lockedTap` 是锁定结果；`checked` 是"比对那一轮实际读到的 704 bit 窗口"（低位=最新）；`respValid` / `respData` / `dmOut` 是前门正在发生什么。
 
 ---
 
@@ -377,3 +377,61 @@ IP 的端口重排、`Top.sv` 的接线跟着换槽，探针表顺序也变成"�
 **踩到的坑**：生成节点的 helper 必须带 `(using Arena, Context, Block)`（第五节第 7 条）：`lfsrStep` / `tableBeat` 一开始
 没带，在 `when(campRoundEdge)` 里调用时节点建到了外层的 module block，`firld` 直接拒绝
 （`operand #1 does not dominate this use`）——同一个坑又踩一次，这次把它写进了 `Ddr3Soak.scala` 的注释里。
+
+---
+
+## 十三、设备变成真正的控制器：LiteBus 前门 + 计划式自检（2026-10-16）
+
+**为什么**：`camp*` 端口是"测试把自己的寄存器借给设备"——设备靠别人的端口才知道自己写什么，这不像一个可复用的器件。
+这一轮把设备做成了**总线的从端**：谁来读、谁来写都行（今天接的是本层测试，将来是 tile 的核），它不再需要知道测试的存在。
+
+### 接口契约（`Ddr3BusShape`）
+
+一次总线拍 = 一个 **BL8 突发 = 128 bit = 16 字节**；地址是字节地址，低 4 位由主端保持 0；`wstrb` 一字节一位，落到器件的
+`DM`；`user` / `id` 各 1 bit；同一时刻只有一个未完成请求。每次访问 = **PRE + ACT + 突发**（没有页状态，行开完就关）；
+刷新在请求**之间**插入（3.75 µs 定时器），**永不打断突发**。主端可以"从复位起就把第一个请求摆在那里"——
+`req.ready` 在 bring-up 完成前不会被拉高，等设备与等 ready 是同一个等。
+
+### 自检计划（`logic/Ddr3Soak.scala`，判据 = `errors == 0`）
+
+共 40 步，一步一次"写下去、读回来、逐位比对"；mask 步多一次写：
+
+- **walk（16 步）**：16 个地址把设备译码的字段各走一遍（列 `0x10/0x70/0xf0/0x7f0`、bank 1/2/3/7、行 1/2/8/0x400/0x4000、
+  顶行 `0x7fff`）；数据 = 步号放在每一拍的高位 + 低位一个一热字节，地址与数据互相可辨。
+- **patterns（8 步）**：全 0、全 1、`aaaa`/`5555`、两条混合走线（同一地址）——卡死/串线在这里现形。
+- **LFSR（8 步）**：极大长度序列连续 64 个状态，每步 8 拍、换地址——表里放不下的图案。
+- **mask（8 步）**：同一地址先全写 base（全 `0x55`）、再带 `wstrb` 屏蔽写（全 `0xaa`）、再读回核对**逐字节**：被屏蔽的
+  字节必须是 base 留下的值。期望不是查表而是**按规则长出来**：每次写拍更新期望（strobe 覆盖的字节取写值，其余保留）
+  ——这正是设备要遵守的那条规则。
+- 账：`errors`（不符的读回数）、`firstBadAddr/Exp/Got`（第一次不符的现场）、`done`；`issued` 是已接受的请求数。
+
+xsim（`Ddr3Bringup`）对厂商模型跑完：**88 次访问（40 写 + 40 读 + 8 次屏蔽写）、40 次读回、0 错**。
+
+### DM 的硬件事实（这轮新学到的）
+
+`wstrb` 是**逐 transfer** 的事实（总线字节 `i` = transfer `i/2` 的 lane `i%2`），而命令侧的 SDR 焊盘模块每个 pin 每周期
+只有 **2 个电平**（一拍重复成一整个时钟）——用它就只能"两个 transfer 共用一个 mask 电平"，可那两个 transfer 相隔 4 个
+字节，**主端屏蔽的是字节，不是对**。于是新增 `Ddr3DmPads` 模块：每 pin **4 个电平**（`D1(levels[4*bit])`…不再重复）、
+跑在**数据自己的两套网格**上（`clk400Dqs`/`clk200Dqs`——mask 必须与它屏蔽的数据同步启动）、`OBUF` 输出、无三态（mask 常驱动）。
+这也是第 3 / 第 7 节里"字节屏蔽写未覆盖"那个洞的填法。
+
+### 两个仿真抓到、否则会上板才暴露的 bug
+
+1. **捕获窗口只在校准轮里移位**：`captured` 的移位语句写在了 `when(state === sRd)`（校准）里面，而窗口使能
+   `captureOpen` 明明把 `sBusRd` 也算上了——于是总线读的响应切的是**校准最后一轮留下的旧窗口**。症状极像"写没生效"
+   （第一次读回 = 校准图案，且两端差一个采样）。教训：**使能信号和它驱动的动作要对着核**。
+2. **对齐位置随 tap 移动，不能在扫掠中途锁死**：`alignLocked` 原本在扫掠**第一次通过**时锁定；但输入延迟（IDELAY）
+   会把突发在窗口里的位置挪动最多约 2 个采样，于是总线跑在**锁定 tap**、切片用的是**第一个通过点的 tap** 的对齐，
+   响应整体错一个采样。修法：扫掠结束后，在**锁定的 taps** 上再跑**一轮**（`finalRound`，仍用设备自己的图案）：
+   **那一轮的整突发判定 = `calibrated`**，**那一轮的对齐 = 读路径切片的依据**。"在你会运行的配置上量"的又一例。
+   （`alignedAt` 仍逐轮更新，`alignGot` 仍是扫掠见过完整突发的记录——它们降为诊断。）
+3. 一条不是 bug 但要知道：厂商模型的 `DQS ... latching edge required during the preceding clock period` **ERROR 行在每个
+   写突发开始时都打**（从第一次校准写就有，与本次改动无关；其后 `WRITE @ DQS=` 打出的 data 全部正确，旧实现也确实在
+   板上跑了 18 亿轮零错）。不要据此以为写坏了。
+
+**xsim 结果**（`nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --timeout 5400`）：
+`Ddr3Bringup: PASS`——`plane 0` 全 32 步干净、锁定 `plane 0 / tap 15`、post-lock 对齐 31、0 错。（板上验证另起任务。）
+
+**探针名单的变化**：设备 15 → **22**（`rounds` 一类不在它那里；新增 `calibrated` / `alignGot` / `alignLocked` /
+`accesses` / `respValid` / `respData` / `dmOut`），测试 9 → **8**（`phase` / `step` / `issued` / `errors` / `done` /
+`firstBadAddr` / `firstBadExp` / `firstBadGot`）；`mark_debug` 总数 33 → 39（含面板那一条声明绑两个实例，探针共 40）。

@@ -22,7 +22,7 @@ Self-contained: no functional logic depends on it.
 | What | Where | Notes |
 |---|---|---|
 | The debug core | `src/ip/Ila.scala`; opened in `src/Top.scala` (`Ila("u_ila_0", 1024)`, `ila.clock(clk50)`) | the three artifacts: `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` |
-| The probe statements | `nzea_rtl/src/stdlib/Resets.scala` — the reset network's 6 (`Probes.mark`: 3 reasons, 3 domains); `src/device/ddr3/Ddr3.scala` — 15 `Probes.mark` (the bus's); `src/logic/Ddr3Soak.scala` — 9 `Probes.mark` (the campaign's); `src/Top.scala` — 2 `Probes.mark` (its own LEDs); `src/logic/Blinkers.scala` — 2 `Probes.watch` (the panel's — `Blink` is the one shared body, so it declares and gets bound per instance) | a statement keeps a wire named `probe_<name>` and marks it `mark_debug`; `mark` = declare + bind in one step, for a module instantiated once |
+| The probe statements | `nzea_rtl/src/stdlib/Resets.scala` — the reset network's 6 (`Probes.mark`: 3 reasons, 3 domains); `src/device/ddr3/Ddr3.scala` — 22 `Probes.mark` (the device's); `src/logic/Ddr3Soak.scala` — 8 `Probes.mark` (the soak's); `src/Top.scala` — 2 `Probes.mark` (its own LEDs); `src/logic/Blinkers.scala` — 2 `Probes.watch` (the panel's — `Blink` is the one shared body, so it declares and gets bound per instance) | a statement keeps a wire named `probe_<name>` and marks it `mark_debug`; `mark` = declare + bind in one step, for a module instantiated once |
 | The mechanism | `nzea_rtl/src/probe/` (`Probes`, `ProbePlace`, `keepNet`) | `Elaborate`'s `layers-*.sv` handling is generic — shared with any layer user (e.g. `nzea_rtl`'s `ProbeLayerTest`); check its consumers before touching it |
 | The capture flow | `scripts/ila-capture.nu`, `just fpga capture`, the `STEPS.OPT_DESIGN.TCL.PRE` hook in `tools/vivado/vivado-project.py` | the hook is keyed on `ila_debug.tcl` existing, so removing the ILA removes the hook by itself; `probe`'s `vcd-rename` is used by the capture script (see the fpga-flow skill) |
 | Tests and docs to update | `test/src/LxbArtix7ElaborateTest.scala` (the `watched`/`patterns`/`netKeys` tables, the `mark_debug` count, the two ILA tests), `nzea_rtl`'s `ProbeLayerTest`, `src/device/ddr3/README*.md`, `.agents/skills/fpga-flow/SKILL.md` (the ILA chapter, the artifacts table) | the skill also documents the trigger values (`calibrating=0`) that only exist for the probes |
@@ -31,28 +31,32 @@ Self-contained: no functional logic depends on it.
 ## B. The bring-up self-test (`src/logic/Ddr3Soak.scala`, and what stays in the device)
 
 The round loop used to be two things at once — a test, and the only memory traffic the design has. They are two files now
-(`README_zh.md` §12 records the split): the transport is the device's (`src/device/ddr3/Ddr3.scala`), the test is
-`src/logic/Ddr3Soak.scala`, wired by `Top` through the bus's campaign ports (`Ddr3Bus.wireCampaign`).
+(`README_zh.md` §12 records the split): the transport is the device's (`src/device/ddr3/Ddr3.scala` — a LiteBus slave a
+master reads and writes the memory through), the test is `src/logic/Ddr3Soak.scala` (the LiteBus master that exercises
+it), wired in `Top` as one bus between the two instances (`Ddr3Bus.bus :<>= soak.io.bus`).
 
-**Removable — the whole campaign file:** `Ddr3Soak.scala` (its 9 probes included: `rounds`, `misses`, `blocks`, `combo`,
-`passMask`, `missMask`, `missPat`, `missAddr`, `missTap`), plus the `soak` instance in `src/Top.scala` (three lines). The
-pattern and address tables, the LFSR, and the per-pair accounting all live in it — deleting it (or simply not
-instantiating it) leaves the bus idle in its own reset.
+**Removable — the whole soak file:** `Ddr3Soak.scala` (its 8 probes included: `phase`, `step`, `issued`, `errors`,
+`done`, `firstBad*`), plus the `soak` instance in `src/Top.scala` (its four lines). The address and pattern tables, the
+LFSR and the mask's own test all live in it — deleting it (or simply not instantiating it) leaves the bus idle in its own
+reset.
 
 **Removable — the device's own forensics** (in `Ddr3.scala`): the probe declarations `captured`, `checked`, `timer`,
-`dqIn`, `recent` (the sweep's per-round bit map) and `failTaps` are observations the board's readings were taken from;
-the registers themselves (`recent`, `failTaps`) are cheap, the *declarations* are what the ILA spends probes on. The
-compare itself (`matched`, `expected*`, `shifted`, `aligned`, `pass`) is the verdict `campPass` carries — it is scaffolding
-only in the sense that a design whose memory is driven by a real master has no use for it.
+`dqIn`, `dmOut`, `recent` (the sweep's per-round bit map), `failTaps` and `respValid`/`respData` are observations the
+board's readings were taken from; the registers themselves (`recent`, `failTaps`) are cheap, the *declarations* are what
+the ILA spends probes on. The compare itself (`matched`, `aligned`, `pass`, the alignment slice) is the verdict the
+device's own bring-up rounds carry — it is scaffolding only in the sense that a design whose memory is driven by a real
+master has no use for the rounds' *pattern* check (the slices are load-bearing for the bus's reads: `alignLocked`).
 
-**Keep — load-bearing, not scaffolding:** the read-capture calibration (the sweep, the planes, and the lock:
-`calibPlane`, `planeMiss*`, `planeFirst/Last*`, `onWins`, `locked*`, the `delayTap` mux). The taps are *found* by it —
-delete it and the interface needs a hardcoded tap, which is a board fact, not a design constant. Also keep the
+**Keep — load-bearing, not scaffolding:** the read-capture calibration (the sweep, the planes, the lock, and the one
+*post-lock round* at the locked taps whose own whole-burst verdict is what `calibrated` means:
+`calibPlane`, `planeMiss*`, `planeFirst/Last*`, `onWins`, `locked*`, `finalRound`/`finalPass`, the `delayTap` mux). The
+taps are *found* by it — delete it and the interface needs a hardcoded tap, which is a board fact, not a design constant
+— and the alignment the bus's reads slice at has to be measured at the tap the bus runs at. Also keep the
 init/refresh/command state machine and the MR settings, and the transport itself (the staging, the window, the check).
 
-**The catch:** with the campaign gone, the bus has nothing to read or write, and the memory's correctness has no on-board
-witness at all. Either keep the campaign (it is one file, and it *is* the witness), or re-point the controller at the
-tile's bus when the tile lands (the campaign then becomes a bring-up mode).
+**The catch:** with the soak gone, the bus has nothing to read or write, and the memory's correctness has no on-board
+witness at all. Either keep the soak (it is one file, and it *is* the witness), or re-point the device's slave end at the
+tile's bus when the tile lands (the soak then becomes a bring-up mode).
 
 ## C. Simulation scaffolding
 

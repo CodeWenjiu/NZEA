@@ -11,6 +11,7 @@ import nzea_fpga.device.ddr3.{Ddr3Bus, Ddr3PadNames, Ddr3Side, Ddr3SideParameter
 import nzea_fpga.ip.{ClockOut, Ila}
 import nzea_fpga.logic.{Blinkers, BlinkersParameter, Ddr3Soak, Ddr3SoakParameter}
 import nzea_fpga.primitives.{Bufg, BufgParameter}
+import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.probe.Probes
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -167,16 +168,16 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
             )
         )
 
-        // What the bus is put through: this level's own campaign ([[nzea_fpga.logic.Ddr3Soak]]), wired to the bus's
-        // campaign side where both instances are named. It is *this* level's logic — the device knows nothing of it,
-        // and the bus hands over what it needs to be one ([[Ddr3Bus]]): the domain to run in (the controller's own
-        // grid and its reset, so a round's verdict arrives where it is stamped) and the ports a round carries and
-        // answers. A level that wires no campaign writes none of these lines — the bus keeps its own sequence
-        // (init, refresh, the round's timing is its own) and its campaign ports are simply left open.
+        // What the bus is put through: this level's own soak ([[nzea_fpga.logic.Ddr3Soak]]), wired to the bus's own
+        // front door where both instances are named — one LiteBus, the device's slave end and the soak's master end, and
+        // the domain to run in (the controller's own grid and its reset, so the plan and the device see one timeline).
+        // It is *this* level's logic: the device knows nothing of it, and the bus hands over what it needs to be wired
+        // ([[Ddr3Bus]]). A level that wires no master writes none of these lines — the bus keeps its own bring-up and
+        // its slave end is simply left open.
         val soak = Ddr3Soak.instantiate(Ddr3SoakParameter())
         soak.io.field[Clock]("clock") := ddr3Bus.clock
         soak.io.field[Reset]("resetN") := ddr3Bus.resetN
-        ddr3Bus.wireCampaign(soak)
+        ddr3Bus.bus :<>= soak.io.field[LiteBusRW]("bus")
 
         // This level's own grid: the second blinker's. The key is the grid itself, (frequency, phase), and the same key
         // is the same wire, so asking twice is asking once ([[Clocks]]).

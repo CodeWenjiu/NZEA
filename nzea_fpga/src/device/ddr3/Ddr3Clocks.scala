@@ -8,8 +8,10 @@ import nzea_fpga.ip.ClockOut
   * generator ([[nzea_fpga.Clocks]] builds one wizard for every grid a design asks for, so a phase relationship between
   * two of them is guaranteed rather than hoped for). Who runs on what ([[Ddr3Pads]] says why each grid is where it is):
   *
-  *   - [[command]] — the command/address pads' serializers, and the read capture's own clock;
-  *   - [[device]] — the data's and the write strobe's serializers, and the CK's `ODDR`;
+  *   - [[command]] — the command/address pads' serializers;
+  *   - [[device]] — the data's and the write strobe's serializers, the CK's `ODDR`, and the read capture's own clock
+  *     (the grid the device's output is referred to, and a *different* one from [[command]] so that the capture's
+  *     output register — latched from [[capture]] — sits 625 ps from the sampling edge rather than on it);
   *   - [[loads]] — the controller itself, and the device grid's serial load clock;
   *   - [[taps]] — the input delays' calibration (`IDELAYCTRL`) and the command grid's load clock;
   *   - [[capture]] — the deserializers' output register (`CLKDIVP`).

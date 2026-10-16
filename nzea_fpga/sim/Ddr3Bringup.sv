@@ -1,12 +1,12 @@
-// The board top, with the device model on its DDR3 pins: the scenario the controller's bring-up is measured against
-// before any of it reaches the board. `Top` *is* the board build's top — the design owns the pins, the DDR3 pads
-// included (`nzea_fpga/src/device/ddr3/Ddr3Pads.scala`) — so what runs here is the same netlist the board gets; the
-// difference is only what is on the other side of the pins: the vendor's model instead of a device.
+// The board top, with the device model on its DDR3 pins: the scenario the controller is measured against before any of
+// it reaches the board. `Top` *is* the board build's top — the design owns the pins, the DDR3 pads included
+// (`nzea_fpga/src/device/ddr3/Ddr3Pads.scala`) — so what runs here is the same netlist the board gets; the difference
+// is only what is on the other side of the pins: the vendor's model instead of a device.
 //
-// The scenario's one judgement is the controller's own: the test loop only counts a round when its captured window held
-// the burst that was written, the loop sweeps a set of (pattern, address) pairs — a block per pair — and the assertion
-// is a whole pass of all of them with the misses stopped. `Ddr3Bringup: PASS` carries the counters; the watchdog fails
-// a board that never gets there.
+// The scenario's one judgement is the plan's own (`nzea_fpga/src/logic/Ddr3Soak.scala`): the soak writes the memory and
+// reads it back — an address walk, the pattern rows, the LFSR's words, and the write mask's own test — and counts the
+// read-backs that did not match. `Ddr3Bringup: PASS` is `errors == 0` at `done`; the watchdog fails a run that never
+// gets there, and a mismatch prints the first one's address, expectation and answer.
 `timescale 1ps/1ps
 
 module Ddr3Bringup;
@@ -97,7 +97,7 @@ module Ddr3Bringup;
   // The board's write side: the strobe's path to the device is the longer one on this board's own measurements — the
   // design works as launched (the launch grids a quarter period apart, `Ddr3Pads`'s strobe lanes), and the bench
   // is what says by how much: an offset that puts the strobe's edges in the middle of the data's eye *at the device*
-  // is the one the design's own round rate confirms there (measured: half a beat, both lanes alike — the two byte
+  // is the one the design's own read-backs confirm there (measured: half a beat, both lanes alike — the two byte
   // lanes' difference is a fact of the *capture* side, and the read taps are per byte lane for it).
   //
   // A fitted parameter, then, and stated as one: the bench's job here is to hold the device model to the board's
@@ -123,7 +123,7 @@ module Ddr3Bringup;
   // device sees is always the fabric's own drive, undelayed (the write side's skew is the strobe's, modeled above).
   //
   // The two directions are separated by the controller's own output enable: the fabric holds the bus except while the
-  // device answers, which is exactly when this path is the one that matters (`UG586`'s read leveling: what it centres
+  // device answers, which is exactly when this path is the one that matters (UG586's read leveling: what it centres
   // is the device's answer against the fabric's capture clock, per byte group).
   wire top_drives_dq = u_top.ddr3.DDR3_DQ_OE;
   wire [15:0] dq_fab_delayed;
@@ -154,76 +154,73 @@ module Ddr3Bringup;
       .odt     (ddr3_odt)
   );
 
-  // The controller's and the campaign's own account of themselves, read where each declares it (`Ddr3` and `Ddr3Soak`
-  // keep these wires beside the signals and mark them where they live — `Probes.mark` — and the ILA is the same
-  // table's consumer on the board), so the paths below are those modules' own nets.
-  wire        initDone = u_top.ddr3.probe_initDone;
-  wire [31:0] rounds = u_top.soak.probe_rounds;
-  wire [31:0] misses = u_top.soak.probe_misses;
-  wire [5:0]  alignedAt = u_top.ddr3.probe_alignedAt;
-  wire [4:0]  tap = u_top.ddr3.probe_tap;
-  wire [31:0] blocks = u_top.soak.probe_blocks;
-  wire [5:0]  combo = u_top.soak.probe_combo;
-  wire [4:0]  roundIn = u_top.ddr3.probe_roundIn;
-  wire [2:0]  missPat = u_top.soak.probe_missPat;
-  wire [2:0]  missAddr = u_top.soak.probe_missAddr;
-  wire [4:0]  missTap = u_top.soak.probe_missTap;
-  wire [63:0] passMask = u_top.soak.probe_passMask;
-  wire [63:0] missMask = u_top.soak.probe_missMask;
-  wire [95:0] failTaps = u_top.ddr3.probe_failTaps;
-  wire [1:0]  calibPlane = u_top.ddr3.probe_calibPlane;
-  wire        calibrating = u_top.ddr3.probe_calibrating;
-  wire [1:0]  lockedPlane = u_top.ddr3.probe_lockedPlane;
-  wire [4:0]  lockedTap = u_top.ddr3.probe_lockedTap;
+  // The controller's and the soak's own account of themselves, read where each declares it (`Ddr3` and `Ddr3Soak` keep
+  // these wires beside the signals and mark them where they live — `Probes.mark` — and the ILA is the same table's
+  // consumer on the board), so the paths below are those modules' own nets.
+  wire         initDone = u_top.ddr3.probe_initDone;
+  wire         calibrating = u_top.ddr3.probe_calibrating;
+  wire         calibrated = u_top.ddr3.probe_calibrated;
+  wire         alignGot = u_top.ddr3.probe_alignGot;
+  wire [5:0]   alignLocked = u_top.ddr3.probe_alignLocked;
+  wire [1:0]   lockedPlane = u_top.ddr3.probe_lockedPlane;
+  wire [4:0]   lockedTap = u_top.ddr3.probe_lockedTap;
+  wire [1:0]   writeShift = u_top.ddr3.probe_writeShift;
+  wire [95:0]  failTaps = u_top.ddr3.probe_failTaps;
+  wire [5:0]   state = u_top.ddr3.probe_state;
+  wire [31:0]  accesses = u_top.ddr3.probe_accesses;
+  wire         respValid = u_top.ddr3.probe_respValid;
+  wire [127:0] respData = u_top.ddr3.probe_respData;
+  wire [7:0]   dmOut = u_top.ddr3.probe_dmOut;
+  wire [23:0]  timer = u_top.ddr3.probe_timer;
+  wire [63:0]  dqIn = u_top.ddr3.probe_dqIn;
+  // The window, reassembled from the words it is watched in (`probe_captured00` is the newest): the design marks it a
+  // word at a time, because a probe 832 bits wide does not survive the netlist's debug insertion.
+  wire [831:0] captured =
+      {u_top.ddr3.probe_captured12, u_top.ddr3.probe_captured11, u_top.ddr3.probe_captured10,
+       u_top.ddr3.probe_captured09, u_top.ddr3.probe_captured08, u_top.ddr3.probe_captured07,
+       u_top.ddr3.probe_captured06, u_top.ddr3.probe_captured05, u_top.ddr3.probe_captured04,
+       u_top.ddr3.probe_captured03, u_top.ddr3.probe_captured02, u_top.ddr3.probe_captured01,
+       u_top.ddr3.probe_captured00};
+  wire [6:0]   roundIn = u_top.ddr3.probe_roundIn;
+  wire [4:0]   tap = u_top.ddr3.probe_tap;
+  wire [1:0]   calibPlane = u_top.ddr3.probe_calibPlane;
+  wire [95:0]  recent = u_top.ddr3.probe_recent;
+
+  // The plan's own account: where it stands, what it has issued, and what came back wrong.
+  wire         done = u_top.soak.probe_done;
+  wire [31:0]  issued = u_top.soak.probe_issued;
+  wire [31:0]  errors = u_top.soak.probe_errors;
+  wire [2:0]   phase = u_top.soak.probe_phase;
+  wire [5:0]   step = u_top.soak.probe_step;
+  wire [31:0]  firstBadAddr = u_top.soak.probe_firstBadAddr;
+  wire [127:0] firstBadExp = u_top.soak.probe_firstBadExp;
+  wire [127:0] firstBadGot = u_top.soak.probe_firstBadGot;
+  wire [31:0]  writeAddr = u_top.soak.addrReg;
+  wire [127:0] writeData = u_top.soak.dataReg;
+  wire [127:0] expectData = u_top.soak.expectReg;
 
   // Mirrors for the waveform: the design's own state, carried through this scope so one `$dumpvars(1, Ddr3Bringup)`
   // holds them (xsim's VCD writer mishandles a second hierarchical dump list).
   wire        dbgSyncN = u_top._board50Sync_syncN;
   wire        dbgLocked = u_top._clockingWizard_locked;
   wire        dbgDelayReady = u_top.delayCtrl.READY;
-  wire [4:0]  dbgState = u_top.ddr3.probe_state;
-  wire [23:0] dbgTimer = u_top.ddr3.timer;
   wire        dbgCke = u_top.ddr3.ckeReg;
   wire        dbgDeviceResetN = u_top.ddr3.ddrResetNReg;
-  wire [31:0] dbgRounds = u_top.soak.probe_rounds;
-  wire [31:0] dbgMisses = u_top.soak.probe_misses;
-  wire [4:0]  dbgTap = u_top.ddr3.probe_tap;
-  wire [5:0]  dbgAlignedAt = u_top.ddr3.probe_alignedAt;
-  wire [31:0] dbgBlocks = u_top.soak.probe_blocks;
-  wire [5:0]  dbgCombo = u_top.soak.probe_combo;
+  wire [5:0]  dbgState = u_top.ddr3.probe_state;
+  wire [23:0] dbgTimer = u_top.ddr3.probe_timer;
   wire [6:0]  dbgRoundIn = u_top.ddr3.probe_roundIn;
-  wire [2:0]  dbgPatIdx = u_top.soak.patIdx;
-  wire [14:0] dbgRow = u_top.soak.rowReg;
-  wire [14:0] dbgCol = u_top.soak.colReg;
-  wire [2:0]  dbgBa = u_top.soak.baReg;
-  wire [2:0]  dbgMissPat = u_top.soak.probe_missPat;
-  wire [2:0]  dbgMissAddr = u_top.soak.probe_missAddr;
-  wire [4:0]  dbgMissTap = u_top.soak.probe_missTap;
-  wire [63:0] dbgDqIn = u_top.ddr3.DDR3_DQ_IN;
-  wire [703:0] dbgCaptured = u_top.ddr3.probe_captured;
-  wire [703:0] dbgChecked = u_top.ddr3.probe_checked;
-  wire [63:0] dbgExpected = u_top.ddr3.expectedReg;
-
-  // The first miss's own window, printed: what the comparator of that round actually read against what the round
-  // wrote — the one measurement a data-dependent failure is diagnosed from.
-  reg firstMissPrinted;
-  initial begin
-    firstMissPrinted = 1'b0;
-    forever begin
-      @(negedge u_top.dqPads.clk200Dqs);
-      if (!firstMissPrinted && u_top.soak.probe_misses != 0) begin
-        firstMissPrinted = 1'b1;
-        $display(
-            "Ddr3Bringup: first miss — pattern %0d address %0d tap %0d\n  checked =%0192h\n  expected=%0192h",
-            u_top.soak.probe_missPat,
-            u_top.soak.probe_missAddr,
-            u_top.soak.probe_missTap,
-            dbgChecked,
-            {dbgExpected, 576'h0}
-        );
-      end
-    end
-  end
+  wire [4:0]  dbgTap = u_top.ddr3.probe_tap;
+  wire [5:0]  dbgAlignLocked = u_top.ddr3.probe_alignLocked;
+  wire [63:0] dbgDqIn = u_top.ddr3.probe_dqIn;
+  wire [831:0] dbgCaptured =
+      {u_top.ddr3.probe_captured12, u_top.ddr3.probe_captured11, u_top.ddr3.probe_captured10,
+       u_top.ddr3.probe_captured09, u_top.ddr3.probe_captured08, u_top.ddr3.probe_captured07,
+       u_top.ddr3.probe_captured06, u_top.ddr3.probe_captured05, u_top.ddr3.probe_captured04,
+       u_top.ddr3.probe_captured03, u_top.ddr3.probe_captured02, u_top.ddr3.probe_captured01,
+       u_top.ddr3.probe_captured00};
+  wire        dbgRespValid = u_top.ddr3.probe_respValid;
+  wire [127:0] dbgRespData = u_top.ddr3.probe_respData;
+  wire [7:0]  dbgDm = u_top.ddr3.probe_dmOut;
 
   // The ring's own side of the write path, carried through this scope for the waveform: what the controller staged,
   // what the serializers put out, and what their tristate controls say — the pins themselves only show the winner.
@@ -236,15 +233,9 @@ module Ddr3Bringup;
   wire        dbgDqOe = u_top.ddr3.DDR3_DQ_OE;
   wire        dbgDqsOe = u_top.ddr3.DDR3_DQS_OE;
   wire        dbgRingReset = ~u_top._ddr3Sync_syncN;
-  wire        dbgClk400 = u_top.dqPads.clk400;
   wire        dbgClk400Dqs = u_top.dqPads.clk400Dqs;
   wire        dbgClk200 = u_top.dqsPads.clk200;
   wire        dbgClk200Dqs = u_top.dqPads.clk200Dqs;
-
-  // The sweep needs a few blocks to walk the pattern × address pairs; give it the full 64-block pass, then judge. The
-  // locked taps then run for a further stretch, which is what the design's own rate at them is read from.
-  localparam integer TargetBlocks = 64;
-  localparam integer ObservedBlocks = 8;
 
   initial begin
     if ($test$plusargs("dump")) begin
@@ -253,34 +244,46 @@ module Ddr3Bringup;
     end
   end
 
-  // One read's samples, printed: the capture's own view of the bus, cycle by cycle, so a mismatch says what was
-  // actually sampled — the order of the pairs included — instead of only that it was wrong.
-  initial begin
-    wait (u_top.ddr3.probe_initDone === 1'b1);
-    wait (u_top.ddr3.probe_state === 5'd19);
-    for (int i = 0; i < 24; i = i + 1) begin
-      @(posedge u_top.dqPads.clk400);
-      $display("Ddr3Bringup: cycle %0d  dqIn=%h  dq=%h", i, u_top.ddr3.DDR3_DQ_IN, ddr3_dq);
-    end
-    $display("Ddr3Bringup: captured=%h", u_top.ddr3.captured);
-  end
-
   initial begin
     #10000000;                                      // 10 us of button, then release
     resetN = 1'b1;
   end
 
+  // The first mismatch as the soak sees it: the address it read, what the writes left there, and what came back — the
+  // one measurement a data-dependent failure is diagnosed from.
+  reg firstBadPrinted;
   initial begin
-    #4000us;                                         // 4 ms: the power-up's ~705 us plus the sweep's ~1.5 ms (96 rounds a
-                                                     // block now: the three planes' worth), with room
+    firstBadPrinted = 1'b0;
+    forever begin
+      @(negedge u_top.dqPads.clk200Dqs);
+      if (!firstBadPrinted && errors != 0) begin
+        firstBadPrinted = 1'b1;
+        $display(
+            "Ddr3Bringup: first bad read-back — step %0d, address %h, phase %0d\n  expected=%032h\n  got     =%032h",
+            step,
+            firstBadAddr,
+            phase,
+            firstBadExp,
+            firstBadGot
+        );
+      end
+    end
+  end
+
+  // The plan takes tens of microseconds; the bring-up ~705 us before it. The watchdog is the run's own bound: a board
+  // that never reports done is a board whose controller or soak is stuck, and the counters say where.
+  initial begin
+    #4000us;
     $display(
-        "Ddr3Bringup: FAIL — the watchdog fired: initDone=%b blocks=%0d rounds=%0d misses=%0d tap=%0d alignedAt=%0d",
+        "Ddr3Bringup: FAIL — the watchdog fired: initDone=%b calibrating=%b calibrated=%b done=%b phase=%0d step=%0d issued=%0d errors=%0d",
         initDone,
-        blocks,
-        rounds,
-        misses,
-        tap,
-        alignedAt
+        calibrating,
+        calibrated,
+        done,
+        phase,
+        step,
+        issued,
+        errors
     );
     $fatal;
   end
@@ -308,11 +311,10 @@ module Ddr3Bringup;
 
   initial begin
     int count, first, last, best;
-    int roundsAtLock, missesAtLock;
-    wait (u_top.ddr3.probe_initDone === 1'b1);
-    $display("Ddr3Bringup: initialised (MR2/3/1/0 + ZQCL, the device's RESET# and CKE on the plan)");
-    wait (calibrating === 1'b0);
     best = 0;
+    wait (initDone === 1'b1);
+    $display("Ddr3Bringup: initialised (MR2/3/1/0 + ZQCL, the device's RESET# and CKE on the plan)");
+    wait (done === 1'b1);
     for (int p = 0; p < 3; p = p + 1) begin
       planeWindow(p, count, first, last);
       $display(
@@ -326,36 +328,40 @@ module Ddr3Bringup;
       );
       if (count > best) best = count;
     end
+    // The alignment is the *post-lock* round's own (it moves with the tap): what the response sliced at is what this
+    // says, and the round's own verdict is what opened the bus.
     $display(
-        "Ddr3Bringup: locked plane %0d, low lane tap %0d; the calibration cost %0d of %0d rounds; failTaps=%024h",
+        "Ddr3Bringup: locked plane %0d, low lane tap %0d, write shift %0d, final alignment %0d%s; failTaps=%024h",
         lockedPlane,
         lockedTap,
-        misses,
-        rounds + misses,
+        writeShift,
+        alignLocked,
+        calibrated ? "" : " (the post-lock round did not carry the burst)",
         failTaps
     );
-    // The steady state: the rounds keep running at the locked taps, whatever the sweep's index was left at.
-    roundsAtLock = rounds;
-    missesAtLock = misses;
-    wait (blocks >= TargetBlocks + ObservedBlocks);
+    // The plan's shape, as it ran: 40 steps — the walk's 16, the patterns' 8 and the LFSR's 8 write-then-read, and the
+    // masks' 8 write-write-then-read — so 88 accepted requests (40 writes, 40 read-backs, 8 masked writes) if every
+    // step ran and none was retried.
     $display(
-        "Ddr3Bringup: %0d rounds at the locked taps: %0d missed (%0d%% through)",
-        rounds - roundsAtLock + misses - missesAtLock,
-        misses - missesAtLock,
-        (100 * (rounds - roundsAtLock)) / (rounds - roundsAtLock + misses - missesAtLock)
+        "Ddr3Bringup: plan done — %0d steps, %0d accesses, %0d mismatched read-backs",
+        step,
+        issued,
+        errors
     );
-    if ((missingAfterLock(missesAtLock) == 0) && (best >= 8)) begin
+    if ((errors == 0) && calibrated) begin
       $display("Ddr3Bringup: PASS — locked and clean; a byte lane's capture window is %0d steps wide", best);
       $finish;
     end else begin
-      $display("Ddr3Bringup: FAIL — %0d missed after the lock, widest plane window %0d steps",
-               missingAfterLock(missesAtLock), best);
+      $display(
+          "Ddr3Bringup: FAIL — %0d mismatched read-backs, first at step %0d address %h\n  expected=%032h\n  got     =%032h",
+          errors,
+          step,
+          firstBadAddr,
+          firstBadExp,
+          firstBadGot
+      );
       $fatal;
     end
   end
-
-  function automatic int missingAfterLock(input int missesAtLock);
-    return misses - missesAtLock;
-  endfunction
 
 endmodule

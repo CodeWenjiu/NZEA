@@ -7,7 +7,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.{Instance, Ref, Referable}
 import me.jiuyang.zaozi.valuetpe.{Analog, Bool, Clock, Reset, UInt}
 import nzea_fpga.Clocks
-import nzea_fpga.logic.{Ddr3SoakIO, Ddr3SoakProbe}
+import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.Resets
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -38,42 +38,16 @@ case class Ddr3SideParameter(
 )
 
 /** What the bus leaves for the level above: the controller instance (the netlist's name for it is what the simulators
-  * reach into), the domain the bus runs in — its clock and its reset, so a campaign runs on the controller's own grid
-  * and leaves reset with it ([[nzea_fpga.logic.Ddr3Soak]]) — and the campaign's own connection ([[wireCampaign]]).
+  * reach into), the slave end of its bus — the port a master connects to, so the level wires its own master to the
+  * device's own vocabulary rather than to a net — and the domain the bus runs in: its clock and its reset, so a master
+  * runs on the controller's own grid and leaves reset with it.
   */
 final case class Ddr3Bus(
     device: Instance[Ddr3IO, Ddr3Probe],
+    bus: Ref[LiteBusRW],
     clock: Referable[Clock],
     resetN: Referable[Reset]
-):
-
-    /** Connect a campaign ([[nzea_fpga.logic.Ddr3Soak]]) to the bus's campaign side: what a round carries — the
-      * campaign's beats and its address, held for the round — and what the round answers, all named as the bus names
-      * them ([[nzea_fpga.device.ddr3.Ddr3]]). The connection is stated here, not at the level: the names are the bus's
-      * vocabulary, and this is the file that owns it.
-      */
-    def wireCampaign(campaign: Instance[Ddr3SoakIO, Ddr3SoakProbe])(using
-        Arena,
-        Context,
-        Block,
-        TypeImpl,
-        sourcecode.File,
-        sourcecode.Line,
-        sourcecode.Name.Machine,
-        InstanceContext
-    ): Unit =
-        // A round carries the campaign's own registers.
-        device.io.field[UInt]("campBeats") := campaign.io.field[UInt]("campBeats")
-        device.io.field[UInt]("campBa") := campaign.io.field[UInt]("campBa")
-        device.io.field[UInt]("campRow") := campaign.io.field[UInt]("campRow")
-        device.io.field[UInt]("campCol") := campaign.io.field[UInt]("campCol")
-        // And answers with what the device says about it, on the round's own edge.
-        campaign.io.field[Bool]("campPass") := device.io.field[Bool]("campPass")
-        campaign.io.field[Bool]("campRoundEdge") := device.io.field[Bool]("campRoundEdge")
-        campaign.io.field[Bool]("campRoundDone") := device.io.field[Bool]("campRoundDone")
-        campaign.io.field[UInt]("campTap") := device.io.field[UInt]("campTap")
-        campaign.io.field[Bool]("campCalibrating") := device.io.field[Bool]("campCalibrating")
-        campaign.io.field[UInt]("campLockedTap") := device.io.field[UInt]("campLockedTap")
+)
 
 /** The DDR3 device's side of the board, in one piece: the controller, its pads, its grids and its reset, wired where
   * its own instances are named.
@@ -173,11 +147,12 @@ object Ddr3Side:
         parameter.ckP := ckPads.io.CK_P
         parameter.ckN := ckPads.io.CK_N
 
-        // The command/address side, the bank address, the data mask and the three command pins: one module per pin
-        // group, at the width the group has, and two levels per pin per cycle through every one of them.
+        // The command/address side, the bank address and the three command pins: one module per pin group, at the width
+        // the group has, and two levels per pin per cycle through every one of them. The mask pins are *not* one of
+        // them: a byte strobe is a per-transfer fact, so the mask leaves on the data's own four-level grids
+        // ([[Ddr3DmPads]]).
         val addrPads = Ddr3SdrPads.instantiate(Ddr3SdrPadsParameter(Ddr3PadNames.addrWidth))
         val baPads = Ddr3SdrPads.instantiate(Ddr3SdrPadsParameter(Ddr3PadNames.baWidth))
-        val dmPads = Ddr3SdrPads.instantiate(Ddr3SdrPadsParameter(Ddr3PadNames.dmWidth))
         val rasPads = Ddr3SdrPads.instantiate(Ddr3SdrPadsParameter(1))
         val casPads = Ddr3SdrPads.instantiate(Ddr3SdrPadsParameter(1))
         val wePads = Ddr3SdrPads.instantiate(Ddr3SdrPadsParameter(1))
@@ -192,10 +167,17 @@ object Ddr3Side:
 
         wireSdrPads(addrPads, Ddr3PadNames.addr, parameter.addr)
         wireSdrPads(baPads, Ddr3PadNames.ba, parameter.ba)
-        wireSdrPads(dmPads, Ddr3PadNames.dm, parameter.dm)
         wireSdrPads(rasPads, Ddr3PadNames.rasN, parameter.rasN)
         wireSdrPads(casPads, Ddr3PadNames.casN, parameter.casN)
         wireSdrPads(wePads, Ddr3PadNames.weN, parameter.weN)
+
+        // The mask pins: the data's own grids, because the mask has to keep step with the transfers it masks.
+        val dmPads = Ddr3DmPads.instantiate(Ddr3DmPadsParameter())
+        dmPads.io.levels := ddr3.io.field[UInt](Ddr3PadNames.dm)
+        Clocks.bind(dmPads.io.clk400Dqs, Ddr3Clocks.device)
+        Clocks.bind(dmPads.io.clk200Dqs, Ddr3Clocks.loads)
+        dmPads.io.ringReset := ringReset
+        parameter.dm := dmPads.io.pad
 
         // The housekeeping pins: levels that change once per command at most, registered on the data grid.
         val ckePads = Ddr3LevelPads.instantiate(Ddr3LevelPadsParameter())
@@ -211,5 +193,6 @@ object Ddr3Side:
             Clocks.bind(pads.io.clk400, Ddr3Clocks.command)
             pin := pads.io.pad
 
-        // What the level wires next: the controller, the domain it runs in, and the campaign's side of it.
-        Ddr3Bus(ddr3, ddr3Clock, resetNddr)
+        // What the level wires next: the controller, the slave end of the bus a master connects to, and the domain the
+        // bus runs in.
+        Ddr3Bus(ddr3, ddr3.io.field[LiteBusRW]("bus"), ddr3Clock, resetNddr)

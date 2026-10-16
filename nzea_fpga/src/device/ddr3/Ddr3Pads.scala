@@ -153,6 +153,14 @@ object Ddr3DqPads:
       * capture, but the primitive's rules want it driven — and the placer's own rule wants it driven by the *same* net
       * as the paired serializer's `CLK` (`[PDRC-25]`: the tile's output clock track is shared, so the obvious wiring —
       * the capture grid here — leaves every lane unroutable), which is why it takes the strobe grid.
+      *
+      * Driving `CLKDIV` too — the primitive's documentation pairs it with `CLKDIVP` — is *not* placeable here: the I/O
+      * tile takes two clocks and the lane already hands it the sampling clock and `CLKDIVP`, so a third leaves sixteen
+      * pins unroutable (`route_design` reports the capture grid as not completely routed). What the word's framing is
+      * aligned to on the board is therefore still open; what is *measured* is that the capture's stream is not a clean
+      * one: at good taps seven of a burst's eight transfers are the pattern and the newest one comes back as its
+      * predecessor repeated ([[Ddr3.scala]]'s window probes read it), so no eight transfers are ever the pattern —
+      * which is what the sweep reports at every tap. A functional model cannot see it.
       */
     private def lane(lane: Int): String =
         val tapSlice =
@@ -425,6 +433,123 @@ object Ddr3DqsPads:
     ): Instance[Ddr3DqsPadsIO, Ddr3DqsPadsProbe] =
         Ddr3Pads.register(Ddr3DqsPadsModule.moduleName(parameter))(verilog(parameter))
         Ddr3DqsPadsModule.instantiate(parameter)
+
+// ── DM: the data mask pins ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** No configuration: the bus's shape is the board's ([[Ddr3PadNames]]). */
+case class Ddr3DmPadsParameter() extends Parameter
+
+given upickle.default.ReadWriter[Ddr3DmPadsParameter] = upickle.default.macroRW
+
+class Ddr3DmLayers(parameter: Ddr3DmPadsParameter) extends LayerInterface(parameter):
+    def layers = Seq.empty
+
+/** The mask pins: the pins it drives, and the four levels per pin the controller presents — the *data's* own rate, one
+  * level per transfer. A byte strobe is a per-transfer fact (a bus byte `i` is transfer `i / 2`'s lane `i % 2`), so a
+  * pair of levels per cycle — the shape the command side has — could not express it: two transfers sharing a level are
+  * four bytes apart, and a master masks bytes, not pairs.
+  */
+class Ddr3DmPadsIO(parameter: Ddr3DmPadsParameter) extends HWBundle(parameter):
+    val pad = Aligned(UInt(Ddr3PadNames.dmWidth))
+    val levels = Flipped(UInt(4 * Ddr3PadNames.dmWidth))
+    val clk400Dqs = Flipped(Clock())
+    val clk200Dqs = Flipped(Clock())
+    val ringReset = Flipped(Bool())
+
+class Ddr3DmPadsProbe(parameter: Ddr3DmPadsParameter) extends DVBundle[Ddr3DmPadsParameter, Ddr3DmLayers](parameter)
+
+case class Ddr3DmPadsVerilogParameter() extends VerilogParameter
+
+@generator
+object Ddr3DmPadsModule
+    extends VerilogWrapper[
+        Ddr3DmPadsParameter,
+        Ddr3DmLayers,
+        Ddr3DmPadsIO,
+        Ddr3DmPadsProbe,
+        Ddr3DmPadsVerilogParameter
+    ]:
+
+    override def moduleName(parameter: Ddr3DmPadsParameter): String = "Ddr3DmPads"
+
+    override def verilogModuleName(parameter: Ddr3DmPadsParameter): String = "Ddr3DmPads"
+
+    def verilogParameter(parameter: Ddr3DmPadsParameter): Ddr3DmPadsVerilogParameter = Ddr3DmPadsVerilogParameter()
+
+/** The mask pins' module: one serializer and one output buffer per pin, on the data's own grids — the mask has to keep
+  * step with the data it masks, so it launches where the data does ([[Ddr3DqPads]] holds that wiring's reasons).
+  */
+object Ddr3DmPads:
+
+    /** One pin: the serializer with its four levels, and the buffer. The mask is always driven: the serializer's
+      * tristate side is disabled (`TCE` low), exactly as the single-rate pins disable theirs.
+      */
+    private def pin(bit: Int): String =
+        s"""  OSERDESE2 #(
+           |    .DATA_RATE_OQ("DDR"),
+           |    .DATA_RATE_TQ("DDR"),
+           |    .DATA_WIDTH(4),
+           |    .TRISTATE_WIDTH(1),
+           |    .SERDES_MODE("MASTER")
+           |  ) dmDrive$bit (
+           |    .OQ(dmDrivePad[$bit]),
+           |    .CLK(clk400Dqs),
+           |    .CLKDIV(clk200Dqs),
+           |    .D1(levels[${4 * bit}]),
+           |    .D2(levels[${4 * bit + 1}]),
+           |    .D3(levels[${4 * bit + 2}]),
+           |    .D4(levels[${4 * bit + 3}]),
+           |    .D5(1'b0),
+           |    .D6(1'b0),
+           |    .D7(1'b0),
+           |    .D8(1'b0),
+           |    .OCE(1'b1),
+           |    .RST(ringReset),
+           |    .SHIFTIN1(1'b0),
+           |    .SHIFTIN2(1'b0),
+           |    .T1(1'b0),
+           |    .T2(1'b0),
+           |    .T3(1'b0),
+           |    .T4(1'b0),
+           |    .TBYTEIN(1'b0),
+           |    .TCE(1'b0)
+           |  );
+           |  OBUF #(
+           |    .SLEW("FAST")
+           |  ) dmBuf$bit (
+           |    .I(dmDrivePad[$bit]),
+           |    .O(pad[$bit])
+           |  );""".stripMargin
+
+    /** The body: the pins. */
+    def verilog(parameter: Ddr3DmPadsParameter): String =
+        s"""module ${Ddr3DmPadsModule.moduleName(parameter)}(
+           |  output [${Ddr3PadNames.dmWidth - 1}:0] pad,
+           |  input [${4 * Ddr3PadNames.dmWidth - 1}:0] levels,
+           |  input clk400Dqs,
+           |  input clk200Dqs,
+           |  input ringReset
+           |);
+           |
+           |  wire [${Ddr3PadNames.dmWidth - 1}:0] dmDrivePad;
+           |
+           |${(0 until Ddr3PadNames.dmWidth).map(pin).mkString("\n\n")}
+           |
+           |endmodule
+           |""".stripMargin
+
+    /** Instantiate the mask pins, recording that the dump has to write their body. */
+    def instantiate(parameter: Ddr3DmPadsParameter)(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Instance[Ddr3DmPadsIO, Ddr3DmPadsProbe] =
+        Ddr3Pads.register(Ddr3DmPadsModule.moduleName(parameter))(verilog(parameter))
+        Ddr3DmPadsModule.instantiate(parameter)
 
 // ── The command side: single-rate pins ──────────────────────────────────────────────────────────────────────────────
 

@@ -28,9 +28,11 @@ knowledge (Vivado is not on PATH, runs in an FHS nix shell) and the exact comman
 **Current state (2026-10-16)**: the board carries the DDR3 bring-up design — `nzea_fpga/src/Top.scala`, which *is* the
 board's top (the module named `Top` owns the pins, the DDR3 pads included: `src/device/ddr3/Ddr3Pads.scala` holds the
 I/O cells' primitives as modules of the circuit) = the clocking wizard, the LED panel (`src/logic/Blinkers.scala`), and
-the DDR3 bus (`src/device/ddr3/`) put through this level's own campaign (`src/logic/Ddr3Soak.scala` — the transport is
-the device's, the test is the level's; `README_zh.md` §12 records the split), watched by an ILA debug core the netlist
-flow creates — so the pipeline below ends at "the LEDs blink, the soak counts, and an ILA window is readable". The DDR3
+the DDR3 device (`src/device/ddr3/`: a LiteBus slave a master reads and writes the memory through) put through this
+level's own soak (`src/logic/Ddr3Soak.scala` — the transport is the device's, the test is the level's; `README_zh.md`
+§12 records the split), watched by an ILA debug core the netlist
+flow creates — so the pipeline below ends at "the LEDs blink, the soak reports zero errors, and an ILA window is
+readable". The DDR3
 device keeps its own side (`src/device/ddr3/Ddr3Side.scala`: controller, pads, probes, the grids they run on and its own
 reset), the resets are a network of named reasons with one synchronizer per clock domain
 (`nzea_rtl/src/stdlib/Resets.scala`), and the top hands each part the pins it declares and nothing else — the resets
@@ -175,14 +177,16 @@ below), so nothing about it goes through the IP machinery.
   Each declaration keeps a wire named `probe_<name>` carrying `(* mark_debug = "true" *)` (what Vivado preserves a net
   by) and takes the value's **own width**;
   `Probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
-  (the top's own). Current probes (34): the reset network's six — three reasons (`buttonPin`, `pllLocked`,
+  (the top's own). Current probes (40: 39 declarations, one of them — the panel's — bound at two instances): the
+  reset network's six — three reasons (`buttonPin`, `pllLocked`,
   `ddr3TapsReady`) and three domains (`board50Reset`, `board100Reset`, `ddr3Reset`, each 1 = in reset),
-  marked where `Resets` declares them (`nzea_rtl/src/stdlib/Resets.scala`) — the DDR3 bus's fifteen (`state` …
-  `dqIn`, marked in `Ddr3.scala` where the signals live), the campaign's nine (`rounds` … `missMask`, marked in
+  marked where `Resets` declares them (`nzea_rtl/src/stdlib/Resets.scala`) — the DDR3 device's twenty-two (`state` …
+  `dqIn`, marked in `Ddr3.scala` where the signals live), the soak's eight (`phase`, `step`, `issued`, `errors`,
+  `done`, `firstBadAddr`, `firstBadExp`, `firstBadGot`, marked in
   `logic/Ddr3Soak.scala`), the blinkers' two (`blink50_count`, `blink100_count`, declared in `Blink`, bound per instance)
   and the top's own two (`led1`, `led2`); depth 1024, sampled on the design's buffered 50 MHz clock (kept as the wire
-  `ila_clock`). The table's order is the order the statements were made — the reset network's first, then the bus's,
-  then the campaign's, because the bus is built before the level's own logic — so a probe's index moves if that order
+  `ila_clock`). The table's order is the order the statements were made — the reset network's first, then the device's,
+  then the soak's, because the device is built before the level's own logic — so a probe's index moves if that order
   does; the rename map keeps the queries by name. A declared name must also not *contain* another (the leaf search is a
   substring match, so both searches would find both nets): the elaboration refuses it rather than a build failing on the
   count twenty minutes later.
@@ -254,7 +258,8 @@ nu nzea_fpga/scripts/xsim.nu --list              # enumerate the scenarios
 **The scenario's own wall-clock budget is a flag, and the recipe's default is short.** `xsim.nu --timeout <seconds>`
 kills a run that takes longer (a hung scenario must fail, not hang the recipe); its default is 300 s, and `just fpga sim`
 does not pass one — so anything but the smoke scenarios must go through the script directly. The soak
-(`Ddr3Bringup`, a few hundred rounds plus the sweep) takes ~20–25 min:
+(`Ddr3Bringup`, the whole bring-up plus the soak's 40-step plan: 88 accesses, ~7 min of xsim under the log's own
+verbosity) takes ~20–25 min:
 
 ```sh
 nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --board lxb_artix7 --isa riscv32i --timeout 5400

@@ -51,7 +51,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
 
     /** The probes the board watches, as its `mark` calls state them: each name a waveform shows and its width, in the
       * order the statements were made — the reset network's reasons and domains first (they are stated as the design is
-      * wired), then the bus's, then the campaign's (the level wires it right after the bus), then the level's own clock
+      * wired), then the bus's, then the soak's (the level wires it right after the bus), then the level's own clock
       * domain and the panel, then the top's own two. Every one of them is *marked* (declare + bind in one step): the
       * modules that carry registers are instantiated once, so one name is one net. The table itself is built during the
       * elaboration ([[Ila.table]]), and the snapshots below are taken in the dump's own window, so every test reads
@@ -63,34 +63,57 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "board50Reset" -> 1,
         "ddr3TapsReady" -> 1,
         "ddr3Reset" -> 1,
-        // The bus, whose instance is built next — its own statements: the round, and the two facts the rounds are
-        // measured by (the alignment the capture found, and where the tap sweep stands).
-        "state" -> 5,
+        // The bus, whose instance is built next — its own statements: the round, the two facts the rounds are measured
+        // by (the alignment the capture found, and where the tap sweep stands), and what the front door is doing.
+        "state" -> 6,
         "initDone" -> 1,
         "alignedAt" -> 6,
+        "halfAt" -> 6,
         "tap" -> 5,
         "calibPlane" -> 2,
         "calibrating" -> 1,
+        "calibrated" -> 1,
+        "finalRound" -> 1,
+        "finalPass" -> 1,
+        "alignGot" -> 1,
+        "alignLocked" -> 6,
         "lockedPlane" -> 2,
         "lockedTap" -> 5,
+        "writeShift" -> 2,
         "recent" -> 96,
-        "captured" -> 704,
-        "checked" -> 704,
+        // The window a word at a time (newest first): a single probe that wide reads as zeros on the board, so the
+        // table carries the thirteen words the stream and the check are both read in.
+        "captured00" -> 64,
+        "captured01" -> 64,
+        "captured02" -> 64,
+        "captured03" -> 64,
+        "captured04" -> 64,
+        "captured05" -> 64,
+        "captured06" -> 64,
+        "captured07" -> 64,
+        "captured08" -> 64,
+        "captured09" -> 64,
+        "captured10" -> 64,
+        "captured11" -> 64,
+        "captured12" -> 64,
         "failTaps" -> 96,
         "roundIn" -> 7,
+        "accesses" -> 32,
+        "respValid" -> 1,
+        "respData" -> 128,
+        "dmOut" -> 8,
         "timer" -> 24,
         "dqIn" -> 64,
-        // The campaign ([[nzea_fpga.logic.Ddr3Soak]]): what the rounds account to — the rate, and per (pattern,
-        // address) pair what the board has cleared and what it has seen fail.
-        "rounds" -> 32,
-        "misses" -> 32,
-        "blocks" -> 32,
-        "combo" -> 6,
-        "missPat" -> 3,
-        "missAddr" -> 3,
-        "missTap" -> 5,
-        "passMask" -> 64,
-        "missMask" -> 64,
+        // The soak ([[nzea_fpga.logic.Ddr3Soak]]): the plan's own account — where it stands, what it has issued, and
+        // what came back wrong.
+        "phase" -> 3,
+        "step" -> 6,
+        "issued" -> 32,
+        "errors" -> 32,
+        "done" -> 1,
+        "firstBadAddr" -> 32,
+        "firstBadExp" -> 128,
+        "firstBadGot" -> 128,
         // The generator's lock (the level's second reason, declared once the wizard exists) and the level's own domain.
         "pllLocked" -> 1,
         "board100Reset" -> 1,
@@ -113,27 +136,48 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "*probe_state*",
         "*probe_initDone*",
         "*probe_alignedAt*",
+        "*probe_halfAt*",
         "*probe_tap*",
         "*probe_calibPlane*",
         "*probe_calibrating*",
+        "*probe_calibrated*",
+        "*probe_finalRound*",
+        "*probe_finalPass*",
+        "*probe_alignGot*",
+        "*probe_alignLocked*",
         "*probe_lockedPlane*",
         "*probe_lockedTap*",
+        "*probe_writeShift*",
         "*probe_recent*",
-        "*probe_captured*",
-        "*probe_checked*",
+        "*probe_captured00*",
+        "*probe_captured01*",
+        "*probe_captured02*",
+        "*probe_captured03*",
+        "*probe_captured04*",
+        "*probe_captured05*",
+        "*probe_captured06*",
+        "*probe_captured07*",
+        "*probe_captured08*",
+        "*probe_captured09*",
+        "*probe_captured10*",
+        "*probe_captured11*",
+        "*probe_captured12*",
         "*probe_failTaps*",
         "*probe_roundIn*",
+        "*probe_accesses*",
+        "*probe_respValid*",
+        "*probe_respData*",
+        "*probe_dmOut*",
         "*probe_timer*",
         "*probe_dqIn*",
-        "*probe_rounds*",
-        "*probe_misses*",
-        "*probe_blocks*",
-        "*probe_combo*",
-        "*probe_missPat*",
-        "*probe_missAddr*",
-        "*probe_missTap*",
-        "*probe_passMask*",
-        "*probe_missMask*",
+        "*probe_phase*",
+        "*probe_step*",
+        "*probe_issued*",
+        "*probe_errors*",
+        "*probe_done*",
+        "*probe_firstBadAddr*",
+        "*probe_firstBadExp*",
+        "*probe_firstBadGot*",
         "*probe_pllLocked*",
         "*probe_board100Reset*",
         "*blink50/probe_count*",
@@ -204,6 +248,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
                 os.read(dir / "Ddr3DqPads.sv"),
                 os.read(dir / "Ddr3DqsPads.sv"),
                 os.read(dir / "Ddr3SdrPads15.sv"),
+                os.read(dir / "Ddr3DmPads.sv"),
                 os.read(dir / "Ddr3LevelPads.sv"),
                 os.read(dir / "Ddr3CkPads.sv"),
                 os.read(dir / "Ddr3IdelayCtrl.sv"),
@@ -271,16 +316,19 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains("clk_wiz_0 clockingWizard ("))
             // The controller is an instance of the mmcm-made design, held in reset until the pads' taps are calibrated.
             assert(sv.contains("Ddr3 ddr3 ("))
-            // The bus's campaign side, wired to this level's campaign ([[nzea_fpga.logic.Ddr3Soak]]) where both instances
-            // are named: the beats and the address out, the round's answer back — and the domain the verdict is stamped
-            // in, which is the controller's own (the same clock net and the same domain reset).
+            // The bus's front door, wired to this level's soak ([[nzea_fpga.logic.Ddr3Soak]]) where both instances are
+            // named: one LiteBus, the device's slave end and the soak's master end — the handshake's two directions are
+            // the two instances' nets — and the domain the plan runs in, which is the controller's own (the same clock
+            // net and the same domain reset).
             assert(sv.contains("Ddr3Soak soak ("))
             assert(
                 sv.matches(
                     "(?s).*Ddr3Soak soak \\(.*\\.clock\\s+\\(_clockingWizard_clk_out2\\).*\\.resetN\\s+\\(_ddr3Sync_syncN\\).*" +
-                        "\\.campBeats\\s+\\(_soak_campBeats\\).*\\.campPass\\s+\\(_ddr3_campPass\\).*"
+                        "\\.bus_req_valid\\s+\\(_soak_bus_req_valid\\).*\\.bus_resp_valid\\s+\\(_ddr3_bus_resp_valid\\).*"
                 )
             )
+            assert(sv.matches("(?s).*Ddr3 ddr3 \\(.*\\.bus_req_valid\\s+\\(_soak_bus_req_valid\\).*"))
+            assert(sv.matches("(?s).*Ddr3Soak soak \\(.*\\.bus_req_ready\\s+\\(_ddr3_bus_req_ready\\).*"))
             // The pads: modules of the circuit, instantiated by the top, with the analog nets attached to its own ports.
             // (The ports' own padding is the lowering's; what is checked is the connection.)
             assert(sv.contains("Ddr3DqPads dqPads ("))
@@ -362,11 +410,12 @@ object LxbArtix7ElaborateTest extends TestSuite:
 
         test("the top marks its own signals for the netlist debug flow, and keeps its clock"):
             // One `mark_debug` per marked probe: the reset network's six (three reasons, three domains), the top's own
-            // two, the blinker's declaration, the bus's fifteen and the campaign's nine — the single-file lowering
-            // carries them all in their modules' bodies.
+            // two, the blinker's declaration, the bus's thirty-seven and the soak's eight — the single-file lowering
+            // carries them all in their modules' bodies. (The bus's count carries the window's thirteen words: the
+            // window is watched a word at a time, so its one register is thirteen marked nets.)
             assert(sv.contains("module Blink("))
             assert(sv.contains("module Ddr3("))
-            assert(sv.split("mark_debug").length - 1 == 33)
+            assert(sv.split("mark_debug").length - 1 == 54)
             // The core's clock is the oscillator's own, buffered — not one of the wizard's (its logic closes at
             // 50 MHz, and those edges line up with the fabric's instead of sitting a quarter period off them).
             assert(sv.contains("assign ila_clock = _clk50Buffer_O"))
@@ -410,6 +459,9 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(tcl.contains("CONFIG.CLKOUT5_REQUESTED_OUT_FREQ {200.000}"))
             assert(tcl.contains("CONFIG.CLKOUT5_REQUESTED_PHASE {180.000}"))
             assert(tcl.contains("CONFIG.CLKOUT6_REQUESTED_OUT_FREQ {100.000}"))
+            // The command grid's divide is asked for by the capture's `CLKDIV` as well as by `IDELAYCTRL` — the plan
+            // keeps the one slot a repeated ask gives it.
+            assert(tcl.contains("CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200.000}"))
             assert(ClockPlan.parse("50:200,200@45,400,400@90,200@180,100").exists(_ == clockPlan))
 
         test("the primitive is what the frequencies need, not a choice"):
@@ -492,27 +544,45 @@ object LxbArtix7ElaborateTest extends TestSuite:
                 "probe_state" -> "state",
                 "probe_initDone" -> "initDone",
                 "probe_alignedAt" -> "alignedAt",
+                "probe_halfAt" -> "halfAt",
                 "probe_tap" -> "tap",
                 "probe_calibPlane" -> "calibPlane",
                 "probe_calibrating" -> "calibrating",
+                "probe_calibrated" -> "calibrated",
+                "probe_finalRound" -> "finalRound",
+                "probe_finalPass" -> "finalPass",
+                "probe_alignGot" -> "alignGot",
+                "probe_alignLocked" -> "alignLocked",
                 "probe_lockedPlane" -> "lockedPlane",
                 "probe_lockedTap" -> "lockedTap",
                 "probe_recent" -> "recent",
-                "probe_captured" -> "captured",
-                "probe_checked" -> "checked",
+                "probe_captured00" -> "captured00",
+                "probe_captured01" -> "captured01",
+                "probe_captured02" -> "captured02",
+                "probe_captured03" -> "captured03",
+                "probe_captured04" -> "captured04",
+                "probe_captured05" -> "captured05",
+                "probe_captured06" -> "captured06",
+                "probe_captured07" -> "captured07",
+                "probe_captured08" -> "captured08",
+                "probe_captured09" -> "captured09",
+                "probe_captured10" -> "captured10",
+                "probe_captured11" -> "captured11",
+                "probe_captured12" -> "captured12",
                 "probe_failTaps" -> "failTaps",
                 "probe_roundIn" -> "roundIn",
-                "probe_timer" -> "timer",
-                "probe_dqIn" -> "dqIn",
-                "probe_rounds" -> "rounds",
-                "probe_misses" -> "misses",
-                "probe_blocks" -> "blocks",
-                "probe_combo" -> "combo",
-                "probe_missPat" -> "missPat",
-                "probe_missAddr" -> "missAddr",
-                "probe_missTap" -> "missTap",
-                "probe_passMask" -> "passMask",
-                "probe_missMask" -> "missMask"
+                "probe_accesses" -> "accesses",
+                "probe_respValid" -> "respValid",
+                "probe_respData" -> "respData",
+                "probe_dmOut" -> "dmOut",
+                "probe_phase" -> "phase",
+                "probe_step" -> "step",
+                "probe_issued" -> "issued",
+                "probe_errors" -> "errors",
+                "probe_done" -> "done",
+                "probe_firstBadAddr" -> "firstBadAddr",
+                "probe_firstBadExp" -> "firstBadExp",
+                "probe_firstBadGot" -> "firstBadGot"
             )
             for (key, name) <- netKeys do assert(map.contains(s"$key $name"))
             for (name, i) <- watched.map(_._1).zipWithIndex do assert(map.contains(s"probe$i $name"))
@@ -575,7 +645,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(constrained(board + ddr3) == topPorts)
 
         test("the pads' bodies are the dump's, and each one is the module the top instantiates"):
-            val (dq, dqs, addr, level, ck, idelay, list) = padArtifacts
+            val (dq, dqs, addr, dm, level, ck, idelay, list) = padArtifacts
             // One file per module the design used, written beside the RTL and listed in its file list: the simulator
             // and the synthesizer compile exactly what the top instantiated (`Ddr3Pads`).
             assert(
@@ -586,8 +656,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
                     "Ddr3CkPads.sv",
                     "Ddr3SdrPads15.sv",
                     "Ddr3SdrPads3.sv",
-                    "Ddr3SdrPads2.sv",
                     "Ddr3SdrPads1.sv",
+                    "Ddr3DmPads.sv",
                     "Ddr3LevelPads.sv"
                 )
             )
@@ -612,6 +682,13 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(dq.split("ISERDESE2").length - 1 == 16)
             assert(dq.split("OSERDESE2").length - 1 == 16)
             assert(dq.split("IOBUF ").length - 1 == 16)
+            // The capture samples on the command grid and latches on its `CLKDIVP` divide; `CLKDIV` stays low as MIG's
+            // own byte group leaves it — driving it too leaves the I/O tile three clocks, which does not route
+            // ([[Ddr3Pads]] keeps both the reference and the measurement).
+            assert(dq.contains(".CLK(clk400)"))
+            assert(dq.contains(".CLKB(clk400)"))
+            assert(dq.contains(".CLKDIV(1'b0)"))
+            assert(dq.contains(".CLKDIVP(clk200Inv)"))
             // The taps are the sweep's hand on the delays, loaded on the controller's clock from the value itself.
             assert(dq.contains("always @(posedge clk200Dqs)"))
             assert(dq.contains(".LD(delayLoad)"))
@@ -623,6 +700,15 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(addr.contains("output [14:0] pad"))
             assert(addr.split("OSERDESE2").length - 1 == 15)
             assert(addr.contains(".D1(levels[0])") && addr.contains(".D3(levels[1])"))
+            // The mask pins: the data's own four levels per pin — one per transfer, which is what a byte strobe is — and
+            // always driven.
+            assert(dm.contains("output [1:0] pad"))
+            assert(dm.split("OSERDESE2").length - 1 == 2)
+            assert(dm.split("OBUF ").length - 1 == 2)
+            assert(dm.contains(".D1(levels[0])") && dm.contains(".D4(levels[3])"))
+            assert(dm.contains(".D4(levels[7])"))
+            assert(dm.contains(".CLK(clk400Dqs)"))
+            assert(dm.contains(".TCE(1'b0)"))
             // The housekeeping pins and the device's clock: the registers the exceptions above name.
             assert(level.contains("ODDR"))
             assert(level.contains("levelDrive"))
