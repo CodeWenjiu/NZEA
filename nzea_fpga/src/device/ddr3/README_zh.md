@@ -435,3 +435,49 @@ xsim（`Ddr3Bringup`）对厂商模型跑完：**88 次访问（40 写 + 40 读 
 **探针名单的变化**：设备 15 → **22**（`rounds` 一类不在它那里；新增 `calibrated` / `alignGot` / `alignLocked` /
 `accesses` / `respValid` / `respData` / `dmOut`），测试 9 → **8**（`phase` / `step` / `issued` / `errors` / `done` /
 `firstBadAddr` / `firstBadExp` / `firstBadGot`）；`mark_debug` 总数 33 → 39（含面板那一条声明绑两个实例，探针共 40）。
+
+---
+
+## 十四、板上才看得到的两个事实：写选通的相位、后锁定轮的 tap（2026-10-16/17）
+
+**为什么**：上一节（十三）把设备变成了 LiteBus 从端、把测试独立成 `Ddr3Soak` 之后，板上从"没有一次读回是对的"
+走到"每一拍都错一个 beat"。两处缺陷都在**模型看不见的地方**——厂商模型对它们一律宽容，xsim 全程 PASS，只有板子和 ILA 说得出话。
+
+### 1. 写选通整条比数据早一个 slot（模型不判这个）
+
+**现象**（板上 ILA，校准轮的窗口）：器件回的永远是 `[0, b0..b6]`——它把**填充字**当成了突发的第一拍、把第 7 拍当
+最后一拍。同一个 RTL 在 xsim 里"整突发命中"；模型的 `DQS ... latching edge required during the preceding clock
+period` 那行 ERROR 就是这种宽容的样子（每个写突发都打，改动前后都打，别据此以为写坏了）。
+
+**根因**：选通与数据从相差四分之一周期的两套网格启动（UG586 要的 90° 就是它们的关系），但两条网格在焊盘上**实际**
+差多少，是原语在"加载沿 → 第一个 slot"之间做的事，不是 RTL 能声明的事实。板上量出来：整条训练早一个数据 slot（1.25 ns）。
+
+**修法**：训练不再只有"标称"一种切法。`writeShift` 把同一条 `dqsFlat` 按 **标称 / 晚一个 slot / 早一个 slot** 三种相位切出来
+（对 `(stage, shift)` 的常量做两级 mux，字宽不变，不往焊盘路径上加宽），扫掠**按相位逐轮试**，判据仍是"窗口里出现
+**完整**的 8 拍突发"；标称排第一，所以模型世界里永远停在第一轮。
+
+### 2. 后锁定轮跑在 tap 0 上（`ownPattern` 一名两用）
+
+**现象**：写对齐修好后，后锁定轮通过（`finalPass=1`、`calibrated=1`），但总线**读回**的数据整体错一个 beat：
+walk 的 `0001_0002_0004_0008` 读成 `0000_0001_0002_0004`。
+
+**根因**：`delayTap` 的选择条件写的是 `ownPattern`（= `calibrating | finalRound`），而后锁定轮开始时扫掠索引
+`roundIn` 已经回绕到 **0**——于是这一轮**跑在 tap 0**，而总线跑在锁定 tap **15**：15 个 tap ≈ 1.17 ns ≈ 正好一个采样
+（1.25 ns）。`alignLocked` 量的是"tap 0 的对齐"，却交给 tap 15 的总线去切片，于是差一个采样。板上 capture 一眼可见：
+`finalRound=1` 的那一窗里 `tap=00` 而 `lockedTap=0f`。
+
+**修法**：选择条件改成 `calibrating`——扫掠期间用扫掠的 tap，其余（含后锁定轮和总线）都用锁定的 tap。改后
+`alignLocked` 从 **39 变 38**，正是那一个采样。
+
+### 板上结论（两轮都干净）
+
+`errors=0` / `done=1` / `issued=88` / `firstBad*=0`，`calibrated=1` / `finalPass=1` / `alignLocked=38` /
+`lockedTap=15` / `writeShift=1`；一次是烧录后的自动运行，一次是按键复位的冷启动（ILA 触发条件 `step=39`，
+窗口里能看到 step 24→39、issued 50→88 全程 `errors=0`）。
+
+**教训**：`ownPattern` 这个名字管的是"这一轮写**谁的数据**"，不该顺手决定"这一轮跑在**哪个 tap** 上"——一个信号
+两种含义，迟早错一个采样。以及本 campaign 第三次的同一条：**在你会运行的那套配置上量**（第一、二次在上一节的
+捕获窗口与对齐随 tap 移动）。
+
+**另一个坑（工具）**：读板上 capture 时 `pulse` 的 `value --changes` / 多信号 `value --at` 出现过一次
+一次性误读（同一命令随后 20 次都对），此后所有结论都用原始 VCD 复核；本仓 `pulse/` 的那次修复与 fixture 就是冲这一类去的。

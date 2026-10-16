@@ -39,7 +39,13 @@ calibrated PHY is known good on this exact board).
   everywhere else (reads and idles), which is what `ODT Off During READs` asks.
 - **The write strobe train** (`Ddr3.scala`'s `dqsFlat`): two beats of low preamble before the burst's first edge
   (1.0 tCK ≥ 0.9) and three and a half beats of low postamble after its last (≥ 0.3), with the toggling word's
-  transitions every beat in between.
+  transitions every beat in between. Where that train *lands* against the data it frames is the board's fact, not the
+  design's: the two are launched a quarter period apart (the 90° above), but the primitives' own launch between their
+  load edge and their first slot is not the same in every world this design runs in — measured on the board, the train
+  arrived one whole data slot (1.25 ns) early, so the device stored the padding word as the burst's first transfer. The
+  train is therefore cut at nominal, one slot later or one slot earlier (`writeShift`) and the calibration's own check — a
+  *whole* eight-transfer burst in the window — is what weighs the three; nominal is tried first, so a world where it is
+  right (the vendor models) never leaves the first turn.
 - **The phase grids** (`Clocks`, `Ddr3Pads`): the device sees CK and the write data launched from one
   grid and the strobes from the grid a quarter period from it — the 90° offset UG586 requires of the write strobe
   against its own DQ, and what the reference gets from clocking the DQS ODDR with its delayed clock. Both lanes launch
@@ -67,8 +73,11 @@ policy is a later step), and a refresh is spliced *between* requests off a 3.75 
 bring-up is self-driven and its result is the bus's readiness: the sweep's rounds run first, then **one more round at the
 locked taps**, and *that* round's whole-burst verdict is what `calibrated` means — its window's alignment is what the read
 path slices responses out of, which matters because the alignment moves with the tap (the input delay shifts the burst
-inside the window by up to a couple of samples). A master may leave its first request standing from reset: `req.ready` is
-never asserted before that round.
+inside the window by up to a couple of samples). The round runs at the locked taps *themselves* (`delayTap` selects on
+`calibrating`): keyed on the round's own pattern instead, it would run at the sweep's leftover index — tap 0 — and the
+alignment it latched would be a whole sample off for the bus at tap 15 (measured on the board: the soak's walk came back
+shifted a beat, and `alignLocked` moved 39 → 38 once the taps were right). A master may leave its first request standing
+from reset: `req.ready` is never asserted before that round.
 
 The level's own test (`nzea_fpga/src/logic/Ddr3Soak.scala`) is the master: a 40-step plan — 16 addresses walking the
 row/bank/column fields, 8 data patterns, 8 steps of a maximal-length LFSR, and 8 write-mask steps (a full base write, a
