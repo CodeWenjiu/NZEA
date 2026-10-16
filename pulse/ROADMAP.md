@@ -88,6 +88,11 @@ today.
 - [x] `property --event` definitions + `--eval` cross-module composition
 - [x] `--max` (post-eval truncation), `--count` (match counts)
 - [x] `--cycles` window guidance documented in the pulse skill
+- [x] Flat-export names: an ILA VCD's variables carry their path (`ddr3/state`),
+  and expressions accept the slash, so `property` / `plot --mark` / `diff --eval`
+  reach on-board captures (2026-10-17; the fixture in
+  `cmd/property/core.rs`'s tests pins the reads against hostile ids — `#0`,
+  `$0`, `A/` vs `a/`, `;/`)
 - [ ] ~~`query` / `timeline`~~ — rejected: primitives + pipe composition
   (timeline = property's `{from,to}` list; kept out to keep the CLI surface
   minimal)

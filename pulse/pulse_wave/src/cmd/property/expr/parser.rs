@@ -65,14 +65,20 @@ fn preceded_by_ws<'a>(
 fn name(input: &mut &str) -> PResult<String> {
     let s = input.trim_start();
     let mut s2 = s;
-    // Allow dots for namespaced references like "Core.instruction_fetch"
-    let result = take_while(1.., |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')
-        .verify(|s: &str| {
-            s.chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        })
-        .parse_next(&mut s2);
+    // What a name may contain: dots for namespaced references like
+    // "Core.instruction_fetch", and slashes for the flat exports whose variable
+    // names carry their whole path ("ddr3/state" — an ILA VCD has one scope and
+    // no sub-hierarchy, so the slash is *inside* the name, not a separator). No
+    // operator uses '/', so the character is unambiguous.
+    let result = take_while(1.., |c: char| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '/'
+    })
+    .verify(|s: &str| {
+        s.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    })
+    .parse_next(&mut s2);
     match result {
         Ok(name) => {
             *input = s2;
@@ -90,7 +96,9 @@ fn integer(input: &mut &str) -> PResult<u32> {
     // mis-splitting the token.
     let n = terminated(
         digit1.try_map(|d: &str| d.parse::<u32>()),
-        not(one_of(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')),
+        not(one_of(|c: char| {
+            c.is_ascii_alphanumeric() || c == '_' || c == '.'
+        })),
     )
     .parse_next(&mut s2)?;
     *input = s2;
@@ -316,6 +324,30 @@ mod tests {
     }
 
     #[test]
+    fn flat_export_names_carry_a_slash() {
+        // An ILA VCD's variables are named by their path inside the single scope
+        // ("ddr3/state"); the slash belongs to the name, so expressions must
+        // accept it — the on-board debug path depends on it.
+        assert_eq!(p("ddr3/state"), Expr::Signal("ddr3/state".into()));
+        assert_eq!(
+            p("soak/errors == 0"),
+            Expr::Cmp(
+                Box::new(Expr::Signal("soak/errors".into())),
+                CmpOp::Eq,
+                Box::new(Expr::Const(0)),
+            )
+        );
+        // The namespaced form still splits on the dot, not the slash.
+        assert_eq!(
+            p("Cache.miss && ddr3/respValid"),
+            Expr::And(
+                Box::new(Expr::Signal("Cache.miss".into())),
+                Box::new(Expr::Signal("ddr3/respValid".into())),
+            )
+        );
+    }
+
+    #[test]
     fn and_or() {
         assert_eq!(
             p("a && b || c"),
@@ -431,10 +463,7 @@ mod tests {
             )
         );
         // Display picks the shortest round-trip form.
-        assert_eq!(
-            p("a 2--3 b").to_string(),
-            "(a 2--3 b)"
-        );
+        assert_eq!(p("a 2--3 b").to_string(), "(a 2--3 b)");
         assert_eq!(p("miss --5 resp").to_string(), "(miss --5 resp)");
         assert_eq!(p("a 2-- b").to_string(), "(a 2-- b)");
     }
@@ -594,14 +623,14 @@ mod tests {
     fn function_call() {
         assert_eq!(
             p("prev(io_req_valid)"),
-            Expr::Call(
-                "prev".into(),
-                vec![Expr::Signal("io_req_valid".into())]
-            )
+            Expr::Call("prev".into(), vec![Expr::Signal("io_req_valid".into())])
         );
         assert_eq!(
             p("prev(a, 2)"),
-            Expr::Call("prev".into(), vec![Expr::Signal("a".into()), Expr::Const(2)])
+            Expr::Call(
+                "prev".into(),
+                vec![Expr::Signal("a".into()), Expr::Const(2)]
+            )
         );
         assert_eq!(p("foo()"), Expr::Call("foo".into(), vec![]));
     }
@@ -766,8 +795,11 @@ mod tests {
                 )),
                 (inner.clone(), delay(), delay(), inner.clone())
                     .prop_map(|(a, n, m, b)| Expr::Window(Box::new(a), n, m, Box::new(b))),
-                (inner.clone(), cmp_op(), inner.clone())
-                    .prop_map(|(a, op, b)| Expr::Cmp(Box::new(a), op, Box::new(b))),
+                (inner.clone(), cmp_op(), inner.clone()).prop_map(|(a, op, b)| Expr::Cmp(
+                    Box::new(a),
+                    op,
+                    Box::new(b)
+                )),
                 inner.clone().prop_map(|a| Expr::Not(Box::new(a))),
                 sequence_arb(inner.clone()),
                 // Function calls: bare-name only (dotted names are

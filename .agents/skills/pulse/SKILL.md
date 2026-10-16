@@ -92,6 +92,9 @@ Choose one naming mode per command:
 
 - With `--scope <SCOPE>`, use signal names relative to that scope in `--signals`, `--eval`, `--on`, and `--event` files.
 - Do not mix `--scope TOP.NzeaTile.icache` with references like `TOP.NzeaTile.icache.clock` in the same query.
+- A **flat export** (an ILA VCD) has one scope and no sub-hierarchy: its variables *are* named by their
+  path — `ddr3/state`, `soak/errors`. Reference those names verbatim in `--signals`, `--eval`,
+  `--sample` and `match(...)`; a leaf alone (`state`) does not exist.
 - If name lookup fails, run `scope`, then `signal --scope <SCOPE>`, then rewrite the query in one naming mode.
 
 SCOPE accepts a `*` glob pattern that must match **exactly one** scope in the
@@ -152,6 +155,12 @@ temporal operators binding tighter:
 
 Value comparisons bind tighter than `&&`/`||`; operands are signals or
 integer literals (decimal or `0x` hex):
+
+A signal operand is a *name*: letters, digits, `_`, `.` (which carries a
+namespace, as in event-set references like `Cache.miss`) and `/` — a flat export
+such as an ILA VCD names every variable by its path inside its single scope
+(`ddr3/state`, `soak/errors`), so the slash is part of the name and needs no
+escaping.
 
 | Syntax | Meaning |
 |--------|---------|
@@ -405,6 +414,9 @@ domains collapse, which is the ILA-export convention.
 - Waveforms are generated under `build/sim/` by `just iv tile` / `just iv fpga`
   (e.g. `build/sim/tile/<platform>/<isa>/hw/iverilog/tb.fst`), or by remu at
   `../remu/target/trace.fst` (usually already set as `NZEA_TRACE_FST`).
+- An on-board capture (`build/fpga/<board>/<isa>/vivado/capture.named.vcd`) is a
+  flat export: query it with `--scope dut` and the path names, e.g.
+  `pulse property --scope dut --eval 'ddr3/state == 25' --count`.
 - Event files live next to their modules: `nzea_cache/cache.pulse`,
   `nzea_core/core.pulse`. Signals in those files are relative to the scope you
   bind with `--event`.
