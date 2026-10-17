@@ -4,6 +4,8 @@ description: Use this skill when you need to inspect or analyze `.vcd`, `.fst`, 
 ---
 
 Use `pulse` for waveform questions. Treat waveform files as CLI inputs, not as text files to inspect directly.
+The CLI is `pulse/target/release/pulse_cli` (not on `PATH`) — the last bullet of this document has the
+build-and-run one-liner; use it, so a stale binary cannot answer wrongly.
 
 This skill is a compact router, not the full command reference. It should choose the right analysis primitive, then route to installed help for exact syntax and edge-case semantics. Do not infer unsupported syntax from memory or from a nearby example.
 
@@ -420,5 +422,10 @@ domains collapse, which is the ILA-export convention.
 - Event files live next to their modules: `nzea_cache/cache.pulse`,
   `nzea_core/core.pulse`. Signals in those files are relative to the scope you
   bind with `--event`.
-- Agent must run pulse via `nix develop --command bash -c '...'` (same as all
-  Nix-dependent tools).
+- The binary is `pulse/target/release/pulse_cli` — nothing puts a `pulse` on `PATH`, and a stale binary is
+  *silent*: it rejects what the source accepts (a flat export's `boot/bootState` inside `--eval` or
+  `--at match(...)` needed the binary from `18156e3` onwards; before it, the expression failed with
+  "unexpected trailing input"). Build it as part of the invocation — the build is incremental and
+  near-free, so there is no reason to trust an old one:
+
+      nix develop --command bash -c 'cargo build --release --quiet -p pulse_cli --manifest-path pulse/Cargo.toml && pulse/target/release/pulse_cli <args>'
