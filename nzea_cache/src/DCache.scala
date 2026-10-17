@@ -33,22 +33,11 @@ class DCacheProbe(parameter: CacheParameter) extends DVBundle[CacheParameter, DC
 
 /** The data cache: a [[CacheBank]] behind the load/store path's hit path, written through.
   *
-  * The path is the shared [[CacheQueue]], with the access's own shape riding along in its payload: a load is answered
-  * from the stage, a store updates the hit way's row — byte by byte, by the strobe — and leaves for memory in the same
-  * breath. A load that misses is answered from the line's fill the moment its own beat lands; a store is not taken
-  * while the engine fills, because its row read would race the install. A store that misses allocates nothing: the line
-  * is the memory's, and the write-through is the whole update. So a line is never dirty, and the bank's engine stays
-  * the read-only one the instruction cache uses too.
-  *
-  * The slot holds a store until its array update has landed (the storage's write is registered twice), because a
-  * successor's read must not sample the row the update is about to replace; a store that missed has nothing landing and
-  * departs on its write alone. That ordering is also why the whole cache is in-order: a load behind a store cannot
-  * reach the fabric before the store's write does, and the core keeps no store-to-load forwarding of its own.
-  *
-  * The engine's refills and the stores' writes share the one memory port, and never overlap: a miss holds the slot
-  * until the engine answers it, so a store is only ever in the slot while the engine is idle. The engine's start waits
-  * for every store's acknowledgment to drain, which is what keeps the response channel unambiguous — the engine leaves
-  * `run` with all of its beats received, so while it is idle every answer on the port is a store's.
+  * A store updates the hit way's row — byte by byte, by the strobe — and leaves for memory in the same breath; a store
+  * that misses allocates nothing, so a line is never dirty and the bank's engine stays the read-only one the instruction
+  * cache uses too. The slot holds a store until its array update has landed, and a store that missed departs on its write
+  * alone: that ordering is also why the whole cache is in-order — a load behind a store cannot reach the fabric before
+  * the store's write does, and the core keeps no store-to-load forwarding of its own.
   */
 @generator
 object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCacheProbe]:
@@ -90,28 +79,25 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
             queue.stageVd
         )
 
-        // A store's own two facts: its write has been handed to the bus, and its array update has landed.
         val t1StoreSent = RegInit(false.B)
         val storeWritePending = RegInit(false.B)
         val storeWriteLanded = RegInit(false.B)
         val t1Store = queue.stageReq.wen
 
         // The acknowledgments in flight: one per store write the fabric has taken and not yet answered. The bound is
-        // the fabric's own capacity (its per-slave queues), and the gate on it is the counter's own safety — a wrapped
-        // count would let a beat be mistaken for an acknowledgment.
+        // the fabric's own per-slave capacity, and the gate on it is the counter's own safety — a wrapped count would
+        // let a beat be mistaken for an acknowledgment.
         val ackBits = 6
         val storeAcks = RegInit(0.U(ackBits))
         val storeRoom = storeAcks < 32.U(ackBits)
 
-        // ── The store's slot ──
         // Its write-through leaves the slot as soon as the bus takes it; what the slot waits for after that is its own
         // array update, because the storage's write is registered twice and a successor's read must not sample the row
         // the update is about to replace. A store that missed allocates nothing, so it departs on its write alone.
         val storeUpdate = queue.stageSettling & t1Store & stage.hit
         val storeDone = queue.stageValid & t1Store & t1StoreSent & (storeWriteLanded | !stage.hit)
 
-        // The load's answer. A store has none — its completion is its write's acceptance at the port above — so only
-        // loads take this channel.
+        // The load's answer: a store has none — its completion is its write's acceptance at the port above.
         val missReady = bank.io.fillReady
         val respValid = queue.stageValid & !t1Store & (!stage.miss | missReady)
         io.top.resp.valid := respValid
@@ -120,7 +106,6 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
         io.top.resp.bits.id := queue.stageReq.id
         val respFire = respValid & io.top.resp.ready
 
-        // ── The bank's read, and the stage's decisions ──
         // A store never fills the miss slot — its miss allocates nothing — and its hit touches the tree like any other
         // use of the line.
         bank.io.rdAddr := queue.headReq.addr
@@ -137,7 +122,6 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
         // received, so an acknowledgment in flight would be counted as one.
         bank.io.engineFree := storeAcks === 0.U(ackBits)
 
-        // ── The store's update: the hit way's row with the addressed word replaced, byte by byte ──
         // The strobe's bytes take the write data and the rest keep what the row holds, because the bus word's unstrobed
         // lanes are the store's own shifted value, not the memory's bytes.
         val storeWayLine = CacheLookup.lineOf(c, aw, parameter.dataWidth)(queue.stageRows.ref(stage.way))
@@ -162,9 +146,8 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
         bank.io.wrData := storeRowBits
 
         // The result stage will be free next cycle: the head's row may be handed over. A store's row read decides its
-        // update, and a read racing the install would miss the line being installed — the store would skip its update
-        // and leave the array holding the memory's copy — so a store head waits for the engine to go idle before its
-        // row is captured. The gate is in the promote itself, so the port's ready and the queue's advance agree.
+        // update, and one racing the install would miss the line — the store would skip its update, leaving the memory's
+        // copy — so a store head waits for the engine to go idle; the gate sits in `promote`, so ready and advance agree.
         val promote = queue.headValid & (!queue.stageValid | respFire | storeDone) &
             (queue.headReq.wen ? (!bank.io.busy, true.B))
         io.top.req.ready := queue.accept(promote)
@@ -177,7 +160,6 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
             bank.io.vdBits
         )
 
-        /** What the cache answers: how the loads split, and how many stores it wrote through. */
         def counters(): Unit =
             val hits = parameter.stats.stat("hit", CacheRegions.Cache, "loads answered by the cache")
             val misses = parameter.stats.stat("miss", CacheRegions.Cache, "loads the cache had to refill")
@@ -191,10 +173,9 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
 
         if parameter.flow.counters then counters()
 
-        // ── The memory side: the bank's engine and the stores' write-through share the port ──
         // The request channel gets one elastic entry, so what the fabric arbitrates on is a register rather than the
-        // caches' own control; the response channel stays combinational, its consumers — the engine and the
-        // acknowledgment count — both drain ([[buffered]]'s read/write flavour makes the same call).
+        // caches' own control; the response channel stays combinational — its consumers, the engine and the
+        // acknowledgment count, both drain.
         val near = Wire(new LiteBusRW(aw, parameter.dataWidth, parameter.userWidth, parameter.idWidth))
         val far = Wire(new LiteBusRW(aw, parameter.dataWidth, parameter.userWidth, parameter.idWidth))
         bufferConnect(near.req, far.req, BufferPolicy.Slice, "bottomSlice", None)
@@ -218,7 +199,6 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
         bank.io.bottom.req.ready := near.req.ready
         val storeFire = storeReq & near.req.ready
 
-        // The consumers: the engine's while it runs, the acknowledgment count otherwise.
         bank.io.bottom.resp.valid := near.resp.valid & engineRunning
         bank.io.bottom.resp.bits :<= near.resp.bits
         near.resp.ready := engineRunning | (storeAcks =/= 0.U(ackBits))
@@ -231,7 +211,6 @@ object DCache extends Generator[CacheParameter, DCacheLayers, DCacheIO, DCachePr
             ackBits
         )
 
-        // ── The slot's own bookkeeping ──
         // The update's landing: commanded once, in the settling cycle, and one cycle later the array holds the new row.
         // Everything retires with the request — a successor's promotion, or the slot emptying — and the retirement's
         // clear wins over an advance of the same cycle.

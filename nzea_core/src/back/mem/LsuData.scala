@@ -13,9 +13,9 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * and sign. The store's side of the same knowledge (the strobe and the lane-shifted data) lives beside the request it
   * describes, in [[MemPath]].
   *
-  * This is shared rather than written twice because two places read the bus: the memory path answers a load while its
-  * uop is still held, and the load/store queue answers one whose uop is long gone — there the entry's own `offset` and
-  * `op` are the only record of how to read the word. One selection, so the two cannot drift apart.
+  * Shared rather than written twice because two places read the bus: the memory path answers a load while its uop is
+  * still held, and the queue answers one whose uop is long gone, the entry's own `offset` and `op` being the record of
+  * how to read the word then — one selection keeps the two from drifting apart.
   */
 object LsuData:
 

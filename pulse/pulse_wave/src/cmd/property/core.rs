@@ -39,22 +39,20 @@ impl crate::Pulse {
         let radix = crate::radix::Radix::from_str(radix)?;
 
         // `--on` defaults to "posedge clock"; when the user did not pass it
-        // explicitly and the scope has no clock signal, fall back to treating
-        // every time-table entry as one cycle. This is the natural semantic for
-        // ILA VCD exports (timestamps = sample indices, no clock in the dump).
+        // explicitly and the scope has no clock signal, every time-table entry
+        // becomes one cycle. This is the natural semantic for ILA VCD exports
+        // (timestamps = sample indices, no clock in the dump).
         let explicit_on = on.is_some();
         let on = on.unwrap_or("posedge clock");
         let clock_name = super::clock::parse_clock(on)?;
         let events =
             crate::command::EventDef::from_tokens(event_tokens).map_err(WaveError::Parse)?;
 
-        // Resolve default scope to the top-level module
         let scope_path = match scope_path {
             Some(p) => p.to_string(),
             None => super::super::hierarchy::top_scope(self.wav.hierarchy())?,
         };
 
-        // ── Load event definitions ──────────────────────────────
         let mut event_defs: BTreeMap<String, super::expr::ast::Expr> = BTreeMap::new();
         let mut event_scopes: BTreeMap<String, String> = BTreeMap::new();
         for def in events {
@@ -65,19 +63,17 @@ impl crate::Pulse {
             event_scopes.insert(def.name.clone(), def.scope.clone());
         }
 
-        // ── Compile eval expressions (shared engine pipeline) ───
         let mut asts: Vec<(String, super::expr::ast::Expr)> = Vec::new();
         for e in evals {
             let ast = crate::cmd::engine::compile(e, &event_defs, "")?;
             asts.push((e.clone(), ast));
         }
 
-        // `--sample` entries: a bare signal name samples that signal; anything
-        // else is a value expression (comparison/logic) evaluated to 0/1 per
-        // match, through the same engine pipeline as --eval. A comma is never
-        // part of an expression, so reject it here: the expression parser's
-        // "unexpected trailing input" would not hint at `--signals`-style
-        // comma splitting.
+        // A bare `--sample` names a signal; anything else is a value expression
+        // evaluated to 0/1 per match through the same engine pipeline as
+        // `--eval`. A comma is rejected here because the expression parser's
+        // "unexpected trailing input" would not hint at `--signals`-style comma
+        // splitting.
         enum SampleSpec {
             Signal(String),
             Expr(super::expr::ast::Expr),
@@ -100,7 +96,6 @@ impl crate::Pulse {
             }
         }
 
-        // ── Collect referenced signals per scope (all evals) ────
         let mut refs: Vec<(Option<String>, String)> = Vec::new();
         for (_, ast) in &asts {
             super::event::collect_signal_refs(ast, &mut refs);
@@ -141,13 +136,9 @@ impl crate::Pulse {
             }
         }
 
-        // ── Build cycle list from clock posedges ────────────────
-        // Without a clock, every time-table entry is one cycle (e.g. ILA
-        // exports where timestamps are sample indices).
         let all_cycles =
             crate::cycle::build_cycles(&mut self.wav, &scope_path, Some(clock_name), explicit_on)?;
 
-        // ── Load signal data (event-set signals; main scope already loaded) ──
         let srefs: Vec<SignalRef> = name_to_sref.values().copied().collect();
         self.wav.load_signals(&srefs);
 
@@ -159,7 +150,6 @@ impl crate::Pulse {
             })
             .collect();
 
-        // ── Slice cycles per --cycles ───────────────────────────
         let (from, to) = crate::cycle::window_bounds(all_cycles.len(), cycles.as_ref());
         if from >= all_cycles.len() || from >= to {
             return Err(WaveError::Parse(format!(
@@ -169,10 +159,9 @@ impl crate::Pulse {
         }
         let cycles = &all_cycles[from..to];
 
-        // ── Evaluate all expressions ────────────────────────────
-        // The evaluator works in ticks (temporal pairing needs absolute
-        // time); matches are mapped back to global {cycle, tick} pairs by the
-        // shared TimeBase so consumers never convert.
+        // The evaluator works in ticks (temporal pairing needs absolute time);
+        // matches are mapped back to global {cycle, tick} pairs by the shared
+        // TimeBase so consumers never convert.
         let read_signal = |name: &str, cycle_idx: usize| -> bool {
             if let Some(sig) = signal_sigs.get(name) {
                 let (tt_idx, _) = cycles[cycle_idx];
@@ -205,7 +194,6 @@ impl crate::Pulse {
             })
             .collect();
 
-        // ── --sample: one row per match (single --eval, enforced above) ──
         // Signal samples render width-aware; expression samples evaluate
         // through the same value engine (comparisons/logic → 0/1, X → "?").
         let mut sample_rows: Vec<(
@@ -254,7 +242,6 @@ impl crate::Pulse {
             }
         }
 
-        // ── Output ──────────────────────────────────────────────
         let out = super::output::render(
             &columns,
             count,
@@ -269,8 +256,6 @@ impl crate::Pulse {
     }
 }
 
-/// Render one --sample value from the shared classification: 1-bit signals as
-/// 0/1/?, vectors in the requested radix, X/Z/missing as "?".
 fn sample_value(sig: &wellen::Signal, tt_idx: u32, radix: crate::radix::Radix) -> String {
     match crate::read::classify(sig, tt_idx) {
         crate::read::SignalValue::Bit(true) => "1".into(),
@@ -280,7 +265,6 @@ fn sample_value(sig: &wellen::Signal, tt_idx: u32, radix: crate::radix::Radix) -
     }
 }
 
-/// Group signal references by namespace: `(ns, [signal names])`.
 fn group_by_namespace(refs: &[(Option<String>, String)]) -> Vec<(String, Vec<String>)> {
     let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (ns, name) in refs {
@@ -290,8 +274,6 @@ fn group_by_namespace(refs: &[(Option<String>, String)]) -> Vec<(String, Vec<Str
     }
     groups.into_iter().collect()
 }
-
-// ── tests ─────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -362,7 +344,6 @@ b11110000 V"
 b101 A/
 "#;
 
-    /// Write the fixture into the test temp directory and load it.
     fn load_fixture(name: &str) -> (wellen::simple::Waveform, std::path::PathBuf) {
         let path = std::env::temp_dir().join(format!("pulse-test-{name}.vcd"));
         std::fs::write(&path, FLAT_EXPORT).unwrap();
@@ -370,8 +351,6 @@ b101 A/
         (wav, path)
     }
 
-    /// The sample a command reads out of a signal at one time-table index — the
-    /// same accessor `value`, `property --sample` and the report paths use.
     fn cell(wav: &wellen::simple::Waveform, sr: wellen::SignalRef, tt_idx: u32) -> u64 {
         let sig = wav.get_signal(sr).expect("signal not loaded");
         match crate::read::classify(sig, tt_idx) {
@@ -454,8 +433,6 @@ b101 A/
             "",
         )
         .unwrap();
-        // The engine emits one range per matching cycle; the assertion is about
-        // *which* cycles, so it reads the union of the ranges.
         assert_eq!(matched_ticks(&m), [3, 4, 5], "{m:?}");
 
         let m = crate::cmd::engine::eval_matches(
@@ -475,11 +452,10 @@ b101 A/
         let _ = std::fs::remove_file(&path);
     }
 
-    /// A long flat export with the same id shapes: 1024 markers, every signal
-    /// sparse except one, values that walk. The board's captures are this shape
-    /// (an ILA's 1024-sample window), and a sample index resolved one step off
-    /// reads here as a shifted column (an observed one-off mis-read on a real
-    /// capture is what this pins against).
+    /// A long flat export with the same id shapes: 1024 markers (an ILA's
+    /// 1024-sample window), every signal sparse except one, values that walk.
+    /// A sample index resolved one step off reads here as a shifted column —
+    /// this pins against an observed one-off mis-read on a real capture.
     #[test]
     fn a_long_flat_export_reads_back_exactly() {
         let ids = ["#0", ";/", "A/", "a/", "V\"", "b3"];

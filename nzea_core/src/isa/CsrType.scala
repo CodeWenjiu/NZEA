@@ -9,9 +9,8 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** CSR type: `CsrType.None` = no mapping, the rest are the machine-mode CSRs this core implements.
-  *
-  * ISA-level: produced by decode, carried through the middle and backend, committed by the CSR file.
+/** The machine-mode CSRs this core implements; `CsrType.None` = no mapping. ISA-level: produced by decode, committed by
+  * the CSR file.
   */
 enum CsrType extends Encoding.Sequential:
     case None

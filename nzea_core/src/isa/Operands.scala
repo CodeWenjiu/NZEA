@@ -15,12 +15,11 @@ enum Operand:
 
 /** The operand form of an instruction: which source feeds each of the uop's four operand slots.
   *
-  * Slots are positional — `a`, `b`, `c`, `d` in the order the uop carries them — and a form names one source per slot,
-  * with [[Operand.Zero]] for the slots the instruction leaves alone. The form is an ISA fact (which architectural
-  * operands an instruction has), so decode's tables name it, decode's PLA writes the field, and the decode stage
-  * resolves the slots once, before the middle latches them: a backend then reads the slots its own op names instead of
-  * resolving sources in its execute cycle. The pool is four wide because a branch is the widest instruction there is:
-  * its base, its offset and the two registers it compares.
+  * Slots are positional — `a`, `b`, `c`, `d` in the order the uop carries them — with [[Operand.Zero]] for the slots
+  * the instruction leaves alone. The form is an ISA fact (which architectural operands an instruction has), so decode's
+  * tables name it, and the decode stage resolves the slots once, before the middle latches them: a backend then reads
+  * the slots its own op names instead of resolving sources in its execute cycle. The pool is four wide because a branch
+  * is the widest instruction there is: its base, its offset and the two registers it compares.
   */
 enum Srcs(val a: Operand, val b: Operand, val c: Operand, val d: Operand) extends Encoding.OneHot:
     case NoOperand extends Srcs(Operand.Zero, Operand.Zero, Operand.Zero, Operand.Zero)
@@ -30,9 +29,8 @@ enum Srcs(val a: Operand, val b: Operand, val c: Operand, val d: Operand) extend
     case PcImm extends Srcs(Operand.Pc, Operand.Imm, Operand.Zero, Operand.Zero)
     case Rs1ImmRs2 extends Srcs(Operand.Rs1, Operand.Imm, Operand.Rs2, Operand.Zero)
 
-    /** A branch: the pc it branches from, the offset it adds, then the two registers it compares. The base rides the
-      * first slot like every other operand, so the branch unit's adder hangs off a placed operand instead of a mux its
-      * own op decode selects.
+    /** A branch: the base rides the first slot like every other operand, so the branch unit's adder hangs off a placed
+      * operand instead of a mux its own op decode selects.
       */
     case PcRs1Rs2 extends Srcs(Operand.Pc, Operand.Imm, Operand.Rs1, Operand.Rs2)
 
@@ -44,16 +42,16 @@ enum Srcs(val a: Operand, val b: Operand, val c: Operand, val d: Operand) extend
 
 object Srcs extends OneHotSet[Srcs]:
 
-    /** The pool's arity: one slot per source a form names. The operand pool ([[nzea_core.back.ExecSlot]]) is as wide as
-      * this, so the form's shape and the storage cannot drift.
+    /** The pool's arity: the operand pool ([[nzea_core.back.ExecSlot]]) is as wide as this, so the form's shape and the
+      * storage cannot drift.
       */
     type Arity = 4
 
     def variants: Seq[Srcs] = values.toSeq
 
-    /** Resolve the four slot values from a per-source table: each slot is one one-hot mux over the forms, picking what
-      * the form names for that slot. Callers pass the table once for the values and once for the register indexes the
-      * slots were read from — the middle uses the second to tell which slot a bypassed value belongs in.
+    /** Resolve the four slot values from a per-source table, one one-hot mux per slot. Callers pass the table once for
+      * the values and once for the register indexes the slots were read from — the middle uses the second to tell which
+      * slot a bypassed value belongs in.
       */
     def resolve(
         field: Referable[UInt],

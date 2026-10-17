@@ -20,7 +20,6 @@ given upickle.default.ReadWriter[AluParameter] = upickle.default.macroRW
 class AluLayers(parameter: AluParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The ALU's own input: the op code it runs and the two operands it reads, named the way it reads them. */
 class AluInput(config: CoreConfig) extends Bundle:
     val op = Aligned(UInt(AluOp.set(config.isa).width))
     val opA = Aligned(UInt(config.width))
@@ -28,7 +27,6 @@ class AluInput(config: CoreConfig) extends Bundle:
 
 object AluInput:
 
-    /** The ALU's view of the uop's union: its slice of the shared op window, and the pool's first two slots. */
     given FuView[AluInput] with
 
         def view(u: Referable[ExecSlot], config: CoreConfig)(using
@@ -53,17 +51,11 @@ class AluIO(parameter: AluParameter) extends HWBundle(parameter):
 
 class AluProbe(parameter: AluParameter) extends DVBundle[AluParameter, AluLayers](parameter)
 
-/** Integer ALU: add/sub, the three logic ops, the three shifts and the two compares, selected by [[AluOp]]'s code —
-  * plus the word forms an ISA with 64-bit registers adds, which are the same ops on the low word with the result
-  * sign-extended.
+/** Integer ALU: add/sub, the three logic ops, the three shifts and the two compares, selected by [[AluOp]]'s code, plus
+  * the word forms an ISA with 64-bit registers adds.
   *
   * The operands arrive resolved — decode filled the uop's slots — so the unit selects nothing, and being combinational
   * it carries no valid: the path gates its result with the tag it issued.
-  *
-  * The op field is the one-hot code itself, in declaration order, so the result is one flat select: every op's value
-  * built, gated by its own code bit and ORed as a balanced tree — one selection cone, where grouping the ops into
-  * classes would put two in series on the execute loop's src-to-src bypass cone. The word block reuses its base twin's
-  * value sign-extended from bit 31, which is wiring.
   */
 @generator
 object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
@@ -79,10 +71,9 @@ object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
         val aBitsFull: Node[Bits] = Node(io.in.opA.asBits)
         val bBits: Node[Bits] = Node(io.in.opB.asBits)
 
-        // Word mode: any bit of the word block being set. The shift amount is then the low five bits, the operand is the low
-        // word zero-extended (the low bits of a sum or a left shift are the same either way, and a logical right shift wants
-        // zeros above it), the arithmetic fill masks 32 bits and takes its sign from bit 31, and the result is
-        // sign-extended back.
+        // Word mode: any bit of the word block being set. The shift amount is the low five bits, the operand the low
+        // word zero-extended (the low bits of a sum or a left shift are the same either way, and a logical right shift
+        // wants zeros above it).
         val wordWidth = 32
         val wordSel: Referable[Bool] =
             if hasWord then
@@ -136,11 +127,11 @@ object Alu extends Generator[AluParameter, AluLayers, AluIO, AluProbe]:
                 .B(width - 1) ## (signDiff ? (aBits.bit(width - 1), lessThan(aBits.asUInt, bBits.asUInt, width))).asBits
         )
 
-        // The result: one flat one-hot select. The op field is the code itself, in declaration order, so no group/class
-        // decode sits between the values and the select — every value is built and gated by its own bit, and the gates are
-        // ORed as one balanced tree. That is one selection cone where a group mux feeding a class mux made two, and the
-        // execute loop's src-to-src bypass cone is exactly where those two cones landed, in series. The word forms reuse
-        // their base twin's value sign-extended from bit 31 — wiring, not gates — which retires the result-side word mux.
+        // The result: one flat one-hot select. No group/class decode sits between the values and the select — every
+        // value is built and gated by its own bit, and the gates are ORed as one balanced tree: one selection cone
+        // where a group mux feeding a class mux made two, and the execute loop's src-to-src bypass cone is exactly
+        // where those two cones landed, in series. The word forms reuse their base twin's value sign-extended from
+        // bit 31 — wiring, not gates — which retires the result-side word mux.
         val signExtWord: Referable[Bits] => Node[Bits] =
             v => Node(fill(width - wordWidth, v.bit(wordWidth - 1)) ## v.bits(wordWidth - 1, 0))
         val values: Seq[Referable[Bits]] =

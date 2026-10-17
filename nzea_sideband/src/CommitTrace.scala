@@ -4,15 +4,11 @@ import me.jiuyang.zaozi.{ConstructorApi, TypeImpl}
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
 
-/** Architectural state change of one committed instruction — the commit trace.
+/** Architectural state change of one committed instruction — the commit trace: only what a reference model needs.
   *
-  * The core produces it and a device (the debugger) consumes it, and the two are independent modules: the shape lives
-  * here, in the sideband layer both depend on, so neither needs the other. Only what a reference model needs — where
-  * the instruction went next, the register it wrote, the CSR it touched — and the CSR rides as an architectural
-  * `(valid, addr)` pair, not the core's internal `CsrType` code.
-  *
-  * The widths are explicit rather than derived: this layer knows no ISA, so the core passes its own constants at the
-  * construction site.
+  * The core produces it and a device (the debugger) consumes it; the shape lives here so neither depends on the other.
+  * The CSR rides as an architectural `(valid, addr)` pair rather than the core's internal `CsrType` code, and the
+  * widths are explicit because this layer knows no ISA (the core passes its constants at the construction site).
   */
 class CommitTrace(width: Int, gprIndexWidth: Int, csrAddrWidth: Int) extends Bundle:
     val next_pc = Aligned(UInt(width))

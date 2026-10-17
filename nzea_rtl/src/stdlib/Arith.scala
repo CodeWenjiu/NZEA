@@ -8,17 +8,11 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** The arithmetic primitives: the two shapes an addition comes in, and the comparator.
-  *
-  * [[PrefixAdder]] and [[LessThan]] are the general ones, carried as modules: a generate/propagate scan whose every
-  * level is `dontTouch`, because a mapper left to itself reads the scan as one function and folds it back into the
-  * ripple chain the shape exists to avoid. [[constAdder]] is the specialization for a constant addend — less logic, and
-  * a shape the mapping keeps without being told. The two run the same level-by-level span recurrence — [[prefixScan]]
-  * for the pair, a single AND-scan for the constant — and [[shiftWithFill]] is the shift both bring the neighbour's
-  * span in with.
+/** The arithmetic primitives. [[PrefixAdder]] and [[LessThan]] are carried as modules whose every scan level is
+  * `dontTouch`, because a mapper left to itself reads the scan as one function and folds it back into the ripple chain
+  * the shape exists to avoid; [[constAdder]] is the shape the mapping keeps without being told.
   */
 
-/** What a prefix primitive is shaped by: its width. */
 case class PrefixArithParameter(width: Int) extends Parameter:
     require(width >= 2, s"a prefix primitive needs width >= 2, got $width")
 
@@ -27,7 +21,6 @@ given upickle.default.ReadWriter[PrefixArithParameter] = upickle.default.macroRW
 class PrefixArithLayers(parameter: PrefixArithParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The adder's ports: the addends, the carry in, the sum, and the carry out. */
 class PrefixAdderIO(parameter: PrefixArithParameter) extends HWBundle(parameter):
     val a = Flipped(UInt(parameter.width))
     val b = Flipped(UInt(parameter.width))
@@ -38,7 +31,6 @@ class PrefixAdderIO(parameter: PrefixArithParameter) extends HWBundle(parameter)
 class PrefixAdderProbe(parameter: PrefixArithParameter)
     extends DVBundle[PrefixArithParameter, PrefixArithLayers](parameter)
 
-/** The compare's ports: the two words, and whether the first is the smaller. */
 class LessThanIO(parameter: PrefixArithParameter) extends HWBundle(parameter):
     val a = Flipped(UInt(parameter.width))
     val b = Flipped(UInt(parameter.width))
@@ -49,15 +41,10 @@ class LessThanProbe(parameter: PrefixArithParameter)
 
 /** Kogge-Stone prefix adder: `sum = a + b + cin` with O(log2 n) carry depth instead of a ripple chain.
   *
-  * The sum is `(a ^ b) ^ carries`, and the carries come from a prefix network over per-bit generate/propagate. Each
-  * level is written in the inverting shape a standard cell actually is — `~(g & (p | g'))` is one OAI21, `~(g | (p &
-  * g'))` one AOI21 — so a level costs one gate level, where a plain AND-then-OR pair costs two. The pair therefore
-  * alternates polarity: an odd level consumes the complements and re-emits the pair, an even level the reverse, and the
-  * propagate rides the same alternation (one NOR2 or NAND2 beside the generate's gate). `cin` is folded into bit 0's
-  * generate so it travels the network like any other carry.
-  *
-  * The body is the module's own, and it is what every flow reads: each level's outputs are marked `dontTouch`, so the
-  * mapper maps a level on its own instead of folding the levels back into the NAND chain this shape exists to avoid.
+  * The sum is `(a ^ b) ^ carries`, the carries a prefix network over per-bit generate/propagate. Each level is written
+  * in the inverting shape a standard cell actually is — `~(g & (p | g'))` is one OAI21, `~(g | (p & g'))` one AOI21 — so
+  * a level costs one gate level, where a plain AND-then-OR pair costs two. The pair therefore alternates polarity, and
+  * `cin` is folded into bit 0's generate so it travels the network like any other carry.
   */
 @generator
 object PrefixAdder extends Generator[PrefixArithParameter, PrefixArithLayers, PrefixAdderIO, PrefixAdderProbe]:
@@ -76,8 +63,7 @@ object PrefixAdder extends Generator[PrefixArithParameter, PrefixArithLayers, Pr
         val (generate, _, inverted) =
             prefixScan(Node(~((aBits & bBits) | ((aBits | bBits) & carryIn))), Node(~(aBits | bBits)), width)
 
-        // The carry into bit k is the generate for bit k - 1, and bit 0 takes `cin`; a complemented pair is read as its
-        // complement, which the XOR beside it turns into an XNOR — one gate either way.
+        // A complemented pair is read as its complement; the XOR beside it turns that into an XNOR, one gate either way.
         val carry: Node[Bits] =
             if inverted then Node(~(generate.bits(width - 2, 0)) ## io.cin.asBits)
             else Node(generate.bits(width - 2, 0) ## io.cin.asBits)
@@ -90,8 +76,7 @@ object PrefixAdder extends Generator[PrefixArithParameter, PrefixArithLayers, Pr
   * ns across 32 bits inside the execute loop) — because the area-cheapest shape for a comparator is a ripple, the same
   * collapse [[PrefixAdder]]'s levels are held against. The borrow has a prefix recurrence of its own: a bit *generates*
   * a borrow when `!a[i] & b[i]`, *propagates* one when `a[i] == b[i]`, and the answer is the borrow that reaches past
-  * the top bit — the same O(log2 n) network [[PrefixAdder]] runs for its carries, in the same inverting shapes, so each
-  * level is one gate level, and its levels are kept the same way.
+  * the top bit.
   */
 @generator
 object LessThan extends Generator[PrefixArithParameter, PrefixArithLayers, LessThanIO, LessThanProbe]:
@@ -113,13 +98,9 @@ object LessThan extends Generator[PrefixArithParameter, PrefixArithLayers, LessT
   *
   * After level i, generate[k]/propagate[k] cover the span [k - 2^i + 1 .. k]: shifting right brings in the neighbour's
   * span, and the fill is the shifting side's identity — a zero for an AND that must vanish below the span, a one for an
-  * OR. The pair alternates polarity so every level reads the form the previous one produced: a complemented pair is
-  * combined with `~(g & (p | g'))` (one OAI21) and re-emitted as the pair, the pair with `~(g | (p & g'))` (one AOI21)
-  * and re-emitted complemented; the propagate is one NOR2 or NAND2 beside it. Returns the pair and whether it came out
-  * complemented.
-  *
-  * Every level's pair is marked `dontTouch`: the levels are the shape's point, and a mapper left to itself reads the
-  * whole scan as one function and folds it back into the ripple chain it was built to avoid.
+  * OR. A complemented pair is combined with `~(g & (p | g'))` (one OAI21) and re-emitted as the pair, the pair with
+  * `~(g | (p & g'))` (one AOI21) and re-emitted complemented; the propagate is one NOR2 or NAND2 beside it. Returns the
+  * pair and whether it came out complemented.
   */
 private def prefixScan(generate0: Node[Bits], propagate0: Node[Bits], width: Int)(using
     Arena,
@@ -155,7 +136,7 @@ private def prefixScan(generate0: Node[Bits], propagate0: Node[Bits], width: Int
     (generate, propagate, inverted)
 
 /** `x` shifted down by `distance` with its low bits filled with `fill`: the span a prefix level brings in from its
-  * neighbour, and the one piece of machinery both scans share.
+  * neighbour.
   *
   * Concatenation with zeros, not a dynamic shift: `<<` by a `UInt` widens the result to `width + 2^width`, and the
   * distance is a build-time constant anyway. The fill is built in `BigInt` — `1 << 32` on an `Int` wraps the shift
@@ -185,9 +166,9 @@ private def shiftWithFill(x: Node[Bits], distance: Int, width: Int, fill: Boolea
   * The addition is right for any `x`: the bits below the addend's entry are held at one as the scan's identity, so no
   * alignment is assumed — the fetch's `pc + 4` is this with `c = 4`.
   *
-  * Only powers of two are carried, because the direct carry formula above is what the mapping was measured to keep for
-  * exactly that class. A constant with runs of ones composes the same formula per run (ORs inside a run, ANDs across
-  * the gaps); a caller that needs one writes it then, and measures its shape first the way this one was.
+  * Only powers of two are carried: that is the class the direct carry formula above was measured to keep. A constant
+  * with runs of ones composes the same formula per run (ORs inside a run, ANDs across the gaps); a caller that needs one
+  * writes it then, and measures its shape first the way this one was.
   */
 def constAdder(x: Referable[UInt], c: BigInt, width: Int)(using
     Arena,
@@ -212,19 +193,15 @@ def constAdder(x: Referable[UInt], c: BigInt, width: Int)(using
         scan = Node(scan & previous)
         level += 1
 
-    // The carry into bit j is `scan[j - 1]` (the scan drops the bits below its anchor), the addend itself into bit k,
-    // and nothing into the bits below.
+    // The carry into bit j is `scan[j - 1]`; the scan drops the bits below its anchor, and bit k takes the addend.
     val carry: Node[Bits] =
         Node((((scan & ((BigInt(1) << width) - addend).B(width)) ## 0.B(1)).bits(width - 1, 0)) | addend.B(width))
     Node(xBits ^ carry).asUInt
 
-/** A constant's anchor: the one bit position it sets, validated here so [[constAdder]]'s guard is one host-side rule.
-  */
 def constAdderAnchor(c: BigInt): Int =
     require(c > 0 && (c & (c - 1)) == 0, s"constAdder needs a power-of-two constant, got $c")
     c.bitLength - 1
 
-/** [[PrefixAdder]] as a call: the sum alone. */
 def prefixAdder(a: Referable[UInt], b: Referable[UInt], cin: Referable[Bool], width: Int)(using
     Arena,
     Context,
@@ -236,8 +213,8 @@ def prefixAdder(a: Referable[UInt], b: Referable[UInt], cin: Referable[Bool], wi
 ): Node[UInt] =
     prefixAdderCarry(a, b, cin, width)._1
 
-/** [[PrefixAdder]] as a call with its carry out exposed: `(a + b + cin, carry past bit width - 1)`. One scan answers
-  * both, so a caller that needs the borrow of a subtraction ([[prefixSub]]) does not chain a compare and a subtract.
+/** [[PrefixAdder]] as a call with its carry out exposed. One scan answers both, so a caller that needs the borrow of a
+  * subtraction ([[prefixSub]]) does not chain a compare and a subtract.
   */
 def prefixAdderCarry(a: Referable[UInt], b: Referable[UInt], cin: Referable[Bool], width: Int)(using
     Arena,
@@ -272,7 +249,6 @@ def prefixSub(a: Referable[UInt], b: Referable[UInt], width: Int)(using
     val (difference, carryOut) = prefixAdderCarry(a, Node(~bBits).asUInt, true.B, width)
     (difference, Node(!carryOut))
 
-/** [[LessThan]] as a call. */
 def lessThan(a: Referable[UInt], b: Referable[UInt], width: Int)(using
     Arena,
     Context,

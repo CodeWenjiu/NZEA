@@ -16,7 +16,7 @@ import scala.collection.mutable
   * port, `1R1W` is one read port and one write port, `1R1RW` a read port plus a read-write port, `1W1RW` a write port
   * plus a read-write port, `2RW` two read-write ports.
   *
-  * Only [[SyncRamPorts.OneR1W]] is implemented so far — the shape the tables need — and a parameter of any other shape
+  * Only [[SyncRamPorts.OneR1W]] and [[SyncRamPorts.OneRW]] are implemented so far, and a parameter of any other shape
   * fails its construction. The spelling is one token across the config file, the generator's flag and the dumped
   * module's name.
   */
@@ -103,7 +103,6 @@ case class SyncRamParameter(width: Int, depth: Int, ports: SyncRamPorts, readUnd
         s"SyncRamPorts.OneRW is byte-strobed, so its width must be a whole number of bytes, got $width"
     )
 
-    /** Number of bits of every port's address. */
     def addressWidth: Int = BigInt(depth - 1).bitLength
 
     /** The [[SyncRamPorts.OneRW]] port's write-enable granularity: one bit per byte of [[width]]. */
@@ -141,10 +140,9 @@ class SyncRamIO(parameter: SyncRamParameter) extends HWRecord(parameter):
 
 /** Typed access to the shape's fields; a `Record`'s fields are reached by name, and these are the names. */
 extension (io: Interface[SyncRamIO])
-    /** The one clock every port samples on. */
     def clock: Ref[Clock] = io.field[Clock]("clock")
 
-    /** The two-port shape's read port: enable, address, and the data the address held a cycle ago. */
+    /** The two-port shape's read port; the data is what the address held a cycle ago. */
     def rEn: Ref[Bool] = io.field[Bool]("r_en")
     def rAddr: Ref[UInt] = io.field[UInt]("r_addr")
 
@@ -199,8 +197,7 @@ object SyncRam:
       *
       * The body is plain RTL, not a black box: synthesis has to see the memory array to map it onto a macro, so the
       * synchronous-read pattern is what the memory pass reads. The array is small enough that a mapper only expands it
-      * when no macro fits (the tables), and the fabric RAM is mapped by `memory_libmap` before `synth`'s fine stage
-      * can.
+      * when no macro fits (the tables), and the fabric RAM is mapped by `memory_libmap` before `synth`'s fine stage can.
       */
     def verilog(moduleName: String, parameter: SyncRamParameter): String =
         parameter.ports match

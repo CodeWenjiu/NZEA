@@ -23,24 +23,19 @@ import nzea_rtl.bus.given
 import nzea_rtl.stdlib.SyncRamPorts
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** What a device needs to be built: the bus widths and the window it answers. */
 case class DeviceContext(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, base: Long, size: Long)
 
-/** The kinds of device the library ships: the one place that knows what a device is on the address map and how to build
-  * it, so a caller's wiring is a `kind` match instead of a hand-kept name list.
-  *
-  * The catalog lives with the devices it names — a new device is its own module plus one case here, and no layer above
-  * changes. The port shape a kind carries is the target macro's ([[SyncRamPorts]]), stated by the caller's device list
-  * rather than baked into the device, so a different macro is a different entry.
+/** The kinds of device the library ships: the one place that knows what a device is on the address map and how to
+  * build it. A new device is its own module plus one case here. The port shape a kind carries is the target macro's
+  * ([[SyncRamPorts]]), stated by the caller's device list rather than baked into the device, so a different macro is a
+  * different entry.
   */
 enum DeviceKind:
-    /** On-chip storage. */
     case Ram(ports: SyncRamPorts)
     case Uart
     case Finisher
     case Clint
 
-    /** What it is on the address map: a memory window, or an MMIO register window with side effects. */
     def slaveKind: SlaveKind = this match
         case Ram(_) => SlaveKind.Memory
         case _      => SlaveKind.Mmio
@@ -62,7 +57,6 @@ enum DeviceKind:
         case Ram(_) => true
         case _      => false
 
-    /** Build the device for its window. */
     def instantiate(flow: RtlFlow, ctx: DeviceContext)(using
         Arena,
         Context,

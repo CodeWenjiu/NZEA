@@ -3,7 +3,6 @@ use wellen::TimescaleUnit;
 
 use crate::WaveError;
 
-/// Newtype for wellen::Timescale with Display + Serialize.
 #[derive(Copy, Clone)]
 struct TimeScale(wellen::Timescale);
 

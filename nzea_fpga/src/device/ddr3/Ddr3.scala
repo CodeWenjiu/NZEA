@@ -162,10 +162,7 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
         val delayTap = io.field[UInt](Ddr3PadNames.delayTap)
         val calibratedPort = io.field[Bool]("calibrated")
 
-        // The front door: the slave end of the bus. Requests arrive here, responses leave ([[Ddr3BusShape]]).
         val bus = io.field[LiteBusRW]("bus")
-
-        // ---- the device's facts (see the class comment) ---------------------------------------------------------
 
         val mr0 = BigInt(0x0520)
         val mr1 = BigInt(0x0044)
@@ -242,8 +239,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
         val captureBits = captureSamples * 16
         val checkOffsets = captureSamples - 8 + 1
 
-        // ---- the state ------------------------------------------------------------------------------------------
-
         // The bring-up's glide path first: reset, CKE, the mode registers, the DLL and ZQ, and then the two loops —
         // the calibration's rounds (activate, write, precharge, activate, read, check; `sPreLead` .. `sRound`) and the
         // bus's accesses (`sBusIdle` ..). Every command state is one cycle wide, and the waits between them are the
@@ -290,10 +285,7 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
 
         val state = RegInit(sReset.U(sBusWidth))
         val timer = RegInit(0.U(24))
-        // A cycle is this state machine's unit; counting is what it does between commands.
         timer := constAdder(timer, 1, 24)
-
-        // ---- the pins -------------------------------------------------------------------------------------------
 
         // The command/address bus is a value, decided once per cycle from the state: a command is the cycle its state
         // says so, and every other cycle is the NOP the device expects between commands (its chip select is tied low
@@ -339,8 +331,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
         val preCmd = (preState | busPreState | busRefPreState) & commandCycle
         val refCmd = (refreshState | busRefreshState) & commandCycle
         val zqCmd = zqState & commandCycle
-
-        // ---- what an access carries (latched where the bus leaves the idle state) --------------------------------
 
         // The address a burst runs at, as the row/bank/column the commands carry: the calibration's rounds take the
         // device's own baseline row (all zero), the bus's accesses the request's address decoded
@@ -447,8 +437,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
         dqsOut := dqsOutReg
         dqsOe := !(readState | busReadState)
 
-        // ---- the bring-up ---------------------------------------------------------------------------------------
-
         when(state === sReset.U(sBusWidth)) {
             when(timer === (resetCycles - 1).U(24)) {
                 timer := 0.U(24)
@@ -529,8 +517,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
                 initDone := true.B
             }
         }
-
-        // ---- the calibration: one turn of the tap sweep, and the alignment the capture finds it at --------------
 
         // The sweep's own stepping: `roundIn` walks the 32 steps of the low lane's input delay and, above them, which
         // of the high lane's three hypotheses a round weighs (the high lane's tap is the low lane's plus the plane's
@@ -678,8 +664,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
             (lockedHigh.asBits ## lockedTap.asBits).asUInt
         )
 
-        // ---- the write's own alignment ---------------------------------------------------------------------------
-
         // Where the strobe's train lands against the data it frames is a fact of the pads' launch, not of the RTL: the
         // device captures the whole burst on the train's edges, and the design stages the train and the data on two
         // clock grids a quarter period apart — half a data slot — so that every edge falls on a transfer's centre
@@ -704,8 +688,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
             val later = dqsWordAt(stage, 1).U(Ddr3PadNames.dqsWordWidth)
             val earlier = dqsWordAt(stage, -1).U(Ddr3PadNames.dqsWordWidth)
             (writeShift === 2.U(2)) ? (earlier, (writeShift === 1.U(2)) ? (later, nominal))
-
-        // ---- the round's shape: what the calibration's rounds write ----------------------------------------------
 
         /** Beat `k` of the burst being written: the bring-up's own pattern while it runs, the request's word after —
           * and the request's word is *the same sixteen bits* a read hands back, so a master's data round-trips by
@@ -824,8 +806,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
                 state := sRd.U(sBusWidth)
             }
         }
-
-        // ---- the read: the capture window, the check, and the alignment ----------------------------------------
 
         val captured = RegInit(0.U(captureBits))
 
@@ -1035,8 +1015,7 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
             state := sPreLeadWait.U(sBusWidth)
         }
 
-        // A refresh every 24 rounds: rounds are ~230 ns apart here, so this sits inside tREFI (7.8 us) with margin.
-        // (The window's own length is what the round grew by; the count was 32 while the window was shorter.) The
+        // A refresh every 24 rounds: rounds are ~230 ns apart here, so this sits inside tREFI (7.8 us) with margin. The
         // round's precharge is where the refresh hangs off: the read before it left its bank activated, and a REF needs
         // every bank closed.
         when(state === sPreLeadWait.U(sBusWidth)) {
@@ -1050,8 +1029,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
                 }
             }
         }
-
-        // ---- the bus's accesses ---------------------------------------------------------------------------------
 
         // The response: the access's data (a write's is zero), held until the master takes it. One request is
         // outstanding at a time — the ready below refuses a second while a response is pending — so the single slot
@@ -1232,8 +1209,6 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
                 state := sBusIdle.U(sBusWidth)
             }
         }
-
-        // ---- what the ILA watches -------------------------------------------------------------------------------
 
         // Marked where the signals live, in one step (`Probes.mark` = declare + bind): this module is instantiated once,
         // so one name is one net. A shared body would declare and be bound where the instances are named instead.

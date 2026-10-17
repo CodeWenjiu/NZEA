@@ -3,17 +3,13 @@ package nzea_core.back.int
 import nzea_core.isa.{Isa, Xlen}
 import nzea_rtl.stdlib.*
 
-/** Op encodings of the integer path's FUs. Decode places one of them in the uop's shared `op` field, the backend slices
-  * it back out with `Encoding.take`, and the FU dispatches with `mux1H` over the raw field — which is why the one-hot
-  * encodings below are load bearing.
-  *
-  * Each set answers with the configuration ([set]): the members an ISA adds are declared after the ones it shares, so a
-  * member keeps its code whether or not it exists and the field only widens.
+/** Op encodings of the integer path's FUs. Decode places one in the uop's shared `op` field, the backend slices it
+  * back out with `Encoding.take`, and the FU dispatches with `mux1H` over the raw field — the one-hot encodings below
+  * are load bearing. Each set answers with the configuration ([set]): the members an ISA adds are declared after the
+  * ones it shares, so a member keeps its code whether or not it exists and the field only widens.
   */
 
-/** ALU op: one-hot (add, sub, and, or, xor, sll, srl, sra, slt, sltu), then RV64's word forms, which are the same ops
-  * on the low word with the result sign-extended.
-  */
+/** ALU op: one-hot in declaration order, the RV64 word forms last — the same ops on the low word, sign-extended. */
 enum AluOp extends Encoding.OneHot:
     case Add
     case Sub
@@ -42,13 +38,14 @@ object AluOp:
     private val base = Seq(Add, Sub, And, Or, Xor, Sll, Srl, Sra, Slt, Sltu)
     private val word = Seq(Addw, Subw, Sllw, Srlw, Sraw)
 
-    /** Where the word block starts: the bits the base ops occupy, and the distance from a base group to its word twin.
+    /** Where the word block starts: the bits the base ops occupy, and the distance from a base group to its word
+      * twin.
       */
     val baseWidth: Int = Encoding.width(base)
 
     def set(isa: Isa): OneHotSet[AluOp] = OneHotSet.of(base ++ word)(_.exists(isa))
 
-/** BRU op: one-hot (JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU). */
+/** BRU op: one-hot, in the order the branch unit's `mux1H` reads it. */
 enum BruOp extends Encoding.OneHot:
     case JAL
     case JALR
@@ -62,10 +59,8 @@ enum BruOp extends Encoding.OneHot:
 object BruOp:
     val width: Int = Encoding.width(values)
 
-/** MUL FU op: MUL, MULH, MULHSU, MULHU, then MULW, RV64's word form.
-  *
-  * Without M the set is empty: the unit is not built, so neither are its codes — and a case in the window that carries
-  * this set is only there when the member it names is ([[IntOp.exists]]).
+/** MUL FU op: MUL, MULH, MULHSU, MULHU, then MULW, RV64's word form. Without M the set is empty: the unit is not
+  * built, so neither are its codes.
   */
 enum MulOp extends Encoding.OneHot:
     case Mul

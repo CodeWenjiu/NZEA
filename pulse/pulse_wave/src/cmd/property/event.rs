@@ -22,7 +22,6 @@ pub(super) fn load(source: &str) -> Result<Vec<(String, Expr)>, WaveError> {
         }
         Ok(defs)
     } else {
-        // Inline: "name = expr"
         Ok(vec![parse_def(source)?])
     }
 }
@@ -68,8 +67,6 @@ fn normalize_with(
     })
 }
 
-/// One signal reference: an event reference expands into its definition, every
-/// other name is qualified with the namespace it is read in.
 fn normalize_signal(
     name: &str,
     ns: &str,
@@ -95,7 +92,7 @@ fn normalize_signal(
         return out;
     }
     // Not an expandable event reference, so a signal: bare names take the
-    // namespace prefix, main-scope and already-qualified names keep theirs.
+    // namespace prefix, already-qualified names keep theirs.
     if name.contains('.') || !ns.is_empty() {
         Expr::Signal(key)
     } else {

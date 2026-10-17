@@ -1,5 +1,3 @@
-//! asm2hex — assemble an RV32IM `.S` file into a NzeaTile boot hex.
-//!
 //! CLI front-end over the `asm2hex` library (see `lib.rs` for the shared
 //! toolchain pipeline, also used by `probe memread`).
 
@@ -70,7 +68,6 @@ fn main() -> Result<(), String> {
         return Ok(());
     }
 
-    // Plain file mode.
     let (src, out) = match (args.src, args.out) {
         (Some(src), Some(out)) => (src, out),
         _ => {

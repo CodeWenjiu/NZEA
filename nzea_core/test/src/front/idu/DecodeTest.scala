@@ -11,12 +11,9 @@ import nzea_rtl.PlaSim
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** The decode tables, checked the way the IDU consumes them: through the minimized PLA.
-  *
-  * Every instruction is fed to the minimizer, and the PLA's output for it is compared with what the table declared.
-  * That covers the whole path — patterns, field encodings and the minimization itself — without elaborating hardware.
-  * Beside the tables, the stage's own load-bearing facts: the immediate shapes are one-hot in the order the IDU selects
-  * them, and every window decode can produce fits the field the IDU hands out.
+/** The decode tables, checked the way the IDU consumes them: through the minimized PLA, comparing its output for every
+  * instruction with what the row declared. Beside the tables, the stage's own load-bearing facts: the immediate shapes
+  * are one-hot in the order the IDU selects them, and every window decode can produce fits the field the IDU hands out.
   */
 object DecodeTest extends TestSuite:
 
@@ -44,11 +41,11 @@ object DecodeTest extends TestSuite:
         DecodeTables.GprWrName -> 1
     )
 
-    /** A word matching an instruction pattern: the don't-care bits are zero, which the instruction does not care about.
+    /** A word matching an instruction pattern: the don't-care bits are zero, which the instruction does not care
+      * about.
       */
     private def sample(inst: RVInst): BigInt = inst.pattern.terms.head.value
 
-    /** A word matching `pattern`, with its don't-care bits filled in at random. */
     private def randomize(random: scala.util.Random, value: BigInt, mask: BigInt): BigInt =
         value | (BigInt(32, random) & ~mask)
 
@@ -66,7 +63,6 @@ object DecodeTest extends TestSuite:
 
     private def decode(word: BigInt): Map[String, BigInt] = decodeWith(withM, pla, word)
 
-    /** What the table declares for one instruction, as the PLA must report it. */
     private def declaredWith(ops: Encoding.UnionSet[IntOp, Isa], inst: RVInst): Map[String, BigInt] = Map(
         DecodeTables.BackendName -> BigInt(inst.dispatch.backend.lit),
         DecodeTables.OpName -> BigInt(inst.dispatch.window(ops)),
@@ -78,7 +74,6 @@ object DecodeTest extends TestSuite:
     private def declared(inst: RVInst): Map[String, BigInt] = declaredWith(intOps, inst)
 
     val tests = Tests:
-        // ── The stage's facts ──
         test("immediate shapes are one-hot in the order the IDU selects them"):
             assert(ImmType.values.toSeq == Seq(ImmType.I, ImmType.S, ImmType.B, ImmType.U, ImmType.J, ImmType.Z))
             assert(ImmType.values.map(_.lit).toSeq == ImmType.values.indices.map(1 << _))
@@ -104,7 +99,7 @@ object DecodeTest extends TestSuite:
             def pattern(config: CoreConfig, name: String): String =
                 RiscvInsts.all(config.isa).find(_.name == name).get.bitPatStr
             assert(pattern(rv64i, "SLLI") != pattern(rv32i, "SLLI"))
-            // The re-encoding lands on the base row in place, and only once: RV64's table is RV32's order with rows appended.
+            // The re-encoding lands on the base row in place, and only once.
             for name <- Seq("SLLI", "SRLI", "SRAI") do
                 assert(RiscvInsts.all(rv64i.isa).count(_.name == name) == 1)
                 assert(
@@ -123,7 +118,6 @@ object DecodeTest extends TestSuite:
                 assert(inst.dispatch.window(ops) < (1 << OpWindow.width(config)))
                 assert(inst.dispatch.backend.lit < (1 << Backend.width))
 
-        // ── The tables through the PLA ──
         test("every instruction minimizes into the PLA and decodes back to its declared fields"):
             for inst <- RiscvInsts.all(withM.isa) do assert(decode(sample(inst)) == declared(inst))
 
@@ -183,7 +177,7 @@ object DecodeTest extends TestSuite:
         test("representative entries match the legacy decoder field for field"):
             def entry(name: String): RVInst = RiscvInsts.all(withM.isa).find(_.name == name).get
 
-            /** One legacy row: the columns decode must hand over, and the register/immediate flags of that class. */
+            /** One row's columns as decode must hand them over, plus its register/immediate flags. */
             def check(
                 name: String,
                 backend: Backend,

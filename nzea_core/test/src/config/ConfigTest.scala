@@ -13,13 +13,12 @@ import nzea_rtl.stdlib.*
 import utest.*
 
 case class CoreParamsUsageTestParameter(isa: Isa, defaultPc: Long) extends Parameter:
-    /** The configuration the CLI pinned down; the resolver reads it, not the raw flags. */
     val config: CoreConfig = CoreConfig(isa, defaultPc)
 
 given upickle.default.ReadWriter[CoreParamsUsageTestParameter] = upickle.default.macroRW
 
-/** Where the backends are known, their declarations are stated once; nothing here is a width, only what each side says
-  * it needs. The int window is the configuration's, since the units it carries are.
+/** Where the backends are known, their declarations are stated once: nothing here is a width, only what each side says
+  * it needs.
   */
 object CoreParamsUsageTestDeclared:
 
@@ -72,9 +71,6 @@ object CoreParamsUsageTestModule
         io.alu_op := intOps.payload(io.op)
         io.mem_op := MemOp.set(parameter.config.isa).payload(io.op)
 
-/** The configuration tree's contracts: the bypass ladder's one token and its predicates, the resolver's pure-function
-  * checks, and the resolved contract as it reaches hardware.
-  */
 object ConfigTest extends TestSuite:
 
     /** riscv32i: no M units, so the int window is a payload column plus a two-bit tag for the three units that exist.
@@ -99,7 +95,6 @@ object ConfigTest extends TestSuite:
     private lazy val ports = TestFlow.ports(sv, module)
 
     val tests = Tests:
-        // ── The bypass ladder ──
         test("every level round-trips through the file and the token"):
             for level <- BypassLevel.values do
                 assert(BypassLevel.parseOrThrow(level.name) == level)
@@ -127,7 +122,6 @@ object ConfigTest extends TestSuite:
             assert(BypassLevel.Commit.report == "commit -> register read")
             assert(BypassLevel.Execute.report == "execute -> register read")
 
-        // ── The resolver ──
         test("the longest window sizes the shared field"):
             val params = CoreParams(config, dispatchWidth = 1, declared)
             println(params.report)
@@ -160,7 +154,6 @@ object ConfigTest extends TestSuite:
             val empty = intercept[IllegalArgumentException](CoreParams(config, dispatchWidth = 1, Seq.empty))
             assert(empty.getMessage.contains("no op producer declared"))
 
-        // ── The contract in hardware ──
         test("the resolved contract is what reaches the hardware"):
             assert(sv.contains(s"module $module("))
             assert(

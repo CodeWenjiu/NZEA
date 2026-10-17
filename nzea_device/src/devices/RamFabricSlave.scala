@@ -15,17 +15,15 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The fabric's RAM slave: a 128 KiB memory behind the bus, `dataWidth / 8` bytes per word.
   *
-  * One word-wide synchronous memory carries the byte strobe as its write mask, and its port shape is the parameter's
-  * ([[SyncRamPorts]]) — a target whose macro is single-port builds one, and a target with a wider macro says so without
-  * touching this device. The width is the bus's (a 32-bit core gets a 32-bit memory, a 64-bit one 64), so the word
-  * count shrinks as the word grows and the window stays 128 KiB.
-  *
   * The memory runs on its **own clock** ([[RamPins.clock]], an input at the level's boundary): a memory macro's cycle
   * time is a property of the macro, not of the logic around it — this one needs 3.03 ns — so clocking it from the tile
   * would cap the tile at the macro's frequency. The two domains talk over a two-phase toggle handshake, and the request
   * payload is held stable from the fire until the acknowledge returns, which is what makes the multi-bit crossing safe.
-  * A bus access therefore takes the handshake's latency, not a fixed residency. In the bridge flow the memory is the
-  * simulator's, so [[HasDpiBus.answerBus]] answers the bus instead and the hardware below is not built.
+  * In the bridge flow the memory is the simulator's, so [[HasDpiBus.answerBus]] answers the bus instead.
+  *
+  * One word-wide synchronous memory carries the byte strobe as its write mask, and its port shape is the parameter's
+  * ([[SyncRamPorts]]): a 32-bit core gets a 32-bit memory, a 64-bit one 64, so the word count shrinks as the word grows
+  * and the window stays 128 KiB.
   */
 case class RamFabricSlaveParameter(
     addrWidth: Int,
@@ -44,7 +42,6 @@ case class RamFabricSlaveParameter(
     require(base >= 0, s"base must be >= 0, got $base")
     require(size > 0, s"size must be > 0, got $size")
 
-    /** The memory's word count: the window's size in words, a power of two. */
     val depth: Int =
         val words = size / (dataWidth / 8)
         require(words > 0 && (words & (words - 1)) == 0, s"size must be a power-of-two number of words, got $size")
@@ -78,7 +75,6 @@ object RamFabricSlave
     with HasDpiBus:
     override def moduleName(parameter: RamFabricSlaveParameter): String = "RamFabricSlave"
 
-    /** The platform RAM, as an off-chip memory. */
     override def timing: DeviceTiming = DeviceTimings.ram
 
     def architecture(parameter: RamFabricSlaveParameter) =
@@ -95,8 +91,7 @@ object RamFabricSlave
             parameter.userWidth,
             parameter.idWidth
         ):
-            // The window is byte-addressed; the word index drops the word's byte offset from the byte index, and the
-            // word count is the window's size in words.
+            // The window is byte-addressed: the word index drops the word's byte offset from the byte index.
             val wordBytes = parameter.dataWidth / 8
             val wordOffsetBits = log2Ceil(wordBytes)
             val wordAddrBits = log2Ceil(parameter.depth)
@@ -105,7 +100,6 @@ object RamFabricSlave
                 SyncRamParameter(parameter.dataWidth, parameter.depth, parameter.ports, SyncRamReadUnderWrite.ReadFirst)
             )
 
-            // ---- bus side: the tile's clock ----
             val busCycle = RegInit(0.U(2))
             val isRead = RegInit(false.B)
             val respUser = RegInit(0.U(parameter.userWidth))
@@ -136,7 +130,6 @@ object RamFabricSlave
             val ackSync0 = RegInit(false.B)
             val ackSync1 = RegInit(false.B)
 
-            // ---- memory side: the RAM's own clock ----
             val (memAck, memRdata) = ClockScope.posedge(io.boundary.clock):
                 val reqSync0 = RegInit(false.B)
                 val reqSync1 = RegInit(false.B)

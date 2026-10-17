@@ -28,7 +28,7 @@ impl Serialize for SampleOut {
     }
 }
 
-/// Output of a `property` query, shaped by `--count`, the number of `--eval`
+/// A `property` query's output, shaped by `--count`, the number of `--eval`
 /// columns and `--sample`. `untagged` forwards serialization to the inner
 /// value, so the JSON shape matches the single-variant outputs exactly.
 #[derive(Serialize)]
@@ -53,7 +53,6 @@ impl std::fmt::Display for PropertyOutput {
     }
 }
 
-/// Build the output shape for a set of evaluated columns.
 pub(super) fn render(
     columns: &[(String, Vec<SerdeRange<CycleTick>>)],
     count: bool,
@@ -111,14 +110,11 @@ pub(super) fn render(
     }
 }
 
-/// Single-expression output (text format unchanged: one cycle per line;
-/// JSON matches carry `{cycle, tick}` pairs).
 #[derive(Serialize)]
 pub(super) struct PropertyOut {
     #[serde(flatten)]
     pub(super) cycles: SerdeRange<usize>,
     pub(super) total_cycles: usize,
-    /// Requested match limit; present when `--max` truncated the output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) max: Option<usize>,
     pub(super) matches: Vec<SerdeRange<CycleTick>>,
@@ -133,14 +129,11 @@ impl std::fmt::Display for PropertyOut {
     }
 }
 
-/// `--sample` output: each match row followed by the sampled values
-/// (`cycle  name=value ...` in text; structured JSON).
 #[derive(Serialize)]
 pub(super) struct PropertySamplesOut {
     #[serde(flatten)]
     pub(super) cycles: SerdeRange<usize>,
     pub(super) total_cycles: usize,
-    /// Requested match limit; present when `--max` truncated the output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) max: Option<usize>,
     pub(super) matches: Vec<SerdeRange<CycleTick>>,
@@ -160,7 +153,6 @@ impl std::fmt::Display for PropertySamplesOut {
     }
 }
 
-/// Single-expression `--count` output.
 #[derive(Serialize)]
 pub(super) struct PropertyCountOut {
     #[serde(flatten)]
@@ -175,13 +167,11 @@ impl std::fmt::Display for PropertyCountOut {
     }
 }
 
-/// Multi-expression output: one column per `--eval`.
 #[derive(Serialize)]
 pub(super) struct PropertyColumnsOut {
     #[serde(flatten)]
     pub(super) cycles: SerdeRange<usize>,
     pub(super) total_cycles: usize,
-    /// Requested match limit; present when `--max` truncated the output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) max: Option<usize>,
     pub(super) columns: Vec<ColumnOut>,
@@ -195,8 +185,8 @@ pub(super) struct ColumnOut {
 
 impl std::fmt::Display for PropertyColumnsOut {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Union table: rows are time segments partitioned by every match
-        // endpoint, cells mark whether the column's expression fired there.
+        // Rows are time segments partitioned by every match endpoint; cells
+        // mark whether the column's expression fired there.
         let mut builder = Builder::default();
         let mut header: Vec<String> = vec!["time".into()];
         header.extend(self.columns.iter().map(|c| c.name.clone()));
@@ -214,7 +204,6 @@ impl std::fmt::Display for PropertyColumnsOut {
     }
 }
 
-/// Multi-expression `--count` output.
 #[derive(Serialize)]
 pub(super) struct PropertyCountsOut {
     #[serde(flatten)]

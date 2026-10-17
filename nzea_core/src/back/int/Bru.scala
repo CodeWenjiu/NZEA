@@ -19,9 +19,8 @@ class BruLayers(parameter: BruParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
 /** The branch unit's own input: its op, the target's base and offset, the two compared registers, and the fetch's two
-  * carried pcs — the prediction it resolves against and the fall-through. The base arrives placed by the instruction's
-  * form — the pc every jump and branch bases on, the register operand JALR bases on — so the unit never selects it,
-  * which is what keeps its op decode off the adder's path.
+  * carried pcs. The base arrives placed by the instruction's form — the pc every jump and branch bases on, the register
+  * operand JALR bases on — so the unit never selects it, which is what keeps its op decode off the adder's path.
   */
 class BruInput(width: Int) extends Bundle:
     val op = Aligned(UInt(BruOp.width))
@@ -38,9 +37,6 @@ class BruInput(width: Int) extends Bundle:
 
 object BruInput:
 
-    /** The branch unit's view of the uop's union: the pool's four slots — the form places the branch's base, its offset
-      * and the two registers it compares there — and the fetch's carried pcs.
-      */
     given FuView[BruInput] with
 
         def view(u: Referable[ExecSlot], config: CoreConfig)(using
@@ -75,11 +71,9 @@ class BruProbe(parameter: BruParameter) extends DVBundle[BruParameter, BruLayers
 /** Branch unit: resolves a jump or branch into a taken flag, a target and the pc to continue from.
   *
   * The prediction is an input, not this unit's knowledge: the pc to continue from when the branch is not taken is the
-  * fall-through (a predicted level resolves against the fetch's prediction and redirects wherever the two disagree, in
-  * either direction), so a predictor that lands changes where the prediction comes from, not this interface. At `Off`
-  * that prediction is the fall-through.
-  *
-  * Combinational, and it carries no valid: the path gates the redirect with the tag it issued.
+  * fall-through, and a predicted level resolves against the fetch's prediction. A predictor that lands changes where
+  * the prediction comes from, not this interface; at `Off` that prediction is the fall-through. Combinational, and it
+  * carries no valid: the path gates the redirect with the tag it issued.
   */
 @generator
 object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
@@ -93,9 +87,6 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         val rs1Bits: Node[Bits] = Node(io.in.rs1.asBits)
         val rs2Bits: Node[Bits] = Node(io.in.rs2.asBits)
 
-        // The target's base arrives placed by the form — the pc for every jump and branch, the register operand for
-        // JALR — so the adder hangs off the slot, and the op's decode, which would otherwise pick the base here, stays
-        // off the adder's path.
         val target = prefixAdder(io.in.base, io.in.offset, false.B, width)
         // The orderings are borrow scans, not the `<` primitive: left to synthesis the primitive serializes into a
         // one-gate-per-bit borrow ripple (see `lessThan`), and four of the eight outcomes ride it — the same cone the ALU
@@ -115,10 +106,9 @@ object Bru extends Generator[BruParameter, BruLayers, BruIO, BruProbe]:
         io.nextPc := taken ? (target, io.in.fallThrough)
 
         // The prediction check, `predNextPc =/= nextPc`: where the stream went against where the branch resolved. The
-        // verdict is made here and rides the path's result to the retire record — the record takes it as made instead of
-        // rebuilding the comparator behind the dispatch's merge — and it is the same fact the resolve-side counters
-        // report on. At `Off` the prediction is the fall-through, so the check reduces to the resolved next pc not being
-        // it.
+        // verdict is made here and rides the path's result to the retire record, and it is the same fact the
+        // resolve-side counters report on. At `Off` the prediction is the fall-through, so the check reduces to the
+        // resolved next pc not being it.
         //
         // `nextPc` is `taken ? target : fallThrough`, so the check is its two arms compared apart and `taken` selects at
         // the end: a compare hung off the resolved pc waits on the comparator's whole chain, while the arms start where

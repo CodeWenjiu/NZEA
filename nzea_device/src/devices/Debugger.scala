@@ -38,8 +38,8 @@ class DebuggerProbe(parameter: DebuggerParameter) extends DVBundle[DebuggerParam
   * The commit trace is a sideband — it is not on the bus — and its natural consumer is a debugger: a real JTAG TAP that
   * streams retired instructions out. That is left as a TODO; the bridge flow's implementation forwards each commit to
   * the simulator, while a synthesis flow has no consumer yet, so the device is inert and its trace input goes unread.
-  * Putting the trace's DPI here rather than in a level top keeps the rule the tile follows: every interface is attached
-  * to a device, and the DPI is the device's own affair.
+  * The trace's DPI lives here rather than in a level top: every interface is attached to a device, and the DPI is the
+  * device's own affair.
   */
 @generator
 object Debugger extends Generator[DebuggerParameter, DebuggerLayers, DebuggerIO, DebuggerProbe]:

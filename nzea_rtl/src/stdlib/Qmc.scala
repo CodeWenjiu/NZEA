@@ -16,11 +16,11 @@ import me.jiuyang.decoder.{BitPat, BitSet, PLA, TruthTable}
   *     bits can use costs one AND term instead of one per bit.
   *
   * A bit whose default asserts is inverted by the hardware's OR plane, so its cover is the set of rows that pull it
-  * low; every other bit is covered on the rows that raise it. That per-bit choice is what `espresso`'s split-by-default
-  * passes end up doing, done directly on the baked PLA. The cover is kept *exact*: a bit is asserted on its function
-  * and nowhere else, which the OR plane requires, since it sums the rows that match and nothing more. It is picked
-  * greedily rather than as a proven minimum, so it can be a little larger than `espresso`'s — in exchange the OR plane
-  * is narrower, because no bit ends up fed by more rows than its own cover.
+  * low; every other bit is covered on the rows that raise it — the per-bit choice `espresso`'s split-by-default passes
+  * arrive at, done directly on the baked PLA. The cover is kept *exact*, which the OR plane requires since it sums the
+  * rows that match and nothing more, and it is picked greedily rather than as a proven minimum: it can be a little
+  * larger than `espresso`'s, but the OR plane is then narrower, because no bit ends up fed by more rows than its own
+  * cover.
   */
 object Qmc:
 

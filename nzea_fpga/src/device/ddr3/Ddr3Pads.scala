@@ -71,8 +71,9 @@ import scala.collection.mutable
   */
 object Ddr3Pads:
 
-    /** The group the lanes' taps are calibrated in: the board routes the whole bus into bank 35 (the reference's pin
-      * map), so one `IDELAYCTRL` — the bank's own — serves every lane's tap.
+    /** The bank the lanes' tap group is named for — it holds the lower byte, the CK and the command side (the header
+      * states the bus's two-bank routing; the upper byte's group is bank 34's), and the one `IDELAYCTRL` the whole
+      * group binds to is what makes every lane's tap usable.
       */
     private val dqBank = 35
 
@@ -96,8 +97,6 @@ object Ddr3Pads:
             os.makeDir.all(dir)
             for (name, text) <- bodies do os.write.over(dir / s"$name.sv", text())
             FileList.append(dir, bodies.keysIterator.map(_ + ".sv").toSeq)
-
-// ── DQ: the data lanes ──────────────────────────────────────────────────────────────────────────────────────────────
 
 /** No configuration: the bus's shape is the board's ([[Ddr3PadNames]]). */
 case class Ddr3DqPadsParameter() extends Parameter
@@ -314,8 +313,6 @@ object Ddr3DqPads:
         Ddr3Pads.register(Ddr3DqPadsModule.moduleName(parameter))(verilog(parameter))
         Ddr3DqPadsModule.instantiate(parameter)
 
-// ── DQS: the strobe lanes ───────────────────────────────────────────────────────────────────────────────────────────
-
 /** No configuration: the bus's shape is the board's ([[Ddr3PadNames]]). */
 case class Ddr3DqsPadsParameter() extends Parameter
 
@@ -401,7 +398,6 @@ object Ddr3DqsPads:
            |    .T(dqsTristate[$lane])
            |  );""".stripMargin
 
-    /** The body: the two lanes. */
     def verilog(parameter: Ddr3DqsPadsParameter): String =
         s"""module ${Ddr3DqsPadsModule.moduleName(parameter)}(
            |  inout [${Ddr3PadNames.dqsWidth - 1}:0] DQS_P,
@@ -433,8 +429,6 @@ object Ddr3DqsPads:
     ): Instance[Ddr3DqsPadsIO, Ddr3DqsPadsProbe] =
         Ddr3Pads.register(Ddr3DqsPadsModule.moduleName(parameter))(verilog(parameter))
         Ddr3DqsPadsModule.instantiate(parameter)
-
-// ── DM: the data mask pins ─────────────────────────────────────────────────────────────────────────────────────────
 
 /** No configuration: the bus's shape is the board's ([[Ddr3PadNames]]). */
 case class Ddr3DmPadsParameter() extends Parameter
@@ -521,7 +515,6 @@ object Ddr3DmPads:
            |    .O(pad[$bit])
            |  );""".stripMargin
 
-    /** The body: the pins. */
     def verilog(parameter: Ddr3DmPadsParameter): String =
         s"""module ${Ddr3DmPadsModule.moduleName(parameter)}(
            |  output [${Ddr3PadNames.dmWidth - 1}:0] pad,
@@ -550,8 +543,6 @@ object Ddr3DmPads:
     ): Instance[Ddr3DmPadsIO, Ddr3DmPadsProbe] =
         Ddr3Pads.register(Ddr3DmPadsModule.moduleName(parameter))(verilog(parameter))
         Ddr3DmPadsModule.instantiate(parameter)
-
-// ── The command side: single-rate pins ──────────────────────────────────────────────────────────────────────────────
 
 /** The group's width: one module per pin count, so the address, bank, DM and control pins are the same module at four
   * widths. A generator dumps one module per parameter, which is what makes them four.
@@ -637,7 +628,6 @@ object Ddr3SdrPads:
            |    .O(pad[$bit])
            |  );""".stripMargin
 
-    /** The body: the pins. */
     def verilog(parameter: Ddr3SdrPadsParameter): String =
         s"""module ${Ddr3SdrPadsModule.moduleName(parameter)}(
            |  output [${parameter.width - 1}:0] pad,
@@ -666,8 +656,6 @@ object Ddr3SdrPads:
     ): Instance[Ddr3SdrPadsIO, Ddr3SdrPadsProbe] =
         Ddr3Pads.register(Ddr3SdrPadsModule.moduleName(parameter))(verilog(parameter))
         Ddr3SdrPadsModule.instantiate(parameter)
-
-// ── The housekeeping pins ───────────────────────────────────────────────────────────────────────────────────────────
 
 /** No configuration: a level pin is one pin. */
 case class Ddr3LevelPadsParameter() extends Parameter
@@ -754,8 +742,6 @@ object Ddr3LevelPads:
         Ddr3Pads.register(Ddr3LevelPadsModule.moduleName(parameter))(verilog(parameter))
         Ddr3LevelPadsModule.instantiate(parameter)
 
-// ── The device's clock ──────────────────────────────────────────────────────────────────────────────────────────────
-
 /** No configuration: the clock's pattern is the interface's. */
 case class Ddr3CkPadsParameter() extends Parameter
 
@@ -837,8 +823,6 @@ object Ddr3CkPads:
     ): Instance[Ddr3CkPadsIO, Ddr3CkPadsProbe] =
         Ddr3Pads.register(Ddr3CkPadsModule.moduleName(parameter))(verilog(parameter))
         Ddr3CkPadsModule.instantiate(parameter)
-
-// ── The input delays' calibration ───────────────────────────────────────────────────────────────────────────────────
 
 /** No configuration: the calibration group is the board's. */
 case class Ddr3IdelayCtrlParameter() extends Parameter

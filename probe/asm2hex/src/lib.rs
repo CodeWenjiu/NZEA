@@ -8,8 +8,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Built-in DDR regression tests: name → (source, one-line description).
-/// Sources are embedded at compile time from `tests/`; they do NOT include the
-/// shared UART helpers (see [`COMMON_S`], prepended/appended by the caller).
+/// Sources are embedded at compile time from `tests/` and do NOT include the
+/// shared UART helpers (see [`COMMON_S`], appended by the caller).
 pub const TESTS: &[(&str, &str, &str)] = &[
     (
         "memtest",
@@ -78,8 +78,8 @@ pub const TESTS: &[(&str, &str, &str)] = &[
 /// come AFTER it in the source text.
 pub const COMMON_S: &str = include_str!("../tests/common.S");
 
-/// Assemble `src_text` (with the link address baked into the linker script)
-/// and write the resulting hex to `out`. Returns `(word_count, byte_count)`.
+/// Assemble `src_text` and write the resulting hex to `out`; the link address
+/// is baked into a generated linker script. Returns `(word_count, byte_count)`.
 pub fn assemble(src_text: &str, link_addr: u32, out: &Path) -> Result<(usize, usize), String> {
     let tmp = std::env::temp_dir().join(format!("asm2hex-{}", std::process::id()));
     std::fs::create_dir_all(&tmp)
@@ -152,9 +152,8 @@ pub fn assemble(src_text: &str, link_addr: u32, out: &Path) -> Result<(usize, us
     Ok((n_words, data.len()))
 }
 
-/// Assemble `src_text` and return the raw words (no intermediate file).
-/// The temp path is unique per call so concurrent callers (e.g. tests) do not
-/// collide.
+/// Assemble `src_text` and return the raw words. The temp path is unique per
+/// call so concurrent callers (e.g. tests) do not collide.
 pub fn assemble_words(src_text: &str, link_addr: u32) -> Result<Vec<u32>, String> {
     static N: AtomicU32 = AtomicU32::new(0);
     let id = N.fetch_add(1, Ordering::Relaxed);

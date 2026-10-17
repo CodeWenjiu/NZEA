@@ -28,7 +28,6 @@ case class IsuParameter(
 ) extends Parameter:
     val config: CoreConfig = CoreConfig(isa, defaultPc)
 
-    /** The forward column's length — the in-flight capacity's shape, shared with the network that broadcasts it. */
     val offerCount: Int = ForwardParameter.offerCount(lsqDepth)
 
 given upickle.default.ReadWriter[IsuParameter] = upickle.default.macroRW
@@ -41,26 +40,15 @@ class IsuIO(parameter: IsuParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The ID/IS register, this unit's upstream end: the decoded payload, and the pace the read gives it. */
     val decoded = Flipped(Decoupled(new IduOut(parameter.config)))
 
-    /** The IS/EX register's write side, this unit's downstream end: the uop the read produced, and the register's room
-      * back — the read paces itself by it.
-      */
     val moved = Aligned(Decoupled(new ExecSlot(parameter.config)))
 
-    /** The register file's read side, from the reader's view: the indexes go out, the values and the RF's commit view
-      * come back. rs1 is port 0, rs2 port 1.
-      */
+    /** The register file's read side, from the reader's view. rs1 is port 0, rs2 port 1. */
     val arf_read = Flipped(StaticVec[ArfPort, 2](new ArfPort(width)))
 
-    /** The CSR file's read side, passed through to the read unit: the reader is the read's, the file is the middle's.
-      */
     val csr_read = Flipped(new CsrPort(width))
 
-    /** The forward network's face, passed through to the read unit: the columns it resolves its reads against and the
-      * level's verdict for the retiring writes ([[nzea_core.back.ForwardBus]]).
-      */
     val forward = Flipped(new ForwardBus(width, parameter.offerCount))
 
 class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers](parameter)
@@ -69,13 +57,9 @@ class IsuProbe(parameter: IsuParameter) extends DVBundle[IsuParameter, IsuLayers
   *
   * The ID/IS and IS/EX registers are not this unit's — they are declared one level up, beside every other stage
   * boundary, which is the rule the front-end follows around its decode — and this unit is what sits between them: it
-  * reads the ID/IS register and fills the IS/EX register's write side. The read side of that register belongs to the
-  * execute stage, which is what presents the slot to the units. The operands come already placed from
-  * [[nzea_core.middle.isu.OperandRead]], together with the read's feasibility and the CSR it settled; this unit packs
-  * them into the `moved` payload, carrying the fetch's predicted next pc through untouched.
-  *
-  * The stage's own counter (`operand_wait`) is declared here, where the signals it watches are; the execute slot's
-  * occupancy is the register's own and is declared beside it.
+  * reads the ID/IS register and fills the IS/EX register's write side, whose read side belongs to the execute stage.
+  * The operands come already placed from [[nzea_core.middle.isu.OperandRead]]; this unit packs them into the `moved`
+  * payload.
   */
 @generator
 object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
@@ -89,8 +73,6 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
         val read =
             OperandRead.instantiate(OperandReadParameter(parameter.isa, parameter.defaultPc, parameter.lsqDepth))
 
-        // The read: the payload's indexes and CSR address out to the files and the network, the answers back in, and the
-        // placement of the three operand slots, with the pace this read can move at.
         read.io.clock := io.clock
         read.io.resetN := io.resetN
         read.io.decoded :<= io.decoded.bits
@@ -100,15 +82,10 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
         read.io.rs2_data := io.arf_read.ref(1).data
         read.io.rs1_commit_hit := io.arf_read.ref(0).commit_hit
         read.io.rs2_commit_hit := io.arf_read.ref(1).commit_hit
-        // The read unit's own port is the connect's sink side; the boundary port is the source — the reader drives the
-        // address out, the file's answer comes back in.
         read.io.csr_read :<>= io.csr_read
 
-        // The forward face: the read resolves its own indexes against the network's columns.
         read.io.forward :<= io.forward
 
-        // The uop that moves: the read's operands and CSR, and the payload's held fields with the destination riding in
-        // it — the IS/EX register's write side.
         val dec = io.decoded.bits
         io.moved.bits.pc := dec.pc
         io.moved.bits.next_pc := dec.next_pc
@@ -125,14 +102,11 @@ object Isu extends Generator[IsuParameter, IsuLayers, IsuIO, IsuProbe]:
 
         // The handover: ID/IS is consumed when the read has placed the payload's operands — the read owns that test,
         // including the in-flight writers it had to wait for — and the register below reports room: its own accept side
-        // already carries its flush rule, so a handover the flush refuses never reaches here. The uop moves in that
+        // already carries the flush rule, so a handover the flush refuses never reaches here. The uop moves in that
         // cycle, so the register presents it the next one.
         io.decoded.ready := io.moved.ready & read.io.ready
         io.moved.valid := io.decoded.fire
 
-        /** The counter the simulator reads back: the payload's pace, declared here where the signals it watches are.
-          * The execute slot's occupancy is the register's own and lives beside it ([[nzea_core.middle.Middle]]).
-          */
         def counters(): Unit =
             val wait =
                 parameter.stats.stat("operand_wait", Regions.Throughput, "cycles a payload waits for its own operands")

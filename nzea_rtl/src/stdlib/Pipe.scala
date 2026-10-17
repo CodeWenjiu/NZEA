@@ -9,9 +9,9 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** The pipeline's cancel event, sourced at the commit point: `valid` is the flush itself — every stage that obeys it
-  * drops what it holds — and `next_pc` is where the front restarts. One event, one bus: a stage register's cancellation
-  * net and the fetcher's redirect are the same signal, so the two halves cannot be wired apart.
+/** The pipeline's cancel event, sourced at the commit point: `valid` is the flush itself, `next_pc` where the front
+  * restarts. One event, one bus: a stage register's cancellation net and the fetcher's redirect are the same signal, so
+  * the two halves cannot be wired apart.
   */
 class FlushBus(width: Int) extends Bundle:
     val valid = Aligned(Bool())
@@ -38,18 +38,15 @@ enum FlushHandover:
   *
   * Both ends are referables, so the caller can pass module ports (the usual case) or internal wires. `flush` is this
   * register's cancellation net: the core broadcasts one, but whether a register obeys it is the caller's decision —
-  * architectural state and anything that has to drain rather than vanish must not be wired to it, and
-  * [[FlushHandover.Ignore]] is the one case that takes the net without obeying it, for the register whose own entry
-  * sources it. `name` is the stage boundary this register is, and the two registers carry it (its `Valid` and its
-  * bits): a stage register is read by name from waveforms, event files and timing reports, so it says what it is
-  * instead of falling into the framework's anonymous counter. `onFlush` is how the register relates to the flush — see
-  * [[FlushHandover]].
+  * architectural state and anything that has to drain rather than vanish must not be wired to it. `name` is the stage
+  * boundary this register is, and both registers carry it (its `Valid` and its bits): a stage register is read by name
+  * from waveforms, event files and timing reports, so it says what it is instead of falling into the framework's
+  * anonymous counter.
   *
   * A flushed entry never reaches the consumer, in either window: the entry the register holds is cleared at the edge
-  * rather than presented, and what it takes in that cycle is dropped. That is the whole of the register's cancellation
-  * — no consumer needs to look at flush to be sure it was not handed a stale entry, because an entry carries no
-  * generation of its own once it has left the bus. The exception is [[FlushHandover.Ignore]], where there is no
-  * cancellation to speak of: the register sources the net and goes on presenting.
+  * rather than presented, and what it takes in that cycle is dropped — no consumer needs to look at flush to be sure it
+  * was not handed a stale entry. [[FlushHandover.Ignore]] is the exception, where there is no cancellation to speak of:
+  * the register sources the net and goes on presenting.
   */
 def pipelineConnect[T <: HardwareDataType](
     in: Referable[DecoupledIO[T]],
@@ -75,8 +72,8 @@ def pipelineConnect[T <: HardwareDataType](
         given sourcecode.Name.Machine = sourcecode.Name.Machine(name)
         Reg(in.bits.getType)
 
-    // The register's cancellation: the flush net, where the register obeys it. The one register that sources the net
-    // does not ([[FlushHandover.Ignore]]), so for it the term is a constant and folds away.
+    // The one register that sources the net does not obey it ([[FlushHandover.Ignore]]), so for it the term is a
+    // constant and folds away.
     val cancellation: Referable[Bool] = onFlush match
         case FlushHandover.Ignore => false.B
         case _                    => flush.valid
@@ -94,5 +91,5 @@ def pipelineConnect[T <: HardwareDataType](
         bitsReg :<= in.bits
     }
 
-    // First match wins: a flush clears, an accepted input fills, a consumed output drains, otherwise hold.
+    // First match wins: cancellation beats a fill, which beats a drain.
     valid := muxCase(valid, Seq((cancellation, false.B), (fire, true.B), (out.valid & out.ready, false.B)))

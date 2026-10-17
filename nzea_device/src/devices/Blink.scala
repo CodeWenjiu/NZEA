@@ -36,12 +36,9 @@ class BlinkIO(parameter: BlinkParameter) extends HWBundle(parameter):
 class BlinkProbe(parameter: BlinkParameter) extends DVBundle[BlinkParameter, BlinkLayers](parameter)
 
 /** A free-running counter whose top bit is the LED: the bring-up design a board can be checked with before anything
-  * else exists, and the simplest consumer of a clock domain. Each domain gets its own instance, so a board where only
-  * one LED blinks points at the other domain's clocking.
-  *
-  * A duty below 1 dims the LED: the lit phase is gated by a PWM window of `1 << PwmBits` counter cycles, and the duty
-  * is the window's on fraction, quantized to one step per count. The window counts the module's own clock — no
-  * frequency is known here, and none is asked for.
+  * else exists. Each domain gets its own instance, so a board where only one LED blinks points at the other domain's
+  * clocking. A duty below 1 dims the LED: the lit phase is gated by a PWM window of `1 << PwmBits` counter cycles, and
+  * the window counts the module's own clock — no frequency is known here, and none is asked for.
   */
 @generator
 object Blink extends Generator[BlinkParameter, BlinkLayers, BlinkIO, BlinkProbe]:
@@ -62,21 +59,19 @@ object Blink extends Generator[BlinkParameter, BlinkLayers, BlinkIO, BlinkProbe]
         io.count := count
 
         if parameter.duty >= 1.0 then
-            // Full duty is the plain blinker, and nothing else is built: the lit phase is the top bit, held.
+            // Full duty is the plain blinker: the lit phase is the top bit, and no PWM window is built.
             io.led := !Node(count.asBits).bit(parameter.width - 1)
         else
             // The dimming: a window of its own — a free-running `PwmBits` counter — not the blink counter's low bits,
             // which are phase-locked to the toggle and, for a window the toggle's period does not divide, would dim by
-            // the overlap rather than by the duty. `threshold` is the duty quantized to one step per window count;
-            // the window is the whole time base, so no frequency enters here.
+            // the overlap rather than by the duty. No frequency enters here: the window is the whole time base.
             val window = RegInit(0.U(PwmBits))
             window := constAdder(window, 1, PwmBits)
             val threshold = math.floor(parameter.duty * (1 << PwmBits)).toInt
             val on = window < threshold.U(PwmBits)
             io.led := !(Node(count.asBits).bit(parameter.width - 1) & on)
 
-        // The counter is this module's signal, so it declares itself watchable here: the declaration keeps a wire and
-        // marks it for the netlist debug flow (`nzea_rtl.probe.Probes`; whether a level consumes the table is that
-        // level's business). Whether an instance is watched is the parent's call — this body is shared by every
-        // instance, so only the parent knows which one a probe should mean.
+        // The counter declares itself watchable here: the declaration keeps a wire and marks it for the netlist debug
+        // flow (`nzea_rtl.probe.Probes`). Whether an instance is watched is the parent's call — this body is shared by
+        // every instance, so only the parent knows which one a probe should mean.
         Probes.declare("count")(count)

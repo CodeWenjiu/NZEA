@@ -52,8 +52,7 @@ class NzeaCoreProbe(parameter: NzeaCoreParameter) extends DVBundle[NzeaCoreParam
   * `bus_read` / `bus_write` / `commit_trace` — the module remu loads, with `clock` and `reset` named and polarised
   * exactly as its Verilator wrapper drives them (`reset` high for the first hundred cycles, then low). Every other flow
   * reads the design as hardware, so the interfaces are the top's own ports. The one conversion at this boundary is the
-  * reset: every module in this tree takes an active-low `resetN`, so the active-high boundary signal is inverted here
-  * and nowhere else.
+  * reset: the tree takes active-low `resetN`, so the active-high boundary signal is inverted here and nowhere else.
   */
 @generator
 object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO, NzeaCoreProbe]:

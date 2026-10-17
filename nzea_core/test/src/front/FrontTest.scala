@@ -8,10 +8,6 @@ import nzea_rtl.TestFlow
 import nzea_rtl.stdlib.*
 import utest.*
 
-/** The front's contracts: its boundary — exactly the fetcher's bus, the flush event that steers it, and the decoded
-  * stream the middle consumes, with the fetcher and decoder instantiated inside it — the user field the fetcher and any
-  * ibus peer agree on, and the predictor config's own contract.
-  */
 object FrontTest extends TestSuite:
 
     private val width = 32

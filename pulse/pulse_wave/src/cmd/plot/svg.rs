@@ -1,7 +1,5 @@
-//! SVG rendering for `pulse plot` — pure functions, no I/O.
-//!
-//! Layout constants are fixed; the caller supplies sampled values, cycle
-//! bounds and mark ranges.
+//! SVG rendering for `pulse plot` — pure functions, no I/O; the caller
+//! supplies sampled values, cycle bounds and mark ranges.
 //!
 //! ```text
 //! +---------------+-----------------------------+
@@ -39,9 +37,7 @@ impl std::fmt::Display for Val {
     }
 }
 
-/// Everything the SVG renderer needs; produced by `plot/mod.rs`.
 pub(crate) struct PlotData {
-    /// Title text (the scope path).
     pub title: String,
     /// Signal names, one row each (top to bottom).
     pub signals: Vec<String>,
@@ -64,7 +60,6 @@ pub(crate) const AXIS_H: f64 = 34.0; // bottom cycle/tick axis
 pub(crate) const PX_PER_CYCLE: f64 = 8.0;
 const X_BAND_OPACITY: f64 = 0.45;
 
-/// Render the plot as an SVG document string.
 pub(crate) fn render_svg(d: &PlotData) -> String {
     let n_cycles = d.cycles.len().max(1);
     let width = LEFT + n_cycles as f64 * PX_PER_CYCLE;
@@ -79,13 +74,11 @@ pub(crate) fn render_svg(d: &PlotData) -> String {
     ));
     s.push_str(&format!("<title>{}</title>\n", escape(&d.title)));
 
-    // Background.
     s.push_str(&format!(
         "<rect width=\"{:.0}\" height=\"{:.0}\" fill=\"#ffffff\"/>\n",
         width, height
     ));
 
-    // Signal rows: name column + row separators + name-column separator.
     for (i, name) in d.signals.iter().enumerate() {
         let row_top = plot_top + i as f64 * ROW_H;
         s.push_str(&format!(
@@ -107,17 +100,14 @@ pub(crate) fn render_svg(d: &PlotData) -> String {
         ));
     }
 
-    // Waveforms.
     for (i, samples) in d.samples.iter().enumerate() {
         render_wave(&mut s, n_cycles, samples, plot_top + i as f64 * ROW_H);
     }
 
-    // Marks.
     if !d.mark_names.is_empty() {
         render_marks(&mut s, d, plot_top, wave_bottom);
     }
 
-    // Axis.
     render_axis(&mut s, d, wave_bottom);
 
     s.push_str("</svg>\n");
@@ -134,7 +124,6 @@ fn render_wave(s: &mut String, n_cycles: usize, samples: &[Val], row_top: f64) {
     let y_low = row_top + WAVE_TOP + WAVE_H;
     let y_high = row_top + WAVE_TOP;
 
-    // X bands.
     let mut in_x = false;
     let mut band_start = 0usize;
     for (c, v) in samples.iter().enumerate() {
@@ -152,10 +141,10 @@ fn render_wave(s: &mut String, n_cycles: usize, samples: &[Val], row_top: f64) {
         push_x_band(s, band_start, n_cycles, y_low);
     }
 
-    // Step polyline + vector value labels. The polyline alternates horizontal
-    // runs (same level, no points) and vertical edges; each value change emits
-    // `(x, old_y) (x, new_y)`, so the line never slopes. X boundaries flush the
-    // path so it never crosses a band; the final run extends to the right edge.
+    // Step polyline + vector value labels. Each value change emits
+    // `(x, old_y) (x, new_y)`, so the line never slopes; X boundaries flush the
+    // path so it never crosses a band, and the final run extends to the right
+    // edge.
     let mut path = String::new();
     let mut pending: Option<(usize, f64)> = None;
     let mut prev_vec: Option<u64> = None;
@@ -201,7 +190,6 @@ fn render_wave(s: &mut String, n_cycles: usize, samples: &[Val], row_top: f64) {
             prev_vec = None;
         }
     }
-    // Extend the final run to the window's right edge.
     if let Some((_, py)) = pending {
         flush_path(s, &mut path, Some((x(n_cycles), py)));
     } else {
@@ -232,7 +220,6 @@ fn flush_path(s: &mut String, path: &mut String, tail: Option<(f64, f64)>) {
     }
 }
 
-/// Vertical lines for point matches, translucent bands for interval matches.
 fn render_marks(s: &mut String, d: &PlotData, plot_top: f64, wave_bottom: f64) {
     let colors = ["#d33", "#33d", "#3a8", "#d83"];
     let n_cycles = d.cycles.len().max(1);
@@ -268,7 +255,6 @@ fn render_marks(s: &mut String, d: &PlotData, plot_top: f64, wave_bottom: f64) {
     }
 }
 
-/// Bottom axis: nice step over cycle indices, tick value beneath each label.
 fn render_axis(s: &mut String, d: &PlotData, wave_bottom: f64) {
     let n = d.cycles.len();
     if n == 0 {
@@ -278,7 +264,6 @@ fn render_axis(s: &mut String, d: &PlotData, wave_bottom: f64) {
     let tick_y = wave_bottom + 27.0;
     let step = nice_step(n);
     let from_cycle = |i: usize| -> f64 {
-        // First labelled cycle is offset 0, drawn at x(0).
         x(i)
     };
     s.push_str(&format!(
@@ -399,7 +384,6 @@ mod tests {
         assert!(svg.contains(">clk<"));
         assert!(svg.contains(">data<"));
         assert!(svg.contains("<polyline"));
-        // Value label for the vector change.
         assert!(svg.contains("dead"));
         assert!(svg.contains("beef"));
     }
@@ -409,7 +393,6 @@ mod tests {
         let svg = render_svg(&plot(40));
         // X band rect for cycle 1 (data==Unknown).
         assert!(svg.contains("fill=\"#ffd\""));
-        // Mark line at cycle 1.
         assert!(svg.contains("req_fire"));
         assert!(svg.contains("stroke-dasharray=\"3,2\""));
     }
@@ -417,7 +400,6 @@ mod tests {
     #[test]
     fn axis_has_labels() {
         let svg = render_svg(&plot(120));
-        // First and last cycle indices appear; ticks too.
         assert!(svg.contains(">0<"));
         assert!(svg.contains(">119<"));
         assert!(svg.contains(">11900<"));

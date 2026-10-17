@@ -14,7 +14,6 @@ import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** Operands and op of one multiply. */
 class MulInput(config: CoreConfig) extends Bundle:
     val opA = Aligned(UInt(config.width))
     val opB = Aligned(UInt(config.width))
@@ -22,7 +21,6 @@ class MulInput(config: CoreConfig) extends Bundle:
 
 object MulInput:
 
-    /** The multiplier's view of the uop's union: the pool's first two slots, and its slice of the shared op window. */
     given FuView[MulInput] with
 
         def view(u: Referable[ExecSlot], config: CoreConfig)(using
@@ -58,17 +56,17 @@ class MulIO(parameter: MulParameter) extends HWBundle(parameter):
 
 class MulProbe(parameter: MulParameter) extends DVBundle[MulParameter, MulLayers](parameter)
 
-/** Pipelined multiplier: radix-4 Booth partial products, a Wallace-tree compression, and one final carry-propagate add
-  * — the legacy `MUL` FU's three arithmetic stages (`legacy/nzea_core/src/back/int/MUL.scala`), rebuilt on today's
-  * issue/done contract, with the result select as the last stage's combinational tail.
+/** Pipelined multiplier: radix-4 Booth partial products, a Wallace-tree compression, and one final carry-propagate
+  * add — the legacy `MUL` FU's three arithmetic stages (`legacy/nzea_core/src/back/int/MUL.scala`), rebuilt on
+  * today's issue/done contract, with the result select as the last stage's combinational tail.
   *
   * The point of the shape is that no cycle carries a full-width carry propagation through a loop. The Booth stage is
   * select, invert and wiring only — a negative digit's partial product is the bitwise inverse of its magnitude plus a
   * `1` at the row's own offset, summed as one extra Wallace row (the correction row), so no negation adder sits on the
   * select cone — and the only carry chain in the unit is the single CPA of the last arithmetic stage.
   *
-  * The unit owns its own pipeline: `first` starts a uop, the stage valids shift it down the line, and `done` reports it
-  * on the fourth cycle. The middle holds the uop for the whole residence, so a uop that disappears is a flush — the
+  * The unit owns its own pipeline: `first` starts a uop, the stage valids shift it down the line, and `done` reports
+  * it on the fourth cycle. The middle holds the uop for the whole residence, so a uop that disappears is a flush — the
   * valids clear in that same cycle and no completion is ever reported for it.
   */
 @generator
@@ -145,7 +143,7 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
             val carry: Node[Bits] = (a & b).bits(productWidth - 2, 0) ## BigInt(0).B(1)
             (sum, carry)
 
-        /** The compression: rows in, one sum/carry pair out, no carry propagating within the tree. */
+        /** The compression: rows in, one sum/carry pair out — no carry propagates within the tree. */
         def wallaceReduce(rows0: Seq[Node[Bits]]): (Node[Bits], Node[Bits]) =
             var rows = rows0.toVector
             while rows.size > 2 do
@@ -167,8 +165,6 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
 
         val (boothRowsOut, correction) = boothRows()
 
-        // The stage registers and the one valid line that qualifies them: `first` starts a uop, `pp`/`sc`/`prod` mark
-        // the stage the data has reached, and a uop that disappears clears the whole line on the spot.
         val rowRegs = Reg(Vec(digits + 1, UInt(productWidth)))
         val opReg = Reg(UInt(ops.width))
         val sumReg = Reg(UInt(productWidth))
@@ -195,7 +191,7 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
             opReg := u.op
         }
 
-        // The Wallace stage: compress the seventeen digit rows plus the correction row into one sum/carry pair.
+        // The Wallace stage: compress the digit rows plus the correction row into one sum/carry pair.
         val rowRefs: Seq[Node[Bits]] = (0 until digits + 1).map(i => Node(rowRegs.ref(i).asBits))
         val (wallaceSum, wallaceCarry) = wallaceReduce(rowRefs)
         when(ppValid) {
@@ -203,14 +199,12 @@ object Mul extends Generator[MulParameter, MulLayers, MulIO, MulProbe]:
             carryReg := wallaceCarry.asUInt
         }
 
-        // The single carry-propagate stage: the pair back to one product.
         val product: Node[UInt] = prefixAdder(sumReg, carryReg, false.B, productWidth)
         when(scValid) {
             productReg := product
         }
 
-        // The result select: MULW is MUL's low word, sign-extended; the high forms are the product's high word. An ISA
-        // without the word form has no extend to build.
+        // The result select: MULW is MUL's low word, sign-extended; the high forms are the product's high word.
         val productBits: Node[Bits] = Node(productReg.asBits)
         val low: Node[Bits] = productBits.bits(width - 1, 0)
         val high: Node[Bits] = productBits.bits(productWidth - 1, width)

@@ -1,18 +1,16 @@
-// xsim smoke scenario for the board top — the first of `nzea_fpga/sim/`, and the shape the others follow: a
-// self-checking testbench that owns the board's pins (oscillator, button) and judges the design against the official
-// IP models the flow compiles in (the clocking wizard's sim netlist).
+// xsim smoke scenario for the board top — the shape the others follow: a self-checking testbench that owns the board's
+// pins (oscillator, button) and judges the design against the official IP models the flow compiles in (the clocking
+// wizard's sim netlist).
 //
-// What it checks: the wizard's model locks, the reset synchronizer holds both blinkers at zero while the button is
-// down, and the two domains count at the ratio their clocks imply (the 50 MHz blinker against the 100 MHz output).
-// Self-checking: a failure is `$fatal` — the recipe fails with it; a watchdog fails a run that would otherwise hang.
-// `-testplusarg dump` writes `TopSmoke.vcd` for pulse. The flow requires the `TopSmoke: PASS` line below.
-// The blinkers' instances are `dut.blinkers.blink50` / `dut.blinkers.blink100` (`nzea_fpga/src/logic/Blinkers.scala`):
-// `dut` is the board's top (`Top`), which owns the pins — the DDR3 pads included.
+// The flow requires the `TopSmoke: PASS` line below; a failure is `$fatal` (the recipe fails with it), and a watchdog
+// fails a run that would otherwise hang. `-testplusarg dump` writes `TopSmoke.vcd` for pulse. The blinkers' instances
+// are `dut.blinkers.blink50` / `dut.blinkers.blink100` (`nzea_fpga/src/logic/Blinkers.scala`): `dut` is the board's top
+// (`Top`), which owns the pins — the DDR3 pads included.
 `timescale 1ns/1ps
 
 module TopSmoke;
 
-  // The board: a 50 MHz oscillator, and the push button (active-low — zero is pressed, which asserts reset).
+  // A 50 MHz oscillator, and the push button (active-low — zero is pressed, which asserts reset).
   reg CLK_50M = 1'b0;
   always #10 CLK_50M = ~CLK_50M;
 
@@ -27,7 +25,7 @@ module TopSmoke;
       .LED2   (LED2)
   );
 
-  // The verdict: one condition, judged where the scenario sees it. A false one fails the run with what was seen.
+  // One condition, judged where the scenario sees it; a false one fails the run with what was seen.
   task check(input logic ok, input string what);
     if (ok !== 1'b1) begin
       $display("TopSmoke: FAIL — %s", what);
@@ -55,8 +53,8 @@ module TopSmoke;
   logic [25:0] c50_0, c50_1, c100_0, c100_1;
 
   initial begin
-    // The button is held: reset is out, so both blinkers hold at zero and the wizard — reset while the button is
-    // down — reports no lock.
+    // The button is held: reset is out, so nothing counts and the wizard — reset while the button is down — reports no
+    // lock.
     repeat (10) @(posedge CLK_50M);
     check(
       dut.blinkers.blink50.count === 26'd0 && dut.blinkers.blink100.count === 26'd0,
@@ -65,7 +63,6 @@ module TopSmoke;
     );
     check(dut.clockingWizard.locked === 1'b0, "the wizard reports lock while the button is held");
 
-    // Release the button and wait for the wizard's model to lock.
     RESET = 1'b1;
     cycles = 0;
     while (dut.clockingWizard.locked !== 1'b1) begin

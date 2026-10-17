@@ -2,14 +2,11 @@
 
 # Simulate a scenario under xsim (Vivado's own simulator) against the IP's official models.
 #
-# A scenario is a self-checking testbench, `nzea_fpga/sim/<name>.sv`: it `$fatal`s on failure, prints `<name>: PASS`
-# on success, and the flow fails unless that line is in the log. Three lists are compiled, each owned by whoever
-# declares it:
-#   - the design: the dump's `filelist.f` (the same list the board build compiles);
-#   - the IP's simulation sources: the dump's `simfiles.f` (see `nzea_fpga/src/ip/`), whose entries are paths under
-#     the generated-IP root — the flow generates its own copy of the IP project, so simulating never touches the
-#     board's build tree and needs no build: dump, then sim;
-#   - the scenario itself.
+# A scenario is a self-checking testbench, `nzea_fpga/sim/<name>.sv`: it `$fatal`s on failure, prints `<name>: PASS` on
+# success, and the flow fails unless that line is in the log. Three lists are compiled, each owned by whoever declares
+# it: the design's `filelist.f` (the same list the board build compiles), the IP's simulation sources through the dump's
+# `simfiles.f` (see `nzea_fpga/src/ip/` — paths under the generated-IP root, which the flow generates into its own
+# project so simulating never touches the board's build tree), and the scenario itself.
 # The waveform is opt-in (`--vcd` -> the scenario's `dump` plusarg); it writes `<name>.vcd` beside its log.
 #
 # Usage:
@@ -58,8 +55,6 @@ def main [
         print $"ERROR: no design file list at ($rtl_dir)/filelist.f — run: just dump --target fpga"
         exit 1
     }
-
-    # ---- the IP's simulation sources ---------------------------------------------------------
 
     let ip_root = $rtl_dir | path join "xsim/ipgen/nzea_ipgen.gen/sources_1/ip"
     let sim_entries = if (($rtl_dir | path join "simfiles.f") | path exists) {
@@ -111,8 +106,6 @@ exit
             exit 1
         }
     }
-
-    # ---- the compile list --------------------------------------------------------------------
 
     let work = $rtl_dir | path join "xsim" $name
     rm -rf $work

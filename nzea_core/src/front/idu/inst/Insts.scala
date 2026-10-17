@@ -6,8 +6,8 @@ import nzea_core.back.mem.{LsuOp, MemOp}
 import nzea_core.isa.{Backend, Isa, Srcs}
 import nzea_rtl.stdlib.*
 
-/** Immediate shape, one-hot so the decode stage picks an immediate with `mux1H` and gets the better timing of a one-hot
-  * select. `Z` zero-extends `inst[19:15]` for the CSR immediate forms.
+/** Immediate shape, one-hot so the decode stage picks an immediate with `mux1H`. `Z` zero-extends `inst[19:15]` for the
+  * CSR immediate forms.
   */
 enum ImmType extends Encoding.OneHot:
     case I
@@ -28,7 +28,7 @@ enum DispatchOp:
     case Mem(op: LsuOp)
 
     /** Whether this dispatch is one the configuration can issue: the union must build the case, and the case must carry
-      * a member its own set has — a case whose members come and go with the ISA is only as present as its payload.
+      * a member its own set has.
       */
     def exists(isa: Isa): Boolean = this match
         case Int(op) => IntOp.set(isa).contains(op) && op.exists(isa)
@@ -50,9 +50,6 @@ case class Dispatch private (backend: Backend, op: DispatchOp, srcs: Srcs, name:
         case DispatchOp.Int(intOp) => ops.lit(intOp)
         case DispatchOp.Mem(lsuOp) => MemOp.set(ops.config).lit(MemOp.Lsu(lsuOp))
 
-    /** Whether this instruction can be issued under `isa` — the configuration's question, asked of the dispatch, so a
-      * row whose unit (or whose unit's member) the configuration does not have never reaches the decode tables.
-      */
     def encodable(isa: Isa): Boolean = op.exists(isa)
 
 object Dispatch:
@@ -76,9 +73,6 @@ object Dispatch:
   * leaves that field to its default) and what decode hands the backend.
   *
   * RV32I bit layout: `[31:25]` funct7, `[24:20]` rs2, `[19:15]` rs1, `[14:12]` funct3, `[11:7]` rd, `[6:0]` opcode.
-  *
-  * A row says nothing about whether it is in the table: which rows exist is the register width's answer ([[InstI.rows]]
-  * and [[InstM.rows]]), and whether one can be issued is the configuration's ([[Dispatch.encodable]]).
   */
 case class RVInst(
     name: String,
@@ -88,23 +82,19 @@ case class RVInst(
     gprWr: Boolean = true
 ):
 
-    /** The instruction pattern, without the Verilog-style `b` prefix the source carries to stay diffable with the
-      * legacy decoder.
-      */
     def pattern: BitSet = BitSet.bitset(bitPatStr.stripPrefix("b"))
 
 /** The pattern shapes the table's rows are written with: the format's open fields as don't-care runs, its fixed fields
-  * spelled out — the same masks the legacy decoder's patterns carried, so a row stays diffable field for field. The
-  * four layouts cover the whole table; ECALL and EBREAK spell their single encodings out.
+  * spelled out. The four layouts cover the whole table; ECALL and EBREAK spell their single encodings out.
   */
 private[idu] def n(bits: Int) = "?" * bits
 
 /** Opcode only: the U-type and J-type patterns (LUI, AUIPC, JAL). */
 private[idu] def uType(code: String) = "b" + n(25) + code
 
-/** funct3 at `[14:12]`, everything else the format fixes open: the I-type patterns (JALR, the loads, the
-  * register-immediate ALU ops, ADDIW) and every pattern whose immediate or register fields are all don't-cares (stores,
-  * branches, FENCE, the CSR forms).
+/** funct3 at `[14:12]`, everything else open: the I-type patterns (JALR, the loads, the register-immediate ALU ops,
+  * ADDIW) and every pattern whose immediate or register fields are all don't-cares (stores, branches, FENCE, the CSR
+  * forms).
   */
 private[idu] def iType(funct3: String, code: String) = "b" + n(7) + n(5) + n(5) + funct3 + n(5) + code
 
@@ -115,16 +105,13 @@ private[idu] def rType(funct7: String, funct3: String, code: String) =
 /** The 64-bit shift immediates: funct6 and a six-bit shift amount, bit 25 included. */
 private[idu] def shift64(funct6: String, funct3: String) = "b" + funct6 + n(6) + n(5) + funct3 + n(5) + "0010011"
 
-/** What decode minimises: the configured instruction table, for the register width the ISA carries. The rows are the
-  * two ISA files' answer to that width.
-  */
+/** What decode minimises: the configured instruction table for the register width the ISA carries. */
 object RiscvInsts:
 
     /** All instructions for decode, in table order: the base ISA's rows then the M extension's — each selected by the
-      * register width — minus the rows this configuration cannot issue. The two questions are separate: the width
-      * decides which rows exist (the row files' `rows(xlen)` answers it, and only there), the configuration decides
-      * which are issuable (the dispatch answers it, so a row whose unit the configuration does not have never reaches
-      * the tables).
+      * register width — minus the rows this configuration cannot issue. The width decides which rows exist (the row
+      * files' `rows(xlen)` answers it, and only there); the configuration decides which are issuable, so a row whose
+      * unit the configuration does not have never reaches the tables.
       */
     def all(isa: Isa): Seq[RVInst] =
         val rows = InstI.rows(isa.xlen) ++ InstM.rows(isa.xlen)

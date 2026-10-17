@@ -4,9 +4,8 @@ use std::str::FromStr;
 use serde::Serialize;
 use serde::ser::SerializeStruct;
 
-/// Serde-compatible newtype for `RangeInclusive<T>`.
-///
-/// A point is a degenerate range (`5..=5`).
+/// Serde-compatible newtype for `RangeInclusive<T>`: a point serializes as a
+/// bare number (a degenerate `5..=5`), a range as `{from, to}`.
 #[derive(Debug, Clone)]
 pub struct SerdeRange<T>(pub RangeInclusive<T>);
 
@@ -34,7 +33,6 @@ impl<T: std::fmt::Display + PartialEq> std::fmt::Display for SerdeRange<T> {
 }
 
 impl SerdeRange<u64> {
-    /// Expand to the list of individual ticks.
     pub fn resolve(&self) -> Vec<u64> {
         self.0.clone().collect()
     }
@@ -62,10 +60,9 @@ impl FromStr for SerdeRange<u64> {
 
         let mut input = s.trim();
         let spec = alt((
-            // "-100" → 0..=100
             (dash, integer).map(|(_, to)| SerdeRange(0..=to)),
-            // "~100" → last 100 (encoded as a sentinel tail range; the caller
-            // resolves it against the trace's last tick/cycle)
+            // "~100" → last 100, encoded as a sentinel tail range the caller
+            // resolves against the trace's last tick/cycle
             (tilde, integer).map(|(_, n)| {
                 let n = n.max(1);
                 SerdeRange(u64::MAX - n + 1..=u64::MAX)
@@ -90,7 +87,7 @@ impl FromStr for SerdeRange<u64> {
 impl SerdeRange<u64> {
     /// Sentinel encoding for the `~N` "last N" form: a tail range
     /// `[u64::MAX - N + 1, u64::MAX]` that callers resolve against the actual
-    /// trace length. Returns `Some(n)` when this range is a `~N` sentinel.
+    /// trace length.
     ///
     /// The sentinel start is always in the top half of the u64 space, which
     /// distinguishes it from an open-ended `N-` range (`N..=u64::MAX` with a
@@ -109,10 +106,10 @@ impl SerdeRange<u64> {
 /// One `value --at` argument after parsing: a tick/cycle/absolute-time range,
 /// or a `match(EXPR)` event-expression time source.
 ///
-/// Units: bare numbers are ticks (legacy behavior), `Nc` is the Nth cycle
+/// Bare numbers are ticks (legacy behavior), `Nc` the Nth cycle
 /// (posedge-clock count), `Nt` an explicit tick, `Nns` an absolute time in
-/// nanoseconds (converted via the waveform timescale). Unit suffixes apply to
-/// a single point; ranges keep the legacy tick semantics.
+/// nanoseconds (converted via the waveform timescale). Unit suffixes accept a
+/// single point only; ranges stay in ticks.
 #[derive(Debug, Clone)]
 pub(crate) enum AtSpec {
     Ticks(SerdeRange<u64>),
@@ -140,7 +137,6 @@ impl AtSpec {
             }
             return Ok(AtSpec::Match(inner.to_string()));
         }
-        // Unit form: `Nc`, `Nt`, `Nns` (point only).
         let (num, unit) = split_unit(s)?;
         let range: SerdeRange<u64> = num.parse()?;
         match unit {
@@ -184,15 +180,13 @@ fn split_unit(s: &str) -> Result<(&str, &str), String> {
     let (num, unit) = s.split_at(digits);
     match unit {
         "" | "c" | "t" | "ns" => Ok((num, unit)),
-        // Not a unit form (e.g. "100-200"): hand the whole string to the
-        // bare parser, which reports precise errors.
         _ => Ok((s, "")),
     }
 }
 
 /// Convert an absolute duration in nanoseconds to waveform ticks, using the
-/// dump's timescale (`factor` × `unit`). Rounds down to the nearest tick.
-/// Unknown units fall back to picoseconds (the common dump resolution).
+/// dump's timescale (`factor` × `unit`). Rounds down to the nearest tick;
+/// unknown units fall back to picoseconds (the common dump resolution).
 pub(crate) fn ns_to_ticks(ns: u64, factor: u64, unit: wellen::TimescaleUnit) -> u64 {
     use wellen::TimescaleUnit::*;
     let unit_fs: u128 = match unit {
@@ -202,7 +196,6 @@ pub(crate) fn ns_to_ticks(ns: u64, factor: u64, unit: wellen::TimescaleUnit) -> 
         NanoSeconds => 1_000_000,
         PicoSeconds => 1_000,
         FemtoSeconds => 1,
-        // Sub-femtosecond or unknown: assume picoseconds (common for dumps).
         _ => 1_000,
     };
     let fs = ns as u128 * 1_000_000;
@@ -234,7 +227,6 @@ mod tests {
 
     #[test]
     fn from_start_is_not_tail() {
-        // `-100` → 0..=100 (from start).
         let r: SerdeRange<u64> = "-100".parse().unwrap();
         assert_eq!((*r.0.start(), *r.0.end()), (0, 100));
         assert_eq!(r.tail_n(), None);
@@ -252,7 +244,6 @@ mod tests {
 
     #[test]
     fn tail_n_at_least_one() {
-        // `~0` is clamped to a 1-wide tail.
         let r: SerdeRange<u64> = "~0".parse().unwrap();
         assert_eq!(r.tail_n(), Some(1));
     }
@@ -294,7 +285,6 @@ mod tests {
             panic!("Nns should be AbsNs")
         };
         assert_eq!(*r.0.start(), 100);
-        // Ranges are rejected for unit forms (single point only).
         assert!(AtSpec::from_str("1c-2c").is_err());
         assert!(AtSpec::from_str("5xc").is_err());
     }

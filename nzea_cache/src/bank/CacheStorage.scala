@@ -11,7 +11,6 @@ import nzea_cache.config.CacheStorageKind
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** The storage's shape: the geometry's numbers, the row's fields, and the platform's storage kind. */
 case class CacheStorageParameter(
     sets: Int,
     ways: Int,
@@ -51,7 +50,6 @@ class CacheStorageIO(parameter: CacheStorageParameter) extends HWBundle(paramete
     val rdEn = Flipped(Bool())
     val rdRows = Aligned(Vec(parameter.ways, UInt(parameter.rowWidth)))
 
-    /** The write port: one way's whole row. */
     val wrEn = Flipped(Bool())
     val wrSet = Flipped(UInt(setBits))
     val wrWay = Flipped(UInt(wayBits))
@@ -77,16 +75,9 @@ class CacheStorageProbe(parameter: CacheStorageParameter)
     extends DVBundle[CacheStorageParameter, CacheStorageLayers](parameter)
 
 /** One set-associative cache's arrays: a row (tag above line) per way, and the valid — plus, for a write-back cache,
-  * dirty — bits beside them in flops.
-  *
-  * The rows come from the platform's storage kind: a synchronous memory macro, or flops where the platform has no macro
-  * shaped for an L1 (a read is then a mux of the addressed set — larger, but it keeps the clock, which a deep macro's
-  * read path would not). The valid bits are flops either way: the hit compare reads them combinationally in the same
-  * cycle the rows come out, which a synchronous read cannot do.
-  *
-  * The control above never reads and writes in the same cycle, so one read-write port serves as well as two, and the
-  * port shape only decides which body [[SyncRam]] emits. A flop array's write lands one cycle after its command — the
-  * array's own timing, not the caller's, see the branch for why — and its valid and dirty bits land with it.
+  * dirty — bits beside them in flops. The valid bits are flops either way: the hit compare reads them combinationally in
+  * the same cycle the rows come out, which a synchronous read cannot do. A flop array's write lands one cycle after its
+  * command, and its valid and dirty bits land with it.
   */
 @generator
 object CacheStorage extends Generator[CacheStorageParameter, CacheStorageLayers, CacheStorageIO, CacheStorageProbe]:
@@ -135,17 +126,13 @@ object CacheStorage extends Generator[CacheStorageParameter, CacheStorageLayers,
                 for way <- 0 until parameter.ways do io.rdRows.ref(way) := rows(way)
 
             case CacheStorageKind.Registers =>
-                // One flop array per way; the read is the addressed set's row, the write one decoded entry, and the row
-                // carries the tag above the line — a reader takes both from the same read.
-                //
-                // The write lands a cycle after its command. A flop array's write data is a broadcast — every flop
-                // wants every bit — so left whole, one net would drive `sets * ways` data pins (257 in the tile's
-                // 64x4 geometry, which an X1 flop cannot drive: the net's own slew, not the logic, sets the cache's
-                // frequency). The row is copied per way instead, so each copy drives `sets` data pins and the source
-                // — the refill engine's line — keeps a handful of loads. The command is registered for the same
-                // reason on the enable side: the array's clock-gate enables decode from the command register rather
-                // than combinationally from the miss state. Nothing reads the entry in between: the miss's answer
-                // comes from the engine's own bypass, and the next request reads only after `done` has risen.
+                // One flop array per way. The write lands a cycle after its command: a flop array's write data is a
+                // broadcast — every flop wants every bit — so left whole, one net would drive `sets * ways` data pins
+                // (257 in the tile's 64x4 geometry, which an X1 flop cannot drive: the net's own slew, not the logic,
+                // sets the cache's frequency). The row is copied per way instead, so each copy drives `sets` data pins
+                // and the source — the refill engine's line — keeps a handful of loads; the command is registered for
+                // the same reason. Nothing reads the entry in between: the miss's answer comes from the engine's own
+                // bypass, and the next request reads only after `done` has risen.
                 val arrays = (0 until parameter.ways).map(_ => Reg(Vec(parameter.sets, UInt(parameter.rowWidth))))
                 val wrCmdEn = regNext(io.wrEn, false.B)
                 val wrCmdSet = regNext(io.wrSet)

@@ -11,12 +11,10 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_core.isa.Gpr
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** The file's write port: one register per instruction, retired by the commit. */
 class ArfWrite(width: Int) extends Bundle:
     val index = Aligned(UInt(Gpr.indexWidth))
     val data = Aligned(UInt(width))
 
-/** One read port: the register the reader asks for, and the value the file answers with. */
 class ArfReadPort(width: Int) extends Bundle:
     val index = Flipped(UInt(Gpr.indexWidth))
     val data = Aligned(UInt(width))
@@ -43,7 +41,7 @@ class ArfProbe(parameter: ArfParameter) extends DVBundle[ArfParameter, ArfLayers
   *
   * Storage only: a read answers what the file holds, and the write lands at the end of its cycle. Anything younger than
   * the file — the write port's own cycle, the instruction still completing — is the forwarding network's to offer, not
-  * this file's; a consumer selects between the network's answer and the file's read.
+  * this file's.
   */
 @generator
 object Arf extends Generator[ArfParameter, ArfLayers, ArfIO, ArfProbe]:
@@ -56,8 +54,8 @@ object Arf extends Generator[ArfParameter, ArfLayers, ArfIO, ArfProbe]:
 
         val width = parameter.width
 
-        // x0 is the hardwired zero: the file holds x1..x31, so no flop is allocated for a register the decoder cannot name.
-        // Every slot starts defined so the four-state sim sees the same reset state as the reference model.
+        // x0 is the hardwired zero: the file holds x1..x31, so no flop is allocated for a register the decoder cannot
+        // name. Every slot starts defined so the four-state sim sees the same reset state as the reference model.
         val xregs = Reg(Vec(Gpr.depth - 1, UInt(width)))
         val gprs = (0.U(width) +: (0 until Gpr.depth - 1).map(index => xregs.ref(index))).toVec
 

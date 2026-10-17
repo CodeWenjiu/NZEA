@@ -1,12 +1,9 @@
 //! Shared cycle/time-base utilities.
 //!
-//! `property`, `value`, `plot` and `diff` all need the same mapping between
-//! the *cycle domain* (posedges of a clock, the unit users think in) and the
-//! *tick domain* (raw waveform timestamps, the unit `value` samples in).
-//! The cycle list is the single source of truth: build it once per
-//! (waveform, scope, clock) via [`build_cycles`], slice it with
-//! [`slice_cycles`], and derive every tick↔cycle lookup from it
-//! ([`tick_position`], [`map_match`], [`local_cycle_ranges`]).
+//! `property`, `value`, `plot` and `diff` all map between the *cycle domain*
+//! (posedges of a clock, the unit users think in) and the *tick domain* (raw
+//! waveform timestamps, the unit `value` samples in). The cycle list built by
+//! [`build_cycles`] is the single source of truth for both.
 
 use serde::Serialize;
 use serde::ser::SerializeStruct;
@@ -43,11 +40,9 @@ impl std::fmt::Display for CycleTick {
 /// Build the cycle list for a scope: posedges of `clock_name`, or every
 /// time-table entry when the clock signal is absent (ILA exports).
 ///
-/// The clock signal (when present) is loaded into the waveform. When
-/// `clock_required` is set, a missing clock is an error (this is
-/// `property --on` semantics: the user pinned a clock explicitly);
-/// otherwise a missing clock silently falls back to the sample table
-/// (`plot`/`value` semantics).
+/// `clock_required` makes a missing clock an error (this is `property --on`
+/// semantics: the user pinned a clock explicitly); otherwise it silently falls
+/// back to the sample table (`plot`/`value` semantics).
 pub(crate) fn build_cycles(
     wav: &mut wellen::simple::Waveform,
     scope_path: &str,
@@ -58,7 +53,6 @@ pub(crate) fn build_cycles(
     let clock_name = match clock_name {
         Some(n) => n,
         None => {
-            // No clock requested: every time-table entry is one cycle.
             let tt = wav.time_table();
             return Ok(tt.iter().enumerate().map(|(ti, &t)| (ti, t)).collect());
         }
@@ -110,9 +104,9 @@ pub(crate) fn slice_cycles(
     Ok(all_cycles[from..to].to_vec())
 }
 
-/// Resolve a `--cycles` window to `[from, to)` indices: `~N` selects the
-/// last N cycles, open-ended ranges clamp to the trace length, and an
-/// omitted window covers everything.
+/// Resolve a `--cycles` window to `[from, to)`: `~N` takes the last N cycles,
+/// open-ended ranges clamp to the trace length, an omitted window covers
+/// everything.
 pub(crate) fn window_bounds(n_cycles: usize, cycles: Option<&SerdeRange<u64>>) -> (usize, usize) {
     match cycles {
         Some(r) => {
@@ -136,7 +130,7 @@ pub(crate) fn tick_position(cycles: &[(usize, u64)], tick: u64) -> Option<usize>
 
 /// Map a tick-domain match range onto `{cycle, tick}` pairs. `offset` is the
 /// global cycle index of the window's first entry, so the produced cycle
-/// numbers are global (matching the `--cycles` frame). Unknown ticks fall
+/// numbers are global (matching the `--cycles` frame). An unknown tick falls
 /// back to using the tick value as the cycle (defensive; evaluator outputs
 /// always come from inside the window).
 pub(crate) fn map_match(

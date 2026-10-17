@@ -30,7 +30,6 @@ given upickle.default.ReadWriter[SifiveTestFinisherParameter] = upickle.default.
 class SifiveTestFinisherLayers(parameter: SifiveTestFinisherParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The pins the finisher shows at a level's boundary: its `finished` flag. */
 class FinisherPins(using TypeImpl, ConstructorApi) extends Bundle:
     val finished = Aligned(Bool())
 
@@ -54,7 +53,6 @@ object SifiveTestFinisher
     with HasDpiBus:
     override def moduleName(parameter: SifiveTestFinisherParameter): String = "SifiveTestFinisher"
 
-    /** The test finisher: a short residency is enough. */
     override def timing: DeviceTiming = DeviceTimings.finisher
 
     def architecture(parameter: SifiveTestFinisherParameter) =

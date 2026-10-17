@@ -9,7 +9,6 @@
 
 pub const MAGIC: u32 = 0xB007_B007;
 
-/// Build a program-load frame: magic + addr + size + data words.
 pub fn load_frame(addr: u32, words: &[u32]) -> Vec<u8> {
     let mut frame = Vec::with_capacity(12 + words.len() * 4);
     frame.extend_from_slice(&MAGIC.to_le_bytes());
@@ -21,7 +20,6 @@ pub fn load_frame(addr: u32, words: &[u32]) -> Vec<u8> {
     frame
 }
 
-/// Build a reset-only frame: magic + addr + size(0).
 pub fn reset_frame(addr: u32) -> Vec<u8> {
     let mut frame = Vec::with_capacity(12);
     frame.extend_from_slice(&MAGIC.to_le_bytes());

@@ -12,7 +12,6 @@ import scala.compiletime.{constValue, error}
 
 /** A vector whose length is part of its type: `N` is a singleton type parameter, so a literal index is range-checked at
   * compile time — `v.ref(0)` and `v.ref(1)` on a two-element vector, anything else is a compile error naming the call.
-  * A dynamic index is the `UInt` overload, with the vector's own semantics.
   *
   * It is an opaque view of [[me.jiuyang.zaozi.valuetpe.Vec]]: the value is a plain vector, so the MLIR type, the
   * generated ports and the vector API itself (`toSeq`, `asBits`, bulk connect) are unchanged — only the index into it
@@ -22,7 +21,6 @@ opaque type StaticVec[E <: Data, N <: Int & Singleton] <: Vec[E] = Vec[E]
 
 object StaticVec:
 
-    /** A vector of `N` elements: the length is the type parameter's value. */
     def apply[E <: Data, N <: Int & Singleton](elementType: E)(using ValueOf[N], ConstructorApi): StaticVec[E, N] =
         summon[ConstructorApi].Vec(summon[ValueOf[N]].value, elementType)
 

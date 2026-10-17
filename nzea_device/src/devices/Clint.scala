@@ -33,7 +33,6 @@ given upickle.default.ReadWriter[ClintParameter] = upickle.default.macroRW
 class ClintLayers(parameter: ClintParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The pins the CLINT shows at a level's boundary: its timer interrupt. */
 class ClintPins(using TypeImpl, ConstructorApi) extends Bundle:
     val timer_interrupt = Aligned(Bool())
 
@@ -49,7 +48,6 @@ class ClintProbe(parameter: ClintParameter) extends DVBundle[ClintParameter, Cli
 object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe] with HasDpiBus:
     override def moduleName(parameter: ClintParameter): String = "Clint"
 
-    /** The CLINT's timer registers. */
     override def timing: DeviceTiming = DeviceTimings.clint
 
     def architecture(parameter: ClintParameter) =

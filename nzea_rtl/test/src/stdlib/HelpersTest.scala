@@ -77,7 +77,6 @@ object MuxTestModule extends Generator[MuxTestParameter, MuxTestLayers, MuxTestI
   */
 object HelpersTest extends TestSuite:
 
-    /** Elaborate `ArithTestModule` and lower it to Verilog. */
     private def elaboratedAdders(width: Int): String =
         val module = ArithTestModule.moduleName(ArithTestParameter(width))
         TestFlow.lower(
@@ -86,7 +85,6 @@ object HelpersTest extends TestSuite:
             cfg => ArithTestModule.main(Array("design", cfg.toString))
         )
 
-    /** Elaborate `MuxTestModule` and lower it to Verilog. */
     private def elaboratedMuxes(width: Int, variants: Int): String =
         val module = MuxTestModule.moduleName(MuxTestParameter(width, variants))
         TestFlow.lower(

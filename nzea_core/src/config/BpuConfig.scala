@@ -5,10 +5,6 @@ import upickle.default.{readwriter, ReadWriter}
 
 /** A predictor's strategy: the structure the front builds for it. The strategy IS its configuration — the sizes ride in
   * the case, so nothing downstream has a default to fall back on.
-  *
-  * The strategies are points on one structure family: a pc-indexed base table (the bimodal case) is the degenerate form
-  * of the tagged geometric predictor the later strategies grow into, so a predictor that lands adds tables rather than
-  * a second implementation.
   */
 enum BpuStrategy:
     /** A pc-indexed 2-bit direction table (`phtEntries` slots) beside a target buffer (`btbEntries` slots). The buffer
@@ -17,23 +13,24 @@ enum BpuStrategy:
       */
     case Bimodal(phtEntries: Int, btbEntries: Int)
 
-    /** The strategy's spelling, the strategy half of [[BpuConfig.name]]: one token for the config file and the flag. */
+    /** The strategy's token: the strategy half of [[BpuConfig.name]]. */
     def name: String = this match
         case Bimodal(phtEntries, btbEntries) => s"bimodal:$phtEntries:$btbEntries"
 
-/** The return-address stack's shape: `depth` entries, pushed on a call and popped on a return. */
 case class RasConfig(depth: Int):
     require(depth > 0, s"ras depth must be > 0, got $depth")
 
 /** The front's predictor: a strategy and the options that stand beside it.
   *
   * The parameter tree holds `Option[BpuConfig]`, so absence is the sequential fetch — no predictor, and with it none of
-  * its options. The options that are not part of a strategy live here as siblings: a strategy case names only its own
-  * tables, and an option any strategy can carry (the return-address stack extends whichever target provider is chosen)
-  * is stated once instead of being repeated inside every strategy. `None` means the option is not built.
+  * its options; an `Option` in `None` is an option that is not built. An option any strategy can carry (the
+  * return-address stack extends whichever target provider is chosen) is stated here once instead of being repeated in
+  * every strategy.
   */
 case class BpuConfig(strategy: BpuStrategy, ras: Option[RasConfig]):
-    /** The config's spelling: the strategy's token plus one `+<option>` per option present. */
+    /** The config's token: the strategy's plus one `+<option>` per option present; the config file and the flag both
+      * use it.
+      */
     def name: String = strategy.name + ras.map(r => s"+ras:${r.depth}").getOrElse("")
 
 object BpuConfig:
@@ -88,8 +85,8 @@ object BpuConfig:
     def parseOrThrow(token: String): BpuConfig =
         parse(token).fold(error => throw new IllegalArgumentException(error), identity)
 
-    /** The generator framework's reader: the flag takes the same token [[parse]] takes. The parameter's field is an
-      * `Option`, so an absent flag is the sequential fetch.
+    /** The generator framework's reader: the flag takes the same token [[parse]] takes, and an absent flag (the field
+      * is an `Option`) is the sequential fetch.
       */
     given TokensReader.Simple[BpuConfig] with
         def shortName = "bimodal:<pht>:<btb>[+ras:<depth>]"

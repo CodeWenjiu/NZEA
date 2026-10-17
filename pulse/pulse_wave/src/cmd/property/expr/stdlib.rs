@@ -3,8 +3,7 @@
 //! Templates are expanded by **text substitution** before parsing: calling
 //! `rise(a && b)` renders the arguments, splices them into the template
 //! body, and parses the result. This lets parameters appear in any
-//! syntactic position. The whole stdlib is written in the temporal
-//! language itself; the evaluator knows no built-in functions.
+//! syntactic position.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -22,7 +21,6 @@ struct Template {
     body: String,
 }
 
-/// Loaded templates: function name → template.
 fn stdlib() -> &'static BTreeMap<String, Template> {
     static STDLIB: OnceLock<BTreeMap<String, Template>> = OnceLock::new();
     STDLIB.get_or_init(|| {
@@ -75,11 +73,11 @@ fn parse_template(line: &str) -> Result<(String, Vec<String>, String), String> {
 }
 
 /// Check the template body parses once parameters are replaced with
-/// syntactically valid stand-ins (`0` works for operand and delay
-/// positions alike), and that it contains no function calls — templates
-/// must be pure core syntax, otherwise a nested call would survive
-/// desugaring and panic in the evaluator. Catches template typos at load
-/// time instead of at the first call.
+/// syntactically valid stand-ins (`0` works for operand and delay positions
+/// alike), and that it contains no function calls — templates must be pure
+/// core syntax, otherwise a nested call would survive desugaring and panic in
+/// the evaluator. Catches template typos at load time instead of at the first
+/// call.
 fn validate_template(params: &[String], body: &str) -> Result<(), String> {
     let mut text = body.to_string();
     // Replace longest parameters first so `__p1` never hits inside `__p12`.
@@ -113,9 +111,8 @@ pub(crate) fn check_functions(expr: &Expr) -> Result<(), String> {
 /// cycle; unlike `rise`/`fall` (bit-level, MSB of vectors) it compares the full
 /// value, so multi-bit signals toggle correctly and folded constants report 0.
 /// `is_x(x)` reports cycles where the operand's value is unknown (X/Z) — the
-/// value-level twin of the boolean `!x` for the X domain, which comparisons
-/// (`==`, `!=`) treat as "false", i.e. invisible. `is_x` makes X visible so
-/// expressions can combine it: `is_x(data) ->1 resp_valid`.
+/// value-level twin of the boolean `!x`, which comparisons (`==`, `!=`) treat as
+/// "false", i.e. invisible.
 fn builtin(name: &str) -> Option<usize> {
     match name {
         "change" | "is_x" => Some(1),
@@ -123,7 +120,6 @@ fn builtin(name: &str) -> Option<usize> {
     }
 }
 
-/// Validate a single call against the built-ins and loaded templates.
 fn check_call(name: &str, args: &[Expr]) -> Result<(), String> {
     if let Some(arity) = builtin(name) {
         if args.len() == arity {
@@ -168,7 +164,6 @@ pub(crate) fn desugar(expr: &Expr) -> Expr {
     })
 }
 
-/// Splice the rendered arguments into the template body and parse it.
 fn expand(tmpl: &Template, args: &[Expr]) -> Result<Expr, String> {
     // Replace longest parameters first so `__p1` never hits inside `__p12`.
     let mut order: Vec<usize> = (0..tmpl.params.len()).collect();

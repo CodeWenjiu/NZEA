@@ -5,7 +5,6 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.valuetpe.*
 import me.jiuyang.stdlib.Decoupled
 
-/** Request payload: addr, wdata, wen, wstrb, user, id. */
 class LiteReq(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int)(using TypeImpl, ConstructorApi)
     extends Bundle:
     val addr = Aligned(UInt(addrWidth))
@@ -15,19 +14,16 @@ class LiteReq(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int)(usin
     val user = Aligned(UInt(userWidth))
     val id = Aligned(UInt(idWidth))
 
-/** Response payload: data, user, id. */
 class LiteResp(dataWidth: Int, userWidth: Int, idWidth: Int)(using TypeImpl, ConstructorApi) extends Bundle:
     val data = Aligned(UInt(dataWidth))
     val user = Aligned(UInt(userWidth))
     val id = Aligned(UInt(idWidth))
 
-/** Read-only request payload: address + user + id, no write fields. */
 class LiteReqRO(addrWidth: Int, userWidth: Int, idWidth: Int)(using TypeImpl, ConstructorApi) extends Bundle:
     val addr = Aligned(UInt(addrWidth))
     val user = Aligned(UInt(userWidth))
     val id = Aligned(UInt(idWidth))
 
-/** Interface widths, shared by the bus flavours and the fabric modules built on them. */
 trait LiteBusLike:
     def addrWidth: Int
     def dataWidth: Int

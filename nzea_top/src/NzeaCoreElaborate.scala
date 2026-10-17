@@ -7,8 +7,7 @@ import nzea_rtl.Elaborate
   * A zaozi top is generated through a two-step pipeline — `NzeaCore.main("config", …)` serializes a
   * [[NzeaCoreParameter]] to a file, `NzeaCore.main("design", …)` reads it back and elaborates, and `firld` joins what
   * the elaboration produced. That protocol, the config file's flag spelling and the scratch directory are facts about
-  * *this* level, so they live here beside the parameter they describe; a consumer (the CLI today, a test or a higher
-  * level next) hands over a parameter and a lowering function and never spells a sub-command.
+  * *this* level, so they live here beside the parameter they describe.
   */
 object NzeaCoreElaborate:
 

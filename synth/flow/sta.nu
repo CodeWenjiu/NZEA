@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
-# iEDA STA: requires synth first, PDK_PATH (from flake), iEDA in PATH
-# Outputs: build/<target>/<platform>/<isa>/synth/<design>.rpt (timing), sta.log
-# sta.tcl ends after report_timing (no report_power) to avoid heavy post-timing work crashing the machine.
+# iEDA STA over the netlist `synth.nu` wrote: `<design>.rpt` and sta.log into the dump's `synth/`. Needs `PDK_PATH`
+# (the flake sets it) and iEDA. `sta.tcl` ends after `report_timing`: a `report_power` afterwards is heavy enough to
+# crash the machine.
 
 def main [
   --isa: string = "riscv32i"
@@ -20,9 +20,8 @@ def main [
   let netlist_v = $synth_dir | path join $"($design).netlist.v"
   let sdc_file  = $sta_dir | path join "default.sdc"
 
-  # The one thing about the design's shape the SDC cannot discover for itself: iEDA's `get_ports` aborts the run
-  # when a pattern matches nothing, so whether the design shows the memory clock is stated here. Empty means the
-  # core, whose netlist has no such port, and the SDC skips the block without querying.
+  # iEDA's `get_ports` aborts the run when a pattern matches nothing, so whether the design shows the memory clock is
+  # stated here: empty for the core, whose netlist has no such port (the SDC then skips the block without querying).
   $env.SRAM_CLK_PORT_NAME = (if $target == "tile" { "ram_clock" } else { "" })
 
   if not ($netlist_v | path exists) {
@@ -41,6 +40,5 @@ def main [
   }
 
   let sta_log = $synth_dir | path join "sta.log"
-  # iEDA writes to both stdout and stderr; use tee to save and print
   ^sh -c $"iEDA -script ($sta_dir)/sta.tcl ($sdc_file) ($netlist_v) ($design) ($pdk) 2>&1 | tee ($sta_log)"
 }

@@ -15,9 +15,8 @@ import nzea_core.isa.{Backend, Gpr, Isa, Srcs}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** What decode hands the middle: the decoded instruction — where it is, the pc the fetch predicted it goes on to and
-  * the instruction's own fall-through, its immediate, the register it writes, the two registers it can read, and the
-  * operand form that says which source fills each issue slot.
+/** What decode hands the middle: the decoded instruction — location, immediate, register indexes, the operand form
+  * that says which source fills each issue slot, and the packed op.
   *
   * The values are not here. Decode stays a decode and the read happens in the middle, in the cycle the uop is issued:
   * that is the first cycle the register file holds every write the instruction must see, so the read never needs the

@@ -5,11 +5,9 @@ import nzea_device.DeviceKind
 import nzea_rtl.bus.{AddrRange, SlaveKind}
 import nzea_rtl.bus.given
 
-/** One device on the tile: its window and its kind.
-  *
-  * The tile parameter's device list, and the one description the address map, the IO and the wiring all derive from.
-  * The `kind` ([[nzea_device.DeviceKind]]) is what knows how to build the device and what it shows at the boundary, so
-  * adding a device is one case there plus its own module and one entry in the list — nothing else in the tile changes.
+/** One device on the tile: its window and its kind, the one description the address map, the IO and the wiring all
+  * derive from. The kind ([[nzea_device.DeviceKind]]) is what builds the device and says what it shows at the boundary,
+  * so adding a device is one case there plus one entry in the list.
   */
 case class DeviceSpec(name: String, range: AddrRange, kind: DeviceKind, outstanding: Int = 1)
 
@@ -33,11 +31,9 @@ object DeviceSpec:
   * Nothing is built here: the fabric's slave port for the window leaves the tile as a boundary port of the tile's own
   * name ([[NzeaTile]]), and the level above connects its own device there. That device must run in the tile's own clock
   * and reset domain — the bus carries neither, and the tile hands a device both only when it builds it — so the level
-  * above feeds the same nets to the tile and to its devices.
-  *
-  * `slaveKind` is the window's own statement (a memory window joins what a cache may refill from; an MMIO one joins the
-  * commit trace's), and `outstanding` is how many requests the device promises to hold at once — no field has a
-  * default, because both are facts about the device that no one else can supply.
+  * above feeds the same nets to the tile and to its devices. `slaveKind` says what the window joins (a memory one joins
+  * what a cache may refill from, an MMIO one the commit trace's) and `outstanding` how many requests the device holds at
+  * once.
   */
 case class ExternalSpec(name: String, range: AddrRange, slaveKind: SlaveKind, outstanding: Int)
 

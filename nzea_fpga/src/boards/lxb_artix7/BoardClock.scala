@@ -4,9 +4,7 @@ package nzea_fpga.boards.lxb_artix7
   * ([[BoardXdc]] maps it), and its rate is the board's fact.
   *
   * What grids the design *needs* is not a board fact and is not stated here: each is asked for where it is used
-  * ([[nzea_fpga.Clocks]]), and the wizard that serves them — one generator, so the grids that must keep a phase
-  * relationship do — is derived from those requests. A board whose oscillator differs states its rate here and nothing
-  * else changes.
+  * ([[nzea_fpga.Clocks]]). A board whose oscillator differs states its rate here and nothing else changes.
   */
 object BoardClock:
 

@@ -10,10 +10,8 @@ import nzea_rtl.stdlib.*
 import utest.*
 
 /** Structural checks: the middle's boundary is the decoded stream it consumes, the back's face it holds with the
-  * execution subsystem, and the two things it hands the top (the flush event, the commit trace). Inside, it holds the
-  * architectural state both stages face — the RF, the two files with the commit's own cycle — and the one elastic
-  * register whose two ends are its own. The RF's own file is pinned beside it: the write port and the two reads, and
-  * nothing between them.
+  * execution subsystem, and the two things it hands the top (the flush event, the commit trace). The RF's own file is
+  * pinned beside it: the write port and the two reads, and nothing between them.
   */
 object MiddleTest extends TestSuite:
 
@@ -98,8 +96,8 @@ object MiddleTest extends TestSuite:
         s"forward_csr_offers_${index}_data" -> width
     )
 
-    /** The RF's own lowering, at a width the middle's own elaboration does not use: a second lowering of the same
-      * parameter writes no module — a generator elaborates a given parameter once per process.
+    /** The RF's own lowering, at a width the middle's own elaboration does not use: a generator elaborates a given
+      * parameter once per process, so a second lowering of the same parameter writes no module.
       */
     private val arfParameter = ArfParameter(64)
 
@@ -166,7 +164,7 @@ object MiddleTest extends TestSuite:
 
         // The read resolves the network's columns and applies the level's verdict to the RF's own commit view: the
         // offer comparisons and the waits are the read's, the retiring write's match is the RF's, and the middle knows
-        // nothing of the level — an offer that is not armed is all the wait there is.
+        // nothing of the level.
         test("the read resolves the forward columns"):
             val read = TestFlow.ports(sv, "OperandRead")
             assert(read.contains("forward_arf_offers_0_armed") && read.contains("forward_arf_offers_1_armed"))
@@ -205,7 +203,6 @@ object MiddleTest extends TestSuite:
             val body = sv.substring(start, sv.indexOf("endmodule", start))
             assert(!body.contains("always @(posedge"))
 
-        // ── The register file ──
         test("the file's boundary is the write port and the two reads"):
             assert(arfSv.contains(s"module ${Arf.moduleName(arfParameter)}("))
             assert(

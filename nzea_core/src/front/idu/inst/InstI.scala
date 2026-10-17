@@ -6,10 +6,8 @@ import nzea_core.isa.{Srcs, Xlen}
 import Dispatch.*
 
 /** The base ISA's rows — RV32I with the system and CSR forms, plus what RV64I adds — and the order they land in the
-  * table.
-  *
-  * Both widths' rows live here because they are one specification: [[rows]] builds RV32I's order, re-encoding the three
-  * shift immediates in place and appending the 64-bit additions, which is how the wider ISA is defined.
+  * table: [[rows]] builds RV32I's order, re-encoding the three shift immediates in place and appending the 64-bit
+  * additions, which is how the wider ISA is defined.
   */
 private[idu] object InstI:
 
@@ -98,8 +96,8 @@ private[idu] object InstI:
     val SRLI64 = RVInst("SRLI", shift64("000000", "101"), Some(ImmType.I), alu(AluOp.Srl, Srcs.Rs1Imm))
     val SRAI64 = RVInst("SRAI", shift64("010000", "101"), Some(ImmType.I), alu(AluOp.Sra, Srcs.Rs1Imm))
 
-    // The 64-bit additions of the base ISA. They are 32-bit instruction words like the rest, so the tables read them the
-    // same way; what makes them RV64 is the register width they name.
+    // The 64-bit additions of the base ISA: 32-bit instruction words like the rest, so the tables read them the same
+    // way; what makes them RV64 is the register width they name.
     val LD = RVInst("LD", iType("011", "0000011"), Some(ImmType.I), mem(LsuOp.LD, Srcs.Rs1Imm))
     val LWU = RVInst("LWU", iType("110", "0000011"), Some(ImmType.I), mem(LsuOp.LWU, Srcs.Rs1Imm))
     val SD = RVInst("SD", iType("011", "0100011"), Some(ImmType.S), mem(LsuOp.SD, Srcs.Rs1ImmRs2), gprWr = false)

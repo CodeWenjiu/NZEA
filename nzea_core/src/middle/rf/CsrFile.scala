@@ -11,12 +11,10 @@ import nzea_core.isa.CsrType
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** One CSR write, applied at commit: which CSR the instruction addressed, and the value to store. */
 class CsrWrite(width: Int) extends Bundle:
     val csr_type = Aligned(UInt(CsrType.width))
     val data = Aligned(UInt(width))
 
-/** The file's read side: the code the reader asks for, and the value the file answers with. */
 class CsrReadPort(width: Int) extends Bundle:
     val code = Flipped(UInt(CsrType.width))
     val data = Aligned(UInt(width))
@@ -41,8 +39,7 @@ class CsrFileProbe(parameter: CsrFileParameter) extends DVBundle[CsrFileParamete
   *
   * Storage only, like the register file: a read answers what the file holds, and the write lands at the end of its
   * cycle. Anything younger — the write the retiring instruction makes this cycle, the writer still in flight — is the
-  * forwarding network's to offer, not this file's; the read's consumer selects between the network's answer and the
-  * file's own.
+  * forwarding network's to offer, not this file's.
   *
   * `mstatus` resets to 0x1800 (matching the legacy core: MPP = M), the rest to zero. A code that names no implemented
   * CSR reads as zero, and a write to one is dropped — the baseline has no illegal-CSR trap.

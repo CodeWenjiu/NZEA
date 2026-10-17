@@ -1,6 +1,5 @@
 use serde::Serialize;
 
-/// Generic tree data structure, reusable across all commands.
 #[derive(Serialize)]
 pub struct Tree<T> {
     pub value: T,
@@ -9,12 +8,10 @@ pub struct Tree<T> {
 }
 
 impl<T> Tree<T> {
-    /// Apply a function to each node in pre-order.
     pub fn preorder(&self) -> TreeIter<'_, T> {
         TreeIter { stack: vec![self] }
     }
 
-    /// Attach a child node.
     pub fn child(mut self, child: Tree<T>) -> Self {
         self.children.push(child);
         self

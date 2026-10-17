@@ -5,15 +5,12 @@ import nzea_rtl.Elaborate
 /** How the tile level is generated: this module's front door, beside the parameter it describes.
   *
   * The two-step protocol (`config` writes the parameter out, `design` reads it back and elaborates, `firld` joins the
-  * modules) is [[nzea_top.NzeaCoreElaborate]]'s; a level top spells its own parameter's flags and nothing else. The
-  * tile's shape follows the flow — the bridge flow attaches every window to the simulator, a synthesis flow builds the
-  * devices that have hardware — and its external windows show a bus port in either flow. What a flow can build is the
-  * platform's device list, stated beside the wiring it feeds ([[NzeaTile]]'s `devices` extension on
-  * [[nzea_rtl.RtlFlow]]).
+  * modules) is [[nzea_top.NzeaCoreElaborate]]'s; a level top spells its own parameter's flags and nothing else. What a
+  * flow can build is the platform's device list, stated beside the wiring it feeds ([[NzeaTile]]'s `devices` extension
+  * on [[nzea_rtl.RtlFlow]]).
   */
 object NzeaTileElaborate:
 
-    /** Serialize `parameter`, elaborate the tile, and hand the linked circuit to `lower`. */
     def withLinked[T](parameter: NzeaTileParameter)(lower: os.Path => T): T =
         val scratch = os.temp.dir(prefix = "nzea-dump")
         try

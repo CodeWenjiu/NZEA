@@ -14,7 +14,6 @@ import nzea_core.isa.Isa
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** Operands and op of one divide. */
 class DivInput(config: CoreConfig) extends Bundle:
     val opA = Aligned(UInt(config.width))
     val opB = Aligned(UInt(config.width))
@@ -22,7 +21,6 @@ class DivInput(config: CoreConfig) extends Bundle:
 
 object DivInput:
 
-    /** The divider's view of the uop's union: the pool's first two slots, and its slice of the shared op window. */
     given FuView[DivInput] with
 
         def view(u: Referable[ExecSlot], config: CoreConfig)(using
@@ -60,22 +58,21 @@ class DivProbe(parameter: DivParameter) extends DVBundle[DivParameter, DivLayers
 
 /** Multi-cycle restoring divider: one shift, one borrow scan and one conditional subtract per cycle over the operands'
   * magnitudes — the legacy `DIV` FU's FSM (`legacy/nzea_core/src/back/int/DIV.scala`), rebuilt on today's issue/done
-  * contract and with the arithmetic rearranged so the iteration holds one carry network instead of a comparator chained
+  * contract, with the arithmetic rearranged so the iteration holds one carry network instead of a comparator chained
   * into a subtractor.
   *
-  * The loop's operands are latched at issue: the divisor's magnitude, the two signs and the op the result will be read
-  * under are registers for the whole residence, so nothing in the iteration waits on operand decode — the deficit of
-  * the old shape, where the divide cone started at the issue register's own op field. The sign fix and the op select
-  * are deferred to the completion cycle and run on the loop's registered raw pair, so the iteration and the result
-  * select never share a path: the loop's worst path is shift, borrow, mux.
+  * The loop's operands are latched at issue — the divisor's magnitude, the two signs and the op the result will be read
+  * under — so nothing in the iteration waits on operand decode. The sign fix and the op select are deferred to the
+  * completion cycle and run on the loop's registered raw pair, so the iteration and the result select never share
+  * a path: the loop's worst path is shift, borrow, mux.
   *
-  * The unit takes no flush: the middle holds the uop until the completion is reported, so a uop that disappears means
-  * the completion was consumed (or abandoned) and the FSM returns to idle either way. RISC-V's special cases (a zero
-  * divisor, and the signed overflow) are answered from the operands at issue and skip the loop.
+  * The unit takes no flush: the middle holds the uop until the completion is reported, so a uop that disappears
+  * means the completion was consumed (or abandoned) and the FSM returns to idle either way. RISC-V's special cases
+  * (a zero divisor, and the signed overflow) are answered from the operands at issue and skip the loop.
   *
-  * The word forms ([[DivOp]]'s block of them, only where the registers are 64 bits wide) divide the low 32 bits with
-  * that width's own sign rules; the XLEN-wide loop over operands extended the same way produces that low word, and each
-  * special case answers with the word's extension.
+  * The word forms ([[DivOp]]'s block of them, only where the registers are 64 bits wide) divide the low 32 bits
+  * with that width's own sign rules; the XLEN-wide loop over operands extended the same way produces that low word, and
+  * each special case answers with the word's extension.
   */
 @generator
 object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
@@ -95,12 +92,10 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
         val sCalc = 1.U(2)
         val sDone = 2.U(2)
 
-        /** `-x` as its own prefix network: `~x + 1`. */
         def negate(x: Referable[UInt]): Node[UInt] =
             val xBits: Node[Bits] = Node(x.asBits)
             prefixAdder((~xBits).asUInt, BigInt(0).U(width), true.B, width)
 
-        /** The issue-time picture of one divide, sampled into registers on `first`. */
         val u = io.issue.bits
         val aBits: Node[Bits] = Node(u.opA.asBits)
         val bBits: Node[Bits] = Node(u.opB.asBits)
@@ -110,7 +105,6 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
         val signed: Referable[Bool] = is(DivOp.Div) | is(DivOp.Rem) | wordSigned
         val isWord: Referable[Bool] = if hasWord then (wordSigned | is(DivOp.Divuw) | is(DivOp.Remuw)) else false.B
 
-        /** A word form reads the low 32 bits of each operand, extended by the op's signedness. */
         def wordIn(v: Node[Bits]): Node[UInt] =
             val low: Node[Bits] = v.bits(31, 0)
             val signExtended: Node[Bits] = fill(width - 32, low.bit(31)) ## low
@@ -122,7 +116,6 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
         val aNeg: Node[Bool] = Node(aIn.asBits).bit(width - 1)
         val bNeg: Node[Bool] = Node(bIn.asBits).bit(width - 1)
 
-        // The loop divides magnitudes: the signed forms pre-negate, the unsigned ones pass through.
         val aAbs: Node[UInt] = aNeg ? (negate(aIn), aIn)
         val bAbs: Node[UInt] = bNeg ? (negate(bIn), bIn)
         val dividend: Node[UInt] = signed ? (aAbs, aIn)
@@ -164,7 +157,7 @@ object Div extends Generator[DivParameter, DivLayers, DivIO, DivProbe]:
         val start = io.issue.valid & io.issue.first
         val last = count === (width - 1).U(countWidth)
 
-        /** The FSM, with the loop's operands latched at issue and the whole line cleared when the uop disappears. */
+        /** The FSM: the loop's operands latched at issue, the whole line cleared when the uop disappears. */
         def fsm(): Unit =
             when(!io.issue.valid) {
                 state := sIdle

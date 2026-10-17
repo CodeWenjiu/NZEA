@@ -20,9 +20,6 @@ given upickle.default.ReadWriter[BlinkersParameter] = upickle.default.macroRW
 class BlinkersLayers(parameter: BlinkersParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The panel's ports: one clock/active-low-reset pair per domain, and the two LED levels (active-low — the pin sinks
-  * the current, so a zero lights the LED).
-  */
 class BlinkersIO(parameter: BlinkersParameter) extends HWBundle(parameter):
     val clock50 = Flipped(Clock())
     val resetN50 = Flipped(Reset())
@@ -35,15 +32,11 @@ class BlinkersProbe(parameter: BlinkersParameter) extends DVBundle[BlinkersParam
 
 /** The board's two LED indicators, one per clock domain *on purpose*: LED1 runs off the oscillator's own 50 MHz, LED2
   * off the wizard's 100 MHz, so a board where only LED1 blinks says the wizard's clock path — or its IP — is at fault.
-  * A capture tells the same story without eyes: the two counters advance at their domains' rates, so the domain whose
-  * counter stands still is the domain whose clocking is at fault.
+  * A capture tells the same story without eyes: the domain whose counter stands still is the domain whose clocking is
+  * at fault.
   *
-  * The panel holds no clock of its own: it takes the two pairs the boundary distributes, and its resets arrive already
-  * shaped — the 100 MHz side is released only once the wizard says the clock it produces is settled — because that
-  * policy is the boundary's ([[nzea_fpga.Top]]).
-  *
-  * The counters are declared watchable in `Blink`'s body; the binding is stated here, where the instances are named,
-  * because a shared module body cannot know which instance a probe should mean.
+  * The counters are declared watchable in `Blink`'s body but bound here, where the instances are named — a shared
+  * module body cannot know which instance a probe should mean.
   */
 @generator
 object Blinkers extends Generator[BlinkersParameter, BlinkersLayers, BlinkersIO, BlinkersProbe]:

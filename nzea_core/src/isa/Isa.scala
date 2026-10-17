@@ -3,10 +3,8 @@ package nzea_core.isa
 import mainargs.TokensReader
 import upickle.default.{macroRW, readwriter, ReadWriter}
 
-/** The register width a configuration is built for.
-  *
-  * One architectural width, so every derived width (data, pc, address, bus, lane strobe) reads it here instead of being
-  * passed as a bare number: `bits` is what sizes a signal, `lanes` is the byte count of one machine word.
+/** The register width a configuration is built for. Every derived width (data, pc, address, bus, lane strobe) reads it
+  * here instead of carrying a bare number: `bits` sizes a signal, `lanes` is the byte count of one machine word.
   */
 enum Xlen(val bits: Int):
     case Rv32 extends Xlen(32)
@@ -24,10 +22,8 @@ object Xlen:
         )
 
 /** The unprivileged single-letter extensions a configuration can carry, in the order the ISA string spells them (RISC-V
-  * puts I/E first, then M A F D Q L C B and the rest).
-  *
-  * The set only says which extensions are on; what a module does with one is that module's own question (an op set
-  * gating its members, say). `g` is not a member: an ISA string's `g` expands to its members before it gets here.
+  * puts I/E first, then M A F D Q L C B and the rest). `g` is not a member: an ISA string's `g` expands to its members
+  * before it gets here.
   */
 enum Ext(val letter: Char):
     case I extends Ext('i')
@@ -58,9 +54,9 @@ object Ext:
 
 /** A configuration's ISA: the register width plus the extensions that are on.
   *
-  * Parsing and the canonical string live here, so a holder of an [[Isa]] neither keeps a string nor re-derives a width.
-  * The string is the *canonical* one (`riscv32im`): extensions come out in declaration order, so it does not depend on
-  * how the set was built, and it is what paths, reports and the simulators use.
+  * Parsing and the canonical string live here: the string is the *canonical* one (`riscv32im`), extensions in
+  * declaration order, so it does not depend on how the set was built, and it is what paths, reports and the simulators
+  * use.
   */
 case class Isa(xlen: Xlen, extensions: Set[Ext]):
     def has(ext: Ext): Boolean = extensions.contains(ext)
@@ -83,21 +79,19 @@ object Isa:
         def read(strs: Seq[String]): Either[String, Isa] =
             strs.lastOption.map(parse).getOrElse(Left("isa requires a value"))
 
-    /** Base string (before any `_`): `riscv32im`, `rv32im`, `rv64gc`, etc. — single-letter extensions after XLEN. Named
-      * (underscore-separated) extension tokens are not supported yet and are rejected loudly; they return together with
-      * the features that need them.
+    /** Base string (before any `_`): `riscv32im`, `rv32im`, `rv64gc`. Underscore-separated (named) extension tokens are
+      * not supported yet and are rejected loudly.
       */
     private val BaseRegex = """(?i)(?:riscv)?(?:rv)?(32|64)([a-z]*)""".r
 
-    /** Letters a base rv string may carry: the extensions, plus `g`, which is an alias expanded below. */
     private val AllowedLetters: Set[Char] = Ext.values.map(_.letter).toSet + 'g'
 
     /** If `g` is present, expand to IMAFD per RISC-V G = IMAFD + Zicsr + Zifencei (only letter subset tracked here). */
     private def expandG(raw: Set[Char]): Set[Char] =
         if raw.contains('g') then (raw - 'g') ++ Set('i', 'm', 'a', 'f', 'd') else raw
 
-    /** Parse the ISA string; `_`-separated named extensions are rejected (not supported yet). Unknown base letters are
-      * rejected too, so arbitrary strings (e.g. `riscv32sdksa`) do not silently produce a valid config.
+    /** Parse the ISA string; `_`-separated named extensions and unknown base letters are rejected, so arbitrary strings
+      * (e.g. `riscv32sdksa`) do not silently produce a valid config.
       */
     def parse(isa: String): Either[String, Isa] =
         val trimmed = isa.trim
@@ -121,11 +115,9 @@ object Isa:
                 case other =>
                     Left(s"unrecognized ISA base (expected riscv32/rv32 + optional letters): $other")
 
-    /** Parse or throw [[IllegalArgumentException]] (e.g. CLI / config wiring). */
     def parseOrThrow(isa: String): Isa =
         parse(isa) match
             case Right(c)  => c
             case Left(msg) => throw new IllegalArgumentException(s"Invalid ISA string: $msg")
 
-    /** Parse-or-throw, for the call sites that spell an ISA out (`Isa("riscv32i")`). */
     def apply(isa: String): Isa = parseOrThrow(isa)

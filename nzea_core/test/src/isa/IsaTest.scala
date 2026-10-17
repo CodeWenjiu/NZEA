@@ -40,9 +40,6 @@ object IsaElaborateTestModule
         io.csr_addr := csrAddr
         io.csr_valid := csrValid
 
-/** The ISA's contracts: the shared decoder outputs and their hardware, the accepted bases, the rejected garbage, `g`
-  * expansion, and the canonical string a parsed ISA spells back out.
-  */
 object IsaTest extends TestSuite:
 
     private def checkSequential(values: Seq[Encoding], expectedWidth: Int): Unit =

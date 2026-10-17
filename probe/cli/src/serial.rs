@@ -54,7 +54,6 @@ pub fn find_serial_port() -> io::Result<String> {
 }
 
 impl Serial {
-    /// Open the port read-write, flush stale input, and switch it to raw 8N1 at `baud`.
     pub fn open(path: &str, baud: u32) -> io::Result<Serial> {
         let file = File::options().read(true).write(true).open(path)?;
         let fd = file.as_raw_fd();

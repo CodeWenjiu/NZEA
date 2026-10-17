@@ -1,19 +1,15 @@
-//! Generic AST traversal for event expressions.
-//!
-//! Every pass over the expression tree (normalization, stdlib desugaring,
-//! function validation, signal collection) shares the same node skeleton;
-//! these two walkers factor it out so a pass only states what it does *to a
-//! node*, not how to reach it.
+//! Generic AST traversal for event expressions: normalization, stdlib
+//! desugaring, function validation and signal collection all share the same
+//! node skeleton, so a pass only states what it does *to a node*.
 
 use super::ast::{Expr, SequenceStep};
 
 /// Bottom-up transform: `f` is applied to every node after its children.
 ///
 /// The callback receives the (already transformed) node and returns the
-/// replacement. Note that the replacement itself is not re-traversed —
-/// passes that can introduce new nodes needing transformation must handle
-/// that inside the callback (e.g. `normalize` recursing into an event
-/// definition).
+/// replacement, which is **not** re-traversed — a pass that introduces new
+/// nodes needing transformation must handle that inside the callback (e.g.
+/// `normalize` recursing into an event definition).
 pub(crate) fn map(expr: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
     let mapped = match expr {
         Expr::And(a, b) => Expr::And(Box::new(map(a, f)), Box::new(map(b, f))),
@@ -55,9 +51,8 @@ pub(crate) fn map(expr: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
     f(&mapped)
 }
 
-/// Pre-order visit: `f` is applied to every node before its children.
-/// The callback propagates errors; use it when a pass can reject a tree
-/// (e.g. unknown function names).
+/// Pre-order visit: `f` is applied to every node before its children and may
+/// reject the tree by returning an error.
 pub(crate) fn visit(expr: &Expr, f: &mut dyn FnMut(&Expr) -> Result<(), String>) -> Result<(), String> {
     f(expr)?;
     match expr {

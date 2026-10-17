@@ -1,11 +1,10 @@
 # Batch (headless) Vivado FHS environment.
 #
-# A copy of the Xilinx FHS env (/mnt/data/tools/Xilinx/shell.nix) with the GUI
-# launch stripped from the profile. The original profile ends with a bare
-# `vivado` that starts the GUI and blocks, so it cannot be used for batch flows.
-# This file keeps the full library set (Vivado needs them at runtime) but only
-# sets up PATH/library env vars, letting `just fpga build` / `just fpga program`
-# drive Vivado headlessly.
+# A copy of the Xilinx FHS env (/mnt/data/tools/Xilinx/shell.nix) with the GUI launch
+# stripped from the profile. The original profile ends with a bare `vivado` that starts
+# the GUI and blocks, so it cannot be used for batch flows. This file keeps the full
+# library set (Vivado needs them at runtime) but only sets up PATH/library env vars,
+# letting `just fpga build` / `just fpga program` drive Vivado headlessly.
 #
 # Enter it and run commands via stdin, e.g.:
 #   nix-shell nzea_fpga/scripts/vivado-batch.nix <<'EOF'
@@ -21,7 +20,6 @@
 
   targetPkgs =
     pkgs: with pkgs; [
-      # Core system libraries
       libxcrypt-legacy
       stdenv.cc.cc
       stdenv.cc.cc.lib
@@ -32,7 +30,6 @@
       # Use ncurses5 to avoid the tic.pc issue
       ncurses5
 
-      # X11 and graphics (enhanced for Vivado compatibility)
       libx11
       libxext
       libxrender
@@ -55,12 +52,10 @@
       libxv
       libxvmc
 
-      # OpenGL (enhanced)
       libGL
       libGLU
       mesa
 
-      # Font and graphics (enhanced)
       freetype
       fontconfig
       cairo
@@ -70,18 +65,15 @@
       atk
       pixman
 
-      # GUI toolkits
       glib
       gtk2
       gtk3
       qt5.qtbase
       qt5.qtx11extras
 
-      # Development tools
       gcc
       binutils
 
-      # System utilities
       bash
       coreutils
       findutils
@@ -94,7 +86,6 @@
       nettools
       procps
 
-      # Additional libraries that Vivado might need
       libpng
       libjpeg
       libtiff
@@ -102,7 +93,6 @@
       dbus
       systemd
 
-      # Java and graphics compatibility
       xhost
       xauth
       xset
@@ -111,13 +101,11 @@
 
   multiPkgs =
     pkgs: [
-      # 32-bit compatibility libraries if needed
     ];
 
   runScript = "bash";
 
   profile = ''
-    # Batch mode: no GUI launch. Set up PATH/lib paths only.
     export VIVADO_ROOT="/mnt/data/tools/Xilinx/Vivado/2023.2"
     export PATH="$VIVADO_ROOT/bin:$PATH"
     export XILINX_VIVADO="$VIVADO_ROOT"

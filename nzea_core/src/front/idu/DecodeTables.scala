@@ -13,10 +13,9 @@ import scala.collection.immutable.SortedMap
 /** The truth tables the decode PLA is built from: one per field of the decode output, in the order the output record
   * carries them.
   *
-  * A table lists only the instructions that differ from its default — an unmatched instruction falls back to the
-  * defaults below, which are the legacy decoder's (immediate shape I, no register write or read, zero window). A zero
-  * window decodes to the int path's ALU with op 0 and no source, which writes nothing, so an unknown instruction is a
-  * no-op.
+  * A table lists only the instructions that differ from its default, and an unmatched instruction falls back to the
+  * defaults: immediate shape I, no register write or read, zero window. A zero window decodes to the int path's ALU
+  * with op 0 and no source, which writes nothing, so an unknown instruction is a no-op.
   */
 object DecodeTables:
 
@@ -27,8 +26,7 @@ object DecodeTables:
     val ImmTypeName = "imm_type"
     val GprWrName = "gpr_wr"
 
-    /** The default window: no unit selected (op 0), no source, int path — the no-op an unknown instruction decodes to.
-      */
+    /** The default window: no unit selected (op 0), no source, int path. */
     private val NoWindowKey = "zero"
 
     def all(config: CoreConfig): Seq[TruthTable] =
@@ -59,7 +57,6 @@ object DecodeTables:
             encode(insts.map(i => i.dispatch.name -> i.dispatch.window(ops)) :+ (NoWindowKey -> 0), width)
         )
 
-    /** The operand form: which source feeds each of the uop's three operand slots. */
     private def srcs(insts: Seq[RVInst]): TruthTable =
         TruthTable(
             SrcsName,
@@ -78,7 +75,6 @@ object DecodeTables:
 
     private def gprWr(insts: Seq[RVInst]): TruthTable = boolean(GprWrName, insts.filter(_.gprWr).map(_.pattern))
 
-    /** A field that is true for the listed patterns and false otherwise: only the true side needs an entry. */
     private def boolean(name: String, patterns: Seq[BitSet]): TruthTable =
         TruthTable(
             name,
@@ -87,7 +83,6 @@ object DecodeTables:
             SortedMap("0" -> BitSet.n(1), "1" -> BitSet.y(1))
         )
 
-    /** The encoding of a field: every key's bit pattern, all of them `width` bits wide. */
     private def encode(entries: Seq[(String, Int)], width: Int): SortedMap[String, BitPat] =
         val mask = (BigInt(1) << width) - 1
         SortedMap.from(entries.map((key, value) => key -> BitSet.bitpat(value, mask, width)))

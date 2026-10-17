@@ -41,21 +41,20 @@ class PhtProbe(parameter: PhtParameter) extends DVBundle[PhtParameter, PhtLayers
 
 /** Direction table: one 2-bit saturating counter per pc-indexed slot, the counter's high bit the prediction.
   *
-  * The table watches every resolved branch and learns its bias; a counter saturates toward taken or not-taken and only
+  * The table watches every resolved branch and learns its bias: a counter saturates toward taken or not-taken and only
   * the sign (the high bit) is read, so one unexpected outcome cannot flip a prediction the branch had been consistently
-  * making. A no-history table on purpose: it is the base the tagged levels grow above, and it already carries the cases
-  * that need no history at all — loops and strongly biased branches.
+  * making. A no-history table on purpose — loops and strongly biased branches need none.
   *
-  * The storage is a [[nzea_rtl.stdlib.SyncRam]]: the read is synchronous (issued a cycle before its answer is used) and
-  * the update is a plain write — the counter's new value is computed from the counter the branch's own fetch read
-  * ([[BpUpdate.pht_count]]), not from a read back through a port the prediction is using. What that trades away is
-  * freshness under aliasing: two aliasing branches in flight together each write the value their own fetch read, so one
-  * of the two increments is lost — a slower learn on conflicting slots, never a wrong prediction. The read and the
-  * write in the same cycle are the classic read-first pair: the read gets the entry as it was.
+  * The storage is a [[nzea_rtl.stdlib.SyncRam]]: the read is synchronous (issued a cycle before its answer is used),
+  * and the update writes the counter computed from the counter the branch's own fetch read ([[BpUpdate.pht_count]]),
+  * not a value read back through the port the prediction is using. What that trades away is freshness under aliasing:
+  * two aliasing branches in flight together each write the value their own fetch read, so one of the two increments is
+  * lost — a slower learn on conflicting slots, never a wrong prediction. Read and write in the same cycle are the
+  * classic read-first pair: the read gets the entry as it was.
   *
   * Nothing here is reset but the write controls — a memory entry has no reset value. A fresh table therefore predicts
   * what its storage starts as, which in the two-state simulation this design is verified in is zero: not-taken, exactly
-  * the empty table. The controls are reset so the table never writes on power-up.
+  * the empty table.
   */
 @generator
 object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
@@ -69,10 +68,9 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
         val entries = parameter.entries
         val indexBits = log2Ceil(entries)
 
-        /** A pc's slot: the word-aligned pc's low bits, the same slice the legacy table used. */
+        /** A pc's slot: the word-aligned pc's low bits. */
         def indexOf(pc: Referable[UInt]): Node[UInt] = Node(pc.asBits).bits(indexBits + 1, 2).asUInt
 
-        /** The counter's next value: one step toward the outcome, saturated at either end. */
         def saturating(count: Referable[UInt], taken: Referable[Bool]): Referable[UInt] =
             val bumped = (count + 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
             val dropped = (count - 1.U(BpUpdate.phtCountBits)).asBits.bits(BpUpdate.phtCountBits - 1, 0).asUInt
@@ -94,7 +92,6 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
         // The write controls are registered at the table's own boundary: the write data fans out to every row's flop,
         // and the training bus arrives from the back across the whole design, so a register here keeps the table's own
         // load off that path — the write lands a cycle later, which the freshness the table already trades away covers.
-        // The read-first pair is unaffected: a read never sees a write from its own cycle either way.
         val wEn = RegInit(false.B)
         val wAddr = Reg(UInt(indexBits))
         val wData = Reg(UInt(BpUpdate.phtCountBits))

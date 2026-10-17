@@ -103,7 +103,7 @@ object LiteBusTiming
                 (magnitude > t.jitterSpan.U(holdW)) ? (t.jitterSpan.U(holdW), magnitude)
             event ? (clamped, 0.U(holdW))
 
-        // ---- Request side: the jitter holds `ready`; the request itself passes through ----
+        // Request side: the jitter holds `ready`; the request itself passes through.
         val reqHold = RegInit(0.U(holdW))
         val reqIdle = reqHold === 0.U(holdW)
         val reqDraw = draw(randReq)
@@ -121,8 +121,8 @@ object LiteBusTiming
             when(!reqIdle) { reqHold := subWrap(reqHold, 1.U(holdW), holdW) }
         }
 
-        // ---- Response side: the latency line, then the jitter's hold ----
-        // `latency - 2`: the device's own answer takes one cycle, and the output stage below takes another.
+        // Response side: the latency line, then the jitter's hold. `latency - 2`: the device's own answer takes one
+        // cycle, and the output stage below takes another.
         val stages = t.latency - 2
         val stageValid = Seq.tabulate(stages)(_ => RegInit(false.B))
         val stageData = Seq.tabulate(stages)(_ => Reg(UInt(parameter.dataWidth)))

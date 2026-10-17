@@ -28,18 +28,13 @@ object Replacement:
         def read(strs: Seq[String]): Either[String, Replacement] =
             strs.lastOption.map(parse).getOrElse(Left("replacement requires a value"))
 
-/** What a cache's arrays are built from.
-  *
-  * A real L1 is SRAM, but it is a macro shaped for it — few rows, short bit lines, one full-clock access. A platform
-  * whose only macro is a deep, density-sized one (`1rw` / `1r1w` here) can build the same cache from flops instead:
-  * larger, but fast, and the control is identical because the interface below is only a synchronous read and a write.
-  * The choice is the platform's, stated in the config, so a better macro later is a different value here.
+/** What a cache's arrays are built from. A real L1 is SRAM — a macro shaped for it (few rows, short bit lines, one
+  * full-clock access) — but a platform whose only macro is a deep, density-sized one can build the same cache from flops
+  * instead: larger, but fast, and the control is identical, because the interface below is only a synchronous read and a
+  * write.
   */
 enum CacheStorageKind(val name: String):
-    /** The arrays are flops: the read is a mux of the addressed set, the write one decoded row. */
     case Registers extends CacheStorageKind("registers")
-
-    /** The arrays are synchronous memories with this port shape. */
     case Macro(ports: SyncRamPorts) extends CacheStorageKind(ports.name)
 
 object CacheStorageKind:
@@ -62,11 +57,8 @@ object CacheStorageKind:
         def read(strs: Seq[String]): Either[String, CacheStorageKind] =
             strs.lastOption.map(parse).getOrElse(Left("storage requires a value"))
 
-/** A set-associative cache's geometry: its sets, ways, line size, victim policy and storage kind.
-  *
-  * The storage kind is the platform's, not the cache's: the control never reads and writes the storage in the same
-  * cycle, so a single read-write macro port (`1rw`) fits as well as separate ones (`1r1w`), and flops fit both — which
-  * one is built is stated here by whoever knows the platform.
+/** The geometry's storage choice is the platform's: the control never reads and writes the storage in the same cycle,
+  * so a single read-write macro port (`1rw`) fits as well as separate ones (`1r1w`).
   *
   * The storage row is `padding ## tag ## line`: the tag sits above the line, so its position is the same for every
   * geometry, and a macro-backed row is padded to whole bytes because a single-port macro is byte-strobed.
@@ -98,21 +90,16 @@ case class CacheConfig(
     def wayBits: Int = log2Ceil(ways)
     def lineBits: Int = lineBytes * 8
 
-    /** Tag bits for one address width: everything above the set index and the line offset. */
     def tagBits(addrWidth: Int): Int = addrWidth - indexBits - offsetBits
 
-    /** Beats one line takes on a bus of this data width. */
     def lineBeats(dataWidth: Int): Int = lineBytes / (dataWidth / 8)
 
-    /** Bits selecting the word inside a line on a bus of this data width. */
     def wordOffBits(dataWidth: Int): Int = offsetBits - log2Ceil(dataWidth / 8)
 
-    /** The storage row's width for one address width: the padded tag above the line. */
     def rowWidth(addrWidth: Int): Int =
         val bits = tagBits(addrWidth) + lineBits
         if storage == CacheStorageKind.Macro(SyncRamPorts.OneRW) then (bits + 7) / 8 * 8 else bits
 
-    /** The config's spelling: `sets x ways x lineBytes`, the victim policy, the storage kind. */
     def name: String = s"${sets}x${ways}x${lineBytes}:${replacement.name}:${storage.name}"
 
 object CacheConfig:
@@ -139,7 +126,7 @@ object CacheConfig:
     def parseOrThrow(token: String): CacheConfig =
         parse(token).fold(error => throw new IllegalArgumentException(error), identity)
 
-    /** The generator framework's reader: the flag takes the same token [[parse]] takes. The parameter's field is an
+    /** The generator framework's reader: the flag takes the same token [[parse]] takes, and the parameter's field is an
       * `Option`, so an absent flag is a cache that is not built.
       */
     given TokensReader.Simple[CacheConfig] with

@@ -16,7 +16,6 @@ object Ddr3Xdc:
       */
     def register(): Unit = XdcRegistry.onEmit("ddr3")(text)
 
-    /** The file's text, as the dump writes it. */
     val text: String =
         """|# The DDR3 bus (the MIG reference's pin map, on the top's own ports).
            |#
@@ -135,8 +134,6 @@ object Ddr3Xdc:
            |set_property PACKAGE_PIN J1 [get_ports {DDR3_DQ[14]}]
            |set_property PACKAGE_PIN H4 [get_ports {DDR3_DQ[15]}]
            |
-           |# ── Timing exceptions ──
-           |#
            |# Three facts about the pads that the tools cannot read off the netlist. Each one is stated here rather than
            |# worked around in the RTL, and none of them changes the design's behavior — the simulator is what holds the design
            |# to that.

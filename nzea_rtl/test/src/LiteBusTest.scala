@@ -54,7 +54,6 @@ object BusPipeTestModule extends Generator[BusPipeTestParameter, BusPipeTestLaye
   */
 object LiteBusTest extends TestSuite:
 
-    // ── The flavours ──
     private val pipeModule = BusPipeTestModule.moduleName(BusPipeTestParameter(32))
 
     private lazy val pipeSv = TestFlow.lower(
@@ -63,7 +62,6 @@ object LiteBusTest extends TestSuite:
         cfg => BusPipeTestModule.main(Array("design", cfg.toString))
     )
 
-    // ── The adapters ──
     private val roModule = LiteBusROToRW.moduleName(LiteBusROToRWParameter(32, 32, 4, 1))
 
     private lazy val roSv = TestFlow.lower(
@@ -113,7 +111,6 @@ object LiteBusTest extends TestSuite:
         cfg => LiteBusUserWiden.main(Array("design", cfg.toString))
     )
 
-    // ── The fabric ──
     private val map = AddressMap(
         masters = Seq(MasterPort("ibus", userWidth = 20, idWidth = 1), MasterPort("dbus", userWidth = 24, idWidth = 1)),
         slaves = Seq(
@@ -145,7 +142,6 @@ object LiteBusTest extends TestSuite:
         cfg => LiteBusCrossbar.main(Array("design", cfg.toString))
     )
 
-    // ── The timing wrapper ──
     private val timing = DeviceTiming(latency = 4, jitterEvery = 4, jitterSpan = 4)
     private val timingParameter = LiteBusTimingParameter(32, 32, 4, 1, timing)
     private val timingModule = LiteBusTiming.moduleName(timingParameter)
@@ -177,7 +173,6 @@ object LiteBusTest extends TestSuite:
     )
 
     val tests = Tests:
-        // ── The flavours ──
         test("read-only bus flattens to the expected port names"):
             assert(pipeSv.contains(s"module $pipeModule("))
             for port <- Seq(
@@ -214,7 +209,6 @@ object LiteBusTest extends TestSuite:
             assert(!pipeSv.contains("in_flush"))
             assert(pipeSv.contains("always @(posedge clock)"))
 
-        // ── The adapters ──
         test("the read-only side drives the request and takes the response"):
             assert(roSv.contains(s"module $roModule("))
             for port <- Seq("ro_req_valid", "ro_req_ready", "ro_req_bits_addr", "ro_resp_valid", "ro_resp_ready")
@@ -237,7 +231,6 @@ object LiteBusTest extends TestSuite:
             for port <- Seq("narrow_req_bits_wdata", "wide_req_bits_wstrb", "narrow_req_ready", "wide_resp_valid")
             do assert(widenSv.contains(port))
 
-        // ── The fabric ──
         test("one port pair per side, in map order"):
             assert(crossbarSv.contains(s"module $crossbarModule("))
             for port <- Seq(
@@ -254,7 +247,6 @@ object LiteBusTest extends TestSuite:
             assert(ports("ins_1_req_bits_user") == 24)
             assert(ports("outs_0_req_bits_id") == 1)
 
-        // ── The timing wrapper ──
         test("the wrapper carries the bus at its width on both sides, with its own clock and reset"):
             val ports = TestFlow.ports(timingSv, timingModule)
             assert(ports("clock") == 1)

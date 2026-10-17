@@ -11,11 +11,8 @@ import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The read-only bus device: a device whose "hardware" is the simulator, answering remu's `bus_read` for a read-only
-  * master (the fetch port).
-  *
-  * A device owns how it answers the bus, and for the bridge flow that answer is the simulator's — routed by address, so
-  * one device stands in for every window. It carries the read-only bus a fetch-side device would, with an elastic
-  * one-slot response register. There is no hardware version: outside the bridge flow this device has no meaning.
+  * master (the fetch port). There is no hardware version: outside the bridge flow this device has no meaning. It carries
+  * an elastic one-slot response register.
   */
 case class IbusDpiDeviceParameter(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
@@ -79,12 +76,10 @@ object IbusDpiDevice
         io.bus.resp.bits.user := respUser
         io.bus.resp.bits.id := respId
 
-/** The read/write bus device: the same, answering remu's `bus_read` / `bus_write`.
-  *
-  * A load answers from `bus_read` and a store from `bus_write`, called on the clock edge next to the fire — a store's
-  * response acknowledges the request rather than carrying data. `wstrb` is widened to the ABI's `int` here, because the
-  * generated call takes the declared argument widths as they are. This is the device behind every read/write window:
-  * the platform's RAM and its MMIO devices, and the core's data port when there is no fabric.
+/** The read/write bus device: the same, answering remu's `bus_read` / `bus_write`. A load answers from `bus_read`, a
+  * store from `bus_write` — a store's response acknowledges the request rather than carrying data — and `wstrb` is
+  * widened to the ABI's `int`, because the generated call takes the declared argument widths as they are. This is the
+  * device behind every read/write window.
   */
 case class BusDpiDeviceParameter(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")

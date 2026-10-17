@@ -31,13 +31,11 @@ class IntPathIO(parameter: IntPathParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The middle's face, flipped: the gated uop in, the completion report out. */
     val path = Flipped(new IntFace(parameter.config))
 
     /** The resolved branches, for the front's predictor: the branch unit's own wires, registered at the resolve cycle
-      * so the tables' write decode hangs off registers rather than off the units' cones. The port follows the
-      * predictor's config — with no predictor there is no one to train, so neither the port nor the registers behind it
-      * exist.
+      * so the tables' write decode hangs off registers rather than off the units' cones; with no predictor there is no
+      * one to train, so neither the port nor the registers behind it exist.
       */
     val bp_update: Option[BundleField[ValidIO[BpUpdate]]] =
         Option.when(parameter.bpu.isDefined)(Aligned(ValidIO(new BpUpdate(width))))
@@ -47,10 +45,10 @@ class IntPathProbe(parameter: IntPathParameter) extends DVBundle[IntPathParamete
 /** Integer execution path: every int unit driven from the held uop, with the resolved branch riding the result (the
   * middle raises the flush event the front restarts from).
   *
-  * This is where the unit select and the op mean something — decode only packed them into [[IntOp]]'s columns. Each
-  * unit owns its own op encoding, its own operand use and its own view of the uop (its `XInput.view`), so all this path
-  * does is wire the views, merge the results by tag, and gate the completion: ALU, BRU and SYSU are combinational and
-  * report completion for as long as the uop is held, MUL and DIV are multi-cycle units that report it from their FSM.
+  * Each unit owns its own op encoding, its own operand use and its own view of the uop (its `XInput.view`), so all
+  * this path does is wire the views, merge the results by tag, and gate the completion: ALU, BRU and SYSU are
+  * combinational and report completion for as long as the uop is held, MUL and DIV are multi-cycle units that report
+  * it from their FSM.
   */
 @generator
 object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, IntPathProbe]:
@@ -79,7 +77,7 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
         // The branch path's fall-through: the instruction's own `pc + 4`, carried from the fetch beside the prediction —
         // the lookup that answered the prediction made it too, so nothing here rebuilds that adder. It is the not-taken
-        // continuation, the link value, and the value the write-back stage's prediction check compares against.
+        // continuation and the link value.
         val fallThrough: Referable[UInt] = u.fall_through
 
         /** The cycle a branch resolves: a per-instruction event on the uop's first cycle — the combinational unit holds
@@ -90,10 +88,6 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         val branchResolved = Wire(Bool())
         branchResolved := uopFirst & isBru
 
-        /** The three combinational units, each fed its own view of the held uop: the unit owns its op encoding, its
-          * operand use and where it reads them (its [[nzea_core.back.FuView]]), so the path only wires the view and
-          * reads the answers.
-          */
         val aluIn = u.viewOf[AluInput](parameter.config)
         val bruIn = u.viewOf[BruInput](parameter.config)
         val sysuIn = u.viewOf[SysuInput](parameter.config)
@@ -107,15 +101,12 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
         val sysu = Sysu.instantiate(SysuParameter(width))
         sysu.io.in :<= sysuIn
 
-        // The resolved branch rides the result as data: `next_pc` is wherever it actually goes — under a predictor, a
-        // mispredict on a not-taken resolution points back at the fall-through — and `mispredict` is the branch unit's
-        // own check, the one bit the retire record carries. The resolve cycle is a named wire on purpose (like
-        // `branchResolved` below): its counters and the waveform's event file (`branch.pulse` beside this one) address it
-        // by name, and a plain alias would fold into the unit's port.
+        // The resolve cycle is a named wire on purpose, like `branchResolved` above: its counters and the waveform's
+        // event file (`branch.pulse` beside this one) address it by name, and a plain alias would fold into the unit's
+        // port.
         val branchMispred = Wire(Bool())
         branchMispred := uopValid & isBru & bru.io.mispredict
 
-        /** MUL and DIV come and go with M, and the same set that decides that here decided the window's codes above. */
         def mulDivUnits() =
             val mul = Option.when(ops.contains(IntOp.mul))(
                 Mul.instantiate(MulParameter(parameter.config.isa, parameter.config.defaultPc))
@@ -215,8 +206,6 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
                     updatePc := u.pc
                     updateTaken := bru.io.taken
                     updateTarget := bru.io.target
-                    // The counter the fetch's prediction read, carried down the pipeline: the table's update writes the bumped value,
-                    // and it cannot read the old one back (a synchronous-read memory hands its read to the fetch, not to this path).
                     updateCount := u.pht_count
                 }
                 updateValid := branchResolved
@@ -228,9 +217,6 @@ object IntPath extends Generator[IntPathParameter, IntPathLayers, IntPathIO, Int
 
         bpTraining()
 
-        /** Counters the simulator reads back: every branch or jump that resolves here, how it went, and how the fetch
-          * stream's prediction did against it. Declared here, and emitted from these declarations after elaboration.
-          */
         def counters(): Unit =
             if parameter.flow.counters then
                 val branch = parameter.stats.stat("bp_branch", Regions.Bp, "resolved branches")

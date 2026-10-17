@@ -19,9 +19,6 @@ given upickle.default.ReadWriter[SysuParameter] = upickle.default.macroRW
 class SysuLayers(parameter: SysuParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The system unit's own input: its op, the source slot, and the CSR read the issue resolved — the old value and the
-  * code the instruction's address named.
-  */
 class SysuInput(width: Int) extends Bundle:
     val op = Aligned(UInt(SysuOp.width))
     val rs1 = Aligned(UInt(width))
@@ -31,7 +28,7 @@ class SysuInput(width: Int) extends Bundle:
 object SysuInput:
 
     /** The sysu's view of the uop's union: the pool's first two slots — the form places the value the commit offers the
-      * file first, the CSR's old value second — and the payload's CSR code.
+      * file there, and the CSR's old value in the second — and the payload's CSR code.
       */
     given FuView[SysuInput] with
 
@@ -66,11 +63,10 @@ class SysuProbe(parameter: SysuParameter) extends DVBundle[SysuParameter, SysuLa
   * unit only combines it. Its operand is the slot the form filled: rs1 for the register forms, the immediate for the
   * immediate forms.
   *
-  * `data` is the CSR's post-state for every form the unit runs — a set or clear with a zero source combines to the
-  * value it read — so a reader behind the uop takes `data` whenever `leaves` says the CSR stays defined. `write` is the
-  * commit's own refinement of that: whether the file is stored at all, which only a zero-source CSRRS/CSRRC falsifies.
-  *
-  * Combinational, and it carries no valid: the path gates `data`, `leaves` and `write` with the tag it issued.
+  * `data` is the CSR's post-state for every form the unit runs, so a reader behind the uop takes it whenever `leaves`
+  * says the CSR stays defined; `write` is the commit's own refinement of that, which only a zero-source CSRRS/CSRRC
+  * falsifies. Combinational, and it carries no valid: the path gates `data`, `leaves` and `write` with the tag it
+  * issued.
   */
 @generator
 object Sysu extends Generator[SysuParameter, SysuLayers, SysuIO, SysuProbe]:
@@ -85,8 +81,6 @@ object Sysu extends Generator[SysuParameter, SysuLayers, SysuIO, SysuProbe]:
         val rs1Bits: Node[Bits] = Node(io.in.rs1.asBits)
         val csrRdataBits: Node[Bits] = Node(io.in.csrRdata.asBits)
 
-        // The value the instruction offers the CSR: the source itself for the write forms, the read data combined with the
-        // source for set and clear.
         val data: Referable[UInt] = muxCase(
             0.U(width),
             Seq[(Referable[Bool], Referable[UInt])](

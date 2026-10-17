@@ -5,13 +5,6 @@
 //! scope has no clock). Comparison is aligned **by cycle index**, which
 //! tolerates different time origins (e.g. ILA captures with different trigger
 //! points, or simulations started at different offsets).
-//!
-//! - `--signals a,b`: compare signal values at every cycle; report the first
-//!   cycle where any value differs, with the diverged signals and both values.
-//! - `--eval 'expr'` (repeatable): evaluate the expression on both waves and
-//!   report the first cycle where the two disagree — e.g. the first
-//!   `commit_fire` the waves place differently. This is the whole point for
-//!   pass/fail waveform pairs: no trigger knowledge needed, just compare.
 
 use serde_json::json;
 
@@ -48,7 +41,6 @@ pub(crate) fn run_diff(json: bool, args: &crate::command::DiffArgs) -> Result<()
         ));
     }
 
-    // ── Signal-level comparison ──────────────────────────────────
     let signals: Option<SignalOutcome> = if args.signals.is_empty() {
         None
     } else {
@@ -96,7 +88,6 @@ pub(crate) fn run_diff(json: bool, args: &crate::command::DiffArgs) -> Result<()
         first
     };
 
-    // ── Event-level comparison ───────────────────────────────────
     let evals: Vec<EvalOutcome> = args
         .eval
         .iter()
@@ -131,7 +122,6 @@ pub(crate) fn run_diff(json: bool, args: &crate::command::DiffArgs) -> Result<()
         })
         .collect::<Result<Vec<_>, WaveError>>()?;
 
-    // ── Output ───────────────────────────────────────────────────
     if json {
         let sigs = match &signals {
             Some(s) => json!({

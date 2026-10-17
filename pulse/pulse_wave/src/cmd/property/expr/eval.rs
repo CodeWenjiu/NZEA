@@ -1,12 +1,10 @@
 use super::ast::{CmpOp, Expr};
 use crate::SerdeRange;
 
-/// Evaluate an AST over a series of clock cycles.
+/// Evaluate an AST over a series of clock cycles (`cycles` is the list of
+/// posedge clock timestamps).
 ///
-/// `cycles` is the list of posedge clock timestamps.
-/// `read_signal(name, tt_idx)` returns the boolean value of a signal at a given time-table index.
-/// `read_value(name, tt_idx)` returns the integer value of a signal (for comparisons);
-/// `None` means unknown (X/Z, missing, or non-numeric).
+/// `read_value` returns `None` for unknown values (X/Z, missing, non-numeric).
 pub(crate) fn eval_temporal(
     ast: &Expr,
     cycles: &[(usize, u64)],
@@ -27,7 +25,6 @@ enum EvalOut {
     Intervals(Vec<(u64, u64)>),
 }
 
-/// Number of cycles in the trace.
 fn n_cycles(cycles: &[(usize, u64)]) -> usize {
     cycles.len()
 }
@@ -59,8 +56,8 @@ fn eval_impl(
             EvalOut::Matches(matches)
         }
         Expr::Cmp(a, op, b) => {
-            // Compare the integer values of both operands cycle by cycle.
-            // An unknown operand (None) makes the comparison false for that cycle.
+            // Compare both operands cycle by cycle; an unknown operand (None)
+            // makes the comparison false for that cycle.
             let mut matches = Vec::new();
             for ci in 0..n_cycles(cycles) {
                 let av = operand_u64(a, ci, cycles, read_signal, read_value);
@@ -94,10 +91,10 @@ fn eval_impl(
             }
             if name == "is_x" {
                 // X-visible built-in: matches cycles where the operand's value
-                // is unknown. For a bare signal this is read_value == None
-                // (X/Z); composite subexpressions always evaluate to 0/1 and
-                // are never X, so `is_x(a && b)` is constantly false — the
-                // same convention comparisons use.
+                // is unknown (for a bare signal, read_value == None). Composite
+                // subexpressions always evaluate to 0/1 and are never X, so
+                // `is_x(a && b)` is constantly false — the same convention
+                // comparisons use.
                 let mut matches = Vec::new();
                 for ci in 0..n_cycles(cycles) {
                     if operand_u64(&args[0], ci, cycles, read_signal, read_value).is_none() {
@@ -200,9 +197,8 @@ fn eval_impl(
         }
         Expr::Window(a, n, m, b) => {
             // A n--m B: B within [n cycles before A, m cycles after A],
-            // matching on A's cycle. The future half reads ahead in the
-            // already-loaded waveform; the past half saturates at the
-            // window start.
+            // matching on A's cycle; the past half saturates at the window
+            // start.
             let n_cycles = n_cycles(cycles);
             if n_cycles == 0 {
                 return EvalOut::Matches(Vec::new());
@@ -276,7 +272,6 @@ fn eval_impl(
                 return EvalOut::Matches(Vec::new());
             }
             let n = n_cycles(cycles);
-            // Evaluate each step to a bool array
             let step_bools: Vec<Vec<bool>> = steps
                 .iter()
                 .map(|s| to_bool_array_direct(&s.expr, cycles, read_signal, read_value))
@@ -309,7 +304,6 @@ fn eval_impl(
     }
 }
 
-/// Convert an `EvalOut` to a boolean array indexed by cycle position.
 fn to_bool_array(out: &EvalOut, n: usize, cycles: &[(usize, u64)]) -> Vec<bool> {
     let mut arr = vec![false; n];
     match out {
@@ -331,7 +325,6 @@ fn to_bool_array(out: &EvalOut, n: usize, cycles: &[(usize, u64)]) -> Vec<bool> 
     arr
 }
 
-/// Evaluate an expression directly to a bool array (for leaf or recursive use).
 fn to_bool_array_direct(
     ast: &Expr,
     cycles: &[(usize, u64)],
@@ -342,8 +335,8 @@ fn to_bool_array_direct(
     to_bool_array(&out, cycles.len(), cycles)
 }
 
-/// Value of an operand at cycle `ci` for a comparison: literals as-is,
-/// signals via `read_value`, composite expressions as 0/1 boolean.
+/// Value of an operand at cycle `ci`: literals as-is, signals via `read_value`,
+/// composite expressions as 0/1.
 fn operand_u64(
     e: &Expr,
     ci: usize,
@@ -361,9 +354,8 @@ fn operand_u64(
     }
 }
 
-/// Value-evaluation mode for `--sample`: the scalar value of an expression
-/// at one cycle. Signals read their integer value, literals as-is, composite
-/// expressions evaluate as 0/1 booleans; `None` means unknown (X/Z).
+/// Value-evaluation mode for `--sample`: the scalar value of an expression at
+/// one cycle; `None` means unknown (X/Z).
 pub(crate) fn eval_value(
     ast: &Expr,
     ci: usize,
@@ -391,12 +383,11 @@ mod tests {
     use crate::cmd::property::expr::stdlib;
 
     /// Full pipeline: parse → desugar → evaluate against a synthetic signal.
-    /// Cycle i has timestamp 100*i and signal value `sig[i]`.
+    /// Cycle `i` has timestamp `100*i`.
     fn eval_expr(expr: &str, sig: &[bool]) -> Vec<SerdeRange<u64>> {
         eval_expr_multi(expr, &[("a", sig)])
     }
 
-    /// Like `eval_expr`, but with named signals: `(name, values)` pairs.
     fn eval_expr_multi(expr: &str, sigs: &[(&str, &[bool])]) -> Vec<SerdeRange<u64>> {
         let ast = super::super::parser::parse(expr).expect("parse");
         let ast = stdlib::desugar(&ast);
@@ -474,7 +465,6 @@ mod tests {
 
     #[test]
     fn is_x_of_composite_is_never_true() {
-        // Composite subexpressions are booleans, never X.
         let out = eval_expr_multi(
             "is_x(a && b)",
             &[("a", &[true, false]), ("b", &[false, true])],
@@ -556,8 +546,6 @@ mod tests {
 
     #[test]
     fn eval_value_signal_constant_and_compare() {
-        // Value engine (the --sample mode): signals read their integer value,
-        // literals as-is, comparisons/logic collapse to 0/1.
         let ast = super::super::parser::parse("a == 5").expect("parse");
         let ast = stdlib::desugar(&ast);
         let cycles: Vec<(usize, u64)> = (0..2).map(|i| (i, 100 * i as u64)).collect();
@@ -578,7 +566,6 @@ mod tests {
             Some(0)
         );
 
-        // Bare signal: the value itself.
         let ast = super::super::parser::parse("a").expect("parse");
         assert_eq!(
             super::eval_value(&ast, 0, &cycles, &read_signal, &read_value),

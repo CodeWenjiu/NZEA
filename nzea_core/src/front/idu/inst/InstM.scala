@@ -27,8 +27,6 @@ private[idu] object InstM:
     val REMW = RVInst("REMW", rType("0000001", "110", "0111011"), None, div(DivOp.Remw))
     val REMUW = RVInst("REMUW", rType("0000001", "111", "0111011"), None, div(DivOp.Remuw))
 
-    /** The table order for one register width: the base block, then the word forms when the registers are 64 bits wide.
-      */
     def rows(xlen: Xlen): Seq[RVInst] =
         val word =
             if xlen == Xlen.Rv64 then Seq(MULW, DIVW, DIVUW, REMW, REMUW)

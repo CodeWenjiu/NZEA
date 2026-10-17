@@ -1,18 +1,11 @@
-//! Shared event-engine entry point.
+//! Shared event-engine entry point: [`compile`] (parse → event-name
+//! normalization → stdlib check/desugar) and [`eval_matches`] (compile +
+//! evaluate over a cycle window, returning tick-domain matches).
 //!
-//! One expression pipeline serves every consumer: `property` (`--eval` and
-//! `--sample` expressions), `plot --mark`, `diff --eval`, and
-//! `value --at match(...)`. It is deliberately two functions:
-//!
-//! - [`compile`] — parse → event-name normalization → stdlib check/desugar.
-//!   Callers that need the AST itself (property collects signal references
-//!   from it, and evaluates `--sample` expressions against it) use this.
-//! - [`eval_matches`] — compile + evaluate over a cycle window, returning
-//!   tick-domain matches. Callers that only want match points use this.
-//!
-//! Keeping both here means there is exactly one place that knows how an
-//! expression string becomes an executable AST, and exactly one place that
-//! knows how to run it against a waveform.
+//! One expression pipeline serves every consumer (`property` `--eval`/`--sample`,
+//! `plot --mark`, `diff --eval`, `value --at match(...)`), so there is exactly
+//! one place that knows how an expression string becomes an executable AST and
+//! one place that runs it against a waveform.
 
 use std::collections::BTreeMap;
 
@@ -23,8 +16,6 @@ use crate::WaveError;
 
 use super::property::expr::ast::Expr;
 
-/// Parse, normalize event-set references, validate stdlib calls, desugar.
-///
 /// `events` maps qualified event names (`set.name`) to their definitions;
 /// pass an empty map (with `ns = ""`) for plain expressions. `ns` selects the
 /// namespace used to qualify bare signal names during normalization.
@@ -56,8 +47,8 @@ pub(crate) fn eval_matches(
 }
 
 /// Evaluate an already-compiled AST over a window (the second half of
-/// [`eval_matches`]; exposed so callers like `property` that hold a compiled
-/// AST — and its signal closures — don't compile twice).
+/// [`eval_matches`]); exposed so callers that hold a compiled AST — and its
+/// signal closures — don't compile twice.
 pub(crate) fn eval_ast(
     wav: &wellen::simple::Waveform,
     win: &[(usize, u64)],

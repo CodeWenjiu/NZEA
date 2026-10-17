@@ -1,16 +1,14 @@
 package nzea_rtl
 
 /** Test helper: elaborate a generator through the real flow and lower it to Verilog, then read the result structurally.
-  *
-  * The flow itself is [[nzea_rtl.Elaborate]]'s — the same one the dump recipe runs — so a test that elaborates is
-  * exercising the build path, not a copy of it.
+  * The flow is [[nzea_rtl.Elaborate]]'s — the same one the dump recipe runs — so a test that elaborates exercises the build
+  * path, not a copy of it.
   */
 object TestFlow:
 
     /** firtool flags the tests lower with: packed arrays and `always_comb` are what the synthesis flows refuse. */
     val loweringOptions: Seq[String] = Seq("--lowering-options=disallowPackedArrays,noAlwaysComb")
 
-    /** Run `writeConfig` then `design`, link every module the design produced, and lower the top to Verilog. */
     def lower(moduleName: String, writeConfig: os.Path => Unit, design: os.Path => Unit): String =
         val scratch = os.temp.dir(prefix = "nzea-elab")
         try Elaborate.withLinked(moduleName, scratch, writeConfig, design)(Elaborate.verilog(_, loweringOptions))

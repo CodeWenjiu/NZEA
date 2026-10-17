@@ -4,7 +4,6 @@ use wellen::{Item, ItemRef};
 
 use crate::WaveError;
 
-/// Return the single top-level scope name. Errors if there are zero or multiple.
 pub(super) fn top_scope(h: &wellen::Hierarchy) -> Result<String, WaveError> {
     let scopes: Vec<String> = h
         .items()
@@ -26,17 +25,15 @@ pub(super) fn top_scope(h: &wellen::Hierarchy) -> Result<String, WaveError> {
     }
 }
 
-/// Walk the hierarchy looking for a scope matching a dot-separated path.
 pub(super) fn find_scope(h: &wellen::Hierarchy, path: &str) -> Option<wellen::ScopeRef> {
     let parts: Vec<&str> = path.split('.').collect();
     find_scope_inner(h, h.items(), &parts, 0)
 }
 
-/// Resolve a scope path to a `ScopeRef`, either by exact dot-path or, when
-/// the path contains `*`, by a glob pattern that must match **exactly one**
-/// scope in the whole hierarchy. This keeps scope references robust against
-/// hierarchy changes (tile-level vs. core-level dumps) without hardcoding
-/// paths.
+/// Resolve a scope path to a `ScopeRef`, either by exact dot-path or, when the
+/// path contains `*`, by a glob pattern that must match **exactly one** scope
+/// in the whole hierarchy — scope references then survive hierarchy changes
+/// (tile-level vs. core-level dumps) without hardcoding paths.
 pub(super) fn find_scope_unique(
     h: &wellen::Hierarchy,
     path: &str,
@@ -91,10 +88,6 @@ fn collect_scope_paths(
 }
 
 /// Glob match supporting `*` (any run of characters) only.
-///
-/// The pattern is split on `*`; the first segment must match the string
-/// prefix, the last non-empty segment must match the suffix, and every
-/// intermediate segment must appear in order.
 fn glob_match(pattern: &str, s: &str) -> bool {
     let mut segments = pattern.split('*').peekable();
     let first = segments.next().unwrap_or("");
@@ -107,7 +100,6 @@ fn glob_match(pattern: &str, s: &str) -> bool {
             continue; // consecutive or trailing '*' — no constraint
         }
         if segments.peek().is_none() {
-            // Final segment: must anchor the end of the string.
             return rest.ends_with(seg);
         }
         match rest.find(seg) {
@@ -142,8 +134,6 @@ fn find_scope_inner(
     None
 }
 
-/// Resolve signal names in a scope to their `SignalRef`s.
-/// Errors if the scope is missing or any requested signal is not found.
 pub(crate) fn resolve_signals(
     h: &wellen::Hierarchy,
     scope_path: &str,
@@ -177,10 +167,6 @@ pub(crate) fn resolve_signals(
     Ok(map)
 }
 
-/// Resolve `names` in `scope_path` and load their signal data into the
-/// waveform in one step — the shared entry every command's sampling path
-/// goes through (`value`, `plot`/`diff` via `prepare_wave`, `property`'s
-/// main scope).
 pub(crate) fn resolve_and_load(
     wav: &mut wellen::simple::Waveform,
     scope_path: &str,

@@ -11,14 +11,13 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 /** A field encoding: `lit` is the code a hardware field carries for one variant.
   *
   * The DSL has no enum type, so an encoding is a plain Scala 3 `enum` used as the compile-time constant table and the
-  * field itself stays a `UInt`. Consumers therefore compare against literals instead of matching on a typed value; the
-  * win is that decode, the execution units and any host-side tool all read one definition.
+  * field itself stays a `UInt`: consumers compare against literals instead of matching on a typed value, and decode, the
+  * execution units and any host-side tool read one definition.
   */
 trait Encoding:
     def lit: Int
 
 object Encoding:
-    /** Field width for an encoding: the bits the largest code needs. */
     def width(codes: IterableOnce[Encoding]): Int = log2Ceil(codes.iterator.map(_.lit).max + 1)
 
     /** Take one code out of a wider field: consumers of a shared field only ever look at its low bits, which is what
@@ -53,9 +52,9 @@ object Encoding:
 
     /** An encoding whose codes are one bit per variant, in declaration order: bit `i` names the `i`-th case.
       *
-      * Deriving the code means it cannot drift from the declaration order, which is what a one-hot select depends on:
-      * `mux1H` maps bit `i` to variant `i`, and [[Encoding.width]] reads the largest code. Reordering the cases
-      * therefore changes the encoding — an internal encoding, not an ABI. Up to 31 variants (the code is an `Int`).
+      * Deriving the code means it cannot drift from the declaration order, which is what a one-hot select depends on
+      * (`mux1H` bit `i` to variant `i`). Reordering the cases therefore changes the encoding — an internal encoding, not
+      * an ABI. Up to 31 variants (the code is an `Int`).
       */
     trait OneHot extends Encoding:
         self: scala.reflect.Enum =>
@@ -70,9 +69,9 @@ object Encoding:
       * host side that composes the value, [[apply]] on the hardware side that reads it back.
       *
       * Fields are low-anchored, so a column's offset is stable however wide the shared field grows, and two columns
-      * compose with `|` because they never overlap. A declared field is never a bare column: a [[Union]] derives its
-      * columns from its cases and an [[Aggregate]] from its fields. What is left here is the layout that follows data
-      * instead of a declaration — the [[PlaPlan]]'s table list — so it stays package-private.
+      * compose with `|` because they never overlap. A declared field is never a bare column (a [[Union]] derives its
+      * columns from its cases, an [[Aggregate]] from its fields); what is left for a bare column is the layout that
+      * follows data instead of a declaration — the [[PlaPlan]]'s table list — so it stays package-private.
       */
     private[stdlib] case class Column(offset: Int, width: Int):
 
@@ -81,9 +80,7 @@ object Encoding:
             s"Column expects offset >= 0 and width >= 1, got offset $offset width $width"
         )
 
-        /** One past this column's last bit: the next column's offset, and the field length once this is the last
-          * column.
-          */
+        /** One past this column's last bit: the next column's offset. */
         def end: Int = offset + width
 
         /** This column's contribution to a composed field value (the composing side). */
@@ -102,13 +99,10 @@ object Encoding:
 
     /** An encoding that unions other encodings: one case per child, each case carrying the child's code.
       *
-      * The hardware field is the payload low-anchored with the case's ordinal above it, so reading either column back
-      * is a slice (see [[UnionSet]]) — a union names a layout, it costs no logic. All children share one payload
-      * column, which is sound because a value belongs to exactly one case and the case says which encoding the payload
-      * is in.
-      *
-      * How wide that column has to be is the case's own answer, asked with the configuration: a child whose members
-      * come and go with the ISA (an op set with 64-bit word forms, say) moves the payload column with it.
+      * The hardware field is the payload low-anchored with the case's ordinal above it, so reading either column back is
+      * a slice (see [[UnionSet]]) — a union names a layout, it costs no logic. All children share one payload column,
+      * which is sound because a value belongs to exactly one case and the case says which encoding the payload is in; how
+      * wide that column has to be is the case's own answer under the configuration.
       */
     trait Union[Config]:
         /** This case's payload: the child encoding whose code the payload column carries. */
@@ -119,10 +113,9 @@ object Encoding:
 
     /** The settable side's constructor: the cases a configuration keeps, in declaration order, for one configuration.
       *
-      * What an absent case does is the whole point: it takes its tag code with it, the cases above it close up, and the
-      * field is as wide as the configuration needs — no holes for a caller to fill with width arithmetic. The condition
-      * is asked of the variant (`exists`), which is what keeps the configuration fact where the case is declared. The
-      * configuration is carried along, because the payload column's width is a question the cases answer with it.
+      * An absent case takes its tag code with it, the cases above it close up, and the field is as wide as the
+      * configuration needs — no holes for a caller to fill with width arithmetic. The condition is asked of the variant
+      * (`exists`), which keeps the configuration fact where the case is declared.
       */
     object UnionSet:
 
@@ -132,13 +125,9 @@ object Encoding:
                 val config: C = built
                 val cases: Seq[U] = all.filter(exists).sortBy(_.ordinal)
 
-    /** The settable side of a [[Union]]: the case list it lays out, and everything derived from it.
-      *
-      * The cases are the union's declaration — one representative per case — and they can be built per configuration: a
-      * case that is not built takes its tag code with it instead of leaving a hole ([[UnionSet.of]]). They also decide
-      * the layout: the payload column is as wide as the widest child under this configuration ([[Union.childWidth]]),
-      * the tag column as wide as the case count needs, and `lit` puts a case's code where those columns say. Nothing
-      * outside this trait knows an offset.
+    /** The settable side of a [[Union]]: the case list it lays out, and everything derived from it — the payload column
+      * as wide as the widest child under this configuration ([[Union.childWidth]]), the tag column as wide as the case
+      * count needs, and `lit` putting a case's code where those columns say. Nothing outside this trait knows an offset.
       */
     trait UnionSet[U <: Union[C] & scala.reflect.Enum, C]:
         /** One case instance per variant, in tag order; the payload is a representative, only the case matters. */
@@ -211,8 +200,7 @@ object Encoding:
           *
           * `entries` names every case in the order the mux is built — the first is the default and the rest are its
           * tests, which only decides the mux's shape: the tags are mutually exclusive, so the order never changes the
-          * function. Each handler takes its case's payload column, which is how a unit reads its own op code out of the
-          * shared field.
+          * function. Each handler takes its case's payload column.
           */
         final def dispatch[T <: Data](u: Referable[UInt])(entries: (U, Node[UInt] => Referable[T])*)(using
             Arena,
@@ -231,8 +219,7 @@ object Encoding:
       *
       * The counterpart of [[Union]]: a union's cases are alternatives that share one payload column, an aggregate's
       * fields are simultaneous values that each get one (a pc and an epoch, an address and a length). Like a union it
-      * derives its columns from the declaration, so a caller states neither an offset nor a width, and reading a field
-      * is a slice.
+      * derives its columns from the declaration, so a caller states neither an offset nor a width.
       */
     trait Aggregate:
         /** The fields in column order, low to high: the name a reader asks for, and the bits it occupies. */
@@ -301,9 +288,10 @@ trait OneHotSet[E <: Encoding.OneHot & scala.reflect.Enum]:
 
 object OneHotSet:
 
-    /** The settable side's constructor: the members a configuration keeps, in declaration order. A member that is not
-      * kept keeps its code — the codes come from the declaration — so only a trailing block of members can be gated
-      * without moving the ones before it.
+    /** The settable side's constructor: the members a configuration keeps, in declaration order.
+      *
+      * A member that is not kept keeps its code — the codes come from the declaration — so only a trailing block of
+      * members can be gated without moving the ones before it.
       */
     def of[E <: Encoding.OneHot & scala.reflect.Enum](all: Seq[E])(exists: E => Boolean): OneHotSet[E] =
         new OneHotSet[E]:

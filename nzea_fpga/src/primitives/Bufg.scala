@@ -9,7 +9,6 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.{DumpRegistry, FileList}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** No configuration: a global clock buffer is one primitive. */
 case class BufgParameter() extends Parameter
 
 given upickle.default.ReadWriter[BufgParameter] = upickle.default.macroRW
@@ -17,7 +16,6 @@ given upickle.default.ReadWriter[BufgParameter] = upickle.default.macroRW
 class BufgLayers(parameter: BufgParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The buffer's ports: what goes in, and the global clock that comes out. */
 class BufgIO(parameter: BufgParameter) extends HWBundle(parameter):
     val I = Flipped(Clock())
     val O = Aligned(Clock())
@@ -26,7 +24,7 @@ class BufgProbe(parameter: BufgParameter) extends DVBundle[BufgParameter, BufgLa
 
 case class BufgVerilogParameter() extends VerilogParameter
 
-/** The wrapper the RTL names: one module, whose body is the primitive. */
+/** The wrapper the RTL names: one module whose body is the primitive, under the name synthesis knows it by. */
 @generator
 object BufgModule extends VerilogWrapper[BufgParameter, BufgLayers, BufgIO, BufgProbe, BufgVerilogParameter]:
 
@@ -38,20 +36,17 @@ object BufgModule extends VerilogWrapper[BufgParameter, BufgLayers, BufgIO, Bufg
 
 /** The device's global clock buffer, as a module the dump carries beside the RTL.
   *
-  * A clock that reaches the fabric from a wire is a wire: the router treats it as one, and a tool inserts the buffer it
-  * thinks it needs, where it decides to. This states that the clock *is* global — one buffer, and what hangs on it a
-  * clock net — which also keeps that buffer off the paths that must not have one: a clock generator's input wants the
-  * IO buffer's own path (its compensation is about that delay), and a PLL fed through the tool's own buffer fails the
-  * IO-clock DRC (verified: `REQP-1712`, before this buffer existed).
+  * A clock that reaches the fabric from a wire is a wire: the router treats it as one and inserts the buffer it thinks
+  * it needs, where it decides to — this states that the clock *is* global. It also keeps that buffer off the paths that
+  * must not have one: a clock generator's input wants the IO buffer's own path (its compensation is about that delay),
+  * and a PLL fed through the tool's own buffer fails the IO-clock DRC (verified: `REQP-1712`).
   */
 object Bufg:
 
-    /** Whether this elaboration instantiated one; cleared with the rest of a dump's state. */
     private var used = false
 
     DumpRegistry.onReset(() => used = false)
 
-    /** The body: the primitive, under the name synthesis knows it by. */
     def verilog(parameter: BufgParameter): String =
         s"""module ${BufgModule.moduleName(parameter)}(
            |  input I,
@@ -61,7 +56,6 @@ object Bufg:
            |endmodule
            |""".stripMargin
 
-    /** Write the body into `dir` and add it to its file list. */
     def emitModules(dir: os.Path): Unit =
         if used then
             os.makeDir.all(dir)
@@ -69,7 +63,6 @@ object Bufg:
             os.write.over(dir / name, verilog(BufgParameter()))
             FileList.append(dir, Seq(name))
 
-    /** Instantiate the buffer, recording that the dump has to write its body. */
     def instantiate(parameter: BufgParameter)(using
         Arena,
         Context,

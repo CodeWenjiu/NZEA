@@ -46,10 +46,8 @@ private object ClocksProbe extends Generator[ClocksProbeParameter, ClocksProbeLa
                 val clockingWizard = Clocks.materialize(50.0, io.oscillator, io.reset)
             case _ =>
                 val a = Clocks.clock(ClockOut(200.0, 0.0))
-                // The same key is the same grid: a second ask is the first ask's wire, not a second one.
                 assert(Clocks.clock(ClockOut(200.0, 0.0)) eq a)
                 val b = Clocks.clock(ClockOut(400.0, 90.0))
-                // The plan is the asks in order, and the names a constraint would spell come from it.
                 assert(Clocks.planned == Seq(ClockOut(200.0, 0.0), ClockOut(400.0, 90.0)))
                 assert(Clocks.outputName(ClockOut(200.0, 0.0)) == s"clk_out1_${Clocks.ipName}")
                 assert(Clocks.outputName(ClockOut(400.0, 90.0)) == s"clk_out2_${Clocks.ipName}")
@@ -57,9 +55,9 @@ private object ClocksProbe extends Generator[ClocksProbeParameter, ClocksProbeLa
                 io.a := a
                 io.b := b
 
-/** What the clock registry promises, pinned where a design would see it: one wire per grid however often it is asked
-  * for, one wizard for them all, the plan the asks state, and the two asks that are refused instead of built (the
-  * oscillator's own rate — the buffered pin is that clock — and a plan past one primitive's outputs).
+/** What [[Clocks]] promises, pinned where a design would see it: one wire per grid however often it is asked for, one
+  * wizard for them all, the plan the asks state, and the two asks that are refused instead of built (the oscillator's
+  * own rate, and a plan past one primitive's outputs).
   */
 object ClocksProbeTest extends TestSuite:
 
@@ -84,9 +82,7 @@ object ClocksProbeTest extends TestSuite:
         test("one wire per grid, one wizard for them, and the names the plan gives them"):
             val sv = elaborate(0)(Elaborate.verilog(_, TestFlow.loweringOptions))
             println(s"--- clocks probe ---\n$sv\n--- probe end ---")
-            // One wizard, its port list the plan's own order: two grids asked for, two outputs.
             assert(sv.split(s"${Clocks.ipName} clockingWizard").length - 1 == 1)
-            // Both asks are the same wire, so the two uses read one net: the merge is what the key means.
             assert(sv.contains(".clk_out1 (a)"))
             assert(sv.contains(".clk_out2 (b)"))
 

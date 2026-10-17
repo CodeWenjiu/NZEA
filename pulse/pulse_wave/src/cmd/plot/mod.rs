@@ -3,11 +3,8 @@
 //! Samples signal values per cycle (posedges of `clock`, or every time-table
 //! entry when the scope has no clock — same convention as `property`) and
 //! renders a step waveform with optional event mark lines (`--mark EXPR`,
-//! repeatable, same expression language as `--eval`).
-//!
-//! The wave-preparation helpers here (`prepare_wave`, `sample`,
-//! `eval_matches`) are shared with `pulse diff`, which compares two waveforms
-//! under the same cycle/clock convention.
+//! repeatable, same expression language as `--eval`). The preparation helpers
+//! here (`prepare_wave`, `sample`) are shared with `pulse diff`.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -23,25 +20,21 @@ pub(crate) use self::svg::Val;
 
 /// Resolved signals + full cycle list for one waveform (shared by plot/diff).
 pub(crate) struct PreparedWave {
-    /// Requested signals, by name (same order-independent map as `value`).
+    /// Alphabetical order (BTreeMap), not the order the signals were requested
+    /// in.
     pub name_to_sref: BTreeMap<String, wellen::SignalRef>,
-    /// Full cycle list: posedges of `clock`, or every time-table entry when
-    /// the scope has no clock (ILA exports).
     pub cycles: Vec<(usize, u64)>,
 }
 
-/// Resolve `signal_names` in `scope_path`, detect the clock, load the signal
-/// data and build the cycle list. `--cycles` windows are sliced from `cycles`
-/// by the caller.
+/// Resolve and load `signal_names` in `scope_path`, then build the cycle list;
+/// `--cycles` windows are sliced from `cycles` by the caller.
 pub(crate) fn prepare_wave(
     wav: &mut wellen::simple::Waveform,
     scope_path: &str,
     signal_names: &[String],
 ) -> Result<PreparedWave, WaveError> {
-    // Scope + signal resolution and load (same entry as `value`).
     let name_to_sref = crate::cmd::hierarchy::resolve_and_load(wav, scope_path, signal_names)?;
 
-    // Cycle list: posedges of `clock`, or every tt entry (no clock).
     let cycles = crate::cycle::build_cycles(wav, scope_path, Some("clock"), false)?;
 
     Ok(PreparedWave {
@@ -50,12 +43,8 @@ pub(crate) fn prepare_wave(
     })
 }
 
-/// Slice the full cycle list per `--cycles` (same window semantics as
-/// `property`/`plot`/`value`). Errors on an empty window.
 pub(crate) use crate::cycle::slice_cycles;
 
-/// Classify a signal sample into a plot/diff value (thin wrapper over the
-/// shared [`crate::read::classify`]).
 pub(crate) fn sample(sig: &wellen::Signal, tt_idx: u32) -> Val {
     use crate::read::SignalValue;
     match crate::read::classify(sig, tt_idx) {
@@ -86,13 +75,11 @@ impl crate::Pulse {
             })
             .collect();
 
-        // Sample every requested signal per cycle.
         let samples: Vec<Vec<Val>> = signals
             .iter()
             .map(|sig| win.iter().map(|&(ti, _)| sample(sig, ti as u32)).collect())
             .collect();
 
-        // Mark expressions → cycle-index ranges (shared engine pipeline).
         let mut mark_data: Vec<(String, Vec<SerdeRange<u64>>)> = Vec::new();
         for expr in marks {
             let matches = crate::cmd::engine::eval_matches(
@@ -132,7 +119,7 @@ impl crate::Pulse {
                     path.display(),
                     win.len(),
                     signal_names.len(),
-                    // svg viewBox width/height: recompute cheaply from layout.
+                    // svg viewBox width/height, recomputed cheaply from layout.
                     layout_size(win.len(), signal_names.len()).0,
                     layout_size(win.len(), signal_names.len()).1,
                 );

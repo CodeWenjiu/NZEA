@@ -10,10 +10,9 @@ import nzea_rtl.bus.*
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** What the refill engine needs to know: the bus's widths, the line's shape on it, and how many beats may be in flight.
-  * `outstanding` is the fabric's per-slave depth — the engine never puts more on the bus than the fabric can hold — and
-  * the beats of one line are issued back to back up to it, so a refill costs the latency plus the beats, not the
-  * latency per beat.
+/** `outstanding` is the fabric's per-slave depth — the engine never puts more on the bus than the fabric can hold — and
+  * the beats of one line are issued back to back up to it, so a refill costs the latency plus the beats, not the latency
+  * per beat.
   */
 case class CacheRefillParameter(
     addrWidth: Int,
@@ -48,7 +47,6 @@ class CacheRefillIO(parameter: CacheRefillParameter) extends HWBundle(parameter)
     val startAddr = Flipped(UInt(parameter.addrWidth))
     val startUncached = Flipped(Bool())
 
-    /** The memory side. */
     val bottom =
         Aligned(new LiteBusRW(parameter.addrWidth, parameter.dataWidth, parameter.userWidth, parameter.idWidth))
 
@@ -63,22 +61,21 @@ class CacheRefillIO(parameter: CacheRefillParameter) extends HWBundle(parameter)
     val received = Aligned(UInt(cntW))
     val line = Aligned(UInt(parameter.lineBeats * parameter.dataWidth))
 
-    /** The line is installed this cycle: the cache writes it back and touches its replacement state. */
     val install = Aligned(Bool())
 
 class CacheRefillProbe(parameter: CacheRefillParameter)
     extends DVBundle[CacheRefillParameter, CacheRefillLayers](parameter)
 
 /** The line a miss needs, off the memory bus: beats issued back to back and collected in order, assembled into one
-  * line. The engine knows nothing of tags, sets or ways — the cache serves the miss from the beats as they arrive
-  * (`lineAddr`/`received`/`line`), installs the assembled line when it is complete, and answers no one itself — so the
-  * I- and D-caches share it. An uncached miss is the same stream with one beat and no install.
+  * line. The engine knows nothing of tags, sets or ways — the cache serves the miss from the beats as they arrive and
+  * installs the assembled line when it is complete — so the I- and D-caches share it. An uncached miss is the same
+  * stream with one beat and no install.
   */
 @generator
 object CacheRefill extends Generator[CacheRefillParameter, CacheRefillLayers, CacheRefillIO, CacheRefillProbe]:
 
     /** The module is named by its whole shape — the engine is the body — so two caches share one engine only when every
-      * width of it matches; the framework elaborates one module per distinct parameter, and the name has to be as
+      * width of it matches: the framework elaborates one module per distinct parameter, and the name has to be as
       * distinct as the parameter is.
       */
     override def moduleName(parameter: CacheRefillParameter): String =

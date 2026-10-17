@@ -134,7 +134,6 @@ fn main() {
     }
 }
 
-/// Resolve the port argument: empty string → auto-discover the board UART.
 fn resolve_port(port: &str) -> io::Result<String> {
     if port.is_empty() {
         serial::find_serial_port()
@@ -210,7 +209,6 @@ fn run_monitor(port: &str, baud: u32, reset: bool, hex: bool) -> io::Result<()> 
     }
 }
 
-/// Send a program frame, wait for it to drain, then read the response window.
 fn send_and_readback(
     port: &str,
     baud: u32,
@@ -259,7 +257,8 @@ fn memread_words(addr: u32) -> Result<Vec<u32>, String> {
     asm2hex::assemble_words(&format!("{src}\n{}", asm2hex::COMMON_S), 0x8000_0000)
 }
 
-/// Accepts `0x...` hex (the expected DDR-address form) or plain decimal.
+/// Parse an address: hex with or without a `0x` prefix (the expected
+/// DDR-address form); only a value that is not valid hex falls back to decimal.
 fn parse_addr(s: &str) -> io::Result<u32> {
     let s = s.trim().trim_start_matches("0x").trim_start_matches("0X");
     u32::from_str_radix(s, 16)
@@ -282,7 +281,8 @@ fn run_memread(addr: u32, port: &str, baud: u32, read_ms: u64) -> io::Result<()>
     send_and_readback(&port, baud, 0, &words, read_ms)
 }
 
-/// Read whatever arrives within `window`, then print it: text if printable, else big-endian words.
+/// Read whatever arrives within `window`, then print it: as text if printable,
+/// else as big-endian words.
 fn readback(ser: &mut Serial, window: Duration) -> io::Result<()> {
     let deadline = Instant::now() + window;
     let mut buf = Vec::new();
@@ -314,7 +314,8 @@ fn readback(ser: &mut Serial, window: Duration) -> io::Result<()> {
     Ok(())
 }
 
-/// Rename VCD identifiers via a probe map, e.g. `probe vcd-rename ila_probes.map capture.vcd out.vcd`.
+/// Rename VCD identifiers via a probe map, e.g.
+/// `probe vcd-rename ila_probes.map capture.vcd out.vcd`.
 fn run_vcd_rename(map: &Path, input: &Path, output: &Path) -> io::Result<()> {
     let entries = vcd::load_map(map)
         .map_err(|e| io::Error::new(e.kind(), format!("reading {}: {e}", map.display())))?;
@@ -332,7 +333,6 @@ fn run_vcd_rename(map: &Path, input: &Path, output: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Local wallclock `HH:MM:SS.mmm` prefix for monitor output.
 fn timestamp() -> String {
     let now = std::time::SystemTime::now();
     let epoch = now

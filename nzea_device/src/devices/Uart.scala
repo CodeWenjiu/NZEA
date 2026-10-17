@@ -43,7 +43,6 @@ class UartProbe(parameter: UartParameter) extends DVBundle[UartParameter, UartLa
 object Uart extends Generator[UartParameter, UartLayers, UartIO, UartProbe] with HasDpiBus:
     override def moduleName(parameter: UartParameter): String = "Uart"
 
-    /** The UART's register file: slow, and rarely touched. */
     override def timing: DeviceTiming = DeviceTimings.uart
 
     def architecture(parameter: UartParameter) =
@@ -60,5 +59,4 @@ object Uart extends Generator[UartParameter, UartLayers, UartIO, UartProbe] with
             parameter.userWidth,
             parameter.idWidth
         ):
-            // TODO: the UART's hardware is not ported; only the bridge flow's answer exists.
             require(false, "the UART has no hardware yet — only its bridge-flow answer is ported")

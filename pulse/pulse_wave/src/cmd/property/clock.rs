@@ -1,6 +1,5 @@
 use crate::WaveError;
 
-/// Parse "posedge <signal>" → signal name.
 pub(super) fn parse_clock(on: &str) -> Result<&str, WaveError> {
     let s = on.trim();
     let (edge, name) = s

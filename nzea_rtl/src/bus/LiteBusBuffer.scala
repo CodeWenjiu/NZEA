@@ -55,8 +55,7 @@ def bufferConnect[T <: HardwareDataType](
     InstanceContext
 ): Unit =
     // A flush is one cycle's event, and the buffer's state is what it drops: a request accepted this cycle never leaves
-    // the buffer's register, so it dies with the rest, and one already presented is withdrawn (`out.valid`) rather than
-    // sent to a fabric that would answer it.
+    // the buffer's register, so it dies with the rest, and one already presented is withdrawn (`out.valid`).
     val flushing = flush.getOrElse(false.B)
     policy match
         case BufferPolicy.Slice =>
@@ -72,7 +71,6 @@ def bufferConnect[T <: HardwareDataType](
             out.valid := valid & !flushing
             out.bits :<= bits
 
-            // Elastic: a handover when the consumer takes the held request, a fill when the producer fires.
             val fire = in.valid & ready
             when(flushing) {
                 valid := false.B
@@ -108,9 +106,8 @@ def bufferConnect[T <: HardwareDataType](
             out.bits :<= headBits
 
             // The four cases keep one request per cycle when the fabric drains every cycle: a push with the head empty
-            // lands in the head (whether or not the head is being taken), and a push with the head occupied lands in
-            // the tail; a pop shifts the tail into the head. A flush overrides all of them: what the buffer holds is a
-            // dead stream's.
+            // lands in the head (whether or not the head is being taken), and a push with the head occupied lands in the
+            // tail; a pop shifts the tail into the head. A flush overrides all of them.
             val inFire = in.valid & in.ready
             val outFire = out.valid & out.ready
             when(flushing) {
@@ -197,8 +194,7 @@ def responseConnect[T <: HardwareDataType](
     val empty = count === 0.U(cntW)
     val full = count === depth.U(cntW)
     in.ready := !full
-    // An answer that finds the buffer empty goes straight out; one that does not is deposited and delivered later. The
-    // pointers are what the two data muxes — the deposit's slot and the head's — are selected by.
+    // An answer that finds the buffer empty goes straight out; one that does not is deposited and delivered later.
     val bypass = in.valid & empty & out.ready
     out.valid := !empty | (in.valid & empty)
     out.bits :<= (empty ? (in.bits, (rdPtr ? (slot1, slot0))))

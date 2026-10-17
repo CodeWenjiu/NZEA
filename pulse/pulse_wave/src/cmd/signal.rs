@@ -9,7 +9,6 @@ use crate::WaveError;
 struct SignalInfo {
     name: String,
     width: u32,
-    /// Multi-bit vector (width > 1); 1-bit scalars render as plain 0/1.
     vector: bool,
 }
 

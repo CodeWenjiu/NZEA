@@ -11,30 +11,19 @@ import nzea_rtl.bus.{DeviceTiming, LiteBusRW, LiteBusTiming, LiteBusTimingParame
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** A bus device: it answers its read/write bus with its own hardware, or — in the bridge flow — with the simulator.
+/** A bus device: it answers its read/write bus with its own hardware, or — in the bridge flow — with the simulator,
+  * which is uniform across devices: forward the request to remu's `bus_read` / `bus_write`, which routes by address.
+  * The bridge answer carries the device's [[timing]] — the simulator answers in a cycle, and the timing sits between it
+  * and the port, so what a master sees is the device's simulated speed, not the answer's.
   *
-  * The DPI answer is uniform across every device: forward the request to remu's `bus_read` / `bus_write`, which routes
-  * by address. So the whole implementation lives here once, and a device only declares it mixes in [[HasDpiBus]] and
-  * hands [[answerBus]] its own logic — the flow branch and the DPI forward are the trait's, not the device's.
-  *
-  * The bridge answer carries the device's [[timing]]: the simulator answers in a cycle, and the timing sits between it
-  * and the port, so what a master sees is the device's simulated speed, not the answer's. A synthesis flow never reads
-  * the timing — it builds the device's hardware, whose speed is the macro's or the board's.
-  *
-  * `answerBus` is the device's entry point: in the bridge flow it drives `bus` from the simulator, otherwise it runs
-  * `hardware`. A device whose hardware-only outputs would be undriven in the bridge flow ties them off itself.
-  *
-  * A device with more than one hardware implementation writes its own `flow match` and calls [[bridgeAnswer]] for the
-  * bridge case: the rule stays here, once, and the device's match is the extension point.
+  * `answerBus` is the device's entry point; a device with more than one hardware implementation writes its own
+  * `flow match` and calls [[bridgeAnswer]] for the bridge case, and ties off its hardware-only outputs itself.
   */
 trait HasDpiBus:
 
-    /** This device's timing in the simulator. Every bus device states one — the bridge answer is where it is applied,
-      * so a device cannot quietly answer without it.
-      */
+    /** This device's timing in the simulator: the bridge answer is where it is applied. */
     def timing: DeviceTiming
 
-    /** Answer `bus`: the simulator in the bridge flow, the device's own `hardware` otherwise. */
     def answerBus(
         flow: RtlFlow,
         bus: Referable[LiteBusRW],
@@ -58,10 +47,8 @@ trait HasDpiBus:
         else hardware
 
     /** The simulator's answer, behind the device's timing: the forward below is one cycle, and [[LiteBusTiming]] wraps
-      * it, so a master sees the device's latency and jitter instead.
-      *
-      * The port and the timing module's `in` are both slave views of the same bus, so they are wired by direction here;
-      * `raw` is the plain wire the forward drives, in the slave convention the rest of this method reads.
+      * it, so a master sees the device's latency and jitter instead. The port and the timing module's `in` are both
+      * slave views of the same bus, so they are wired by direction here.
       */
     def bridgeAnswer(
         bus: Referable[LiteBusRW],

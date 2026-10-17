@@ -7,11 +7,10 @@ import nzea_rtl.stdlib.*
   *
   * One case per unit, each carrying that unit's op encoding; which of them the window actually carries is the
   * configuration's ([exists]/[set]), since a unit that is not built takes its tag code with it. The layout below the
-  * cases — the payload column and the case (tag) column above it — is the union's own business (`Encoding.UnionSet`),
-  * so this backend states neither an offset nor a width. The payload column is as wide as the widest unit's op set
-  * under the configuration ([childWidth]): an op set that grows with the ISA moves the column with it. Operands are not
-  * part of this window: the uop's slots carry them already resolved, and which slot a unit reads is this backend's own
-  * wiring.
+  * cases — the payload column and the case (tag) column above it — is the union's own business
+  * (`Encoding.UnionSet`), so this backend states neither an offset nor a width, and the payload column is as wide as
+  * the widest unit's op set under the configuration ([childWidth]). Operands are not part of this window: the uop's
+  * slots carry them already resolved.
   */
 enum IntOp extends Encoding.Union[Isa]:
     case Alu(payload: AluOp) extends IntOp
@@ -21,9 +20,8 @@ enum IntOp extends Encoding.Union[Isa]:
     case Sysu(payload: SysuOp) extends IntOp
 
     /** Whether this configuration has this case — the unit *and* the member the case carries. A unit's op set can gate
-      * its members on the ISA (the multiplier's word form), so a case is only as present as the member in it: a unit
-      * added without an answer does not go unnoticed either, since the compiler names the pattern the match would fail
-      * on, and [set] asks every declared case.
+      * its members on the ISA (the multiplier's word form), and [set] asks every declared case, so a unit added without
+      * an answer does not go unnoticed: the compiler names the pattern the match would fail on.
       */
     def exists(isa: Isa): Boolean = this match
         case Alu(op) => AluOp.set(isa).contains(op)
@@ -32,7 +30,6 @@ enum IntOp extends Encoding.Union[Isa]:
         case Div(op) => DivOp.set(isa).contains(op)
         case Sysu(_) => true
 
-    /** The bits this case needs in the payload column: its unit's op set under the configuration. */
     def childWidth(isa: Isa): Int = this match
         case Alu(_)  => AluOp.set(isa).width
         case Bru(_)  => BruOp.width

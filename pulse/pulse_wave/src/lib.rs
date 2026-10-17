@@ -4,12 +4,10 @@ use wellen::simple;
 pulse_macro::mod_flat!(command, cycle, error, radix, read, skill, time_spec, tree);
 pulse_macro::mod_pub!(cmd);
 
-/// Parse process arguments, exiting with clap's message (plus the quoting tip)
-/// on error.
-///
-/// The binary uses this instead of `Parser::parse` so that a mistyped batch
-/// line or CLI invocation points at the quoting rule rather than only at the
-/// stray token clap found.
+/// Parse process arguments, exiting with clap's message plus the quoting tip on
+/// error: the binary uses this instead of `Parser::parse` so that a mistyped
+/// batch line points at the quoting rule rather than only at the stray token
+/// clap found.
 pub fn parse_args() -> PulseCommand {
     match PulseCommand::try_parse() {
         Ok(cli) => cli,
@@ -22,10 +20,9 @@ pub fn parse_args() -> PulseCommand {
 ///
 /// wellen's FST reader `assert!`s on malformed blocks (typically the
 /// half-written tail of a dump whose writer was killed) instead of returning an
-/// error; the release profile therefore keeps `panic = "unwind"` so that a bad
-/// dump cannot abort the whole process. The panic hook is silenced while
-/// parsing — a broken file is not a pulse bug — but the payload text is kept in
-/// the error.
+/// error; the release profile therefore must keep `panic = "unwind"` so that a
+/// bad dump cannot abort the whole process. The hook is silenced while parsing
+/// but the payload text is kept in the error.
 pub fn load_waveform(path: &std::path::Path) -> Result<simple::Waveform, WaveError> {
     if !path.is_file() {
         return Err(WaveError::NotAFile {
@@ -43,8 +40,6 @@ pub fn load_waveform(path: &std::path::Path) -> Result<simple::Waveform, WaveErr
     }
 }
 
-/// Run `f`, returning the panic message as text instead of unwinding past the
-/// caller (the FST reader's malformed-block checks are `assert!`s).
 fn catch_unwind_quietly<T>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> Result<T, String> {
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
@@ -53,7 +48,6 @@ fn catch_unwind_quietly<T>(f: impl FnOnce() -> T + std::panic::UnwindSafe) -> Re
     r.map_err(|payload| panic_text(payload.as_ref()))
 }
 
-/// Text of a panic payload (`&str`/`String` payloads; a placeholder otherwise).
 fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
         (*s).to_string()
@@ -159,16 +153,15 @@ impl Pulse {
         }
     }
 
-    /// Execute one command per non-empty, non-comment script line, all on
-    /// this instance: the waveform is loaded once and every signal stays in
-    /// the cache, so repeated queries cost a fraction of the first.
+    /// Execute one command per script line, all on this instance: the waveform
+    /// is loaded once and every signal stays in the cache, so repeated queries
+    /// cost a fraction of the first.
     ///
     /// Command syntax is identical to the CLI (quotes group words); `--wave`
     /// is session-level and must not appear in lines. Inline `--json` is
     /// accepted and overrides the output format for that line only. Command
     /// echo goes to stderr so stdout stays pure output (NDJSON under
-    /// `--json`). Returns `false` when any command failed; without
-    /// `--keep-going` execution stops at the first failure.
+    /// `--json`).
     pub fn batch(&mut self, script: &str, keep_going: bool) -> Result<bool, WaveError> {
         let mut ok = true;
         for (lineno, raw) in script.lines().enumerate() {
@@ -188,8 +181,8 @@ impl Pulse {
                     continue;
                 }
             };
-            // Parse with the top-level command (lines carry a full subcommand
-            // invocation); --wave/--json are session-level and rejected below.
+            // Lines carry a full subcommand invocation, so parse with the
+            // top-level command.
             let matches = match PulseCommand::command()
                 .no_binary_name(true)
                 .try_get_matches_from(&tokens)
@@ -216,10 +209,8 @@ impl Pulse {
                     continue;
                 }
             };
-            // Reject --wave only when the line spells it out (the waveform is
-            // session-fixed; the session value may legitimately arrive via
-            // the NZEA_TRACE_FST env var). Inline --json is allowed and
-            // temporarily overrides the session output format for that line.
+            // Reject --wave only when the line spells it out: the session
+            // value may legitimately arrive via the NZEA_TRACE_FST env var.
             let wave_inline = matches!(
                 matches.value_source("wave"),
                 Some(clap::parser::ValueSource::CommandLine)
@@ -260,15 +251,12 @@ impl Pulse {
     }
 }
 
-/// Entry point for `pulse diff`: unlike every other command it needs TWO
-/// waveforms and therefore bypasses `Pulse::new` (which binds `--wave`).
-/// Dispatched from `pulse_cli/main.rs` before the single-wave path.
+/// Entry point for `pulse diff`: it needs TWO waveforms and therefore bypasses
+/// `Pulse::new` (which binds a single `--wave`).
 pub fn diff(json: bool, args: &crate::command::DiffArgs) -> Result<(), WaveError> {
     cmd::run_diff(json, args)
 }
 
-/// Read the batch script source: a file path, or stdin when the argument is
-/// `-` (the default).
 fn read_script(source: &str) -> Result<String, WaveError> {
     if source == "-" {
         let mut s = String::new();
@@ -280,8 +268,8 @@ fn read_script(source: &str) -> Result<String, WaveError> {
 }
 
 /// Split one script line into command tokens: whitespace separates words,
-/// single/double quotes group words (quote chars are consumed, contents
-/// kept verbatim; no escape processing — same quoting the CLI accepts).
+/// single/double quotes group words (quote chars consumed, contents kept
+/// verbatim; no escape processing).
 fn split_command(line: &str) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
     let mut cur = String::new();

@@ -16,13 +16,10 @@ import scala.collection.mutable
   */
 object FileList:
 
-    /** The dumps' SystemVerilog list, the name every simulator and synthesizer reads. */
     private val VerilogList = "filelist.f"
 
-    /** The vendor-IP snippet list. */
     val IpList = "ipfiles.f"
 
-    /** The IP simulation-source list. */
     val SimList = "simfiles.f"
 
     /** The constraint list: the xdc files a project generator reads, written by `nzea_fpga.XdcRegistry`. */

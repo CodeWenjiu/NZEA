@@ -6,11 +6,8 @@ import nzea_rtl.bus.AddrRange
 import nzea_rtl.bus.given
 import nzea_rtl.stat.StatScope
 
-/** What a cache needs to be built, the instruction and data caches alike: the bus's widths, the geometry, the windows
-  * it answers, and the flow and counter scope it is built for.
-  *
-  * One parameter for both, because the two differ in their policy — what their top port is, what a store does — and not
-  * in what they are built from: a flag surface, a set of requirements and a geometry are the same thing twice.
+/** What both caches are built from. The two differ in policy — what their top port is, what a store does — not in what
+  * they are made of.
   */
 case class CacheParameter(
     addrWidth: Int,

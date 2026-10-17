@@ -1,16 +1,16 @@
 // The first DDR3 scenario: bring the board's memory (the vendored Micron model, MT41K256M16TW-107) up through its
-// JEDEC initialisation and prove one write/read round trip. It drives the pins the way a controller must — there is
-// no controller yet, on purpose: this is the known-good reference sequence the controller will be measured against,
-// and the model's own timing checks are what validate it (500 us before CKE, tMRD/tMOD spacing, tZQinit, tRCD, tWR).
+// JEDEC initialisation and prove one write/read round trip. It drives the pins the way a controller must — there is no
+// controller yet, on purpose: this is the known-good reference sequence the controller will be measured against, and
+// the model's own timing checks are what validate it (500 us before CKE, tMRD/tMOD spacing, tZQinit, tRCD, tWR).
 //
-// The model's prints are the teeth: an `ERROR` line in the log is a violation. A clean run ends with the PASS line.
-// `-testplusarg dump` writes `Ddr3Smoke.vcd` (the whole device is dumped; it is small next to the board top).
+// The model's prints are the teeth: an `ERROR` line in the log is a violation. `-testplusarg dump` writes
+// `Ddr3Smoke.vcd` (the whole device is dumped; it is small next to the board top); a clean run ends with the PASS line.
 `timescale 1ps/1ps
 
 module Ddr3Smoke;
 
-  // 400 MHz memory clock (tCK = 2500 ps, DDR3-800): the rate the old MIG configuration ran, far inside the part's
-  // sg107 limit, and a comfortable rate to bring a controller up at.
+  // 400 MHz memory clock (tCK = 2500 ps, DDR3-800): far inside the part's sg107 limit, and a comfortable rate to
+  // bring a controller up at.
   localparam TCK = 2500;
   localparam UI  = TCK / 2;         // one data beat per half clock
 
@@ -63,8 +63,8 @@ module Ddr3Smoke;
       .odt     (odt)
   );
 
-  // Mirrors of the model's write accounting, read through the TB's own scope so the single `$dumpvars(1, Ddr3Smoke)`
-  // carries them: its DQS edge timestamps, its expectation/capture counters and the check windows.
+  // The model's write accounting, read through the TB's own scope so the single `$dumpvars(1, Ddr3Smoke)` carries them:
+  // its DQS edge timestamps, its expectation/capture counters and the check windows.
   wire [63:0] dbg_tm_dqs_pos0   = u_mem.tm_dqs_pos[0];
   wire [63:0] dbg_tm_dqs_neg0   = u_mem.tm_dqs_neg[0];
   wire [31:0] dbg_wdqs_cntr     = u_mem.wdqs_cntr;
@@ -84,8 +84,6 @@ module Ddr3Smoke;
 
   reg [15:0] wr_words [0:7];
   reg [15:0] rd_words [0:7];
-
-  // --- the commands: assert one for a clock, then deselect ------------------------------------------------
 
   task mrs(input [2:0] bank, input [14:0] value);
     begin
@@ -115,19 +113,15 @@ module Ddr3Smoke;
     end
   endtask
 
-  // A BL8 write: the command, then eight 16-bit beats on the UI grid, DQS crossing at each beat's centre (the
-  // model latches DQ on both DQS edges). The strobe train leads with a fall one UI ahead of the first beat: the
-  // model anchors the burst on that fall (its `WDQS_PRE` window wants a high-to-low edge before the first centre
-  // crossing), so DQS is held high through the preamble and the train opens by falling into it.
+  // A BL8 write: the command, then eight 16-bit beats on the UI grid, DQS crossing at each beat's centre (the model
+  // latches DQ on both DQS edges). The strobe train leads with a fall one UI ahead of the first beat: the model anchors
+  // the burst on that fall (its `WDQS_PRE` window wants a high-to-low edge before the first centre crossing), so DQS is
+  // held high through the preamble and the train opens by falling into it.
   task wr_burst(input [2:0] bank, input [9:0] col);
     integer k;
     begin
       @(negedge ck); cs_n = 1'b0; ras_n = 1'b1; cas_n = 1'b0; we_n = 1'b0; ba = bank; addr = {5'b0, col};
       @(negedge ck); cs_n = 1'b1; ras_n = 1'b1; cas_n = 1'b1; we_n = 1'b1;
-      // The command latched at the last rising edge. DQS idles high, then falls one UI before the first beat to
-      // open the preamble: that fall is the model's first expected latching edge. From there the train toggles at
-      // every beat centre — a rise on even beats, a fall on odd ones — and the final fall leaves DQS low for the
-      // postamble.
       @(posedge ck);
       dqs_oe = 1'b1; dqs_out = 2'b11;
       repeat (3) @(negedge ck);                       // mid-preamble
@@ -161,8 +155,6 @@ module Ddr3Smoke;
       end
     end
   endtask
-
-  // --- the scenario --------------------------------------------------------------------------------------
 
   integer k;
 

@@ -22,7 +22,6 @@ pub enum WaveError {
     #[error("not a readable waveform file: {path}")]
     NotAFile { path: String },
 
-    /// The waveform reader refused the file, or panicked while parsing it.
     /// `reason` is the reader's own text and `hint` the likely cause; both are
     /// printed because the reader's diagnostics alone are too terse to act on
     /// (e.g. "failed to load Fst: I/O operation failed").

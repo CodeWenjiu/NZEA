@@ -97,13 +97,9 @@ class CacheBankIO(parameter: CacheBankParameter) extends HWBundle(parameter):
 class CacheBankProbe(parameter: CacheBankParameter) extends DVBundle[CacheBankParameter, CacheBankLayers](parameter)
 
 /** The array side every cache shares: the line store, the refill engine, and the control that serves a miss from memory
-  * — the slot the stage's miss is recorded in, the install that writes the answered line back, and the replacement
-  * state that picks its way.
-  *
-  * It knows nothing of what a request is beyond its address: the cache hands it the stage's settling (a cacheable miss,
-  * a hit, the captured valids) and its own writes, and gets back the read, the answer and the engine's port. So an
-  * instruction cache — which never writes — ties the write port off, and a data cache shares it with its stores'
-  * updates, without either of them being a mode of this module.
+  * — the slot the stage's miss is recorded in, the install that writes the answered line back, and the replacement state
+  * that picks its way. It knows nothing of a request beyond its address, so an instruction cache ties the write port off
+  * and a data cache shares it with its stores' updates, without either of them being a mode of this module.
   */
 @generator
 object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBankIO, CacheBankProbe]:
@@ -149,12 +145,10 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
         refill.io.resetN := io.resetN
         val repl = new ReplacementState(c.sets, c.ways, c.replacement)
 
-        // ── The miss the engine is working on: what the install needs once it answers ──
         // The slot is written when the miss settles and stands until the engine takes it, so a miss settling in the
-        // same cycle the engine finishes the previous one is not lost. The engine takes the slot's shape at its start:
-        // a request of the line being filled is answered from the fill and moves on, so a later miss of another line
-        // may settle while the engine still runs — it records the *next* refill, and the running one's install must
-        // not read its shape.
+        // same cycle the engine finishes the previous one is not lost. The engine latches it at its start: a later miss
+        // (of another line) may settle while the engine still runs, recording the *next* refill — so the running
+        // install must not read this shape.
         val missPending = RegInit(false.B)
         val missAddr = Reg(UInt(aw))
         val missSet = Reg(UInt(idxBits))
@@ -162,13 +156,11 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
         val missWay = Reg(UInt(wayBits))
         val missCacheable = RegInit(false.B)
 
-        // The running refill's shape, latched at its start: what its install writes.
         val runSet = Reg(UInt(idxBits))
         val runTag = Reg(UInt(tagBits))
         val runWay = Reg(UInt(wayBits))
         val runCacheable = RegInit(false.B)
 
-        // ── The hit's replacement touch: registered, so the tree update starts a cycle after the compare ──
         val touchPending = RegInit(false.B)
         val touchSet = Reg(UInt(idxBits))
         val touchWay = Reg(UInt(wayBits))
@@ -177,15 +169,13 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
         val stageView = CacheLookup.addrOf(c, aw, parameter.dataWidth)(io.stageAddr)
         val freeWay = muxCase(0.U(wayBits), (0 until c.ways).map(w => (!io.vd.ref(w), w.U(wayBits))))
         val hasFree = (0 until c.ways).map(w => !io.vd.ref(w)).reduce(_ | _)
-        // The victim: a free way first, the replacement state only once the set is full.
+        // A free way first; the replacement state only once the set is full.
         val victim = hasFree ? (freeWay, repl.way(stageView.set))
 
-        // ── The fill: what the stage is served from while its line is still arriving ──
-        // The stage's request names the engine's active line — the line base, or the word itself when uncached — and the
-        // beat it wants; the answer is that beat's word, readable from the first response on, so a request captured
-        // before the install is answered from here instead of the stale row. The active line stands from its refill's
-        // start until the next one's; an uncached refill's stands only until its answer is taken, because the next
-        // access to the same address must go to memory again.
+        // The stage's request is matched against the engine's active line (the line base, or the word itself when
+        // uncached) and the beat it wants; that beat's word is readable from the first response on, so a request captured
+        // before the install is answered from here, not the stale row. A cacheable line stands until the next refill
+        // starts; an uncached one only until its answer is taken — the next access to the same address goes to memory.
         val cntW = log2Ceil(lineBeats + 1)
         val activeValid = RegInit(false.B)
         when(refill.io.start) {
@@ -202,7 +192,7 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
                 CacheLookup.wordAligned(c, parameter.dataWidth)(stageView)
             )
         val stageBeat = io.missCacheable ? (stageView.word, 0.U(wordOffBits))
-        // The request and the running refill are the same kind of access: both cacheable, or both uncached.
+        // A cacheable request matches only a cacheable refill, and an uncached one only an uncached.
         val sameKind = io.missCacheable ? (runCacheable, !runCacheable)
         val activeMatch = activeValid & sameKind & (refill.io.lineAddr === stageLine)
         val lineNode = Node(refill.io.line.asBits)
@@ -213,7 +203,6 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
             (0 until lineBeats).map(i => lineNode.bits(i * wordBits + wordBits - 1, i * wordBits).asUInt)
         )
 
-        // ── The engine ──
         // A miss is what it serves; a request outside the windows is the same stream with one beat, and the flag only
         // decides whether the line is installed.
         val missView = CacheLookup.addrOf(c, aw, parameter.dataWidth)(missAddr)
@@ -226,7 +215,6 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
         refill.io.startUncached := !missCacheable
         when(refill.io.start) { missPending := false.B }
 
-        // ── The storage's read: the head's set, live — the whole row per way ──
         val rdView = CacheLookup.addrOf(c, aw, parameter.dataWidth)(io.rdAddr)
         storage.io.rdSet := rdView.set
         storage.io.rdEn := io.rdEn
@@ -234,7 +222,6 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
         io.rdRows :<= storage.io.rdRows
         io.vdBits :<= storage.io.vdBits
 
-        // ── The storage's write: the engine's install and the cache's own updates share the port ──
         // They cannot collide — a miss and a store never occupy the cache's stage together — so the install only takes
         // priority. An uncached read installs nothing: its single beat is not a line, and a line it never becomes must
         // not evict one that is.
@@ -259,7 +246,6 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
         storage.io.dtWrVal := false.B
         when(install) { repl.touch(runSet, runWay) }
 
-        // ── The stage's decisions, once per request ──
         // A miss of the active line rides the fill: it neither waits for the engine nor is recorded — the slot already
         // holds the line's install, and a second record would refill the same line again once the engine freed.
         when(io.miss) {
@@ -279,6 +265,5 @@ object CacheBank extends Generator[CacheBankParameter, CacheBankLayers, CacheBan
         }.otherwise { touchPending := false.B }
         when(touchPending) { repl.touch(touchSet, touchWay) }
 
-        // ── The answer, and the memory side the cache shares with its own writes ──
         io.busy := refill.io.busy
         io.bottom :<>= refill.io.bottom

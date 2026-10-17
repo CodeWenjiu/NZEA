@@ -1,11 +1,6 @@
 #!/usr/bin/env nu
-# Yosys synthesis (yosys-sta style)
-# Reads build/<target>/<platform>/<isa>/*.sv from filelist.f, outputs to .../synth/
-#   - <NzeaCore|NzeaTile>.netlist.v (netlist)
-#   - synth_stat.txt (area/cell report, transistor estimate)
-#   - synth_check.txt (check report)
-#   - yosys.log (full log)
-# Prerequisite: just dump --flow yosys --target <core|tile> --isa <isa> (or mill nzea_cli.run ...)
+# Yosys synthesis of a dumped design: `filelist.f` beside the RTL in, `<design>.netlist.v`, synth_stat.txt,
+# synth_check.txt and yosys.log into the dump's `synth/` (dump first: `just dump --flow yosys --target <core|tile>`).
 
 def main [
   --isa: string = "riscv32i"

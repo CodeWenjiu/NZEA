@@ -15,24 +15,20 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *
   * The pc rides along so the fetcher reads back which fetch a response belongs to instead of keeping a table of
   * outstanding requests, and `next_pc` — the pc the fetch stream goes on with after the fetched instruction, the
-  * fetcher's prediction — rides with it for the same reason: the response hands the prediction back beside the
-  * instruction, so the pipeline never reconstructs it. `fall_through` — the instruction's own `pc + 4`, made at the
-  * fetch — rides beside it so no stage below rebuilds that adder. `pht_count` is the direction counter the prediction
-  * read ([[BpUpdate.pht_count]]): it is training evidence, and the fetch has to hand it back with the instruction or
-  * the back would have to read the table again at update time. The epoch is the generation of the fetch stream: it
-  * increments on every redirect, so a response from a killed stream is recognized and digested — the bus itself carries
-  * no cancellation.
+  * fetcher's prediction — so the response hands the prediction back beside the instruction. `fall_through` is the
+  * instruction's own `pc + 4`, made at the fetch so no stage below rebuilds that adder; `pht_count` is the direction
+  * counter the prediction read ([[BpUpdate.pht_count]]), handed back as training evidence so the back need not read the
+  * table again at update time.
   *
-  * `epochBits` must outlast the worst-case response latency measured in redirects: an epoch that wraps while a stale
-  * response is still in flight would let that response pass as current.
+  * The epoch is the generation of the fetch stream — it increments on every redirect, so a response from a killed
+  * stream is recognized — and the bus itself carries no cancellation. `epochBits` must outlast the worst-case response
+  * latency measured in redirects: an epoch that wraps while a stale response is still in flight would let that response
+  * pass as current.
   */
 object IbusUser:
 
     val epochBits: Int = 4
 
-    /** The user field for one address width: the epoch low-anchored, then the stream's next pc, the instruction's
-      * fall-through, the fetch's pc and the direction counter the prediction read.
-      */
     private final class Layout(addrWidth: Int) extends Encoding.Aggregate:
 
         val fields: Seq[(String, Int)] =
@@ -44,7 +40,6 @@ object IbusUser:
                 "pht_count" -> BpUpdate.phtCountBits
             )
 
-    /** Host-side, so one instance per call costs nothing; the layout is the declaration the accessors below read. */
     def layout(addrWidth: Int): Encoding.Aggregate = new Layout(addrWidth)
 
     def userWidth(addrWidth: Int): Int = layout(addrWidth).width

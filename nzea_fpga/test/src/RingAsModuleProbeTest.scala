@@ -11,9 +11,8 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.{Elaborate, TestFlow}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** The probe's own modules: their parameters are fresh in any JVM, and a generator dumps its module once per parameter
-  * per JVM — a module with parameters another suite has already elaborated is served from that dump, and there is then
-  * nothing left to link.
+/** The probe's own modules: a generator dumps its module once per parameter per JVM, so a parameter another suite has
+  * already elaborated would be served from that dump and leave nothing to link.
   */
 private case class ProbeParameter(marker: Int) extends Parameter
 
@@ -70,30 +69,22 @@ private object ProbeWrapper
     def verilogParameter(parameter: ProbeWrapperParameter): ProbeWrapperVerilogParameter =
         ProbeWrapperVerilogParameter()
 
-/** What the lowering does with a hand-written module of the circuit: what is emitted beside it, what it itself is.
-  *
-  * The question behind these probes: could a module whose body is text — a pad's I/O cells, say — be a module *of the
-  * circuit* (a `VerilogWrapper`, the shape every text-body module here has) instead of a file bolted on beside the
-  * dump? Three facts decided it, and this pins them:
+/** What the lowering does with a hand-written module of the circuit: could a module whose body is text — a pad's I/O
+  * cells, say — be a module *of the circuit* (a `VerilogWrapper`, the shape every text-body module here has) instead of
+  * a file bolted on beside the dump? Three facts decided it, and this pins them:
   *
   *   1. a module of the circuit that no instance points at is *not* pruned — it is lowered, dumped and listed like any
-  *      other, so a text-only module would survive a root whose reference to it is only text; 2. an extmodule (a
-  *      wrapper) as the *base* of the circuit lowers without complaint, and **no file is emitted for it** — an
-  *      `ExtModule` has no body, so the module's text and its file-list entry stay the writer's business, wrapper or
-  *      not ([[nzea_fpga.device.ddr3.Ddr3Pads]] does exactly that today); 3. a wrapper reaches a circuit only by being
-  *      *instantiated* (its own `main` is generated for a `Generator` and dies with a `ClassCastException`, so there is
-  *      no `design` step to elaborate one as a root on its own).
+  *      other, so a text-only module would survive a root whose reference to it is only text; 2. an extmodule (a wrapper) as
+  *      the *base* of the circuit lowers without complaint, and **no file is emitted for it** — an `ExtModule` has no
+  *      body, so the module's text and its file-list entry stay the writer's business
+  *      ([[nzea_fpga.device.ddr3.Ddr3Pads]] does exactly that); 3. a wrapper reaches a circuit only by being
+  *      *instantiated* (its own `main` is generated for a `Generator` and dies with a `ClassCastException`).
   *
-  * A root *wrapper* also needs typed pads, which is what `Analog` is for — and that is in zaozi's constructor surface
-  * now ([[me.jiuyang.zaozi.ConstructorApi]] has `Analog`, and `attach` is how such a net is joined to a pin:
-  * [[nzea_fpga.device.ddr3.Ddr3Pads]] is what that made possible — the DDR3 pads are the top's own ports). These probes
-  * are the first three facts; the fourth is the pads themselves.
+  * A root *wrapper* also needs typed pads, which is what `Analog` is for — and `attach` is how such a net is joined to a
+  * pin ([[nzea_fpga.device.ddr3.Ddr3Pads]] is what that made possible).
   */
 object RingAsModuleProbeTest extends TestSuite:
 
-    /** A dump of a two-module circuit: the modules it lowered to stdout, the files the split dump wrote, and its list.
-      * One elaboration per case, because a generator dumps its module once per parameter per JVM.
-      */
     private def dump(moduleName: String, writeConfig: os.Path => Unit, design: os.Path => Unit) =
         val scratch = os.temp.dir(prefix = "nzea-probe")
         try
@@ -124,7 +115,6 @@ object RingAsModuleProbeTest extends TestSuite:
                     cfg => Probe.main(Array("config", cfg.toString, "--marker", "1")),
                     cfg =>
                         Probe.main(Array("design", cfg.toString))
-                        // The sibling: the position a second module of the dump would be in.
                         Probe.main(Array("config", siblingConfig, "--marker", "2"))
                         Probe.main(Array("design", siblingConfig))
                 )
@@ -140,11 +130,9 @@ object RingAsModuleProbeTest extends TestSuite:
                 cfg => ProbeUser.main(Array("config", cfg.toString, "--marker", "12")),
                 cfg => ProbeUser.main(Array("design", cfg.toString))
             )
-            // The instance is what puts the wrapper's circuit in the dump — and the module beside it is dumped.
             assert(modules.contains("ProbeUser_12"))
             assert(files.contains("ProbeUser_12.sv"))
             assert(list.contains("ProbeUser_12.sv"))
-            // The extmodule itself has no body to emit: its text, and its entry in the list, are the writer's.
             assert(!files.contains(s"ProbeWrapper_11.sv"))
             assert(!list.contains(s"ProbeWrapper_11.sv"))
 

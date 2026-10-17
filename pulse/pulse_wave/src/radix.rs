@@ -1,5 +1,5 @@
-//! Shared radix rendering for multi-bit signal values (`--radix` on `value`,
-//! `--radix` on `property` for `--sample`).
+//! Shared radix rendering for multi-bit signal values (`--radix` on `value`
+//! and on `property`'s `--sample`).
 
 use crate::WaveError;
 
@@ -24,8 +24,6 @@ impl Radix {
         }
     }
 
-    /// Render an unsigned value with the requested radix, zero-padded to the
-    /// signal width (1 bit minimum).
     pub(crate) fn render(&self, width: usize, n: u64) -> String {
         match self {
             Radix::Bin => format!("{n:0width$b}", width = width.max(1)),

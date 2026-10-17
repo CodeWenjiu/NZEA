@@ -12,7 +12,7 @@ import nzea_core.isa.{CsrType, Gpr}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** One GPR read port as the reader sees it: the file's own read, and what this cycle's commit leaves on it — whether
+/** One GPR read port as the reader sees it: the file's own read, plus what this cycle's commit leaves on it — whether
   * the write port names the index, and the value the reader takes (the file's read, write-through).
   */
 class ArfPort(width: Int) extends Bundle:
@@ -20,9 +20,6 @@ class ArfPort(width: Int) extends Bundle:
     val data = Aligned(UInt(width))
     val commit_hit = Aligned(Bool())
 
-/** The CSR read side as the reader sees it: the address it names, the code the address maps to, and the same commit
-  * view the GPR ports carry.
-  */
 class CsrPort(width: Int) extends Bundle:
     val addr = Flipped(UInt(12))
     val code = Aligned(UInt(CsrType.width))
@@ -41,7 +38,6 @@ class RfIO(parameter: RfParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The commit's write faces: the two files', driven by the retire register. */
     val arf_write = Flipped(ValidIO(new ArfWrite(width)))
     val csr_write = Flipped(ValidIO(new CsrWrite(width)))
 
@@ -61,7 +57,7 @@ class RfProbe(parameter: RfParameter) extends DVBundle[RfParameter, RfLayers](pa
   *
   * The CSR's address maps to its code once, here: the reader names the address, the file reads by the code, and both
   * the reader and the commit compare codes. What is younger than the file — the completing instruction, the writers
-  * still in flight — is not this module's: the forward network offers those, and the reader resolves them.
+  * still in flight — is the forward network's, not this module's.
   */
 @generator
 object Rf extends Generator[RfParameter, RfLayers, RfIO, RfProbe]:
@@ -85,10 +81,6 @@ object Rf extends Generator[RfParameter, RfLayers, RfIO, RfProbe]:
         arf.io.write :<= io.arf_write
         csr.io.write :<= io.csr_write
 
-        /** One GPR port: the file answers its storage, and this level adds the commit's own write — the hit is the
-          * write port naming the port's index, and the value is the write-through, which is what makes the answer "the
-          * file plus its own cycle" in one read.
-          */
         def gpr(port: Referable[ArfPort], file: Referable[ArfReadPort]): Unit =
             file.index := port.index
             val hit =
@@ -100,9 +92,6 @@ object Rf extends Generator[RfParameter, RfLayers, RfIO, RfProbe]:
         gpr(io.arf_read.ref(0), arf.io.rs1)
         gpr(io.arf_read.ref(1), arf.io.rs2)
 
-        /** The CSR's port, the same shape in its own index space: the commit names the code the way the GPR ports name
-          * an index, and the write-through is the same.
-          */
         val code: Node[UInt] = CsrType.fromAddr(io.csr_read.addr)
         io.csr_read.code := code
         csr.io.read.code := code

@@ -8,10 +8,6 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** Small helpers the DSL does not ship. Named after the Chisel idioms the core was written with so ports stay
-  * recognisable; the ports themselves are not mechanical, so the names follow Scala conventions.
-  */
-
 /** `ceil(log2(x))`, `0` for `x <= 1`. */
 def log2Ceil(x: Int): Int =
     require(x >= 1, s"log2Ceil expects a positive value, got $x")

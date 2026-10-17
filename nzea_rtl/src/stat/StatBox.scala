@@ -44,8 +44,8 @@ object StatBox:
        |endmodule
        |""".stripMargin
 
-/** What a box holds: the counter's name and width. The box module is named after the counter, so this parameter is also
-  * what names the emitted file and the instantiation.
+/** The box module is named after the counter, so this parameter is also what names the emitted file and the
+  * instantiation.
   */
 case class StatBoxParameter(name: String, width: Int) extends Parameter
 

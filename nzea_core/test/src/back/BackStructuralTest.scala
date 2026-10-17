@@ -10,10 +10,8 @@ import nzea_rtl.stdlib.*
 import utest.*
 
 /** Structural checks of the back and its units: the back's boundary is the middle's face in and the core's two ports
-  * out — the execute slot's register, the queue's face with the memory path, the dispatch and the merge are its own
-  * wiring and never cross it — and each unit's own face is pinned beside it. The paths are pure units: the dispatch and
-  * the merge that wrap them are the back's own; the completion path is the queue when the configuration builds one and
-  * the pass-through otherwise; the forward network's column is cut to the level.
+  * out, and each unit's own face is pinned beside it. The paths are pure units — the dispatch and the merge that wrap
+  * them are the back's own.
   */
 object BackStructuralTest extends TestSuite:
 
@@ -22,7 +20,6 @@ object BackStructuralTest extends TestSuite:
     private val depth = 4
     private val window = "0x10000000:0x1000"
 
-    // ── The back ──
     private val backModule =
         Back.moduleName(
             BackParameter(
@@ -132,7 +129,6 @@ object BackStructuralTest extends TestSuite:
         "dbus_resp_bits_id" -> 1
     )
 
-    // ── The paths ──
     /** The standalone memory path is lowered with a window of its own: the back's elaboration instantiates the memory
       * path with the back's window, and a second lowering of the same parameter writes no module — a generator
       * elaborates a given parameter once per process.
@@ -235,7 +231,6 @@ object BackStructuralTest extends TestSuite:
         s"${prefix}_bits_data" -> width
     )
 
-    // ── The completion path ──
     private val completionModule =
         Completion.moduleName(CompletionParameter(Isa("riscv32i"), 0x80000000L, RtlFlow.Yosys, 0, StatScope.root))
 
@@ -263,7 +258,6 @@ object BackStructuralTest extends TestSuite:
     private lazy val queued = completionSv(4)
     private lazy val plain = completionSv(0)
 
-    // ── The forward network ──
     private def forwardSv(level: BypassLevel, depth: Int): String =
         lowerings.getOrElseUpdate(
             s"${level.name}:$depth",
@@ -289,7 +283,6 @@ object BackStructuralTest extends TestSuite:
         )
 
     val tests = Tests:
-        // ── The back ──
         test("the back's boundary is the middle's face and the core's two ports"):
             assert(sv.contains(s"module $backModule("))
             assert(
@@ -327,7 +320,6 @@ object BackStructuralTest extends TestSuite:
             for unit <- Seq("Dispatch", "Completion", "Forward", "IntPath", "MemPath", "CompletionQueue") do
                 assert(sv.contains(s"module $unit("))
 
-        // ── The paths ──
         test("the int path's boundary is the dispatch's face and the resolved branches"):
             assert(
                 TestFlow.ports(intSv("riscv32i"), intModule("riscv32i")) ==
@@ -384,7 +376,6 @@ object BackStructuralTest extends TestSuite:
             assert(MmioWindow.parse("8000_0000:100") == (BigInt("80000000", 16), BigInt("100", 16)))
             intercept[IllegalArgumentException](MmioWindow.parse("0x1000"))
 
-        // ── The completion path ──
         test("the completion path is the queue when the configuration builds one"):
             assert(queued.contains("module CompletionQueue("))
             assert(!plain.contains("module CompletionQueue("))
@@ -402,7 +393,6 @@ object BackStructuralTest extends TestSuite:
             assert(queued.contains("view_entries_3_valid"))
             assert(!plain.contains("view_entries_1_valid"))
 
-        // ── The forward network ──
         // The level is the column's `armed` bit: a writer the level cannot forward is broadcast unarmed, which is what
         // keeps a read that names it waiting. The column's shape and the writers' identity do not move with the level —
         // the same offers carry the same registers and values in every configuration.

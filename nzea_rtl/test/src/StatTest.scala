@@ -12,14 +12,11 @@ import utest.*
   */
 object StatTest extends TestSuite:
 
-    // ── The box ──
     private val BoxRegion = StatRegion("test", "test region")
     private val Cycle = StatCounter("stat_core_middle_cycle", 32, "middle", BoxRegion, "cycle count")
 
-    // ── The scope ──
     private val reader = summon[TokensReader[StatScope]]
 
-    // ── The schema ──
     private val Region = StatRegion("g", "group")
     private val a = StatCounter("stat_a", 8, "core", Region, "counter a")
     private val b = StatCounter("stat_b", 8, "core", Region, "counter b")
@@ -32,7 +29,6 @@ object StatTest extends TestSuite:
     private val values = Map("stat_a" -> 5L, "stat_b" -> 2L)
 
     val tests = Tests:
-        // ── The box ──
         test("verilog generation: module header, the named register and the write port"):
             val v = StatBox.verilog("StatBox_abc", Cycle)
             assert(v.contains("module StatBox_abc("))
@@ -70,7 +66,6 @@ object StatTest extends TestSuite:
                 StatRegistry.reset()
                 os.remove.all(dir)
 
-        // ── The scope ──
         test("a child appends its own segment"):
             assert(StatScope.root.path.isEmpty)
             assert(StatScope.root.child("core").child("middle").path == Seq("core", "middle"))
@@ -90,7 +85,6 @@ object StatTest extends TestSuite:
             val text = upickle.default.write(scope)
             assert(upickle.default.read[StatScope](text) == scope)
 
-        // ── The schema ──
         test("expression grammar: precedence, unary minus, parentheses and functions"):
             val v = Map("x" -> 3.0)
             def ev(expr: String) = StatExpr.eval(StatExpr.parse(expr), v.get(_))

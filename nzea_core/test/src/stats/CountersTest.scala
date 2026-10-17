@@ -10,10 +10,8 @@ import nzea_rtl.stat.{StatBox, StatSchema, StatScope}
 import utest.*
 
 /** The contract between a counter declared at its call site and what a dump emits from it: the registered set is the
-  * schema, and every counter's box is instantiated by the module that declared it.
-  *
-  * The registration is process-global and a lowering resets it, so each run is captured into a [[Run]] the moment it
-  * finishes.
+  * schema, and every counter's box is instantiated by the module that declared it. The registration is process-global
+  * and a lowering resets it, so each run is captured into a [[Run]] the moment it finishes.
   */
 object CountersTest extends TestSuite:
 
@@ -171,8 +169,7 @@ object CountersTest extends TestSuite:
             assert(fetch.map(_.source).distinct == Seq("core"))
             coreRun.schema.validate()
 
-        // The paths, the queue and the execute slot used to sit in a module of their own — or in the middle; their
-        // counters keep the back segment, so a reader of the dump does not have to learn the split.
+        // The paths' counters keep the back segment in their names, so a dump reader sees one scheme.
         test("the execution paths' counters keep the back scope under the core"):
             val intPath = coreRun.schema.counters.filter(_.source == "int")
             assert(

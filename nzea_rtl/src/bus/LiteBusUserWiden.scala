@@ -13,8 +13,8 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   *
   * Every master port on a fabric carries the same payload — the map's widest — so a master whose `user` field is
   * narrower is widened here rather than at every slave. The request zero-extends the field; the response narrows it
-  * back, which is lossless because a slave echoes the request's own field. The handshakes pass straight through, so the
-  * adapter costs no cycle.
+  * back, lossless because a slave echoes the request's own field. The handshakes pass straight through, so the adapter
+  * costs no cycle.
   */
 case class LiteBusUserWidenParameter(
     addrWidth: Int,

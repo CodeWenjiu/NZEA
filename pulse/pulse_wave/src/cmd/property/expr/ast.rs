@@ -17,13 +17,9 @@
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Expr {
-    /// `A && B`
     And(Box<Expr>, Box<Expr>),
-    /// `A || B`
     Or(Box<Expr>, Box<Expr>),
-    /// `!A`
     Not(Box<Expr>),
-    /// A signal / event name
     Signal(String),
     /// `A[N]` — true for N consecutive cycles
     Repeat(Box<Expr>, u32),
@@ -59,7 +55,6 @@ pub(crate) struct SequenceStep {
     pub delay: u32,
 }
 
-/// Value comparison operators for `Expr::Cmp`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CmpOp {
     Eq,
@@ -84,12 +79,11 @@ impl std::fmt::Display for CmpOp {
     }
 }
 
-/// Canonical rendering of an expression.
-///
-/// Every binary/temporal operator is parenthesized so that `Display` output
-/// always re-parses to an identical AST (`parse(expr.to_string()) == expr`),
-/// which the proptest round-trip suite relies on. `Repeat`'s inner expression
-/// is printed without parentheses because the grammar only accepts `NAME[N]`.
+/// Canonical rendering: every binary/temporal operator is parenthesized so
+/// `Display` output always re-parses to an identical AST
+/// (`parse(expr.to_string()) == expr`), which the proptest round-trip suite
+/// relies on. `Repeat`'s inner expression prints bare because the grammar only
+/// accepts `NAME[N]`.
 impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -101,7 +95,7 @@ impl std::fmt::Display for Expr {
             Expr::FirstAfter(a, b) => write!(f, "({a} -> {b})"),
             Expr::FixedDelay(a, n, b) => write!(f, "({a} ->{n} {b})"),
             Expr::Window(a, n, m, b) => {
-                // Shortest form: `--m`, `n--`, or `n--m` (round-trip safe).
+                // Shortest form: `--m`, `n--`, `n--m` (round-trip safe).
                 match (n, m) {
                     (0, 0) => write!(f, "({a} --0 {b})"),
                     (0, m) => write!(f, "({a} --{m} {b})"),

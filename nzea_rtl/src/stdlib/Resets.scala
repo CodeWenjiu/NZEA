@@ -31,25 +31,20 @@ import scala.collection.mutable
   * One reset per domain, per recipe: a name identifies a reset, so two consumers in one domain that wait for the same
   * reasons name the same reset and share the one synchronizer — and therefore the one release edge. Two chains sampling
   * the same asynchronous level on the same clock can resolve its metastability differently on the same edge, which is
-  * how registers end up leaving a reset in different cycles; asking for the same name is how a design says "these leave
-  * together".
+  * how registers end up leaving a reset in different cycles.
   *
   * The composition itself is deferred to [[materialize]], for the same reason the clock plan is: a reason's producer
   * may only exist late (a wizard's `locked` exists once the wizard is built, and the wizard is built once every clock
   * has been asked for — [[nzea_fpga.Clocks]]). A term a domain names but nobody declared fails there, loudly, listing
   * what was declared — not silently as a constant.
   *
-  * What this is *not*: a design-wide reset tree. Domains differ on purpose — the oscillator's own domain waits for the
-  * button; a domain fed by the generator also waits for its lock; a device also waits for its own calibration — and the
-  * point of the network is that each says so without knowing about the others.
-  *
   * What the synchronizer is, and is not: it asserts asynchronously and releases synchronously ([[ResetSync]]), which is
   * the shape a domain whose clock can stop needs — a purely synchronous reset cannot hold a domain whose clock is not
-  * running yet (the wizard has not locked) or not running any more. Registering the reasons *before* it would not cut a
-  * path either: the crossing would only move from the synchronizer's asynchronous input to a flip-flop's `D`, and a
-  * single register would put a level that may be metastable on the reset of a whole domain. The two flops here are what
-  * make that level safe to use; the conjunction feeding them is an asynchronous input by design, and an input of that
-  * kind is not a timing requirement ([[nzea_fpga.boards.lxb_artix7.BoardXdc]] states the exceptions).
+  * running yet. Registering the reasons *before* it would not cut a path either: the crossing would only move from the
+  * synchronizer's asynchronous input to a flip-flop's `D`, and a single register would put a level that may be
+  * metastable on the reset of a whole domain. The two flops here are what make that level safe to use, and the
+  * conjunction feeding them is an asynchronous input by design ([[nzea_fpga.boards.lxb_artix7.BoardXdc]] states the
+  * exceptions).
   */
 object Resets:
 
@@ -57,7 +52,7 @@ object Resets:
     private val terms = mutable.LinkedHashMap.empty[String, Referable[Bool]]
 
     /** The domains, by the name they state themselves under: a name is a reset, so asking again with the same name and
-      * the same reasons is asking for the same reset, and gets the same net.
+      * the same reasons gets the same net.
       */
     private val domains = mutable.LinkedHashMap.empty[String, Domain]
 
@@ -72,10 +67,9 @@ object Resets:
 
     /** Declare a reason, where it is produced: `value` is the level's own reading, `1` meaning *this reason is not
       * holding* — a button's released level, a generator's `locked`, a device's ready. The level is the producer's own,
-      * asynchronous, exactly as it is: a domain waits for the reason, and the domain's own synchronizer is what makes
-      * it belong there. The name is what a domain waits for and what a waveform shows it as, so it is also marked
-      * watchable ([[Probes]]): the first question a reset network raises is which reason is holding, and this is what
-      * answers it from a capture.
+      * asynchronous, exactly as it is: a domain waits for the reason, and the domain's own synchronizer is what makes it
+      * belong there. The name is marked watchable ([[Probes]]): the first question a reset network raises is which reason
+      * is holding, and this is what answers it from a capture.
       */
     def term(name: String)(value: Referable[Bool])(using
         Arena,

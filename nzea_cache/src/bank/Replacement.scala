@@ -13,12 +13,9 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 /** The replacement state a set-associative cache keeps: the victim of a set, and the touch that updates the policy.
   *
   * The state is per set because the policy is: tree-PLRU keeps `ways - 1` bits per set (the classic tree, bit `i` of a
-  * node saying which of its two subtrees is older), and Random keeps one shared LFSR — advanced on every touch and
-  * fixed-seed, so a run is reproducible. The class declares its state in the block that owns the cache, so the two
-  * caches share one implementation without an IO boundary between the policy and the hit path that reads it.
-  *
-  * The touch and the victim are the whole interface: the hit path touches on a hit, the refill touches on install, and
-  * a full set asks for the victim instead of falling back to a fixed way.
+  * node saying which of its two subtrees is older), and Random keeps one shared, fixed-seed LFSR, so a run is
+  * reproducible. The state lives in the block that owns the cache: no IO boundary between the policy and the hit path
+  * that reads it.
   */
 final class ReplacementState(sets: Int, ways: Int, policy: Replacement)(using
     ClockScope,
@@ -35,7 +32,7 @@ final class ReplacementState(sets: Int, ways: Int, policy: Replacement)(using
     private val wayBits = log2Ceil(ways)
     private val treeBits = ways - 1
 
-    // PLRU: one tree per set, its root at the top bit. The tree is a bit of history, so it resets to zero.
+    // PLRU: one tree per set, its root at the top bit — a bit of history, so it resets to zero.
     private val trees = Reg(Vec(sets, UInt(treeBits)))
 
     when(!summon[ResetScope].reset.asBool) {
@@ -50,7 +47,6 @@ final class ReplacementState(sets: Int, ways: Int, policy: Replacement)(using
         case Replacement.Plru   => victimBits(Node(trees.ref(set).asBits), ways).asUInt
         case Replacement.Random => Node(lfsr.asBits).bits(wayBits - 1, 0).asUInt
 
-    /** Record a use of `touched` in `set`: the PLRU tree learns the way is the most recent, Random steps its LFSR. */
     def touch(set: Referable[UInt], touched: Referable[UInt]): Unit = policy match
         case Replacement.Plru =>
             val next = nextBits(Node(trees.ref(set).asBits), Node(touched.asBits), ways)
@@ -58,11 +54,9 @@ final class ReplacementState(sets: Int, ways: Int, policy: Replacement)(using
         case Replacement.Random =>
             lfsr := addWrap(addWrap(lfsr << 2, lfsr, 16), 1.U(16), 16)
 
-    // ── The tree, over `n`-way subtrees ──
-    // For `n > 2` the left subtree is the high ways: the root's bit says it is older, and the returned index's top
-    // bit is that same bit, so the two always agree. A touch in one subtree updates only that subtree.
+    // The tree over `n`-way subtrees: for `n > 2` the left subtree is the high ways, and the root's bit says it is
+    // older — the returned index's top bit is that same bit, so the two always agree. A touch updates only its subtree.
 
-    /** The way `state` points at for an `n`-way subtree. */
     private def victimBits(state: Node[Bits], n: Int): Referable[Bits] =
         if n > 2 then
             val right = 1 << (log2Ceil(n) - 1)
@@ -76,7 +70,6 @@ final class ReplacementState(sets: Int, ways: Int, policy: Replacement)(using
         else if n == 2 then state.bits(0, 0)
         else 0.B(1)
 
-    /** The next `n`-way subtree state after touching `touch`. */
     private def nextBits(state: Node[Bits], touch: Node[Bits], n: Int): Referable[Bits] =
         if n > 2 then
             val right = 1 << (log2Ceil(n) - 1)

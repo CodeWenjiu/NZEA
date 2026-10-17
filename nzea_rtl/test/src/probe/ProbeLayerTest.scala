@@ -34,8 +34,6 @@ import utest.*
 private object DebugLayer:
     val layers: Seq[Layer] = Seq(Layer("debug"))
 
-// ── The deep module: it owns the signal and declares what it publishes. ──
-
 private case class ProbeLayerSensorParameter(width: Int) extends Parameter
 
 private given upickle.default.ReadWriter[ProbeLayerSensorParameter] = upickle.default.macroRW
@@ -66,8 +64,6 @@ private object ProbeLayerSensor
         count := constAdder(count, 1, parameter.width)
         layer("debug"):
             probe.count <== count
-
-// ── The middle level: it re-exports what the deep module publishes. ──
 
 private case class ProbeLayerMidParameter(width: Int) extends Parameter
 
@@ -102,8 +98,8 @@ private object ProbeLayerMid
             relay <== sensor.probe.count
             probe.count <== relay
 
-// ── The consumer: what a bound observation is from the RTL side — an instance the layer module hosts. It is a black box
-// (the real one is the ILA), which is also why it survives: a plain module with nothing to drive would be dead. ──
+// The consumer: what a bound observation is from the RTL side — an instance the layer module hosts. It is a black box
+// (the real one is the ILA), which is also why it survives: a plain module with nothing to drive would be dead.
 
 private case class ProbeLayerSinkParameter(width: Int) extends Parameter
 
@@ -132,8 +128,6 @@ private object ProbeLayerSink
 
     def verilogParameter(parameter: ProbeLayerSinkParameter): ProbeLayerSinkVerilogParameter =
         ProbeLayerSinkVerilogParameter()
-
-// ── The top: it consumes. ──
 
 private case class ProbeLayerTopParameter(width: Int) extends Parameter
 

@@ -55,7 +55,6 @@ class CoreProbe(parameter: CoreParameter) extends DVBundle[CoreParameter, CoreLa
   *
   * Nothing here knows how the core is dumped or wired upwards: turning those interfaces into a top's ports or into
   * simulation bridges belongs to the level top (`nzea_top.NzeaCore`), and a tile instantiates this module as it is.
-  * `sim` only decides whether the per-stage counters are built — instrumentation, not an interface.
   */
 @generator
 object Core extends Generator[CoreParameter, CoreLayers, CoreIO, CoreProbe]:

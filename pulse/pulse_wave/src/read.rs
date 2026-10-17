@@ -1,19 +1,10 @@
 //! Shared signal-value reads (bit, integer, and full classification).
 //!
-//! All commands sample signals by time-table index. The bit/u64 accessors and
-//! the [`SignalValue`] classifier are the single source of truth for "what
-//! `SignalValueRef` variants mean"; each command renders the classification
-//! in its own shape (SVG levels, radix strings, log values) without
-//! re-matching on wellen types.
+//! The bit/u64 accessors and the [`SignalValue`] classifier are the single
+//! source of truth for "what `SignalValueRef` variants mean"; each command
+//! renders the classification in its own shape (SVG levels, radix strings, log
+//! values) without re-matching on wellen types.
 
-/// Full classification of one signal sample at one time-table index.
-///
-/// - `Bit` — a 1-bit signal with a known value
-/// - `Vector` — a multi-bit signal with a known value (width kept so renderers
-///   can zero-pad)
-/// - `X` — X/Z anywhere in the sample, carrying the raw binary string
-///   (renderers decide whether to show it or a placeholder)
-/// - `Missing` — no data at this tick
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SignalValue {
     Bit(bool),
@@ -22,7 +13,7 @@ pub(crate) enum SignalValue {
     Missing,
 }
 
-/// Classify a signal sample. This is the **only** place that matches on
+/// Classify a signal sample. The **only** place that matches on
 /// `wellen::SignalValueRef` variants for value reads.
 pub(crate) fn classify(sig: &wellen::Signal, tt_idx: u32) -> SignalValue {
     let Some(off) = sig.get_offset(tt_idx) else {
@@ -45,10 +36,8 @@ pub(crate) fn classify(sig: &wellen::Signal, tt_idx: u32) -> SignalValue {
     }
 }
 
-/// Read a single-bit value from a signal at a given time index.
-///
-/// For a multi-bit vector this returns the **most-significant bit** (`format!`
-/// renders MSB-first). One-bit signals return that bit directly.
+/// Read one bit at a time-table index; for a multi-bit vector this is the
+/// **most-significant** bit (`format!` renders MSB-first).
 pub(crate) fn read_bit(sig: &wellen::Signal, tt_idx: u32) -> bool {
     sig.get_offset(tt_idx)
         .map(|off| {

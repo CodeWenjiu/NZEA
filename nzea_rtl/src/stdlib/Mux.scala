@@ -12,12 +12,11 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** Selection helpers the DSL does not ship (it only has the two-way `cond ? (a, b)`).
   *
-  * All of them are combinational folds over `?`, so there is no priority subtlety: like Chisel's `MuxCase`/`MuxLookup`
-  * the first matching entry wins, and like `Mux1H` an all-zero selector yields zero (Chisel's `Mux1H` ORs independently
-  * gated values, so an all-zero one-hot select degrades to zero instead of aliasing an entry).
+  * All of them are combinational folds over `?`: the first matching entry wins, and an all-zero one-hot selector yields
+  * zero — Chisel's `Mux1H` ORs independently gated values, so an all-zero select aliases an entry there instead.
   *
   * Bit-vector widths are explicit: the DSL keeps an element's width internal, so callers pass the width they already
-  * have in scope (the legacy call sites all had one).
+  * have in scope.
   */
 
 /** Chisel `MuxCase`: first matching `(cond, value)` wins, `default` otherwise. */
@@ -58,9 +57,7 @@ def muxLookup[K <: Data, V <: Data](
   * A barrel shifter fans every shift-amount bit out to a whole 32-bit row of muxes, one row per stage, five stages
   * deep. Selecting a *constant* shift instead makes each stage's data a plain rewiring (a constant shift costs
   * nothing), so only the select network is left: a tree, where each index bit reaches one level and every level halves
-  * the width it switches.
-  *
-  * `values.length` must be a power of two, and `index` is read as that many values wide.
+  * the width it switches. `values.length` must be a power of two, and `index` is read as that many values wide.
   */
 def muxTree[T <: Data](index: Referable[UInt], values: Seq[Referable[T]])(using
     Arena,
@@ -85,9 +82,9 @@ def muxTree[T <: Data](index: Referable[UInt], values: Seq[Referable[T]])(using
             idx.asBits.bit(log2Ceil(size) - 1) ? (pick(from + half, half), pick(from, half))
     pick(0, values.length)
 
-/** Pairwise reduce in one shape: each level combines neighbours, so the expression a caller builds is a balanced tree,
-  * not a serial fold. Serial folds are what leave synthesis a chain to map — the execute loop's src-to-src bypass cone
-  * measured two gates per fold step (see the selection helpers below that use this).
+/** Pairwise reduce: each level combines neighbours, so the expression a caller builds is a balanced tree, not a serial
+  * fold. Serial folds are what leave synthesis a chain to map — the execute loop's src-to-src bypass cone measured two
+  * gates per fold step.
   */
 private def balancedReduce[T](values: Seq[T])(combine: (T, T) => T): T =
     require(values.nonEmpty, "balancedReduce needs at least one value")
@@ -102,11 +99,8 @@ private def balancedReduce[T](values: Seq[T])(combine: (T, T) => T): T =
             .toSeq
     level.head
 
-/** Chisel `Mux1H` over bit vectors of the given `width`.
-  *
-  * The one-hot sum of products the name promises — each value gated by its own select bit and the gates ORed — but the
-  * OR is [[balancedReduce]], not a serial fold: `n` values mean `ceil(log2 n)` gate levels, the shape synthesis can
-  * keep, however many there are. An all-zero selector still yields zero, every product being gated off.
+/** Chisel `Mux1H` over bit vectors of the given `width`: the OR of the gated products is [[balancedReduce]], not a
+  * serial fold, so `n` values mean `ceil(log2 n)` gate levels, the shape synthesis can keep, however many there are.
   */
 def mux1H(
     sel: Referable[UInt],
@@ -127,7 +121,6 @@ def mux1H(
         (lhs, rhs) => lhs | rhs
     )
 
-/** Chisel `Mux1H` over `UInt` values. */
 @targetName("mux1HUInt")
 def mux1H(
     sel: Referable[UInt],
@@ -144,7 +137,6 @@ def mux1H(
 ): Node[UInt] =
     mux1H(sel, values.map(_.asBits), width).asUInt
 
-/** Chisel `Mux1H` over single bits. */
 def mux1H(
     sel: Referable[UInt],
     values: Seq[Referable[Bool]]

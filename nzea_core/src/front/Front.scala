@@ -43,14 +43,12 @@ class FrontIO(parameter: FrontParameter) extends HWBundle(parameter):
 
 class FrontProbe(parameter: FrontParameter) extends DVBundle[FrontParameter, FrontLayers](parameter)
 
-/** Front-end: fetch ([[Ifu]]) and decode ([[Idu]]) in one module, with the pipeline register between them owned here.
+/** Front-end: fetch ([[Ifu]]) and decode ([[Idu]]), with the pipeline register between them owned here.
   *
-  * The decoded stream onto the boundary stays combinational: the middle owns the read, so what crosses is the decoded
-  * instruction and a gate that holds it back while the middle's decode slot is busy.
-  *
-  * `flush` is the core's broadcast, one bus: the fetcher restarts from its `next_pc` — and cancels its own stream
-  * through the epoch — while the register between the stages is the only thing here that obeys `valid`, and the decoded
-  * stream onto the middle is gated by that same register.
+  * The decoded stream onto the boundary stays combinational — the middle owns the read, so what crosses is the
+  * decoded instruction and a gate that holds it back while the middle's decode slot is busy. `flush` is the core's one
+  * broadcast bus: the fetcher restarts from its `next_pc` and cancels its own stream through the epoch, while the if/id
+  * register is the only thing here that obeys `valid`.
   */
 @generator
 object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]:
@@ -72,8 +70,6 @@ object Front extends Generator[FrontParameter, FrontLayers, FrontIO, FrontProbe]
 
         io.ibus :<>= ifu.io.ibus
         ifu.io.redirect :<>= io.flush
-        // The predictor's training, when a predictor is built: both ends carry the port only where the front has
-        // tables to train.
         if parameter.bpu.isDefined then ifu.io.bp_update.get :<>= io.bp_update.get
 
         pipelineConnect(ifu.io.out, idu.io.in, io.flush, "ifid", FlushHandover.Consume)

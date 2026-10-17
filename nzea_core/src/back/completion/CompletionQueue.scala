@@ -20,10 +20,8 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 /** The queue's parameter: its depth is a power of two, and the queue is only built with a nonzero one — a design
   * without a queue builds no `CompletionQueue` at all, so this parameter never spells absence.
   *
-  * A power of two because the ring's pointers wrap by their own width (`addWrap`): that is what makes the wrap equal to
-  * `mod depth`, and the `(index - head) mod depth` ordering the bypass reads relies on the same identity. A depth of
-  * one is refused rather than special-cased: its ring degenerates to zero-width pointers, and its behavior is the
-  * pass-through a design without a queue already gets.
+  * A power of two because the ring's pointers wrap by their own width (`addWrap`), which is what makes the wrap equal
+  * to `mod depth` — the same identity the bypass reads' `(index - head) mod depth` ordering rests on.
   */
 case class CompletionQueueParameter(isa: Isa, defaultPc: Long, depth: Int, flow: RtlFlow, stats: StatScope)
     extends Parameter:
@@ -36,8 +34,8 @@ given upickle.default.ReadWriter[CompletionQueueParameter] = upickle.default.mac
 class CompletionQueueLayers(parameter: CompletionQueueParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** One queue entry: the retire record it will present when it reaches the head, whether it is finished, whether the
-  * slot is occupied, and what the memory path needs to route a load's answer back to it.
+/** One queue entry: the retire record it will present when it reaches the head, and what the memory path needs to route
+  * a load's answer back to it.
   *
   * `done` is the entry's own completion: an integer op is done when it is written, a store when its write is accepted,
   * a load when its tagged response lands. `tag` is that response's key, `offset` and `op` are what the load's value is
@@ -52,9 +50,8 @@ class CompletionQueueEntry(config: CoreConfig) extends Bundle:
     val offset = Aligned(UInt(LsuData.offsetWidth(config.width)))
     val op = Aligned(UInt(LsuOp.set(config.isa).width))
 
-/** What the bypass network sees of one entry: whether it is occupied, whether its value is ready, and the writes it
-  * offers — the register file's and the CSR's, the two the network forwards. The queue exports this instead of the
-  * whole entry so the network's ports carry only what it reads.
+/** What the bypass network sees of one entry: the queue exports a view instead of the whole entry, so the network's
+  * ports carry only what it reads.
   */
 class QueueEntryView(width: Int) extends Bundle:
     val valid = Aligned(Bool())
@@ -77,30 +74,23 @@ class CompletionQueueIO(parameter: CompletionQueueParameter) extends HWBundle(pa
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
 
-    /** The execute slot's uop: what a new entry's retire record is filled from, and whether it is a memory op. */
     val issue = Flipped(new IssueSlot(new ExecSlot(parameter.config)))
 
-    /** The completing path's result: the values a new entry is written with. */
     val complete = Flipped(ValidIO(new PathResult(width)))
 
-    /** The slot release: the execute slot's uop is finished with the slot and takes an entry. The memory path's
+    /** The slot release: the execute slot's uop is finished with the slot and takes an entry — the memory path's
       * acceptance for a memory op, the unit's completion for an integer one.
       */
     val slotRelease = Flipped(Bool())
 
-    /** The memory path's request side, for a new entry: the tag its answer will carry, and the in-word offset a load's
-      * value will be selected with.
-      */
     val reqTag = Flipped(UInt(DbusUser.tagWidth))
     val offset = Flipped(UInt(LsuData.offsetWidth(width)))
 
-    /** The data bus's answers, routed to the entry whose tag they carry. */
     val resp = Flipped(ValidIO(new QueueResponse(width)))
 
     /** The flush event the middle's write-back stage sources: everything behind the retiring head is dropped. */
     val flush = Flipped(new FlushBus(width))
 
-    /** The queue's room for one more entry: the memory path holds its request until an entry exists for it. */
     val canAccept = Aligned(Bool())
 
     /** Whether a mispredicted branch sits anywhere in the queue: no bus access may leave the core while one does. A
@@ -109,12 +99,8 @@ class CompletionQueueIO(parameter: CompletionQueueParameter) extends HWBundle(pa
       */
     val flushRisk = Aligned(Bool())
 
-    /** The retirement head: the record the middle retires, in program order. */
     val retire = Aligned(Decoupled(new RetireEvent(width)))
 
-    /** The entries as the bypass network reads them, and the head's position — the order the network resolves a
-      * multiple match in (the youngest wins).
-      */
     val entries = Aligned(Vec(depth, new QueueEntryView(width)))
     val head = Aligned(UInt(log2Ceil(depth)))
 
@@ -125,20 +111,14 @@ class CompletionQueueProbe(parameter: CompletionQueueParameter)
   * instruction in flight.
   *
   * The execute slot is a single-cycle residence for everything the units can finish in a cycle, and an entry is what
-  * outlives it: an instruction is written into the queue when the slot releases it (the memory path's acceptance, or a
-  * unit's completion) and retires from the head, in program order, once its entry is done. Between the two it is the
-  * only record of the instruction — the write-back value, the commit's fields, the prediction check — so a load can
-  * release the slot while its answer is still on the bus and the instructions behind it can keep issuing. That is the
-  * whole point of the structure: the slot no longer waits for the load's data.
+  * outlives it: an instruction is written when the slot releases it and retires from the head, in program order, once
+  * its entry is done. Between the two the entry is the only record of the instruction, so a load can release the slot
+  * while its answer is still on the bus.
   *
-  * Entries are done in one of three ways: an integer op when it is written (the unit's result, same cycle), a store
-  * when the bus accepts its write (non-speculative — see [[flushRisk]]), a load when its tagged answer arrives. The
-  * answer is routed by tag, never by position: responses may interleave across slaves, and a flushed load's answer must
-  * drain without completing anything — a stale tag finds no occupied, unfinished entry.
-  *
-  * Retirement is the head's: its record goes out as the [[RetireEvent]] the middle commits — taken when the middle
-  * reports room for it — the entry is popped, and a mispredicted branch's flush drops everything behind it in the same
-  * cycle (the queue cannot roll back, so it never retires a speculative instruction in the first place).
+  * The answer is routed by tag, never by position: responses may interleave across slaves, and a flushed load's answer
+  * must drain without completing anything — a stale tag finds no occupied, unfinished entry. Retirement is the head's,
+  * and a mispredicted branch's flush drops everything behind it in the same cycle: the queue cannot roll back, so it
+  * never retires a speculative instruction in the first place.
   */
 @generator
 object CompletionQueue
@@ -181,22 +161,12 @@ object CompletionQueue
           */
         io.canAccept := count < depth.U(cntW)
 
-        /** The store-issue gate: a store's write must not be on the bus while a branch older than the store could still
-          * resolve mispredicted and flush it — a flush after the fact cannot take the write back. A branch's own entry
-          * records the check the moment it is written (the record's `mispredicted`, the branch unit's own verdict), so
-          * this is the OR over the queue. A store whose older branch is correctly predicted is not gated by it: a flush
-          * needs the branch to be wrong, and a wrong one retires as a flush — killing the store before its write ever
-          * leaves.
-          */
         def flushRisk(): Referable[Bool] =
             (0 until depth)
                 .map(index => entries.ref(index).valid & entries.ref(index).record.mispredicted)
                 .foldLeft(false.B: Referable[Bool])(_ | _)
         io.flushRisk := flushRisk()
 
-        // The head's own state: what retires this cycle, and what a push and a pop do to the ring. The pop waits for
-        // the middle to take the record (`retire.ready`): an elastic producer never lets go of what its consumer did
-        // not take.
         val push = io.slotRelease
         val headValid = entries.ref(head).valid
         val headDone = entries.ref(head).done
@@ -212,13 +182,11 @@ object CompletionQueue
             cntW
         )
 
-        /** One instruction's entry, written whole when the slot releases it: the retire record from the completion, the
-          * destination from the held uop, and the memory path's tag and offset for a load's later answer. A load's
-          * entry starts unfinished — its answer is not on the bus yet — and the answer writes its `data` when it
-          * arrives; the value the completion carries at the release is don't-care until then, because a read takes a
-          * value only from an armed offer. So the record's data is written through, not gated to zero: the gate would
-          * put the completion's valid — and the whole load-hit cone behind it — on the entry's data path for every
-          * instruction.
+        /** One instruction's entry, written whole when the slot releases it. A load's entry starts unfinished, and the
+          * answer writes its `data` when it arrives; the value the completion carries at the release is don't-care
+          * until then, because a read takes a value only from an armed offer. So the record's data is written through,
+          * not gated to zero: the gate would put the completion's valid — and the whole load-hit cone behind it — on
+          * the entry's data path for every instruction.
           */
         def writeEntry(): Unit =
             val record = RetireEvent.of(width, io.complete.bits, io.issue.bits.rd_index)
@@ -237,8 +205,7 @@ object CompletionQueue
 
         /** The load's answer: the bus word selected and extended with the matching entry's own offset and op — the
           * answer arrives after the slot moved on, so the entry is where that knowledge lives. The match is by tag over
-          * occupied, unfinished entries; a flushed load's entry is unoccupied and a store's is done, so a stale answer
-          * completes nothing.
+          * occupied, unfinished entries, so a stale answer completes nothing.
           */
         def answerLoad(): Unit =
             val hits = (0 until depth).map { index =>
@@ -278,7 +245,6 @@ object CompletionQueue
                 count := 0.U(cntW)
             }
 
-        /** The bypass network's view: what a read can take from the queue, entry by entry. */
         def exportEntries(): Unit =
             for index <- 0 until depth do
                 io.entries.ref(index).valid := entries.ref(index).valid
@@ -295,9 +261,6 @@ object CompletionQueue
         clearOnFlush()
         exportEntries()
 
-        /** Counters the simulator reads back: how full the queue runs, and how often its head holds the retire back.
-          * Declared here, where the pointers are.
-          */
         def counters(): Unit =
             val full = parameter.stats.stat("full", Regions.Throughput, "cycles the queue cannot take an entry")
             val busy = parameter.stats.stat("busy", Regions.Throughput, "cycles the queue holds an instruction")

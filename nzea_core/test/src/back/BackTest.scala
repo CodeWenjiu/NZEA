@@ -69,17 +69,14 @@ object BackElaborateTestModule
         io.is_store := isMem & LsuOp.isStore(memOp, lsuOps)
         io.is_load := isMem & !LsuOp.isStore(memOp, lsuOps)
 
-/** The op field the decode stage and the backends share: its field widths are load-bearing numbers, so they are pinned
-  * here rather than left implicit in the consumers — as values, and as the window reading they lower to. Each backend
-  * owns its own table and its own window in the shared op field, and each op set answers with the configuration: the
-  * widths below are that answer, not a literal.
+/** The op field the decode stage and the backends share: its widths are load-bearing, so they are pinned here as values
+  * and as the window reading they lower to. Each backend owns its table and its own window in the shared op field, and
+  * each op set answers with the configuration: the widths below are that answer, not a literal.
   */
 object BackTest extends TestSuite:
 
-    /** What a backend reads back out of a window: the case's tag, or the payload below it.
-      *
-      * The layout these two helpers decode is the union's, so nothing here restates an offset: a change to the layout
-      * moves the unions and this test follows.
+    /** What a backend reads back out of a window: the case's tag, or the payload below it. The layout is the union's,
+      * so nothing here restates an offset.
       */
     private def payload(window: Int, union: Encoding.UnionSet[?, ?]): Int = window & ((1 << union.payloadWidth) - 1)
 
@@ -173,7 +170,6 @@ object BackTest extends TestSuite:
             )
             for (v, op) <- widest do assert(payload(rv64im.lit(v), rv64im) == op.lit)
 
-            // And every member of every op set survives its own case's payload column.
             for op <- AluOp.set(isa64).variants do assert(payload(rv64im.lit(IntOp.Alu(op)), rv64im) == op.lit)
             for op <- BruOp.values do assert(payload(rv64im.lit(IntOp.Bru(op)), rv64im) == op.lit)
             for op <- MulOp.set(isa64im).variants do assert(payload(rv64im.lit(IntOp.Mul(op)), rv64im) == op.lit)

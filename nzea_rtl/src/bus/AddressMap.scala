@@ -24,10 +24,8 @@ enum SlaveKind:
     case Memory
     case Mmio
 
-/** One master port into the fabric: its name and the payload widths it speaks. */
 case class MasterPort(name: String, userWidth: Int, idWidth: Int)
 
-/** One slave on the fabric: its name, its window, what it is, and how many requests it may hold at once. */
 case class SlavePort(name: String, range: AddrRange, kind: SlaveKind, outstanding: Int = 1)
 
 object SlavePort:
@@ -53,8 +51,8 @@ object SlavePort:
   * an edit in every one of those lists. Names are the handle: a caller asks for `slave("ram")` and never counts an
   * index.
   *
-  * `userWidth` / `idWidth` are the fabric's: every master port carries the widest payload, and a master that speaks a
-  * narrower one is adapted by its owner. `outstanding` is per slave.
+  * `userWidth` / `idWidth` are the fabric's — every master port carries the widest payload, and a master that speaks a
+  * narrower one is adapted by its owner — while `outstanding` is per slave.
   */
 case class AddressMap(masters: Seq[MasterPort], slaves: Seq[SlavePort]):
     require(masters.nonEmpty, "an address map needs at least one master")
@@ -69,10 +67,8 @@ case class AddressMap(masters: Seq[MasterPort], slaves: Seq[SlavePort]):
             s"slave windows overlap: '${slaves(i).name}' and '${slaves(j).name}'"
         )
 
-    /** The fabric's master payload width: the widest a master speaks. */
     def userWidth: Int = masters.map(_.userWidth).max
 
-    /** The fabric's request id width: the widest a master speaks. */
     def idWidth: Int = masters.map(_.idWidth).max
 
     /** The slaves' windows, in map order — what the decode walks. */

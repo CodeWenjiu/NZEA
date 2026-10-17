@@ -1,4 +1,3 @@
-/// Event expression parser (winnow combinators).
 use winnow::ascii::{digit1, hex_digit1, multispace0};
 use winnow::combinator::{alt, not, terminated};
 use winnow::error::ContextError;
@@ -31,7 +30,6 @@ pub(crate) fn parse(input: &str) -> Result<Expr, WaveError> {
     Ok(expr)
 }
 
-/// Attach a line/column position to a parse error.
 fn locate(original: &str, off: usize, msg: String) -> WaveError {
     let (line, col) = line_col(original, off);
     WaveError::Parse(format!("at line {line}, column {col}: {msg}"))
@@ -45,11 +43,10 @@ fn line_col(input: &str, off: usize) -> (usize, usize) {
     (line, col)
 }
 
-// ── low-level input helpers ────────────────────────────────
-
 /// A literal token with optional leading whitespace.
-/// (Explicit lifetime: elided `&str` in `impl Trait` is unstable on this
-/// nightly; clippy's elision suggestion does not apply.)
+///
+/// The explicit lifetime is required: elided `&str` in `impl Trait` is unstable
+/// on this nightly, so clippy's elision suggestion does not apply.
 #[allow(clippy::needless_lifetimes)]
 fn ws_tag<'a>(token: &'a str) -> impl Parser<&'a str, &'a str, ContextError> {
     preceded_by_ws(lit(token))
@@ -105,7 +102,6 @@ fn integer(input: &mut &str) -> PResult<u32> {
     Ok(n)
 }
 
-/// Integer literal: decimal digits, or `0x`/`0X` hex digits.
 fn literal(input: &mut &str) -> PResult<Option<u64>> {
     let s = input.trim_start();
     if s.starts_with("0x") || s.starts_with("0X") {
@@ -127,8 +123,6 @@ fn literal(input: &mut &str) -> PResult<Option<u64>> {
     *input = s2;
     Ok(Some(v))
 }
-
-// ── grammar ────────────────────────────────────────────────
 
 /// event = implication
 fn expr(input: &mut &str) -> PResult<Expr> {
@@ -305,8 +299,6 @@ fn atom(input: &mut &str) -> PResult<Expr> {
     }
     Ok(Expr::Signal(n))
 }
-
-// ── tests ─────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -637,8 +629,6 @@ mod tests {
 
     #[test]
     fn function_call_composition() {
-        // Calls compose with boolean and temporal operators, and arguments
-        // may be arbitrary expressions.
         assert_eq!(
             p("rise(a) && b"),
             Expr::And(
@@ -716,8 +706,6 @@ mod tests {
         assert!(err.contains("trailing"), "got: {err}");
         assert!(err.contains("line 1"), "got: {err}");
     }
-
-    // ── property-based round-trip ────────────────────────
 
     /// Signal names, including namespaced ones (`Core.instruction_fetch`).
     fn name_strategy() -> impl Strategy<Value = String> {

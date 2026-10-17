@@ -12,7 +12,7 @@ import nzea_rtl.{Elaborate, TestFlow}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The probe's pad buffer: the shape a DDR3 pad has — fabric-side input and output beside an analog pin, whose real
-  * body would be an `IOBUF`/`IOBUFDS`. The probe needs no body: what it checks is the port, not the pad.
+  * body would be an `IOBUF`/`IOBUFDS`. What this probe checks is the port, not the pad.
   */
 private case class PadBufParameter(width: Int) extends Parameter
 
@@ -39,7 +39,6 @@ private object PadBuf
 
     def verilogParameter(parameter: PadBufParameter): PadBufVerilogParameter = PadBufVerilogParameter()
 
-/** The probe's top: a pad of its own, attached to the buffer's pin. */
 private case class PadTopParameter(width: Int) extends Parameter
 
 private given upickle.default.ReadWriter[PadTopParameter] = upickle.default.macroRW
@@ -66,12 +65,8 @@ private object PadTop extends Generator[PadTopParameter, PadTopLayers, PadTopIO,
         val padRef: Referable[Analog] = io.pad
         padRef.attach(buf.io.pad)
 
-/** What an analog pad does when the design itself owns it: the question behind "the zaozi top should be the top".
-  *
-  * The DDR3 pads are `inout`, which the DSL could not express: no `Analog` constructor, and `:=` refuses analogs
-  * because FIRRTL connects them only through `attach`. With both added (zaozi side), this lowers the shape a pad would
-  * have — the design's own port, a buffer's analog pin, one `attach` between them — and pins what comes out: the port
-  * is an `inout`, and the two ends are one net.
+/** What an analog pad does when the design itself owns it: the design's own port lowers to an `inout`, and it is one
+  * net with the buffer's analog pin through `attach` — FIRRTL connects analogs only that way.
   */
 object AnalogPadProbeTest extends TestSuite:
 

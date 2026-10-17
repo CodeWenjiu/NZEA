@@ -12,9 +12,6 @@ import upickle.default.{readwriter, ReadWriter}
   *
   * What each level buys, in cycles a payload is held for a read that names an in-flight write: at [[Execute]] none, at
   * [[Commit]] one while the producer is in execute and none while it commits; one level down, one more in either case.
-  *
-  * This is a declaration, not hardware: consumers ask a predicate and build their own logic from the answer, so a level
-  * that removes a link removes the logic with it.
   */
 enum BypassLevel(val report: String):
     /** The file only: a read sees what the file has already been written with. */
@@ -28,10 +25,8 @@ enum BypassLevel(val report: String):
       */
     case Execute extends BypassLevel("execute -> register read")
 
-    /** The write the commit makes this cycle is visible to the same cycle's read. */
     def commit: Boolean = ordinal >= BypassLevel.Commit.ordinal
 
-    /** The completing instruction's result is visible to the same cycle's read. */
     def execute: Boolean = ordinal >= BypassLevel.Execute.ordinal
 
     /** The level's spelling: one token for the config file and the generator's flag. */

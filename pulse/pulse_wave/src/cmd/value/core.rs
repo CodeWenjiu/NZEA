@@ -14,13 +14,12 @@ impl crate::Pulse {
         let radix = crate::radix::Radix::from_str(radix)?;
         let last_tick = self.wav.time_table().last().copied().unwrap_or(0);
 
-        // ── Parse --at tokens ────────────────────────────────────
         // Commas split plain ranges; match(EXPR) is never split (its
         // expression may contain commas).
         let specs = parse_at_tokens(at_tokens)?;
 
-        // match() expressions may reference signals beyond --signals; parse
-        // them now, collect those names and resolve/load everything together.
+        // match() expressions may reference signals beyond --signals; collect
+        // those names so everything is resolved and loaded together.
         let mut all_names: Vec<String> = signal_names.to_vec();
         let mut match_exprs: Vec<String> = Vec::new();
         for spec in &specs {
@@ -45,13 +44,12 @@ impl crate::Pulse {
         let name_to_sref =
             crate::cmd::hierarchy::resolve_and_load(&mut self.wav, scope_path, &all_names)?;
 
-        // Cycle list, once: cycle-domain --at specs and match() evaluation
-        // both consume it (posedges of `clock`, or every tt entry when the
-        // scope has no clock — the same TimeBase every command shares).
+        // Cycle list, once: cycle-domain --at specs and match() evaluation both
+        // consume it (posedges of `clock`, or every tt entry when the scope has
+        // no clock).
         let all_cycles =
             crate::cycle::build_cycles(&mut self.wav, scope_path, Some("clock"), false)?;
 
-        // ── Resolve --at specs to concrete sample ticks ─────────
         let times: Vec<u64> = if changes {
             // --changes scans the whole trace; --at is rejected by clap.
             Vec::new()
@@ -79,9 +77,7 @@ impl crate::Pulse {
                         out.push(ns_to_ticks(*r.0.start(), u64::from(scale_f), scale_u))
                     }
                     AtSpec::Match(expr) => {
-                        // Reuse the shared event engine (same evaluator as
-                        // property/plot/diff); every match's start tick is a
-                        // sample point.
+                        // Every match's start tick is a sample point.
                         let matches = crate::cmd::engine::eval_matches(
                             &self.wav,
                             &all_cycles,
@@ -115,7 +111,7 @@ impl crate::Pulse {
         let samples: Vec<super::output::Sample> = if changes {
             // One row per tick where ANY requested signal value differs from the
             // previous tick (the first tick always appears: initial state).
-            // Multi-signal rows stay aligned so change sets can be diffed
+            // Rows keep all signals aligned so change sets can be diffed
             // across signals (e.g. two nets with identical toggle history).
             let mut prev: Vec<Option<super::output::Val>> = vec![None; signals.len()];
             let mut rows = Vec::new();
@@ -160,8 +156,8 @@ impl crate::Pulse {
     }
 }
 
-/// Split `--at` tokens into specs. Bare comma lists expand; `match(...)`
-/// never splits.
+/// Bare comma lists expand; `match(...)` never splits (its expression may
+/// contain commas).
 fn parse_at_tokens(tokens: &[String]) -> Result<Vec<AtSpec>, WaveError> {
     let mut out = Vec::new();
     for t in tokens {
@@ -180,8 +176,8 @@ fn parse_at_tokens(tokens: &[String]) -> Result<Vec<AtSpec>, WaveError> {
     Ok(out)
 }
 
-/// Expand a bare tick range: `~N` tail sentinel resolved against the last
-/// tick, open-ended ranges clamped to it.
+/// Expand a bare tick range: a `~N` sentinel resolves against the last tick,
+/// open-ended ranges clamp to it.
 fn resolve_ticks(r: &SerdeRange<u64>, last_tick: u64) -> Vec<u64> {
     if let Some(n) = r.tail_n() {
         let start = last_tick.saturating_sub(n - 1);

@@ -12,11 +12,9 @@ import nzea_top.{NzeaCore, NzeaCoreElaborate, NzeaCoreParameter, TopConfig, TopC
   *
   * A default that describes the command (which level, where the RTL goes) lives here; one that picks out the design
   * derives from the level's `default` parameter, so the baseline is stated once. The tree's flags are mirrors
-  * (`TopConfigArgs` → `CoreConfigArgs`, beside the baseline in `nzea_top`): mainargs resolves a nested group's defaults
-  * from the group's own fields, and the design types carry none (rule 6), so a mirror keeps the defaults that let one
-  * flag be overridden alone. mainargs flattens the groups — the flags stay `--isa` / `--defaultPc` — and accepts both
-  * spellings of a field name (`--defaultPc` and `--default-pc`). The map is the tile level's own knob and is ignored by
-  * the core target.
+  * (`TopConfigArgs` → `CoreConfigArgs`, beside the baseline in `nzea_top`), and mainargs flattens the groups — the flags
+  * stay `--isa` / `--defaultPc` — and accepts both spellings of a field name (`--defaultPc` and `--default-pc`). The
+  * devices flag is the tile level's own knob and is ignored by the core target.
   */
 @main(name = "nzea dump", doc = "Elaborate one design to Verilog. The core, tile and fpga targets are ported.")
 case class CliArgs(
@@ -84,10 +82,10 @@ object CliArgs:
   */
 object Main:
 
-    /** firtool flags per flow. Verilator takes what firtool emits by default; Yosys refuses `always_comb` and local
-      * variables inside it, so a synthesis dump is lowered without either.
-      */
-    /** What every flow's lowering shares: the split output, and the randomization/debug stripping the dumps are read
+    /** firtool flags per flow: Verilator takes what firtool emits by default, while Yosys refuses `always_comb` and
+      * local variables inside it, so a synthesis dump is lowered without either.
+      *
+      * What every flow's lowering shares: the split output, and the randomization/debug stripping the dumps are read
       * with. What a value keeps of itself — its declaration, and the Verilog attributes it carries — is not decided
       * here: `dontTouch` marks the values that must survive, per value, and the rest of the design is lowered the way
       * the emitter wants to (see `ConstructorApi.NodeWithAttributes`).
@@ -140,9 +138,8 @@ object Main:
         println(s"elaborated tile:${parameter.config.isa.name} into $outDir")
 
     /** The FPGA level: a board top, always shaped for synthesis — a board build is not a flow's choice, so `--flow`
-      * does not reach it. What travels with the RTL is what the design itself owns, and the design says so itself:
-      * every part that is used registers its own artifacts as it is instantiated ([[DumpRegistry]], which the pads, the
-      * vendor IPs, the emitted bodies and the debug core all register with). The CLI only asks for what was registered.
+      * does not reach it. Every part that is used registers its own artifacts as it is instantiated ([[DumpRegistry]]),
+      * so the CLI only asks for what was registered.
       */
     private def dumpFpga(cli: CliArgs, outDir: os.Path): Unit =
         require(cli.board == "lxb_artix7", s"unknown --board '${cli.board}' (ported: lxb_artix7)")

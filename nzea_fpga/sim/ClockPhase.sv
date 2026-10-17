@@ -1,10 +1,10 @@
-// The wizard's own phase behaviour under the simulation model, measured so a phase plan can be compared against
-// what the board's silicon does with the same parameters (`Ddr3Clocks` is the plan; this is the model's half).
+// The wizard's own phase behaviour under the simulation model, measured so a phase plan can be compared against what
+// the board's silicon does with the same parameters (`Ddr3Clocks` is the plan; this is the model's half).
 //
-// What is printed, per output: the time from a reference `clk_in1` edge to the output's first rising edge, and
-// the following period — both in picoseconds. The *relative* offsets are the numbers a phase plan reads: with
-// the design's own plan (200@0, 200@45, 400@0, 400@90, 200@180) the question is whether the 45°/90°/180° outputs
-// rise *after* their 0° siblings (a lag) or *before* (a lead).
+// What is printed, per output: the time from a reference `clk_in1` edge to the output's first rising edge, and the
+// following period — both in picoseconds. The *relative* offsets are the numbers a phase plan reads: with the design's
+// own plan (200@0, 200@45, 400@0, 400@90, 200@180) the question is whether the 45°/90°/180° outputs rise *after* their
+// 0° siblings (a lag) or *before* (a lead).
 `timescale 1ps/1ps
 
 module ClockPhase;
@@ -30,8 +30,8 @@ module ClockPhase;
 
   time t0, t1a, t1b, t2a, t2b, t3a, t3b, t4a, t4b, t5a, t5b, t6a, t6b;
 
-  // One measurement: a reference edge, then every output's first rising edge after it (all waits start together)
-  // and the edge after that, so each output's period shows beside its phase.
+  // One measurement: a reference edge, then every output's first rising edge after it (all waits start together) and
+  // the edge after that, so each output's period shows beside its phase.
   task automatic run;
     @(posedge clk_in1);
     t0 = $time;
