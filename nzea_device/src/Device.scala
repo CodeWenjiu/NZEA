@@ -15,7 +15,8 @@ import nzea_device.devices.{
     RamPins,
     SifiveTestFinisher,
     SifiveTestFinisherParameter,
-    UartParameter
+    UartParameter,
+    UartPins
 }
 import nzea_rtl.RtlFlow
 import nzea_rtl.bus.*
@@ -23,16 +24,24 @@ import nzea_rtl.bus.given
 import nzea_rtl.stdlib.SyncRamPorts
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class DeviceContext(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, base: Long, size: Long)
+case class DeviceContext(
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int,
+    base: Long,
+    size: Long,
+    clockHz: Int
+)
 
-/** The kinds of device the library ships: the one place that knows what a device is on the address map and how to
-  * build it. A new device is its own module plus one case here. The port shape a kind carries is the target macro's
+/** The kinds of device the library ships: the one place that knows what a device is on the address map and how to build
+  * it. A new device is its own module plus one case here. The port shape a kind carries is the target macro's
   * ([[SyncRamPorts]]), stated by the caller's device list rather than baked into the device, so a different macro is a
   * different entry.
   */
 enum DeviceKind:
     case Ram(ports: SyncRamPorts)
-    case Uart
+    case Uart(lineHz: Int)
     case Finisher
     case Clint
 
@@ -46,9 +55,9 @@ enum DeviceKind:
       */
     def pins(flow: RtlFlow)(using TypeImpl, ConstructorApi): Option[Bundle] = this match
         case Ram(_)   => if flow.bridges then None else Some(new RamPins)
+        case Uart(_)  => if flow.bridges then None else Some(new UartPins)
         case Finisher => if flow.bridges then None else Some(new FinisherPins)
         case Clint    => if flow.bridges then None else Some(new ClintPins)
-        case _        => None
 
     /** Whether the boundary is the level's input (a clock the level supplies) or its output (a flag the device shows).
       * Inputs flow down — `level :>= device.boundary` — outputs flow up.
@@ -79,10 +88,19 @@ enum DeviceKind:
                     flow
                 )
             )
-        case Uart =>
+        case Uart(lineHz) =>
             // Fully qualified: inside the enum, `Uart` is the case, and the case inherits this very method.
             nzea_device.devices.Uart.instantiate(
-                UartParameter(ctx.addrWidth, ctx.dataWidth, ctx.userWidth, ctx.idWidth, ctx.base, flow)
+                UartParameter(
+                    ctx.addrWidth,
+                    ctx.dataWidth,
+                    ctx.userWidth,
+                    ctx.idWidth,
+                    ctx.base,
+                    ctx.clockHz,
+                    lineHz,
+                    flow
+                )
             )
         case Finisher =>
             SifiveTestFinisher.instantiate(
@@ -125,16 +143,16 @@ object DeviceKind:
             .readwriter[String]
             .bimap(
                 {
-                    case DeviceKind.Ram(ports) => s"Ram:${ports.name}"
-                    case DeviceKind.Uart       => "Uart"
-                    case DeviceKind.Finisher   => "Finisher"
-                    case DeviceKind.Clint      => "Clint"
+                    case DeviceKind.Ram(ports)   => s"Ram:${ports.name}"
+                    case DeviceKind.Uart(lineHz) => s"Uart:$lineHz"
+                    case DeviceKind.Finisher     => "Finisher"
+                    case DeviceKind.Clint        => "Clint"
                 },
                 {
-                    case "Uart"                    => DeviceKind.Uart
-                    case "Finisher"                => DeviceKind.Finisher
-                    case "Clint"                   => DeviceKind.Clint
-                    case s if s.startsWith("Ram:") => DeviceKind.Ram(SyncRamPorts.parseOrThrow(s.stripPrefix("Ram:")))
+                    case "Finisher"                 => DeviceKind.Finisher
+                    case "Clint"                    => DeviceKind.Clint
+                    case s if s.startsWith("Ram:")  => DeviceKind.Ram(SyncRamPorts.parseOrThrow(s.stripPrefix("Ram:")))
+                    case s if s.startsWith("Uart:") => DeviceKind.Uart(s.stripPrefix("Uart:").toInt)
                     case other => throw new IllegalArgumentException(s"unknown device kind '$other'")
                 }
             )

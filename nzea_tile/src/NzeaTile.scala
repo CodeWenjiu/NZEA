@@ -29,14 +29,14 @@ class NzeaTileIO(parameter: NzeaTileParameter) extends HWRecord(parameter):
     val clock = Flipped("clock", Clock())
     val reset = Flipped("reset", Reset())
 
-    /** What the tier above sees, one field per thing it connects: a device that shows pins gets them (the flow decides
-      * which those are), and every external window gets its bus — named by the device or window, so the tile's shape is
-      * exactly its two lists'.
+    /** What the tier above sees, one field per thing it connects: a device this tile builds that shows pins gets them
+      * (the flow decides which those are), and every external window gets its bus — named by the device or window, so
+      * the tile's shape is exactly its built devices and the windows the level answers.
       */
-    private val map = NzeaTile.fabricMap(parameter.config, parameter.devices, parameter.externals)
+    private val map = NzeaTile.fabricMap(parameter)
 
     val boundary =
-        parameter.devices.flatMap: d =>
+        parameter.built.flatMap: d =>
             d.kind.pins(parameter.flow).map(pins => Aligned(d.name, pins))
         ++ parameter.externals.map: e =>
             Aligned(e.name, NzeaTile.externalPort(map, parameter.config))
@@ -59,7 +59,7 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         given ClockScope = ClockScope.posedge(clock)
 
         val c = parameter.config
-        val map = fabricMap(c, parameter.devices, parameter.externals)
+        val map = fabricMap(parameter)
         // The boundary is active-high (`NzeaCore`'s comment holds the why); the tree below is active-low.
         val resetN: Node[Reset] = (!io.field[Reset]("reset").asBool).asReset
 
@@ -147,10 +147,18 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         // The debugger's trace is the shared commit-trace sideband, so the two connect as one bundle.
         debugger.io.trace :<>= core.io.commit_msg
 
-        for d <- parameter.devices do
+        for d <- parameter.built do
             val device = d.kind.instantiate(
                 parameter.flow,
-                DeviceContext(c.width, c.width, map.userWidth, map.idWidth, d.range.base.toLong, d.range.size.toLong)
+                DeviceContext(
+                    c.width,
+                    c.width,
+                    map.userWidth,
+                    map.idWidth,
+                    d.range.base.toLong,
+                    d.range.size.toLong,
+                    parameter.clockHz
+                )
             )
             device.connect(clock, resetN, xbar.io.out(map, d.name))
             d.kind.pins(parameter.flow) match
@@ -166,17 +174,17 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         // ([[ExternalSpec]]): the bus carries neither, and the same nets are the price of not building it here.
         for e <- parameter.externals do io.field[LiteBusRW](e.name) :<>= xbar.io.out(map, e.name)
 
-    /** The tile's address map: the core's two masters over the platform's two lists — the devices the library builds and
-      * the external ones the level above answers. Stating both in one map is what makes a duplicate name or an
-      * overlapping window a loud elaboration failure ([[AddressMap]]) instead of a decode that quietly picks one.
+    /** The tile's address map: the core's two masters over the windows this tile builds ([[NzeaTileParameter.built]])
+      * and the ones the level above answers. Stating both in one map is what makes a duplicate name or an overlapping
+      * window a loud elaboration failure ([[AddressMap]]) instead of a decode that quietly picks one.
       */
-    def fabricMap(config: CoreConfig, devices: Seq[DeviceSpec], externals: Seq[ExternalSpec]): AddressMap = AddressMap(
+    def fabricMap(parameter: NzeaTileParameter): AddressMap = AddressMap(
         masters = Seq(
-            MasterPort("ibus", IbusUser.userWidth(config.width), 1),
+            MasterPort("ibus", IbusUser.userWidth(parameter.config.width), 1),
             MasterPort("dbus", DbusUser.userWidth, 1)
         ),
-        slaves = devices.map(d => SlavePort(d.name, d.range, d.kind.slaveKind, d.outstanding))
-            ++ externals.map(e => SlavePort(e.name, e.range, e.slaveKind, e.outstanding))
+        slaves = parameter.built.map(d => SlavePort(d.name, d.range, d.kind.slaveKind, d.outstanding))
+            ++ parameter.externals.map(e => SlavePort(e.name, e.range, e.slaveKind, e.outstanding))
     )
 
     /** The bus an external window shows at the boundary: the fabric's own shape, as the tile's *master* view of it —
@@ -191,10 +199,16 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
     def mmioWindows(map: AddressMap): Seq[String] =
         map.mmioRanges.map(window => s"0x${window.base.toString(16)}:0x${window.size.toString(16)}")
 
-/** The platform's devices for a flow — the list the wiring above loops over, stated in the file whose loop reads it. A
-  * flow builds what it can: the bridge flow gets every window (the simulator answers them all, so a device with no
-  * hardware yet — the UART — is still a window), a synthesis flow gets what has hardware. The two diverge on purpose,
-  * and the inventory is stated as an extension rather than on `RtlFlow` so platform addresses stay out of `nzea_rtl`.
+/** The rate the platform's bridge speaks, the same number the loader's receiver is told ([[nzea_fpga.Top]]): the UART
+  * transmits at it, and a program's bytes reach the host at it. Two consumers, one line.
+  */
+private val LineHz = 115200
+
+/** The platform's hardware for a flow — the inventory the wiring above reads, stated in the file whose wiring reads it.
+  * A flow builds what it can: the bridge flow gets every window (the simulator answers them all, so a device with no
+  * hardware yet — the UART — is still a window), a synthesis flow gets what has hardware. A window the level above
+  * answers is not built ([NzeaTileParameter.built] shadows it). The two flows diverge on purpose, and the inventory is
+  * stated as an extension rather than on `RtlFlow` so platform addresses stay out of `nzea_rtl`.
   */
 extension (flow: RtlFlow)
 
@@ -206,18 +220,27 @@ extension (flow: RtlFlow)
                     AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)),
                     DeviceKind.Ram(SyncRamPorts.OneRW)
                 ),
-                DeviceSpec("uart16550", AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)), DeviceKind.Uart),
+                DeviceSpec(
+                    "uart16550",
+                    AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)),
+                    DeviceKind.Uart(LineHz)
+                ),
                 DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
                 DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)
             )
         case RtlFlow.Yosys =>
-            // The synthesis flow: what has hardware. The UART is left out (its hardware is not ported), and the RAM's
-            // window is its storage — a window worth building, not the 128 MiB the simulator models.
+            // The synthesis flow: what has hardware. The UART is print-only (its receive half is not ported) and the
+            // RAM's window is its storage — a window worth building, not the 128 MiB the simulator models.
             Seq(
                 DeviceSpec(
                     "ram",
                     AddrRange(BigInt("80000000", 16), BigInt("00020000", 16)),
                     DeviceKind.Ram(SyncRamPorts.OneRW)
+                ),
+                DeviceSpec(
+                    "uart16550",
+                    AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)),
+                    DeviceKind.Uart(LineHz)
                 ),
                 DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
                 DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)

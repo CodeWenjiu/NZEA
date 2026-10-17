@@ -12,9 +12,8 @@ import nzea_top.{NzeaCore, NzeaCoreElaborate, NzeaCoreParameter, TopConfig, TopC
   *
   * A default that describes the command (which level, where the RTL goes) lives here; one that picks out the design
   * derives from the level's `default` parameter, so the baseline is stated once. The tree's flags are mirrors
-  * (`TopConfigArgs` → `CoreConfigArgs`, beside the baseline in `nzea_top`), and mainargs flattens the groups — the flags
-  * stay `--isa` / `--defaultPc` — and accepts both spellings of a field name (`--defaultPc` and `--default-pc`). The
-  * devices flag is the tile level's own knob and is ignored by the core target.
+  * (`TopConfigArgs` → `CoreConfigArgs`, beside the baseline in `nzea_top`), and mainargs flattens the groups — the
+  * flags stay `--isa` / `--defaultPc` — and accepts both spellings of a field name (`--defaultPc` and `--default-pc`).
   */
 @main(name = "nzea dump", doc = "Elaborate one design to Verilog. The core, tile and fpga targets are ported.")
 case class CliArgs(
@@ -24,7 +23,8 @@ case class CliArgs(
     config: TopConfigArgs,
     @arg(doc = "verilator-shaped RTL or synthesis-shaped RTL; a board is always synthesis-shaped")
     flow: RtlFlow = CliArgs.coreBaseline.flow,
-    @arg(doc = "the tile's devices (JSON, repeatable); defaults to the platform's") devices: Seq[DeviceSpec],
+    @arg(doc = "the tile's clock, in Hz; the UART's bit timing derives from it") clockHz: Int =
+        CliArgs.tileBaseline.clockHz,
     @arg(doc = "load/store queue depth (a power of two), 0 builds none") lsqDepth: Int = CliArgs.coreBaseline.lsqDepth,
     @arg(doc = "instruction cache: a geometry, or 'none'") icache: CacheChoice =
         CacheChoice.of(CliArgs.tileBaseline.icache),
@@ -45,26 +45,21 @@ case class CliArgs(
         lsqDepth = lsqDepth
     )
 
-    /** The tile level's design: the tile's own baseline, with the ISA, flow, device list and external windows a flag
-      * named overridden.
+    /** The tile level's design: the tile's own baseline, with the ISA, flow and cache choices a flag named overridden.
       *
-      * The tile's external windows are not a dump flag: a window the level above answers exists only where there is a
-      * level above (its parameter carries them — [[NzeaTileParameter.externals]]), so a CLI dump is the baseline
-      * platform, with none.
-      *
-      * A `Seq` flag's reader accepts an empty value, so an absent `--devices` arrives as an empty list rather than the
-      * field's default (mainargs never falls back to it); the platform's list is substituted here, and a fabric cannot
-      * have zero slaves anyway.
+      * The tile's hardware is the flow's — its device inventory is no flag — and its external windows are no dump flag
+      * either: a window the level above answers exists only where there is a level above (its parameter carries them —
+      * [[NzeaTileParameter.externals]]), so a CLI dump is the baseline platform, with none.
       */
     def tileParameter: NzeaTileParameter =
         val base = CliArgs.tileBaseline
         base.copy(
             config = CoreConfig(isa = config.core.isa, defaultPc = config.core.defaultPc),
             flow = flow,
+            clockHz = clockHz,
             lsqDepth = lsqDepth,
             icache = CacheChoice.toOption(icache),
-            dcache = CacheChoice.toOption(dcache),
-            devices = if devices.isEmpty then flow.devices else devices
+            dcache = CacheChoice.toOption(dcache)
         )
 
 object CliArgs:

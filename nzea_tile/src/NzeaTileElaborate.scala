@@ -6,8 +6,8 @@ import nzea_rtl.Elaborate
   *
   * The two-step protocol (`config` writes the parameter out, `design` reads it back and elaborates, `firld` joins the
   * modules) is [[nzea_top.NzeaCoreElaborate]]'s; a level top spells its own parameter's flags and nothing else. What a
-  * flow can build is the platform's device list, stated beside the wiring it feeds ([[NzeaTile]]'s `devices` extension
-  * on [[nzea_rtl.RtlFlow]]).
+  * flow can build is the flow's own inventory, stated beside the wiring that reads it ([[NzeaTile]]'s `devices`
+  * extension on [[nzea_rtl.RtlFlow]]) — the parameter carries the windows the level above answers, not that list.
   */
 object NzeaTileElaborate:
 
@@ -33,6 +33,8 @@ object NzeaTileElaborate:
             parameter.config.defaultPc.toString,
             "--flow",
             parameter.flow.segment,
+            "--clockHz",
+            parameter.clockHz.toString,
             "--bypass",
             parameter.bypass.name,
             "--stats",
@@ -41,5 +43,4 @@ object NzeaTileElaborate:
             ++ Seq("--lsqDepth", parameter.lsqDepth.toString)
             ++ parameter.icache.toSeq.flatMap(icache => Seq("--icache", icache.name))
             ++ parameter.dcache.toSeq.flatMap(dcache => Seq("--dcache", dcache.name))
-            ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
             ++ parameter.externals.flatMap(external => Seq("--externals", upickle.default.write(external)))

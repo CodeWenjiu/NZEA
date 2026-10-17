@@ -29,15 +29,20 @@ its resets (`nzea_rtl.stdlib.Resets`), both wired where the boundary names the l
 logic that stated its clocks but was handed nothing would have to have its own wizard, and two wizards put an unknown
 phase between grids that must keep one.
 
-`Blinkers` is the first module here: the two LEDs, one blinker per clock domain, with the probe bindings its instances
-need — the level's own composition of a reusable module ([[nzea_device]]'s `Blink`), whose diagnostic story (a board
-where only the first LED blinks points at the clocking wizard) is the reason the boundary hands it two clock domains
-instead of one.
+`Blinkers` is the first module here: the two LEDs, one blinker per clock domain, the level's own composition of a
+reusable module ([[nzea_device]]'s `Blink`), whose diagnostic story (a board where only the first LED blinks points at the
+clocking wizard) is the reason the boundary hands it two clock domains instead of one.
 
-`Ddr3Soak` is the second: the test the board's DDR3 bus ([[nzea_fpga.device.ddr3.Ddr3Side]]) is put through — the walk's
+`BootSram` and `CoreMemory` are the board's program loader, split by what each owns: the loader turns the serial line's
+frames into writes and states the hold as a reason ([[nzea_fpga.logic.BootSram]] — the protocol is the host tool's), and
+the memory those writes land in is this level's, because the tile's RAM is an *external window* here ([[nzea_fpga.Top]]):
+`CoreMemory` serves the tile's port and the loader's on one macro and drains a held core's answers. Both run on the boot
+grid the loader states, so a load's writes and the core's first fetch are ordered by the one clock.
+
+`Ddr3Soak` is the test the board's DDR3 bus ([[nzea_fpga.device.ddr3.Ddr3Side]]) is put through — the walk's
 sixteen addresses, the pattern window, the LFSR run and the write-mask steps, with every read-back judged against what
 the writes themselves left behind (`errors`, and the first failure's address/expectation/answer). It owns the bus's board
 side: the device is instantiated *inside* it, on the pins, grids and domain it states ([[LogicNeeds]]), so the boundary
-knows neither the transport nor a pad of it — and it is the first module here that says what it needs instead of being
-handed it. Its rounds and the device's answer belong to the bus's own domain, and the campaign exists to read that verdict
-there.
+knows neither the transport nor a pad of it. Its rounds and the device's answer belong to the bus's own domain, and the
+campaign exists to read that verdict there. It is not instantiated in the top today — the loader's target is SRAM — and
+comes back with the migration to DDR3.

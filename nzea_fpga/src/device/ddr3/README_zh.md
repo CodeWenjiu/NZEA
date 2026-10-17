@@ -522,3 +522,47 @@ walk 的 `0001_0002_0004_0008` 读成 `0000_0001_0002_0004`。
 **验证**：`just dump --target fpga --isa riscv32i` 通过；`mill --no-server nzea_fpga.test` 18/18；
 `nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --timeout 5400` → `Ddr3Bringup: PASS`（40 步 / 88 次访问 /
 0 错读回，锁定 `plane 0 / tap 15`、`writeShift 0`、对齐 39——与第十三节记录逐项一致）。
+
+---
+
+## 十六、把程序送进来：串口加载器与 16550 打印（2026-10-17）
+
+**为什么**：板上一直缺最后一块——往核心的内存里放程序。legacy 的魔法帧加载器（`FabricBusUart` + `probe`）搬进新树，
+同时把程序要用的**发送半**（16550）补上：加载器负责收，程序负责打印。
+
+**做了什么**：
+
+- `nzea_device/src/devices/Uart.scala`：16550 的发送半（窗口两个 word：`THR/RBR`、`IER`、`IIR/FCR`、`LCR` 与
+  `MCR`、`LSR`、`MSR`、`SCR`；`LCR[7]` 的 DLAB；`LSR` 的 `THRE/TEMT` 恒 1；位周期 = `clockHz/lineHz`，分频
+  锁存器只存不用——速率是平台参数）。接收半**没有**搬：`RBR` 读 0、`LSR.DR` 读 0，程序的输入走加载器自己的
+  接收器。参数 `require(clockHz/lineHz >= 4)`（一位至少要 4 个 fabric 周期才够移出）。
+- `nzea_device/src/devices/UartRx.scala`：加载器用的接收器（普通分频采样，不是 16x 过采样）。
+- tile：map 上多一台 `uart16550`（`0x1000_0000`，8 字节），`DeviceKind.Uart(lineHz)` 带速率；`NzeaTileParameter`
+  新增 `clockHz`——**线的速率是平台的事实**，两端被显式告知同一个数；`top` 里两份都传 25 MHz / 115200。
+- fpga 顶层：`logic/BootSram.scala`（magic `0xB007B007` + addr + size + words 的帧；core 从 magic 起被挂住，
+  直到帧的最后一个 word 被总线 ack）+ `logic/CoreMemory.scala`（tile 的 RAM 变成 **external window**，由本层回答：
+  一台宏、两个主口——tile 与加载器）；`device/uart/UartXdc.scala` 注册 `UART_RX` / `UART_TX` 两条约束；
+  `bootHoldN` 以 reason 形式进复位网络（core 域等它），加载器/core/内存共用一个 25 MHz 网格。
+- 同时删掉：顶层不再实例化 DDR3（soak 与 `device/ddr3/` 留在树里，等把加载目标从 SRAM 迁回 DDR3）。
+
+**这轮踩到的两个坑**（都会以"程序写进去了、读回来不对"的面目出现）：
+
+1. `RamFabricSlave` 的总线侧 ack 条件写反了：`ackSync1 =/= reqToggle` 会**回应答上一笔**——第一次读是 X，之后读到
+   的永远是上一次的数据。改成 `===` 之后加载器的回读才第一次对。教训：读写回环"通了"不代表对了，**回读要拿新
+   数据比对**。
+2. `CoreMemory` 的两主端口：加载器无条件优先成立的前提是 core 被挂着；但**已经获准、还在等应答**的 core 请求会
+   失去主人（core 在复位里不会再接应答），内存端口就永远停在那笔请求上。解法：被挂起时 drain 掉 core 的应答
+   （`mem.io.bus.resp.ready := serving ? load.resp.ready : core.resp.ready | coreHeld`），core 复位释放后自己重发。
+
+**契约（不能悄悄变）**：程序对 `0x1000_0000` 的一次 `sw` 就是一个字节，**不轮询、不配分频**；cache 关闭时 25 MHz
+的核心慢于线速（115200 下每字节 87 µs），不会丢字节；将来开 cache 就要先查 `LSR.THRE`。finisher 仍 `0x0010_0000`，
+程序链在 `0x8000_0000`（`just asm2hex --test print_only <out.hex>`，`--list` 列内建程序）。
+
+**验证**：三套测试全绿（device 10 / tile 9 / fpga 19）；`just dump --target core|tile|fpga` 全过；fpga dump 的顶层
+端口 = `CLK_50M / RESET / LED1 / LED2 / UART_RX / UART_TX`，`uart.xdc` 两条约束齐。
+
+**上板已验证（2026-10-17）**：`just fpga build`（时序全过，`All user specified timing constraints are met`）→
+`just fpga program` → `just asm2hex --test print_only /tmp/print_only.hex` →
+`just probe load /tmp/print_only.hex --addr 0x80000000` 的回读窗口里出现 `HELLO`；`probe monitor --reset` 再复位重跑，
+再出一次 `HELLO`。ILA 抓一窗（触发 `finished=1`）：`boot/bootState=0`、`bootHoldN=1`、`coreReset=0`、`pllLocked=1`、
+`finished=1`、`bootWritten=36`（与 hex 的 36 个 word 一致）——加载器写完、core 释放、程序跑到 finisher，全链闭合。

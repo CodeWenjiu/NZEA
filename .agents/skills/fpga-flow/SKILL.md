@@ -25,22 +25,19 @@ knowledge (Vivado is not on PATH, runs in an FHS nix shell) and the exact comman
    command-line pattern. (Measured: `pgrep -f vivado` also matches the shell running the check, so a build that had
    finished at 12:38 looked "still running" for the next fifty minutes while a `sleep` loop polled it.)
 
-**Current state (2026-10-16)**: the board carries the DDR3 bring-up design — `nzea_fpga/src/Top.scala`, which *is* the
-board's top (the module named `Top` owns the pins, the DDR3 pads included: `src/device/ddr3/Ddr3Pads.scala` holds the
-I/O cells' primitives as modules of the circuit) = the clocking wizard, the LED panel (`src/logic/Blinkers.scala`), and
-the DDR3 device (`src/device/ddr3/`: a LiteBus slave a master reads and writes the memory through) put through this
-level's own soak (`src/logic/Ddr3Soak.scala` — the transport is the device's, the test is the level's; `README_zh.md`
-§12 records the split), watched by an ILA debug core the netlist
-flow creates — so the pipeline below ends at "the LEDs blink, the soak reports zero errors, and an ILA window is
-readable". The DDR3
-device keeps its own side (`src/device/ddr3/Ddr3Side.scala`: controller, pads, probes, the grids they run on and its own
-reset), the resets are a network of named reasons with one synchronizer per clock domain
-(`nzea_rtl/src/stdlib/Resets.scala`), and the top hands each part the pins it declares and nothing else — the resets
-included, each part stating which reasons hold it.
-A scenario reaches into the
-design as `dut.<instance>` (`dut` is the top itself; there is no wrapper above it). The tile (and with it the
-UART boot loader, `just probe load`/`reset`/`monitor`, and the reset-triggered ILA mode) is not on the
-board yet; those recipes come back when it is.
+**Current state (2026-10-17)**: the board carries the tile — `nzea_fpga/src/Top.scala` *is* the board's top (the module
+named `Top` owns every pin) = the oscillator's global buffer, the clocking wizard (`Clocks`, one grid per ask), the reset
+network (`nzea_rtl/src/stdlib/Resets.scala`: named reasons, one synchronizer per domain), the serial boot loader
+(`src/logic/BootSram.scala`: the host frames `magic (0xB007B007) + addr + size + words` at 115200, the core is held until
+the frame's last word has landed), the RAM the loader writes and the core fetches through
+(`src/logic/CoreMemory.scala`), the tile itself (`nzea_tile`: the riscv32i core at 25 MHz, no caches, finisher/CLINT, and
+the 16550 the loaded program prints through — its `txd` leaves this level on the `UART_TX` pin), the LED panel
+(`src/logic/Blinkers.scala`), and an ILA debug core the netlist flow creates — so the pipeline below ends at "the LEDs
+say the design is alive, `just probe load` loads a program, and its printing arrives on `just probe monitor`". A scenario
+reaches into the design as `dut.<instance>` (`dut` is the top itself; there is no wrapper above it). The DDR3 bus
+(`src/device/ddr3/`, `src/logic/Ddr3Soak.scala`) stays in the tree but is *not* instantiated right now: the loader's
+target is SRAM, and the soak's design is kept for the later migration to DDR3 (`README_zh.md` §12 records the split of
+transport and test).
 
 ## The pipeline (one command per stage)
 
@@ -59,7 +56,7 @@ just fpga program
 
 # 4. Capture an ILA window (board programmed with an ila build) and analyze it.
 just fpga capture                                 # trigger immediately (default)
-just fpga capture lxb_artix7 riscv32i 'led1=0'    # or arm on one probe's compare value
+just fpga capture lxb_artix7 riscv32i 'finished=1' # or arm on one probe's compare value
 pulse --wave build/fpga/lxb_artix7/riscv32i/vivado/capture.named.vcd info
 
 # No board needed: a scenario under xsim, against the IP's official models.
@@ -72,11 +69,11 @@ underlying `nzea_fpga/scripts/vivado-project.nu` can still be run directly.
 
 Success signals: `just fpga build` ends with `Bitstream generation completed` and writes
 `build/fpga/lxb_artix7/<isa>/vivado/nzea_fpga.bit`; `just fpga program` prints
-`INFO: FPGA xc7a200tfbg484-2 programmed.`; on the board, LED1 blinks (50 MHz domain, ~0.7 Hz) and LED2 blinks
-(the wizard's 100 MHz domain, ~3 Hz) — **if only LED1 blinks, the wizard's IP or its clock path is at fault**, which is why
-there are two. A capture tells the same story without eyes: `reset` 0, `locked` 1, and the two counters counting —
-`blink50_count` +1 per sample (50 MHz exactly), `blink100_count` +2 per sample (its 100 MHz domain seen through the
-50 MHz trigger clock) — so the domain whose counter is not counting is the domain whose clocking is at fault.
+`INFO: FPGA xc7a200tfbg484-2 programmed.`; on the board, LED1 blinks (50 MHz domain, ~0.7 Hz) and LED2 blinks at
+~3 Hz (the wizard's 100 MHz domain) until a loaded program writes the finisher, after which LED2 goes steady — **if only
+LED1 blinks, the wizard's IP or its clock path is at fault**, which is why there are two. A capture tells the same story
+without eyes: no reason holds (`buttonPin` 1, `pllLocked` 1, `bootHoldN` 1), the reset domains are out of reset (0), and
+`finished` 1 once the loaded program has run.
 
 ## Environment knowledge (critical, non-obvious)
 
@@ -113,10 +110,10 @@ board as the platform: `build/fpga/lxb_artix7/<isa>/`. Under it:
 | `*.sv`, `filelist.f` | `just dump --target fpga` (firtool) | the design's RTL and its file list |
 | `layers-*.sv` | same, only when the design has layer blocks | the `bind` fragments; the dump adds the roots to `filelist.f` (see the probe section) |
 | `Bufg.sv` | `just dump --target fpga` (`Bufg.emitModules`) | the global clock buffer's body, listed in `filelist.f` |
-| `Ddr3*Pads.sv`, `Ddr3IdelayCtrl.sv` | same (`Ddr3Pads.emitModules`) | the DDR3 I/O cells' bodies — one module per pad group the design instantiated — listed in `filelist.f` |
+| `Ddr3*Pads.sv`, `Ddr3IdelayCtrl.sv` | same (`Ddr3Pads.emitModules`) | the DDR3 I/O cells' bodies — one module per pad group the design instantiated — listed in `filelist.f`; only present while the design carries the DDR3 bus |
 | `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` | same (`Ila.emit`) | the debug script (what the impl run sources), the capture script and the VCD rename map |
 | `ip_*.tcl` | same (`ClockingWizard.emit`) | one snippet per instantiated vendor IP, listed in `ipfiles.f` |
-| `board.xdc`, `ddr3.xdc`, `xcdfiles.f` | same (`XdcRegistry`, registered by `BoardXdc` / `Ddr3Xdc`) | the constraints, one file per part of the design that declares pins — the level's own pins, the DDR3 bus — listed in `xcdfiles.f`; edit the Scala, not the tree |
+| `board.xdc`, `uart.xdc`, `ddr3.xdc`, `xcdfiles.f` | same (`XdcRegistry`, registered by `BoardXdc` / `UartXdc` / `Ddr3Xdc`) | the constraints, one file per part of the design that declares pins — the level's own pins, the serial line, the DDR3 bus (the last two only while something registers them) — listed in `xcdfiles.f`; edit the Scala, not the tree |
 | `simfiles.f` | same (`ClockingWizard.emit`) | the IP's simulation sources, paths under the generated-IP root (see the xsim section) |
 | `vivado/build_all.tcl` | `just fpga build` (its first step, edalize) | one-shot: project → synthesis → impl → bitstream |
 | `vivado/program.tcl` | same | JTAG programming, attaching the impl's `.ltx` probes file |
@@ -177,19 +174,16 @@ below), so nothing about it goes through the IP machinery.
   Each declaration keeps a wire named `probe_<name>` carrying `(* mark_debug = "true" *)` (what Vivado preserves a net
   by) and takes the value's **own width**;
   `Probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
-  (the top's own). Current probes (40: 39 declarations, one of them — the panel's — bound at two instances): the
-  reset network's six — three reasons (`buttonPin`, `pllLocked`,
-  `ddr3TapsReady`) and three domains (`board50Reset`, `board100Reset`, `ddr3Reset`, each 1 = in reset),
-  marked where `Resets` declares them (`nzea_rtl/src/stdlib/Resets.scala`) — the DDR3 device's twenty-two (`state` …
-  `dqIn`, marked in `Ddr3.scala` where the signals live), the soak's eight (`phase`, `step`, `issued`, `errors`,
-  `done`, `firstBadAddr`, `firstBadExp`, `firstBadGot`, marked in
-  `logic/Ddr3Soak.scala`), the blinkers' two (`blink50_count`, `blink100_count`, declared in `Blink`, bound per instance)
-  and the top's own two (`led1`, `led2`); depth 1024, sampled on the design's buffered 50 MHz clock (kept as the wire
-  `ila_clock`). The table's order is the order the statements were made — the reset network's first, then the device's,
-  then the soak's, because the device is built before the level's own logic — so a probe's index moves if that order
-  does; the rename map keeps the queries by name. A declared name must also not *contain* another (the leaf search is a
-  substring match, so both searches would find both nets): the elaboration refuses it rather than a build failing on the
-  count twenty minutes later.
+  (the top's own). **Current probes (15)**: the reset network's seven — three reasons (`buttonPin`, `pllLocked`,
+  `bootHoldN`, each 1 = the reason does not hold) and four domains (`board50Reset`, `board100Reset`, `bootReset`,
+  `coreReset`, each 1 = in reset), marked where `Resets` declares them (`nzea_rtl/src/stdlib/Resets.scala`) — the
+  loader's seven (`bootState`, `bootMagic`, `bootAddr`, `bootWords`, `bootWritten`, marked in `logic/BootSram.scala`;
+  and the receiver's `data`/`valid`, declared in `UartRx` and bound at the loader's instance, read as
+  `rx_data`/`rx_valid`) and the top's own (`finished`, the tile finisher's level); depth 1024, sampled on the design's
+  buffered 50 MHz clock (kept as the wire `ila_clock`). The table's order is the order the statements were made, so a
+  probe's index moves if that order does; the rename map keeps the queries by name. A declared name must also not
+  *contain* another (the leaf search is a substring match, so both searches would find both nets): the elaboration
+  refuses it rather than a build failing on the count twenty minutes later.
 - **Declarations are unconditional; the consumer is the level's.** They are collected in a dump-level table
   (`nzea_rtl.probe.Probes`, cleared by `DumpRegistry` like the rest of a dump's state), and the fpga level's consumer
   is `nzea_fpga.ip.Ila` — `Ila("<core>", <depth>)`, `Ila.clock(<net>)` for the anchor, `Ila.emit(<dir>)` for the
@@ -197,9 +191,11 @@ below), so nothing about it goes through the IP machinery.
   flow) reads the same `Probes.table` its own way.
 - **Why two steps**: a module body is shared by every instance, so it cannot say *which* instance a probe means — the
   binding is stated where the instance is named. **A module instantiated once does not need the split**: `Probes.mark`
-  declares and binds in the same statement, and the name is the address (every register-carrying module on this board is
-  instantiated once, so `Ddr3`, `Ddr3Soak` and `Top`'s own signals are marks; only the panel's `Blink` — two instances
-  from one body — is declared-and-bound). If such a module ever gains a second instance, the marked names would have to
+  declares and binds in the same statement, and the name is the address (this board's own modules — `Top`, `BootSram` —
+  are all marks). The split is the *library's* convention: a `nzea_device` body declares beside its signals (`Blink`'s
+  `count`, `UartRx`'s `data`/`valid`) and whoever instantiates it binds them (`BootSram` binds the receiver's two as
+  `rx_data`/`rx_valid`; nothing binds `Blink`'s today, so the panel carries a marked, unwatched net per instance). If
+  such a module ever gains a second instance, the marked names would have to
   grow a prefix: two nets with the same name fail the build loudly (the count check), never silently. Declaration names
   are one namespace and must be unique in the design.
 - **A declaration can sit beside its signal at any depth — no port threading — which is the point of the mechanism.** The
@@ -219,7 +215,8 @@ below), so nothing about it goes through the IP machinery.
   (`probe_count[0]` … `[25]`) and is connected in index order; the clock is kept as its own wire (`ila_clock`, the
   sampled domain's net) and resolved like a mark. A search that does not come back with the number of nets the width
   declares fails the build loudly (`ILA: '…' matched N nets`), never silently.
-- `just fpga capture` drives the dump-generated `ila_capture.tcl` in the same batch FHS env: it finds the part,
+- `just fpga capture` (e.g. `... 'finished=1'`, or `'bootState=6'` for "a load just ended") drives the
+dump-generated `ila_capture.tcl` in the same batch FHS env: it finds the part,
   attaches the impl `.ltx` (required — without it `get_hw_ilas` is empty), sets `TRIGGER_POSITION` to `depth/4`,
   and triggers — immediately by default, or armed on one probe's compare value
   (`just fpga capture lxb_artix7 riscv32i '<probe>[=<value>]'`; the probe is the semantic name, resolved through
@@ -265,6 +262,10 @@ verbosity) takes ~20–25 min:
 nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --board lxb_artix7 --isa riscv32i --timeout 5400
 ```
 
+The DDR3 scenarios are **dormant** since 2026-10-17: they reach into the design as `u_top.soak.*`, and the top no longer
+instantiates the soak (`Top.scala`'s `logics` is `Seq(BootSram)`), so a run fails to elaborate. They come back with the
+loader's migration to DDR3.
+
 A killed run exits 124 and its log simply stops (a 300 s kill looks like a hang until you read the exit code). Run it in
 the foreground per the hard rules above: it is long, not unattended.
 
@@ -290,7 +291,7 @@ so pulse's default clock (`posedge clock`) may pick the wrong one. Give it the s
 `pulse value --wave <name>.vcd --on 'posedge CLK_50M' ...`. (An ILA export has no clock signal at all; there pulse
 falls back to one cycle per sample.)
 
-## Serial / UART (not on the board yet)
+## Serial / UART (the loader's line, and the program's print)
 
 The board's UART is a CH340 (`1a86:xxxx`, driver `ch341`); prefer the stable `/dev/serial/by-id/` alias over
 `/dev/ttyUSB*`, whose number changes between sessions:
@@ -300,9 +301,23 @@ ls -l /dev/serial/by-id/
 # → usb-1a86_USB_Serial-if00-port0 -> ../../ttyUSB1
 ```
 
-The `probe` Rust workspace (`probe/cli`, binary `probe/target/release/probe`) already implements
-`load`/`reset`/`monitor`/`memread`/`vcd-rename`, but the tile's boot loader is not on the board yet, so only
-`vcd-rename` is in use today (by `ila-capture.nu`). The `just probe` subcommands become useful when the tile lands.
+The `probe` Rust workspace (`probe/cli`, binary `probe/target/release/probe`, reached as `just probe <cmd>`) is the
+host tool for the whole loop, and the board now carries both its ends — the loader (RX) and the tile's 16550 (TX), one
+line, both told 115200:
+
+```sh
+just asm2hex --test print_only /tmp/hello.hex            # assemble a test program (`--list` shows the tests)
+just probe load /tmp/hello.hex --addr 0x80000000         # magic-frame the hex into RAM; the loader holds the core
+just probe monitor                                       # stream RX with timestamps, Ctrl-C to stop → "HELLO"
+just probe reset                                         # reset-only frame: restart from the reset vector, RAM kept
+```
+
+What the program may assume (the contract is the tool's, not documented anywhere else): a store of one byte to the
+16550's THR at `0x1000_0000` prints it — no polling, no divisor programming (the divisor is hardware's, fixed at
+`clockHz/115200`); the finisher window is at `0x0010_0000` (writing it steadies LED2); programs are linked at
+`0x8000_0000` (`asm2hex`'s default). At the 25 MHz grid the core is slower than the line, so a `putc` loop cannot
+overrun the byte time (87 µs); with caches enabled it could — poll LSR.THRE before that day.
+
 Note: `probe` is a separate Rust workspace; `linkedProjects` in `.zed/settings.json` disables rust-analyzer
 auto-discovery, so **every new Rust workspace in this repo must be listed there** or rust-analyzer will
 silently not load it.
@@ -325,8 +340,9 @@ silently not load it.
   `lsusb` (the Digilent cable shows as `0403:…`, the CH340 as `1a86:…`).
 - **A constraint on a missing port** — an XDC line for a port the top does not declare is an error in Vivado. The
   constraints are now generated with the dump, one file per part of the design that declares pins (`board.xdc` for the
-  level's own pins, `ddr3.xdc` for the DDR3 bus; both listed in `xcdfiles.f`), so they follow the top by construction:
-  add the lines in the Scala beside the pads — `nzea_fpga/src/boards/lxb_artix7/BoardXdc.scala`,
+  level's own pins, `uart.xdc` for the serial line, `ddr3.xdc` for the DDR3 bus; all listed in `xcdfiles.f`), so they
+  follow the top by construction: add the lines in the Scala beside the pads —
+  `nzea_fpga/src/boards/lxb_artix7/BoardXdc.scala`, `nzea_fpga/src/device/uart/UartXdc.scala`,
   `nzea_fpga/src/device/ddr3/Ddr3Xdc.scala` — and re-dump. The board's full pin map (UART, HDMI, …) stays the vendor's
   `A7_lite.xdc` beside them, kept as reference.
 - **Vivado residue files** (`vivado.jou`, `vivado_pid*.str`, `*.backup.log`) are gitignored; delete freely.

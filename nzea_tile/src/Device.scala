@@ -16,7 +16,7 @@ object DeviceSpec:
     given upickle.default.ReadWriter[DeviceSpec] = upickle.default.macroRW
 
     /** The flag's spelling is one device's own JSON form, the same the map's serialization uses; a `Seq[DeviceSpec]`
-      * flag is this repeated (`--devices <json> --devices <json>`).
+      * flag is this repeated (`--externals <json> --externals <json>`).
       */
     given TokensReader.Simple[DeviceSpec] with
         def shortName = "device-json"
@@ -32,8 +32,8 @@ object DeviceSpec:
   * name ([[NzeaTile]]), and the level above connects its own device there. That device must run in the tile's own clock
   * and reset domain — the bus carries neither, and the tile hands a device both only when it builds it — so the level
   * above feeds the same nets to the tile and to its devices. `slaveKind` says what the window joins (a memory one joins
-  * what a cache may refill from, an MMIO one the commit trace's) and `outstanding` how many requests the device holds at
-  * once.
+  * what a cache may refill from, an MMIO one the commit trace's) and `outstanding` how many requests the device holds
+  * at once.
   */
 case class ExternalSpec(name: String, range: AddrRange, slaveKind: SlaveKind, outstanding: Int)
 

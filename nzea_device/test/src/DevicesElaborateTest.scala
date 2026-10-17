@@ -118,7 +118,7 @@ object DevicesElaborateTest extends TestSuite:
     )
 
     private lazy val uart = TestFlow.lower(
-        Uart.moduleName(UartParameter(32, 32, 4, 1, 0x10000000L, RtlFlow.Verilator)),
+        Uart.moduleName(UartParameter(32, 32, 4, 1, 0x10000000L, 25000000, 115200, RtlFlow.Verilator)),
         cfg =>
             Uart.main(
                 Array(
@@ -134,8 +134,41 @@ object DevicesElaborateTest extends TestSuite:
                     "1",
                     "--base",
                     "268435456",
+                    "--clockHz",
+                    "25000000",
+                    "--lineHz",
+                    "115200",
                     "--flow",
                     "verilator"
+                )
+            ),
+        cfg => Uart.main(Array("design", cfg.toString))
+    )
+
+    /** The same device in a synthesis flow: the register file and the transmitter are built instead of the bridge. */
+    private lazy val uartHw = TestFlow.lower(
+        Uart.moduleName(UartParameter(32, 32, 4, 1, 0x10000000L, 25000000, 115200, RtlFlow.Yosys)),
+        cfg =>
+            Uart.main(
+                Array(
+                    "config",
+                    cfg.toString,
+                    "--addrWidth",
+                    "32",
+                    "--dataWidth",
+                    "32",
+                    "--userWidth",
+                    "4",
+                    "--idWidth",
+                    "1",
+                    "--base",
+                    "268435456",
+                    "--clockHz",
+                    "25000000",
+                    "--lineHz",
+                    "115200",
+                    "--flow",
+                    "yosys"
                 )
             ),
         cfg => Uart.main(Array("design", cfg.toString))
@@ -236,10 +269,14 @@ object DevicesElaborateTest extends TestSuite:
             assert(ramBridged.contains("bus_read") && ramBridged.contains("bus_write"))
             assert(!ramBridged.contains("SyncRam"))
 
-        test("the UART's only answer so far is the bridge flow's"):
+        test("the UART prints through hardware in a synthesis flow, and answers with the simulator in the bridge flow"):
             assert(uart.contains("module Uart("))
             assert(uart.contains("bus_req_valid"))
             assert(uart.contains("bus_read") && uart.contains("bus_write"))
+            // The line leaves at the boundary, and the bit period is the rate the parameter states: 25e6 / 115200 = 217.
+            assert(uartHw.contains("txd"))
+            assert(!uartHw.contains("bus_read"))
+            assert(uartHw.contains("8'hD9"))
 
         test("the bus DPI device is a bus device whose answer is the simulator's"):
             assert(busDpi.contains("module BusDpiDevice("))

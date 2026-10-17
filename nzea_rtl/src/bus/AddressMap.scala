@@ -33,7 +33,7 @@ object SlavePort:
     given upickle.default.ReadWriter[SlavePort] = upickle.default.macroRW
 
     /** The flag's spelling is one device's own JSON form — the map's serialization, so a device list round-trips. A
-      * `Seq[SlavePort]` flag is this repeated (`--devices <json> --devices <json>`).
+      * `Seq[SlavePort]` flag is this repeated (`--externals <json> --externals <json>`).
       */
     given TokensReader.Simple[SlavePort] with
         def shortName = "device-json"

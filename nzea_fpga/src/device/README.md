@@ -6,6 +6,11 @@ the grids its ports run on and the reset domain it runs in** (one statement, `Dd
 its constraints, and its bring-up record. `ddr3/` is the first of them, and `Ddr3Side.scala` is its front door: a level
 declares the ports that statement asks for and wires them, and that is the whole of what the level says to it.
 
+The same directory also holds a device's *board-side half* when the device itself is fabric IP: `uart/` is one file
+(`UartXdc.scala`) — the serial line's two pins and their constraints — because the 16550 is board-agnostic
+(`nzea_device`'s `Uart`) while the pins are this board's. What is here is the part that cannot leave the board; a device
+whose hardware exists only on this board keeps both halves here.
+
 A device is the *transport*, not its test: what traffic a device is put through is the level's own logic
 (`../logic/` — `Ddr3Soak` is the first such campaign), and the logic that owns a device instantiates it itself, so the
 two see one timeline without the level knowing which grid that is.

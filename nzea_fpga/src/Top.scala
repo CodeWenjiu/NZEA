@@ -6,12 +6,20 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
+import nzea_core.config.{BpuConfig, BpuStrategy, BypassLevel, CoreConfig}
+import nzea_core.isa.Isa
+import nzea_device.devices.{FinisherPins, UartPins}
 import nzea_fpga.boards.lxb_artix7.{BoardClock, BoardXdc}
+import nzea_fpga.device.uart.UartXdc
 import nzea_fpga.ip.{ClockOut, Ila}
-import nzea_fpga.logic.{Blinkers, BlinkersParameter, Ddr3Soak, Ddr3SoakParameter}
+import nzea_fpga.logic.{Blinkers, BlinkersParameter, BootSram, BootSramParameter, CoreMemory, CoreMemoryParameter}
 import nzea_fpga.primitives.{Bufg, BufgParameter}
+import nzea_rtl.RtlFlow
+import nzea_rtl.bus.{AddrRange, LiteBusRW, SlaveKind}
 import nzea_rtl.probe.Probes
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
+import nzea_tile.{ExternalSpec, NzeaTile, NzeaTileParameter}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 case class TopParameter() extends Parameter
@@ -22,15 +30,11 @@ class TopLayers(parameter: TopParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
 /** The board's pins: the 50 MHz oscillator, the push button and the two LEDs (both active-low: the pin sinks the
-  * current, so a zero lights the LED), and the pads the board's chips ask for ([[Top.pins]]).
+  * current, so a zero lights the LED), and whatever the board's logics ask for ([[Top.pins]]).
   *
-  * The names are the XDC's — the constraints bind by name, so they are the contract
-  * ([[nzea_fpga.device.ddr3.Ddr3PadNames]] holds the DDR3 bus's, the board's own four are in
+  * The names are the XDC's — the constraints bind by name, so they are the contract (the logics' own pin names are in
+  * their files, `device/uart/UartXdc` for the serial line, the board's own four in
   * [[nzea_fpga.boards.lxb_artix7.BoardXdc]]).
-  *
-  * The data and the strobes are this module's *own* `inout` pads — the device drives them on a read too — which the DSL
-  * states with `Analog`; the modules that hold the I/O cells' primitives are instantiated by the logic that owns the
-  * chip ([[nzea_fpga.logic.Ddr3Soak]]). Nothing above this module knows the bus exists.
   */
 class TopIO(parameter: TopParameter) extends HWRecord(parameter):
     Flipped("CLK_50M", Clock())
@@ -41,8 +45,8 @@ class TopIO(parameter: TopParameter) extends HWRecord(parameter):
 
 class TopProbe(parameter: TopParameter) extends DVRecord[TopParameter, TopLayers](parameter)
 
-/** The board top: the clocking wizard, the reset network, the blinkers — and the logics it carries, whose pins it
-  * declares and wires ([[Logics]]).
+/** The board top: the clocking wizard, the reset network, the blinkers — the core the loader fills, and the loader
+  * itself, whose pins it declares and wires ([[Logics]]).
   *
   * It *is* the top — the module the constraints bind, the project's `--top` and the design the simulators instantiate:
   * every pin the board has is a port of this module, the pads' primitives included, wherever in the hierarchy they
@@ -57,13 +61,72 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
     override def moduleName(parameter: TopParameter): String = "Top"
 
     /** The logics this top carries ([[BoardLogic]]), in the order their instances are named in [[architecture]]. */
-    private val logics: Seq[BoardLogic] = Seq(Ddr3Soak)
+    private val logics: Seq[BoardLogic] = Seq(BootSram)
 
     /** This level's own pins, plus the ones the logics asked for ([[Pins.declare]] holds the union): the button is the
-      * reset network's reason and the device's tap calibration resets on the same pin, so it is stated here as the
-      * level's own and asked for again by the device — identical requests are one port.
+      * reset network's reason and is asked for again by nothing else yet, and the serial line is the loader's own
+      * receive direction plus the transmit pin the tile's UART drives through this level.
       */
-    private[nzea_fpga] val pins: Seq[Pin] = Seq(Pin.in("RESET")) ++ logics.flatMap(_.needs.pins)
+    private[nzea_fpga] val pins: Seq[Pin] =
+        Seq(Pin.in("RESET"), Pin.out(UartXdc.TxPin)) ++ logics.flatMap(_.needs.pins)
+
+    /** The window the core runs in, as the tile's map names it, and the base the assembled programs are linked at
+      * (`nzea_core/test/asm/build-elf.sh` links at this address, and the host tool is told it).
+      */
+    private val Window = "ram"
+    private val Uart = "uart16550"
+    private val MemoryBase = 0x80000000L
+    private val MemorySize = 64L * 1024
+
+    /** The line rate the host speaks ([[probe]]'s `--baud`). */
+    private val LineHz = 115200
+
+    private val coreConfig = CoreConfig(Isa("riscv32i"), MemoryBase)
+
+    /** The window this level answers itself: the RAM leaves the flow's hardware so the loader can write a program into
+      * it ([[CoreMemory]]). An external window is an increment — the tile shadows its own same-named device — so this
+      * level states a window and never prunes a list.
+      */
+    private val externals = Seq(
+        ExternalSpec(Window, AddrRange(BigInt(MemoryBase), BigInt(MemorySize)), SlaveKind.Memory, 1)
+    )
+
+    /** The core this top carries: no caches — the first build's margin is for the tile itself, which has never run on
+      * this board — and the window answered from above.
+      */
+    private val tileParameter = NzeaTileParameter(
+        config = coreConfig,
+        flow = RtlFlow.Yosys,
+        clockHz = (BootSram.ClockGrid.mhz * 1000000).toInt,
+        bypass = BypassLevel.Execute,
+        bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
+        lsqDepth = 4,
+        icache = None,
+        dcache = None,
+        stats = StatScope.root,
+        externals = externals
+    )
+
+    private val windowMap = NzeaTile.fabricMap(tileParameter)
+
+    private val memoryParameter = CoreMemoryParameter(
+        coreConfig.width,
+        coreConfig.width,
+        windowMap.userWidth,
+        windowMap.idWidth,
+        MemoryBase,
+        MemorySize,
+        SyncRamPorts.OneRW,
+        RtlFlow.Yosys
+    )
+
+    private val bootParameter = BootSramParameter(
+        LineHz,
+        coreConfig.width,
+        coreConfig.width,
+        windowMap.userWidth,
+        windowMap.idWidth
+    )
 
     def architecture(parameter: TopParameter) =
         val io = summon[Interface[TopIO]]
@@ -100,9 +163,12 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         Resets.term("buttonPin")(rawResetN)
         val resetN50 = Resets.domain("board50", clk50, Seq("buttonPin"))
 
-        val soak = Ddr3Soak.instantiate(Ddr3SoakParameter())
-        Logics.connect(io, soak.io, Ddr3Soak.needs)
+        // The board's program loader: the line's receiver, the boot state machine, and the hold it states — the core's
+        // domain waits for that reason ([[Resets]]), so a load is what holds the core, not a wire to it.
+        val boot = BootSram.instantiate(bootParameter)
+        Logics.connect(io, boot.io, BootSram.needs)
 
+        val clkCore = Clocks.clock(BootSram.ClockGrid)
         val clk100 = Clocks.clock(ClockOut(100.0, 0.0))
 
         // The one wizard, built once every grid has been asked for and before the logic whose reset chains wait on it.
@@ -115,21 +181,42 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         Resets.term("pllLocked")(locked)
 
         val resetN100 = Resets.domain("board100", clk100, Seq("buttonPin", "pllLocked"))
+        // The core waits for the loader's hold besides the board's own reasons: the memory is being rewritten under it.
+        val resetCore = Resets.domain("core", clkCore, Seq("buttonPin", "pllLocked", BootSram.HoldNReason))
 
         Resets.materialize()
 
+        // The core, on the loader's grid — and the memory its window is answered by, which the loader writes through.
+        // A held core's side of the memory is drained there, which is why it is told the same hold level the network is.
+        val tile = NzeaTile.instantiate(tileParameter)
+        tile.io.field[Clock]("clock") := clkCore
+        tile.io.field[Reset]("reset") := (!resetCore.asBool).asReset
+
+        // The line the board's bridge talks to the fabric on: the loader listens on its receive pin (the pin the
+        // constraints declare), and the tile's UART prints on the transmit pin this level wires out. One line, two
+        // ends — the two must agree on its rate, which is why both are told the same number.
+        UartXdc.register()
+        io.field[Bool](UartXdc.TxPin) := tile.io.field[UartPins](Uart).txd
+
+        val memory = CoreMemory.instantiate(memoryParameter)
+        memory.io.clock := clkCore
+        memory.io.resetN := Resets.stated("boot")
+        memory.io.coreHeld := !boot.io.field[Bool](BootSram.HoldNReason)
+        memory.io.core :<>= tile.io.field[LiteBusRW](Window)
+        memory.io.load :<>= boot.io.field[LiteBusRW]("ram")
+
         // One blinker per domain: a board where only LED1 blinks says the wizard's clock path is at fault. It takes the
         // two clocks and the two resets it needs, each the domain's own and already synchronized there.
-        val blinkers = Blinkers.instantiate(BlinkersParameter(26, 0.25))
+        val blinkers = Blinkers.instantiate(BlinkersParameter(26, 0.15))
         blinkers.io.clock50 := clk50
         blinkers.io.resetN50 := resetN50
         led1 := blinkers.io.led1
         blinkers.io.clock100 := clk100
         blinkers.io.resetN100 := resetN100
-        led2 := blinkers.io.led2
+        // LED2 answers the loaded program: steady once it has written the finisher, the 100 MHz blinker before that.
+        val finished = tile.io.field[FinisherPins]("finisher").finished
+        led2 := finished ? (false.B, blinkers.io.led2)
 
-        // What is watched: the top's own observables, marked where it holds them (the bus binds its own beside its
-        // instances, since a shared module body cannot know which instance a probe should mean). The core's probe list,
-        // the debug script, the rename map and the capture script all come from these declarations.
-        Probes.mark("led1")(led1)
-        Probes.mark("led2")(led2)
+        // What is watched: the loader's own account of a load, the line's bytes (`BootSram` binds the receiver's
+        // declarations beside its instance), and the program's own verdict — the finisher's level.
+        Probes.mark("finished")(finished)

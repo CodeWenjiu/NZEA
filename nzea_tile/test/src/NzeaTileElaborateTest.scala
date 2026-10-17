@@ -5,8 +5,7 @@ import nzea_rtl.bus.{AddrRange, SlaveKind}
 import utest.*
 
 /** The tile elaborates through the real flow as the core behind the fabric: the top carries `clock`, `reset`, and —
-  * when the platform has external windows — one bus port per window, which is where the level above connects its
-  * devices.
+  * when the level above answers windows — one bus port per window, which is where it connects its devices.
   */
 object NzeaTileElaborateTest extends TestSuite:
 
@@ -31,6 +30,8 @@ object NzeaTileElaborateTest extends TestSuite:
             p.config.defaultPc.toString,
             "--flow",
             p.flow.segment,
+            "--clockHz",
+            p.clockHz.toString,
             "--bypass",
             p.bypass.name,
             "--stats",
@@ -39,7 +40,6 @@ object NzeaTileElaborateTest extends TestSuite:
             ++ Seq("--lsqDepth", p.lsqDepth.toString)
             ++ p.icache.toSeq.flatMap(icache => Seq("--icache", icache.name))
             ++ p.dcache.toSeq.flatMap(dcache => Seq("--dcache", dcache.name))
-            ++ p.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
             ++ p.externals.flatMap(external => Seq("--externals", upickle.default.write(external)))
 
     private def lower(p: NzeaTileParameter): String = TestFlow.lower(
@@ -95,10 +95,10 @@ object NzeaTileElaborateTest extends TestSuite:
             assert(sv.contains("bp_update_valid"))
 
         test("the device list is the fabric's slave inventory"):
-            assert(NzeaTileParameter.default.devices.map(_.name) == Seq("ram", "uart16550", "finisher", "clint"))
+            assert(NzeaTileParameter.default.built.map(_.name) == Seq("ram", "uart16550", "finisher", "clint"))
             assert(
                 NzeaTile
-                    .fabricMap(parameter.config, parameter.devices, parameter.externals)
+                    .fabricMap(parameter)
                     .mmioRanges
                     .map(_.base) == Seq(
                     BigInt("10000000", 16),
@@ -119,11 +119,7 @@ object NzeaTileElaborateTest extends TestSuite:
             assert(ports.keys.exists(_.startsWith("extRegs_")))
 
         test("an external window is a window on the map, and its kind decides what it joins"):
-            val map = NzeaTile.fabricMap(
-                externalParameter.config,
-                externalParameter.devices,
-                externalParameter.externals
-            )
+            val map = NzeaTile.fabricMap(externalParameter)
             assert(map.slaves.map(_.name) == Seq("ram", "uart16550", "finisher", "clint", "extMem", "extRegs"))
             // A memory window joins what a cache may refill from (the tile's own filter), an MMIO one the trace's windows.
             assert(map.slaves.filter(_.kind == SlaveKind.Memory).map(_.name) == Seq("ram", "extMem"))
@@ -131,16 +127,17 @@ object NzeaTileElaborateTest extends TestSuite:
             assert(map.slaves.find(_.name == "extMem").exists(_.outstanding == 2))
 
         test("an external window that clashes with a device's is refused, not quietly decoded"):
+            // Shadowing is by name: a window named after nothing the flow has still has to keep off the built windows.
             intercept[IllegalArgumentException]:
                 NzeaTile.fabricMap(
-                    parameter.config,
-                    parameter.devices,
-                    Seq(
-                        ExternalSpec(
-                            "clash",
-                            AddrRange(BigInt("80000000", 16), BigInt("00001000", 16)),
-                            SlaveKind.Memory,
-                            1
+                    parameter.copy(
+                        externals = Seq(
+                            ExternalSpec(
+                                "clash",
+                                AddrRange(BigInt("80000000", 16), BigInt("00001000", 16)),
+                                SlaveKind.Memory,
+                                1
+                            )
                         )
                     )
                 )

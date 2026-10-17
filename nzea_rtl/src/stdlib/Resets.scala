@@ -67,9 +67,9 @@ object Resets:
 
     /** Declare a reason, where it is produced: `value` is the level's own reading, `1` meaning *this reason is not
       * holding* — a button's released level, a generator's `locked`, a device's ready. The level is the producer's own,
-      * asynchronous, exactly as it is: a domain waits for the reason, and the domain's own synchronizer is what makes it
-      * belong there. The name is marked watchable ([[Probes]]): the first question a reset network raises is which reason
-      * is holding, and this is what answers it from a capture.
+      * asynchronous, exactly as it is: a domain waits for the reason, and the domain's own synchronizer is what makes
+      * it belong there. The name is marked watchable ([[Probes]]): the first question a reset network raises is which
+      * reason is holding, and this is what answers it from a capture.
       */
     def term(name: String)(value: Referable[Bool])(using
         Arena,
@@ -169,6 +169,20 @@ object Resets:
                     held & term
             domain.sync.io.rawN := raw.asReset
         materialized = true
+
+    /** The reset a domain was stated with, for a level that hands the same one to an instance it wires itself rather
+      * than a domain of its own (a logic states its domain where its needs are stated). A name is a reset: whoever
+      * takes this gets the net the domain's own consumers took, so they release together.
+      */
+    def stated(name: String): Ref[Reset] =
+        domains
+            .get(name)
+            .map(_.sync.io.syncN)
+            .getOrElse(
+                throw new IllegalArgumentException(
+                    s"no reset domain named '$name' (stated: ${domains.keys.mkString(", ")})"
+                )
+            )
 
     /** The declared reasons, in declaration order — what a level can check its own vocabulary against. */
     def declared: Seq[String] = terms.keys.toSeq

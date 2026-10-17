@@ -22,7 +22,7 @@ build board='lxb_artix7' isa='riscv32i':
 program board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
 
-# trigger 为空时立即触发抓一窗；填 <探针>[=<值>]（如 led1、blink50_count=100）则等条件满足再抓（探针是语义名）。
+# trigger 为空时立即触发抓一窗；填 <探针>[=<值>]（如 finished=1、bootState=6）则等条件满足再抓（探针是语义名）。
 #
 # 抓一窗 ILA 波形到 VCD，并把探针改名为语义名供 pulse 使用。
 capture board='lxb_artix7' isa='riscv32i' trigger='':

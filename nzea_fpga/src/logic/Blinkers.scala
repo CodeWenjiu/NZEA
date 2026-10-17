@@ -7,7 +7,6 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_device.devices.{Blink, BlinkParameter}
-import nzea_rtl.probe.Probes
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** How the two blinkers are built: the counter width — one toggle per `2^(width-1)` cycles of its own domain — and the
@@ -32,11 +31,6 @@ class BlinkersProbe(parameter: BlinkersParameter) extends DVBundle[BlinkersParam
 
 /** The board's two LED indicators, one per clock domain *on purpose*: LED1 runs off the oscillator's own 50 MHz, LED2
   * off the wizard's 100 MHz, so a board where only LED1 blinks says the wizard's clock path — or its IP — is at fault.
-  * A capture tells the same story without eyes: the domain whose counter stands still is the domain whose clocking is
-  * at fault.
-  *
-  * The counters are declared watchable in `Blink`'s body but bound here, where the instances are named — a shared
-  * module body cannot know which instance a probe should mean.
   */
 @generator
 object Blinkers extends Generator[BlinkersParameter, BlinkersLayers, BlinkersIO, BlinkersProbe]:
@@ -52,5 +46,3 @@ object Blinkers extends Generator[BlinkersParameter, BlinkersLayers, BlinkersIO,
         blink100.io.clock := io.clock100
         blink100.io.resetN := io.resetN100
         io.led2 := blink100.io.led
-        Probes.watch(blink50, "count")
-        Probes.watch(blink100, "count")
