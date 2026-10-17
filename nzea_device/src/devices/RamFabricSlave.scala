@@ -181,8 +181,9 @@ object RamFabricSlave
                 isRead := !io.bus.req.bits.wen
                 busCycle := 1.U(2)
             }
-            // The acknowledge is stable by the time its synchronized copy is seen, so the data register may be read here.
-            when(busCycle === 1.U(2) & (ackSync1 =/= reqToggle)) {
+            // The acknowledge mirrors the toggle this request flipped, so the copies have caught up when they *match* it:
+            // the memory side has completed the access by then and the data register holds this access's result.
+            when(busCycle === 1.U(2) & (ackSync1 === reqToggle)) {
                 respData := memRdata
                 busCycle := 2.U(2)
             }
