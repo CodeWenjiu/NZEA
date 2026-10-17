@@ -149,10 +149,10 @@ it to `ipfiles.f`, so the IP's ports and its configuration cannot disagree with 
 PLL configuration expresses the plan exactly (a small integer search against the PLL's own ranges), the MMCM — the
 superset — otherwise. The plan itself is not stated by anyone: the design asks for each grid where it needs it
 (`nzea_fpga/src/Clocks.scala`, key = frequency+phase, so `200@0` and `200@45` are two grids), and the wizard is built
-once from those asks. A device that owns its own clocking does not ask with `clock` but with **`Clocks.bind(<its own
-instance's port>, <grid>)`**, which is a statement that needs no elaboration context: the connection is made when the
-wizard is built, so the file that names the instance's ports states its own grids and the level above writes no clock
-(`src/device/ddr3/Ddr3Clocks.scala` + `Ddr3Side`). The module is named after the IP
+once from those asks. A logic that owns a device and is a module of its own does not ask with `clock` at all: it states
+the grids its instances run on in its `LogicNeeds` (`nzea_fpga/src/Logic.scala`), the level above asks for them and
+connects the ports it declared (`Logics.connect`), and inside the logic the device reads them off those ports
+(`Clocks.ports`; `src/device/ddr3/Ddr3Clocks.scala` + `Ddr3Side`). The module is named after the IP
 (`clk_wiz_0`), because a `VerilogWrapper` only merges with the generated IP when `moduleName` and `verilogModuleName` are
 equal.
 

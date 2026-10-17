@@ -7,11 +7,9 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_fpga.boards.lxb_artix7.{BoardClock, BoardXdc}
-import nzea_fpga.device.ddr3.{Ddr3Bus, Ddr3PadNames, Ddr3Side, Ddr3SideParameter}
 import nzea_fpga.ip.{ClockOut, Ila}
 import nzea_fpga.logic.{Blinkers, BlinkersParameter, Ddr3Soak, Ddr3SoakParameter}
 import nzea_fpga.primitives.{Bufg, BufgParameter}
-import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.probe.Probes
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -24,52 +22,48 @@ class TopLayers(parameter: TopParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
 /** The board's pins: the 50 MHz oscillator, the push button and the two LEDs (both active-low: the pin sinks the
-  * current, so a zero lights the LED), and the DDR3 bus's pads.
+  * current, so a zero lights the LED), and the pads the board's chips ask for ([[Top.pins]]).
   *
   * The names are the XDC's — the constraints bind by name, so they are the contract
-  * ([[nzea_fpga.device.ddr3.Ddr3PadNames]] holds the bus's, the board's own four are in
+  * ([[nzea_fpga.device.ddr3.Ddr3PadNames]] holds the DDR3 bus's, the board's own four are in
   * [[nzea_fpga.boards.lxb_artix7.BoardXdc]]).
   *
   * The data and the strobes are this module's *own* `inout` pads — the device drives them on a read too — which the DSL
-  * states with `Analog`; the modules that hold the I/O cells' primitives are instantiated beside them
-  * ([[nzea_fpga.device.ddr3.Ddr3Pads]]). Nothing above this module knows the bus exists.
+  * states with `Analog`; the modules that hold the I/O cells' primitives are instantiated by the logic that owns the
+  * chip ([[nzea_fpga.logic.Ddr3Soak]]). Nothing above this module knows the bus exists.
   */
 class TopIO(parameter: TopParameter) extends HWRecord(parameter):
     Flipped("CLK_50M", Clock())
-    Flipped("RESET", Bool())
     Aligned("LED1", Bool())
     Aligned("LED2", Bool())
 
-    Aligned(Ddr3PadNames.ckP, Bool())
-    Aligned(Ddr3PadNames.ckN, Bool())
-    Aligned(Ddr3PadNames.addr, UInt(Ddr3PadNames.addrWidth))
-    Aligned(Ddr3PadNames.ba, UInt(Ddr3PadNames.baWidth))
-    Aligned(Ddr3PadNames.dm, UInt(Ddr3PadNames.dmWidth))
-    Aligned(Ddr3PadNames.rasN, UInt(1))
-    Aligned(Ddr3PadNames.casN, UInt(1))
-    Aligned(Ddr3PadNames.weN, UInt(1))
-    Aligned(Ddr3PadNames.cke, Bool())
-    Aligned(Ddr3PadNames.odt, Bool())
-    Aligned(Ddr3PadNames.resetN, Bool())
-
-    Aligned(Ddr3PadNames.dq, Analog(Ddr3PadNames.dqWidth))
-    Aligned(Ddr3PadNames.dqsP, Analog(Ddr3PadNames.dqsWidth))
-    Aligned(Ddr3PadNames.dqsN, Analog(Ddr3PadNames.dqsWidth))
+    Pins.declare(this, Top.pins)
 
 class TopProbe(parameter: TopParameter) extends DVRecord[TopParameter, TopLayers](parameter)
 
-/** The board top: the clocking wizard, the blinkers, the DDR3 controller and the pads it drives.
+/** The board top: the clocking wizard, the reset network, the blinkers — and the logics it carries, whose pins it
+  * declares and wires ([[Logics]]).
   *
   * It *is* the top — the module the constraints bind, the project's `--top` and the design the simulators instantiate:
-  * every pin the board has is a port of this module, the pads' primitives included. Nothing here is board-specific but
-  * the pin names ([[nzea_fpga.boards.lxb_artix7.BoardXdc]]) — a board whose pins differ forks this file and that one.
+  * every pin the board has is a port of this module, the pads' primitives included, wherever in the hierarchy they
+  * land. Nothing here is board-specific but the pin names ([[nzea_fpga.boards.lxb_artix7.BoardXdc]]) — a board whose
+  * pins differ forks this file and that one.
   *
-  * The top is wiring only — every register lives in a module that takes its own clock and reset ports (a `ResetScope` is
-  * built from a port) — so what a level top does is distribute clocks and resets and connect pins.
+  * The top is wiring only — every register lives in a module that takes its own clock and reset ports (a `ResetScope`
+  * is built from a port) — so what a level top does is distribute clocks and resets and connect pins.
   */
 @generator
 object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
     override def moduleName(parameter: TopParameter): String = "Top"
+
+    /** The logics this top carries ([[BoardLogic]]), in the order their instances are named in [[architecture]]. */
+    private val logics: Seq[BoardLogic] = Seq(Ddr3Soak)
+
+    /** This level's own pins, plus the ones the logics asked for ([[Pins.declare]] holds the union): the button is the
+      * reset network's reason and the device's tap calibration resets on the same pin, so it is stated here as the
+      * level's own and asked for again by the device — identical requests are one port.
+      */
+    private[nzea_fpga] val pins: Seq[Pin] = Seq(Pin.in("RESET")) ++ logics.flatMap(_.needs.pins)
 
     def architecture(parameter: TopParameter) =
         val io = summon[Interface[TopIO]]
@@ -106,30 +100,8 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         Resets.term("buttonPin")(rawResetN)
         val resetN50 = Resets.domain("board50", clk50, Seq("buttonPin"))
 
-        val ddr3Bus = Ddr3Side.instantiate(
-            Ddr3SideParameter(
-                dq = io.field[Analog](Ddr3PadNames.dq),
-                dqsP = io.field[Analog](Ddr3PadNames.dqsP),
-                dqsN = io.field[Analog](Ddr3PadNames.dqsN),
-                ckP = io.field[Bool](Ddr3PadNames.ckP),
-                ckN = io.field[Bool](Ddr3PadNames.ckN),
-                addr = io.field[UInt](Ddr3PadNames.addr),
-                ba = io.field[UInt](Ddr3PadNames.ba),
-                dm = io.field[UInt](Ddr3PadNames.dm),
-                rasN = io.field[UInt](Ddr3PadNames.rasN),
-                casN = io.field[UInt](Ddr3PadNames.casN),
-                weN = io.field[UInt](Ddr3PadNames.weN),
-                cke = io.field[Bool](Ddr3PadNames.cke),
-                odt = io.field[Bool](Ddr3PadNames.odt),
-                resetN = io.field[Bool](Ddr3PadNames.resetN),
-                rawResetN = rawResetN
-            )
-        )
-
         val soak = Ddr3Soak.instantiate(Ddr3SoakParameter())
-        soak.io.field[Clock]("clock") := ddr3Bus.clock
-        soak.io.field[Reset]("resetN") := ddr3Bus.resetN
-        ddr3Bus.bus :<>= soak.io.field[LiteBusRW]("bus")
+        Logics.connect(io, soak.io, Ddr3Soak.needs)
 
         val clk100 = Clocks.clock(ClockOut(100.0, 0.0))
 

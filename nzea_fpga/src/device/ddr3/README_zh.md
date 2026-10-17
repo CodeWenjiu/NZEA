@@ -481,3 +481,44 @@ walk 的 `0001_0002_0004_0008` 读成 `0000_0001_0002_0004`。
 
 **另一个坑（工具）**：读板上 capture 时 `pulse` 的 `value --changes` / 多信号 `value --at` 出现过一次
 一次性误读（同一命令随后 20 次都对），此后所有结论都用原始 VCD 复核；本仓 `pulse/` 的那次修复与 fixture 就是冲这一类去的。
+
+---
+
+## 十五、逻辑自己拥有设备：一条 needs 声明（2026-10-17）
+
+**为什么**：`Top` 里调用 DDR3 要分心两处——一处实例化 `Ddr3Side`、按名字交 15 个引脚，另一处再把 `Ddr3Soak` 接上
+（时钟、复位、总线三条）。本质上是同一件事：**逻辑需要一组板级 IO**。于是这一轮把"要什么"做成了逻辑自己的声明：
+逻辑说 pins / grids / 复位域，`Top` 按声明长出端口并接线——`Ddr3Side` 由 `Ddr3Soak` 在自己内部实例化，`Top` 只剩两行。
+
+**做了什么**（新增 `src/Pins.scala`、`src/Logic.scala`；改 `src/Clocks.scala`、`device/ddr3/Ddr3Side.scala`、
+`logic/Ddr3Soak.scala`、`src/Top.scala`）：
+
+- `Pin(name, kind)` 与 `Pins.declare` / `Pins.connect`：名字就是 XDC 的名字（约束按名绑定）；`BitIn`/`BitOut`/
+  `VectorIn`/`VectorOut`/`Pad` 决定端口方向与类型（`Pad` 是 `Analog`，两端 `attach`）。同名请求在一个模块里必须同
+  kind，`declare` 负责去重——按键既是本层复位网络的 reason、也是设备抽头校准的复位源，一个端口两处用。
+- `LogicNeeds(pins, grids, produces, reset)` + `trait BoardLogic`：一个逻辑对上层说的全部话。`grids` 用它要的网格
+  （端口名由 `Clocks.portName` 生成，如 `clk400_90`）；`produces` 是它替上层产出的复位 reason（这里是
+  `ddr3TapsReady`）；`reset = LogicReset(name, clock, terms)` 是它自己的复位域。
+- `Logics.declare` / `Logics.connect`：前者在逻辑的 record 体里长端口，后者在上层把 pins、grids、reason、域一次接好
+  ——**域在上层落地**（synchronizer 与 conjunction 都建在 reason 被生产的那一层），交进子模块的是复位本身
+  （`resetN` 端口）。`Top.architecture` 因此只剩 `Ddr3Soak.instantiate(...)` 与 `Logics.connect(io, soak.io, Ddr3Soak.needs)`；
+  `TopIO` 的端口表 = 本层自己的 pins ∪ 逻辑们的 pins。
+- `Clocks`：删掉 `bind`（它的前提是"设备实例与 wizard 同层"），改为 `declare`（端口）+ `connect`（上层接线）+
+  `ports`（设备文件在子模块里拿到的 `Map[ClockOut, Ref[Clock]]`）。
+
+**为什么是端口，而不是"交进来的线"**（这轮最该记住的一条）：zaozi 在 `instantiate` 的那一刻就 elaborate 子模块、
+把它写成 `<module>.mlirbc`，而 `firld` 事后链接的是**文件**。任何在子模块 elaborate 之后才写进它 block 的连接都进不了
+文件——**静默丢失**。所以跨模块的一切只能是端口，子模块 body 里该写的必须在自己 body 里写完；`Clocks.bind` /
+`Resets.materialize` 那种"事后连接"只对顶层自己成立。这也解释了为什么子模块的时钟/复位走端口、而复位域留在上层。
+
+**部署形态没变**：`ddr3Sync` 仍在顶层，`rawN = buttonPinAndPllLocked & _soak_ddr3TapsReady`（与原来的
+`& _delayCtrl_READY` 逻辑等价，只多一层端口）；wizard 槽位（`clk_out1..5` = 五个网格、`clk_out6` = 100 MHz）、
+`ddr3.xdc`、`board.xdc` 一字未改；pads 与 `Ddr3` 只是从 `Top` 挪进 `soak`（仿真路径随之变为 `u_top.soak.ddr3.*`、
+`u_top.soak.dqPads.*`）。
+
+**探针顺序**：`ddr3TapsReady` / `ddr3Reset` 现在由 `Logics.connect` 声明，晚于 soak 自身的 elaborate，于是排在 soak
+的探针之后、`pllLocked` 之前（集合不变，`mark_debug` 总数仍 54，`ila_probes.map` 与 debug/capture tcl 由它生成）。
+
+**验证**：`just dump --target fpga --isa riscv32i` 通过；`mill --no-server nzea_fpga.test` 18/18；
+`nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --timeout 5400` → `Ddr3Bringup: PASS`（40 步 / 88 次访问 /
+0 错读回，锁定 `plane 0 / tap 15`、`writeShift 0`、对齐 39——与第十三节记录逐项一致）。

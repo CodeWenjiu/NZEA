@@ -105,7 +105,7 @@ module Ddr3Bringup;
   // The tri-state literals are written as whole-vector patterns (`2'bzz`): a 1-bit `1'bz` in a vector context is
   // zero-extended — measured on this TB, the high bit of the pad was driven to 0 by the holding assignment and the
   // top's own drive of the upper byte fought it (`x`), which no real pad does.
-  wire top_drives_dqs = u_top.ddr3.DDR3_DQS_OE;
+  wire top_drives_dqs = u_top.soak.ddr3.DDR3_DQS_OE;
   assign ddr3_dqs_p_model = top_drives_dqs ? ddr3_dqs_p_delayed : 2'bzz;
   assign ddr3_dqs_n_model = top_drives_dqs ? ddr3_dqs_n_delayed : 2'bzz;
   assign ddr3_dqs_p = top_drives_dqs ? 2'bzz : ddr3_dqs_p_model;
@@ -118,7 +118,7 @@ module Ddr3Bringup;
   // The two directions are separated by the controller's own output enable: the fabric holds the bus except while the
   // device answers, which is exactly when this path is the one that matters (UG586's read leveling: what it centres is
   // the device's answer against the fabric's capture clock, per byte group).
-  wire top_drives_dq = u_top.ddr3.DDR3_DQ_OE;
+  wire top_drives_dq = u_top.soak.ddr3.DDR3_DQ_OE;
   wire [15:0] dq_fab_delayed;
   assign #625 dq_fab_delayed[15:8] = ddr3_dq[15:8];
   assign dq_fab_delayed[7:0] = ddr3_dq[7:0];
@@ -150,34 +150,34 @@ module Ddr3Bringup;
   // The controller's and the soak's own account of themselves, read where each declares it (`Ddr3` and `Ddr3Soak` keep
   // these wires beside the signals and mark them where they live, `Probes.mark`), so the paths below are those modules'
   // own nets.
-  wire         initDone = u_top.ddr3.probe_initDone;
-  wire         calibrating = u_top.ddr3.probe_calibrating;
-  wire         calibrated = u_top.ddr3.probe_calibrated;
-  wire         alignGot = u_top.ddr3.probe_alignGot;
-  wire [5:0]   alignLocked = u_top.ddr3.probe_alignLocked;
-  wire [1:0]   lockedPlane = u_top.ddr3.probe_lockedPlane;
-  wire [4:0]   lockedTap = u_top.ddr3.probe_lockedTap;
-  wire [1:0]   writeShift = u_top.ddr3.probe_writeShift;
-  wire [95:0]  failTaps = u_top.ddr3.probe_failTaps;
-  wire [5:0]   state = u_top.ddr3.probe_state;
-  wire [31:0]  accesses = u_top.ddr3.probe_accesses;
-  wire         respValid = u_top.ddr3.probe_respValid;
-  wire [127:0] respData = u_top.ddr3.probe_respData;
-  wire [7:0]   dmOut = u_top.ddr3.probe_dmOut;
-  wire [23:0]  timer = u_top.ddr3.probe_timer;
-  wire [63:0]  dqIn = u_top.ddr3.probe_dqIn;
+  wire         initDone = u_top.soak.ddr3.probe_initDone;
+  wire         calibrating = u_top.soak.ddr3.probe_calibrating;
+  wire         calibrated = u_top.soak.ddr3.probe_calibrated;
+  wire         alignGot = u_top.soak.ddr3.probe_alignGot;
+  wire [5:0]   alignLocked = u_top.soak.ddr3.probe_alignLocked;
+  wire [1:0]   lockedPlane = u_top.soak.ddr3.probe_lockedPlane;
+  wire [4:0]   lockedTap = u_top.soak.ddr3.probe_lockedTap;
+  wire [1:0]   writeShift = u_top.soak.ddr3.probe_writeShift;
+  wire [95:0]  failTaps = u_top.soak.ddr3.probe_failTaps;
+  wire [5:0]   state = u_top.soak.ddr3.probe_state;
+  wire [31:0]  accesses = u_top.soak.ddr3.probe_accesses;
+  wire         respValid = u_top.soak.ddr3.probe_respValid;
+  wire [127:0] respData = u_top.soak.ddr3.probe_respData;
+  wire [7:0]   dmOut = u_top.soak.ddr3.probe_dmOut;
+  wire [23:0]  timer = u_top.soak.ddr3.probe_timer;
+  wire [63:0]  dqIn = u_top.soak.ddr3.probe_dqIn;
   // The window, reassembled from the words it is watched in (`probe_captured00` is the newest): the design marks it a
   // word at a time, because a probe 832 bits wide does not survive the netlist's debug insertion.
   wire [831:0] captured =
-      {u_top.ddr3.probe_captured12, u_top.ddr3.probe_captured11, u_top.ddr3.probe_captured10,
-       u_top.ddr3.probe_captured09, u_top.ddr3.probe_captured08, u_top.ddr3.probe_captured07,
-       u_top.ddr3.probe_captured06, u_top.ddr3.probe_captured05, u_top.ddr3.probe_captured04,
-       u_top.ddr3.probe_captured03, u_top.ddr3.probe_captured02, u_top.ddr3.probe_captured01,
-       u_top.ddr3.probe_captured00};
-  wire [6:0]   roundIn = u_top.ddr3.probe_roundIn;
-  wire [4:0]   tap = u_top.ddr3.probe_tap;
-  wire [1:0]   calibPlane = u_top.ddr3.probe_calibPlane;
-  wire [95:0]  recent = u_top.ddr3.probe_recent;
+      {u_top.soak.ddr3.probe_captured12, u_top.soak.ddr3.probe_captured11, u_top.soak.ddr3.probe_captured10,
+       u_top.soak.ddr3.probe_captured09, u_top.soak.ddr3.probe_captured08, u_top.soak.ddr3.probe_captured07,
+       u_top.soak.ddr3.probe_captured06, u_top.soak.ddr3.probe_captured05, u_top.soak.ddr3.probe_captured04,
+       u_top.soak.ddr3.probe_captured03, u_top.soak.ddr3.probe_captured02, u_top.soak.ddr3.probe_captured01,
+       u_top.soak.ddr3.probe_captured00};
+  wire [6:0]   roundIn = u_top.soak.ddr3.probe_roundIn;
+  wire [4:0]   tap = u_top.soak.ddr3.probe_tap;
+  wire [1:0]   calibPlane = u_top.soak.ddr3.probe_calibPlane;
+  wire [95:0]  recent = u_top.soak.ddr3.probe_recent;
 
   wire         done = u_top.soak.probe_done;
   wire [31:0]  issued = u_top.soak.probe_issued;
@@ -195,39 +195,39 @@ module Ddr3Bringup;
   // holds them (xsim's VCD writer mishandles a second hierarchical dump list).
   wire        dbgSyncN = u_top._board50Sync_syncN;
   wire        dbgLocked = u_top._clockingWizard_locked;
-  wire        dbgDelayReady = u_top.delayCtrl.READY;
-  wire        dbgCke = u_top.ddr3.ckeReg;
-  wire        dbgDeviceResetN = u_top.ddr3.ddrResetNReg;
-  wire [5:0]  dbgState = u_top.ddr3.probe_state;
-  wire [23:0] dbgTimer = u_top.ddr3.probe_timer;
-  wire [6:0]  dbgRoundIn = u_top.ddr3.probe_roundIn;
-  wire [4:0]  dbgTap = u_top.ddr3.probe_tap;
-  wire [5:0]  dbgAlignLocked = u_top.ddr3.probe_alignLocked;
-  wire [63:0] dbgDqIn = u_top.ddr3.probe_dqIn;
+  wire        dbgDelayReady = u_top.soak.delayCtrl.READY;
+  wire        dbgCke = u_top.soak.ddr3.ckeReg;
+  wire        dbgDeviceResetN = u_top.soak.ddr3.ddrResetNReg;
+  wire [5:0]  dbgState = u_top.soak.ddr3.probe_state;
+  wire [23:0] dbgTimer = u_top.soak.ddr3.probe_timer;
+  wire [6:0]  dbgRoundIn = u_top.soak.ddr3.probe_roundIn;
+  wire [4:0]  dbgTap = u_top.soak.ddr3.probe_tap;
+  wire [5:0]  dbgAlignLocked = u_top.soak.ddr3.probe_alignLocked;
+  wire [63:0] dbgDqIn = u_top.soak.ddr3.probe_dqIn;
   wire [831:0] dbgCaptured =
-      {u_top.ddr3.probe_captured12, u_top.ddr3.probe_captured11, u_top.ddr3.probe_captured10,
-       u_top.ddr3.probe_captured09, u_top.ddr3.probe_captured08, u_top.ddr3.probe_captured07,
-       u_top.ddr3.probe_captured06, u_top.ddr3.probe_captured05, u_top.ddr3.probe_captured04,
-       u_top.ddr3.probe_captured03, u_top.ddr3.probe_captured02, u_top.ddr3.probe_captured01,
-       u_top.ddr3.probe_captured00};
-  wire        dbgRespValid = u_top.ddr3.probe_respValid;
-  wire [127:0] dbgRespData = u_top.ddr3.probe_respData;
-  wire [7:0]  dbgDm = u_top.ddr3.probe_dmOut;
+      {u_top.soak.ddr3.probe_captured12, u_top.soak.ddr3.probe_captured11, u_top.soak.ddr3.probe_captured10,
+       u_top.soak.ddr3.probe_captured09, u_top.soak.ddr3.probe_captured08, u_top.soak.ddr3.probe_captured07,
+       u_top.soak.ddr3.probe_captured06, u_top.soak.ddr3.probe_captured05, u_top.soak.ddr3.probe_captured04,
+       u_top.soak.ddr3.probe_captured03, u_top.soak.ddr3.probe_captured02, u_top.soak.ddr3.probe_captured01,
+       u_top.soak.ddr3.probe_captured00};
+  wire        dbgRespValid = u_top.soak.ddr3.probe_respValid;
+  wire [127:0] dbgRespData = u_top.soak.ddr3.probe_respData;
+  wire [7:0]  dbgDm = u_top.soak.ddr3.probe_dmOut;
 
   // The ring's own side of the write path, carried through this scope for the waveform: what the controller staged,
   // what the serializers put out, and what their tristate controls say — the pins themselves only show the winner.
-  wire [63:0] dbgDqOut = u_top.ddr3.DDR3_DQ_OUT;
-  wire [7:0]  dbgDqsOut = u_top.ddr3.DDR3_DQS_OUT;
-  wire [15:0] dbgDqDrivePad = u_top.dqPads.dqDrivePad;
-  wire [1:0]  dbgDqsDrivePad = u_top.dqsPads.dqsDrivePad;
-  wire [15:0] dbgDqTristate = u_top.dqPads.dqTristate;
-  wire [1:0]  dbgDqsTristate = u_top.dqsPads.dqsTristate;
-  wire        dbgDqOe = u_top.ddr3.DDR3_DQ_OE;
-  wire        dbgDqsOe = u_top.ddr3.DDR3_DQS_OE;
+  wire [63:0] dbgDqOut = u_top.soak.ddr3.DDR3_DQ_OUT;
+  wire [7:0]  dbgDqsOut = u_top.soak.ddr3.DDR3_DQS_OUT;
+  wire [15:0] dbgDqDrivePad = u_top.soak.dqPads.dqDrivePad;
+  wire [1:0]  dbgDqsDrivePad = u_top.soak.dqsPads.dqsDrivePad;
+  wire [15:0] dbgDqTristate = u_top.soak.dqPads.dqTristate;
+  wire [1:0]  dbgDqsTristate = u_top.soak.dqsPads.dqsTristate;
+  wire        dbgDqOe = u_top.soak.ddr3.DDR3_DQ_OE;
+  wire        dbgDqsOe = u_top.soak.ddr3.DDR3_DQS_OE;
   wire        dbgRingReset = ~u_top._ddr3Sync_syncN;
-  wire        dbgClk400Dqs = u_top.dqPads.clk400Dqs;
-  wire        dbgClk200 = u_top.dqsPads.clk200;
-  wire        dbgClk200Dqs = u_top.dqPads.clk200Dqs;
+  wire        dbgClk400Dqs = u_top.soak.dqPads.clk400Dqs;
+  wire        dbgClk200 = u_top.soak.dqsPads.clk200;
+  wire        dbgClk200Dqs = u_top.soak.dqPads.clk200Dqs;
 
   initial begin
     if ($test$plusargs("dump")) begin
@@ -246,7 +246,7 @@ module Ddr3Bringup;
   initial begin
     firstBadPrinted = 1'b0;
     forever begin
-      @(negedge u_top.dqPads.clk200Dqs);
+      @(negedge u_top.soak.dqPads.clk200Dqs);
       if (!firstBadPrinted && errors != 0) begin
         firstBadPrinted = 1'b1;
         $display(

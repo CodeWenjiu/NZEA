@@ -6,17 +6,14 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.{Instance, Ref, Referable}
 import me.jiuyang.zaozi.valuetpe.{Analog, Bool, Clock, Reset, UInt}
-import nzea_fpga.Clocks
+import nzea_fpga.ip.ClockOut
+import nzea_fpga.{LogicNeeds, LogicReset, Pin}
 import nzea_rtl.bus.LiteBusRW
-import nzea_rtl.stdlib.Resets
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** What the bus needs from the level that carries it: the pins the level declares ([[nzea_fpga.TopIO]]), which are
-  * where the pads' analog ends land and what the pins the bus drives are. Nothing else — the grids are the bus's own
-  * statement ([[Ddr3Clocks]]) and the wiring is [[Ddr3Side]]'s.
-  *
-  * `rawResetN` is the button as the pin presents it, separately from the level's own synchronized chain: the tap
-  * calibration's reset is asynchronous and the pin is what it is for that.
+/** What the bus needs the level that carries it to hand in: the pins the level declares ([[Ddr3Side.needs]] is where
+  * their names and directions are stated), the grids its instances run on, the reset of its own domain, and the port
+  * the level declares the reason it produces on.
   */
 case class Ddr3SideParameter(
     // The pins the bus drives through pads, and (the data and the strobes) the analog ends it attaches to.
@@ -34,7 +31,15 @@ case class Ddr3SideParameter(
     cke: Ref[Bool],
     odt: Ref[Bool],
     resetN: Ref[Bool],
-    rawResetN: Referable[Bool]
+    // The pin the tap calibration resets on, as the pin presents it: that primitive takes an asynchronous reset, and
+    // the pin is what it is for that — the domain's own reset above cannot be it (its chain waits for the taps).
+    rawResetN: Referable[Bool],
+    // The domain's reset: what the level's network made of the reasons the domain waits for.
+    reset: Ref[Reset],
+    // The reason the device produces, on the port the level declares for it.
+    tapsReady: Ref[Bool],
+    // The grids, on the ports the level declared ([[nzea_fpga.Clocks.ports]]).
+    clocks: Map[ClockOut, Ref[Clock]]
 )
 
 /** What the bus leaves for the level above: the controller instance (the netlist's name for it is what the simulators
@@ -45,22 +50,21 @@ case class Ddr3SideParameter(
 final case class Ddr3Bus(
     device: Instance[Ddr3IO, Ddr3Probe],
     bus: Ref[LiteBusRW],
-    clock: Referable[Clock],
-    resetN: Referable[Reset]
+    clock: Ref[Clock],
+    resetN: Ref[Reset]
 )
 
-/** The DDR3 device's side of the board, in one piece: the controller, its pads, its grids and its reset, wired where
-  * its own instances are named.
+/** The DDR3 device's side of the board, in one piece: the controller, its pads and the wires between them.
   *
-  * This file is what "a device keeps its own clocking — and its own reset" looks like. The pads' and the controller's
-  * clock ports are bound to [[Ddr3Clocks]]' grids *here*, next to the instances they belong to ([[Clocks.bind]]), so
-  * the level above writes no clock, knows no frequency and holds no grid. The reset is the device's own statement too
-  * ([[Resets]]): it declares the reasons it waits for — the level's vocabulary (the released button, the generator's
-  * lock) and its own fact (the taps' readiness) — and states its domain's reset here, on its own grid, through its own
-  * synchronizer. What the level hands in is the pins it declares, and nothing else ([[Ddr3SideParameter]]). The one
-  * wizard that serves every grid is still the design's, built once by the level ([[Clocks.materialize]]), because a
-  * phase relationship between grids only exists between outputs of one VCO — the memory's five grids are one such
-  * family; the reset network is wired once by the level for the same shape of reason ([[Resets.materialize]]).
+  * What the device needs from the level above it is one statement, [[needs]]: the pins it drives and the pin it resets
+  * on, the five grids its instances run on, the domain it runs in, and the reason it produces for the level's reset
+  * network. The level declares the ports that statement asks for and connects them where it names the instance that
+  * carries this device ([[nzea_fpga.Logics]]) — so the device's clocking and its reset are stated here, in its own
+  * file, and the level writes no frequency, no phase and no reason of its own. Why ports rather than wires handed in: a
+  * module is elaborated and written the moment it is instantiated, so what can cross into it afterwards is a port.
+  *
+  * One wizard is still the design's, built once by the level, because a phase relationship only exists between outputs
+  * of one VCO — the memory's five grids are one such family.
   *
   * What is watched is the controller's own statement, made where the signals live (`Ddr3.scala`'s `Probes.mark` calls):
   * it is one instance, so one name is one net ([[Probes]]). A shared body's probes would be *declared* there and
@@ -68,7 +72,48 @@ final case class Ddr3Bus(
   */
 object Ddr3Side:
 
-    /** Build the bus: its pads, its controller, its calibrator, its own reset chain — and its grids, bound to it.
+    /** The pin the tap calibration resets on: the board's own button, as the pin presents it. */
+    val ButtonPin = "RESET"
+
+    /** The reason this device produces for the level's reset network: the taps are usable, so nothing about the device
+      * was touched before it held.
+      */
+    val TapsReadyReason = "ddr3TapsReady"
+
+    /** What the bus needs the level above to declare and wire ([[nzea_fpga.LogicNeeds]]): the pins, the grids, the
+      * reason it produces, and its own domain — the board's button and the generator's lock are the level's reasons,
+      * the taps' readiness its own.
+      *
+      * The grids are listed in the order the wizard's slots were named from, which is frozen: the IP built from this
+      * plan and the constraints that name a grid by its slot are already on the board.
+      *
+      * The domain's terms are in the order its conjunction is built from: the two reasons the level's generated domains
+      * share first, the device's own last — the same net the board's round ran against.
+      */
+    val needs: LogicNeeds = LogicNeeds(
+        pins = Seq(
+            Pin.in(ButtonPin),
+            Pin.out(Ddr3PadNames.ckP),
+            Pin.out(Ddr3PadNames.ckN),
+            Pin.out(Ddr3PadNames.addr, Ddr3PadNames.addrWidth),
+            Pin.out(Ddr3PadNames.ba, Ddr3PadNames.baWidth),
+            Pin.out(Ddr3PadNames.dm, Ddr3PadNames.dmWidth),
+            Pin.out(Ddr3PadNames.rasN, 1),
+            Pin.out(Ddr3PadNames.casN, 1),
+            Pin.out(Ddr3PadNames.weN, 1),
+            Pin.out(Ddr3PadNames.cke),
+            Pin.out(Ddr3PadNames.odt),
+            Pin.out(Ddr3PadNames.resetN),
+            Pin.pad(Ddr3PadNames.dq, Ddr3PadNames.dqWidth),
+            Pin.pad(Ddr3PadNames.dqsP, Ddr3PadNames.dqsWidth),
+            Pin.pad(Ddr3PadNames.dqsN, Ddr3PadNames.dqsWidth)
+        ),
+        grids = Seq(Ddr3Clocks.taps, Ddr3Clocks.loads, Ddr3Clocks.command, Ddr3Clocks.device, Ddr3Clocks.capture),
+        produces = Seq(TapsReadyReason),
+        reset = Some(LogicReset("ddr3", Ddr3Clocks.loads, Seq("buttonPin", "pllLocked", TapsReadyReason)))
+    )
+
+    /** Build the bus: its calibrator, its controller and its pads, on the ports the level above declared ([[needs]]).
       *
       * Instance names are part of the netlist: the ones here are what the simulators reach into
       * (`nzea_fpga/sim/Ddr3Bringup.sv` watches `ddr3` and the pads by these names).
@@ -87,23 +132,17 @@ object Ddr3Side:
         Ddr3Xdc.register()
 
         // The bank's tap calibration. Every lane in the design delays against it, and it is the one pad whose reset the
-        // controller waits on: nothing about the device is touched before the taps are usable. Its reset is the button
-        // as the pin presents it — the primitive takes an asynchronous one, and the pin is what it is for that.
+        // controller waits on: nothing about the device is touched before the taps are usable — the domain that waits
+        // for its `READY` is the level's, stated from here ([[needs]]). Its own reset is the button as the pin presents
+        // it: the primitive takes an asynchronous one, and the pin is what it is for that.
         val delayCtrl = Ddr3IdelayCtrl.instantiate(Ddr3IdelayCtrlParameter())
-        Clocks.bind(delayCtrl.io.refClk, Ddr3Clocks.taps)
+        delayCtrl.io.refClk := parameter.clocks(Ddr3Clocks.taps)
         delayCtrl.io.reset := !parameter.rawResetN
-        val delayReady = delayCtrl.io.READY
+        parameter.tapsReady := delayCtrl.io.READY
 
-        // The bus's own reasons, and the reset its domain runs on. What the device must wait for is its own statement:
-        // the board's released button and the generator's lock are the level's vocabulary, the taps' readiness is its
-        // own fact — and the synchronizer that makes their release belong to the bus's domain is created here, on the
-        // bus's own grid ([[Resets]]). Its two flops are also what filters the levels' own short excursions. Its clock
-        // is the controller's: one synchronizer, in the domain that consumes it.
-        Resets.term("ddr3TapsReady")(delayReady)
-        val ddr3Clock = Clocks.clock(Ddr3Clocks.loads)
-        val resetNddr = Resets.domain("ddr3", ddr3Clock, Seq("buttonPin", "pllLocked", "ddr3TapsReady"))
         // What the pads' serializer shift paths are cleared by, in the pads' own polarity (active-low: the modules take
         // the level their `RST` pins are).
+        val resetNddr = parameter.reset
         val ringReset = !resetNddr.asBool
 
         // The controller, on the pads' data grid: the serializers load their words from this domain's clock — it *is*
@@ -113,7 +152,7 @@ object Ddr3Side:
         // this domain, which a command's decode closes easily — and the device's CK keeps the quarter period that
         // centres it in a command's window.
         val ddr3 = Ddr3.instantiate(Ddr3Parameter())
-        Clocks.bind(ddr3.io.field[Clock]("clock"), Ddr3Clocks.loads)
+        ddr3.io.field[Clock]("clock") := parameter.clocks(Ddr3Clocks.loads)
         ddr3.io.field[Reset]("resetN") := resetNddr
 
         // The bus's pads. What the serializers' shift paths are cleared by is the bus's own domain reset: what clears a
@@ -122,10 +161,10 @@ object Ddr3Side:
         dqPads.io.dqOut := ddr3.io.field[UInt](Ddr3PadNames.dqOut)
         dqPads.io.oe := ddr3.io.field[Bool](Ddr3PadNames.dqOe)
         dqPads.io.tap := ddr3.io.field[UInt](Ddr3PadNames.delayTap)
-        Clocks.bind(dqPads.io.clk400, Ddr3Clocks.command)
-        Clocks.bind(dqPads.io.clk400Dqs, Ddr3Clocks.device)
-        Clocks.bind(dqPads.io.clk200Dqs, Ddr3Clocks.loads)
-        Clocks.bind(dqPads.io.clk200Inv, Ddr3Clocks.capture)
+        dqPads.io.clk400 := parameter.clocks(Ddr3Clocks.command)
+        dqPads.io.clk400Dqs := parameter.clocks(Ddr3Clocks.device)
+        dqPads.io.clk200Dqs := parameter.clocks(Ddr3Clocks.loads)
+        dqPads.io.clk200Inv := parameter.clocks(Ddr3Clocks.capture)
         dqPads.io.ringReset := ringReset
         ddr3.io.field[UInt](Ddr3PadNames.dqIn) := dqPads.io.dqIn
         parameter.dq.attach(dqPads.io.DQ)
@@ -134,8 +173,8 @@ object Ddr3Side:
         val dqsPads = Ddr3DqsPads.instantiate(Ddr3DqsPadsParameter())
         dqsPads.io.dqsOut := ddr3.io.field[UInt](Ddr3PadNames.dqsOut)
         dqsPads.io.oe := ddr3.io.field[Bool](Ddr3PadNames.dqsOe)
-        Clocks.bind(dqsPads.io.clk400, Ddr3Clocks.command)
-        Clocks.bind(dqsPads.io.clk200, Ddr3Clocks.taps)
+        dqsPads.io.clk400 := parameter.clocks(Ddr3Clocks.command)
+        dqsPads.io.clk200 := parameter.clocks(Ddr3Clocks.taps)
         dqsPads.io.ringReset := ringReset
         parameter.dqsP.attach(dqsPads.io.DQS_P)
         parameter.dqsN.attach(dqsPads.io.DQS_N)
@@ -143,7 +182,7 @@ object Ddr3Side:
         // The device's clock: the strobe grid, halved by a fixed 1/0 pattern, so its edges sit a quarter period into
         // the command's window.
         val ckPads = Ddr3CkPads.instantiate(Ddr3CkPadsParameter())
-        Clocks.bind(ckPads.io.clk400Dqs, Ddr3Clocks.device)
+        ckPads.io.clk400Dqs := parameter.clocks(Ddr3Clocks.device)
         parameter.ckP := ckPads.io.CK_P
         parameter.ckN := ckPads.io.CK_N
 
@@ -160,8 +199,8 @@ object Ddr3Side:
         /** One single-rate pin group: the controller's levels in, the module's pins out to the level's own. */
         def wireSdrPads(pads: Instance[Ddr3SdrPadsIO, Ddr3SdrPadsProbe], pin: String, pad: Ref[UInt]): Unit =
             pads.io.levels := ddr3.io.field[UInt](pin)
-            Clocks.bind(pads.io.clk400, Ddr3Clocks.command)
-            Clocks.bind(pads.io.clk200, Ddr3Clocks.taps)
+            pads.io.clk400 := parameter.clocks(Ddr3Clocks.command)
+            pads.io.clk200 := parameter.clocks(Ddr3Clocks.taps)
             pads.io.ringReset := ringReset
             pad := pads.io.pad
 
@@ -174,8 +213,8 @@ object Ddr3Side:
         // The mask pins: the data's own grids, because the mask has to keep step with the transfers it masks.
         val dmPads = Ddr3DmPads.instantiate(Ddr3DmPadsParameter())
         dmPads.io.levels := ddr3.io.field[UInt](Ddr3PadNames.dm)
-        Clocks.bind(dmPads.io.clk400Dqs, Ddr3Clocks.device)
-        Clocks.bind(dmPads.io.clk200Dqs, Ddr3Clocks.loads)
+        dmPads.io.clk400Dqs := parameter.clocks(Ddr3Clocks.device)
+        dmPads.io.clk200Dqs := parameter.clocks(Ddr3Clocks.loads)
         dmPads.io.ringReset := ringReset
         parameter.dm := dmPads.io.pad
 
@@ -190,9 +229,9 @@ object Ddr3Side:
             )
         do
             pads.io.level := level
-            Clocks.bind(pads.io.clk400, Ddr3Clocks.command)
+            pads.io.clk400 := parameter.clocks(Ddr3Clocks.command)
             pin := pads.io.pad
 
         // What the level wires next: the controller, the slave end of the bus a master connects to, and the domain the
         // bus runs in.
-        Ddr3Bus(ddr3, ddr3.io.field[LiteBusRW]("bus"), ddr3Clock, resetNddr)
+        Ddr3Bus(ddr3, ddr3.io.field[LiteBusRW]("bus"), parameter.clocks(Ddr3Clocks.loads), resetNddr)

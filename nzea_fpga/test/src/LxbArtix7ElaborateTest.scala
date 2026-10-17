@@ -50,8 +50,6 @@ object LxbArtix7ElaborateTest extends TestSuite:
         // The reset network: every reason as it is produced, and every domain as its registers see it (1 = in reset).
         "buttonPin" -> 1,
         "board50Reset" -> 1,
-        "ddr3TapsReady" -> 1,
-        "ddr3Reset" -> 1,
         "state" -> 6,
         "initDone" -> 1,
         "alignedAt" -> 6,
@@ -99,6 +97,9 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "firstBadAddr" -> 32,
         "firstBadExp" -> 128,
         "firstBadGot" -> 128,
+        // The bus's own reason is declared where the logic is wired, after the device that produces it elaborated.
+        "ddr3TapsReady" -> 1,
+        "ddr3Reset" -> 1,
         "pllLocked" -> 1,
         "board100Reset" -> 1,
         "blink50_count" -> 26,
@@ -114,8 +115,6 @@ object LxbArtix7ElaborateTest extends TestSuite:
     private val patterns = Seq(
         "*probe_buttonPin*",
         "*probe_board50Reset*",
-        "*probe_ddr3TapsReady*",
-        "*probe_ddr3Reset*",
         "*probe_state*",
         "*probe_initDone*",
         "*probe_alignedAt*",
@@ -161,6 +160,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "*probe_firstBadAddr*",
         "*probe_firstBadExp*",
         "*probe_firstBadGot*",
+        "*probe_ddr3TapsReady*",
+        "*probe_ddr3Reset*",
         "*probe_pllLocked*",
         "*probe_board100Reset*",
         "*blink50/probe_count*",
@@ -282,7 +283,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
                 )
             )
 
-        test("the top is the design, and the pads are its own modules — an ILA is not"):
+        test("the top is the design, and the logic's pads are its own modules — an ILA is not"):
             assert(sv.contains("module Top("))
             assert(sv.contains("ResetSync board50Sync ("))
             assert(sv.contains("ResetSync board100Sync ("))
@@ -290,17 +291,22 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains("Blink blink50 (") && sv.contains("Blink blink100 ("))
             // The IP keeps its instance name (it names nets and shows up in waveforms).
             assert(sv.contains("clk_wiz_0 clockingWizard ("))
-            assert(sv.contains("Ddr3 ddr3 ("))
+            // The top carries one logic and wires what that logic stated: the bus's pins, the grids it runs on and the
+            // domain it resets in land on the soak, and the device's own instances are named inside it — no pin of the
+            // bus appears in the top's own text.
             assert(sv.contains("Ddr3Soak soak ("))
             assert(
                 sv.matches(
-                    "(?s).*Ddr3Soak soak \\(.*\\.clock\\s+\\(_clockingWizard_clk_out2\\).*\\.resetN\\s+\\(_ddr3Sync_syncN\\).*" +
-                        "\\.bus_req_valid\\s+\\(_soak_bus_req_valid\\).*\\.bus_resp_valid\\s+\\(_ddr3_bus_resp_valid\\).*"
+                    "(?s).*Ddr3Soak soak \\(.*\\.DDR3_DQ\\s+\\(DDR3_DQ\\).*\\.clk200_45\\s+\\(_clockingWizard_clk_out2\\).*"
                 )
             )
-            assert(sv.matches("(?s).*Ddr3 ddr3 \\(.*\\.bus_req_valid\\s+\\(_soak_bus_req_valid\\).*"))
-            assert(sv.matches("(?s).*Ddr3Soak soak \\(.*\\.bus_req_ready\\s+\\(_ddr3_bus_req_ready\\).*"))
-            // The pads: modules of the circuit, instantiated by the top, with the analog nets attached to its own ports.
+            assert(sv.matches("(?s).*Ddr3Soak soak \\(.*\\.ddr3TapsReady\\s+\\(_soak_ddr3TapsReady\\).*"))
+            assert(sv.matches("(?s).*Ddr3Soak soak \\(.*\\.resetN\\s+\\(_ddr3Sync_syncN\\).*"))
+            assert(sv.contains("Ddr3 ddr3 ("))
+            assert(sv.matches("(?s).*Ddr3 ddr3 \\(.*\\.clock\\s+\\(clk200_45\\).*\\.resetN\\s+\\(resetN\\).*"))
+            assert(sv.matches("(?s).*Ddr3 ddr3 \\(.*\\.bus_req_ready\\s+\\(_ddr3_bus_req_ready\\).*"))
+            // The pads: modules of the circuit, instantiated by the logic that owns the chip, with the analog nets
+            // attached to the top's own ports.
             assert(sv.contains("Ddr3DqPads dqPads ("))
             assert(sv.matches("(?s).*\\.DQ\\s+\\(DDR3_DQ\\).*"))
             assert(sv.contains("Ddr3DqsPads dqsPads ("))
@@ -311,8 +317,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains("Ddr3SdrPads1 rasPads ("))
             assert(sv.contains("Ddr3LevelPads ckePads ("))
             assert(sv.contains("Ddr3IdelayCtrl delayCtrl ("))
-            assert(sv.contains(".rawN  (buttonPinAndPllLocked & _delayCtrl_READY)"))
-            assert(sv.contains(".ringReset (~_ddr3Sync_syncN)"))
+            assert(sv.contains(".rawN  (buttonPinAndPllLocked & _soak_ddr3TapsReady)"))
+            assert(sv.contains(".ringReset (~resetN)"))
             assert(!sv.contains("u_ila_0"))
 
         test("the oscillator feeds the wizard directly, and the design's own logic off a global buffer"):
@@ -329,8 +335,9 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.matches("(?s).*\\.resetN50\\s+\\(_board50Sync_syncN\\).*"))
             // The DDR3 domain's reset is its own synchronizer's release: an asynchronous feed from two other domains
             // was the board's worst path (−7 ns at 400 MHz). The pads' tap calibration is one of the reasons it waits
-            // for — nothing about the device is touched before the taps are usable.
-            assert(sv.contains(".rawN  (buttonPinAndPllLocked & _delayCtrl_READY)"))
+            // for — nothing about the device is touched before the taps are usable — and it crosses in as the logic's
+            // own port.
+            assert(sv.contains(".rawN  (buttonPinAndPllLocked & _soak_ddr3TapsReady)"))
             // The port list's names are column-aligned, so this one's padding grows with the longest name beside it;
             // the connection is what the test is about, not the whitespace.
             assert(sv.matches("(?s).*\\.resetN\\s+\\(_ddr3Sync_syncN\\).*"))
@@ -344,9 +351,10 @@ object LxbArtix7ElaborateTest extends TestSuite:
             // happened to ask first.
             assert(sv.matches("(?s).*wire\\s+buttonPinAndPllLocked = RESET & _clockingWizard_locked;.*"))
             assert(sv.matches("(?s).*ResetSync board100Sync \\(.*\\.rawN  \\(buttonPinAndPllLocked\\).*"))
-            // The device adds its own ready to the same pair, and its synchronizer runs on the bus's own grid.
+            // The device adds its own ready to the same pair, and its synchronizer runs on the bus's own grid — both
+            // stated where the logic's instance is named, with the reason arriving on the logic's own port.
             assert(sv.matches("(?s).*ResetSync ddr3Sync \\(.*\\.clock \\(_clockingWizard_clk_out2\\).*"))
-            assert(sv.contains(".rawN  (buttonPinAndPllLocked & _delayCtrl_READY)"))
+            assert(sv.contains(".rawN  (buttonPinAndPllLocked & _soak_ddr3TapsReady)"))
             // Every reason and every domain is watchable: the first question a reset network raises is which reason holds.
             for probe <- Seq(
                     "buttonPin",
@@ -576,7 +584,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
             // port with no line is a pin the tools would place themselves — so the two sets are one set.
             assert(constrained(board + ddr3) == topPorts)
 
-        test("the pads' bodies are the dump's, and each one is the module the top instantiates"):
+        test("the pads' bodies are the dump's, and each one is the module the logic instantiates"):
             val (dq, dqs, addr, dm, level, ck, idelay, list) = padArtifacts
             // One file per module the design used, written beside the RTL and listed in its file list: the simulator
             // and the synthesizer compile exactly what the top instantiated (`Ddr3Pads`).

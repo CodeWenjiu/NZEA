@@ -4,8 +4,8 @@ import java.lang.foreign.Arena
 
 import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
-import me.jiuyang.zaozi.reftpe.{Ref, Referable, Wire}
-import me.jiuyang.zaozi.valuetpe.{Bool, Clock}
+import me.jiuyang.zaozi.reftpe.{Interface, Ref, Referable, Wire}
+import me.jiuyang.zaozi.valuetpe.{Bool, Clock, Record}
 import nzea_fpga.ip.{ClockOut, ClockPlan, ClockPrimitive, ClockingWizard, ClockingWizardParameter}
 import nzea_rtl.DumpRegistry
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -21,33 +21,28 @@ import scala.collection.mutable
   * put an unknown phase between the grids that must keep one. A plan past what one primitive serves fails loudly here
   * instead of being split.
   *
-  * [[clock]] hands the caller the wire the grid lands on; [[bind]] states that an instance's port runs on a grid and
-  * leaves the connection to [[materialize]], which is what lets a device file state its own clocking.
+  * [[clock]] hands the caller the wire the grid lands on. A logic that is a module of its own cannot be handed a wire
+  * after it exists — its clocks are its ports — so it states the grids its instances run on in its needs, and the level
+  * above asks for those grids and connects them where it names the instance ([[nzea_fpga.Logics]]).
   */
 object Clocks:
 
     /** The wizard's IP instance name: the tcl and the constraints' clock names spell it. */
     val ipName = "clk_wiz_0"
 
-    /** The grids the design asked for, in first-ask order (a bind asks as well) — the plan, `clk_out1` first. Keyed by
-      * the grid itself, `(frequency, phase)`, which is what a caller knows about a clock.
+    /** The grids the design asked for, in first-ask order — the plan, `clk_out1` first. Keyed by the grid itself,
+      * `(frequency, phase)`, which is what a caller knows about a clock.
       */
     private val plan = mutable.LinkedHashSet.empty[ClockOut]
 
     /** The wires [[clock]] handed its callers: the grids whose connection the caller writes itself. */
     private val wires = mutable.LinkedHashMap.empty[ClockOut, Wire[Clock]]
 
-    /** What [[bind]] left to the mechanism: `(an instance's port, the grid it runs on)`, connected when the wizard is
-      * built. The port belongs to the block that names the instance — the block [[materialize]] runs in.
-      */
-    private val bound = mutable.ArrayBuffer.empty[(Ref[Clock], ClockOut)]
-
     private var materialized = false
 
     DumpRegistry.onReset: () =>
         plan.clear()
         wires.clear()
-        bound.clear()
         materialized = false
 
     /** Ask for a grid and take the wire it lands on, for a caller writing the connection itself: the same key is the
@@ -65,13 +60,41 @@ object Clocks:
         plan.add(grid)
         wires.getOrElseUpdate(grid, Wire(Clock()))
 
-    /** Ask for a grid *for an instance's port*: the connection is not the caller's to write, so [[materialize]] writes
-      * it — which is what lets a device file state its own clocking where it names its instances. A binding is a
-      * statement until it is performed.
+    /** What a grid's port is named on a logic's own side ([[nzea_fpga.Logics]]): the grid said out loud, so a reader —
+      * or a waveform — can tell which clock a port carries without knowing the plan.
       */
-    def bind(port: Ref[Clock], grid: ClockOut): Unit =
-        plan.add(grid)
-        bound += ((port, grid))
+    def portName(grid: ClockOut): String = s"clk${spelled(grid.mhz)}_${spelled(grid.phase)}"
+
+    private def spelled(value: Double): String =
+        if value.isWhole then value.toLong.toString else value.toString
+
+    /** Declare a clock port per grid — how a logic that is a module of its own takes the grids its instances run on.
+      * Called in the record's body, which is what its port list is built from.
+      */
+    def declare(record: Record, grids: Seq[ClockOut]): Unit =
+        for grid <- grids do record.Flipped(portName(grid), Clock())
+
+    /** Ask for a grid *for a logic's own port*: the logic's clocks cross the boundary as ports, so the level above asks
+      * for the wire here and connects it where it names the logic's instance — [[materialize]] fills the wire when it
+      * builds the wizard. The requests are made in this order, which is what names the wizard's slots (`clk_out1`
+      * first): a plan whose slots are already built into a bitstream and into constraints keeps them.
+      */
+    def connect(logic: Interface[?], grids: Seq[ClockOut])(using
+        Arena,
+        Context,
+        Block,
+        sourcecode.File,
+        sourcecode.Line,
+        sourcecode.Name.Machine,
+        InstanceContext
+    ): Unit =
+        for grid <- grids do logic.field[Clock](portName(grid)) := clock(grid)
+
+    /** The grids as a logic's own ports hold them: what a device file reads to clock the instances it owns, keyed by
+      * the grid each port carries.
+      */
+    def ports(io: Interface[?], grids: Seq[ClockOut]): Map[ClockOut, Ref[Clock]] =
+        grids.map(grid => grid -> io.field[Clock](portName(grid))).toMap
 
     /** The plan's outputs, `clk_out1` first — what the wizard is built from and what [[outputName]] names. */
     def planned: Seq[ClockOut] = plan.toSeq
@@ -89,8 +112,8 @@ object Clocks:
         s"clk_out${slot + 1}_$ipName"
 
     /** Build the wizard from the requests, and make every connection that was asked for: the wires [[clock]] handed
-      * out, and the instance ports [[bind]] stated. Called once ([[nzea_fpga.Top]] does, after everything that wants a
-      * grid has asked for one); returns the wizard's `locked`, which the domains behind it wait on.
+      * out. Called once ([[nzea_fpga.Top]] does, after everything that wants a grid has asked for one); returns the
+      * wizard's `locked`, which the domains behind it wait on.
       */
     def materialize(inputMHz: Double, input: Referable[Clock], reset: Referable[Bool])(using
         Arena,
@@ -127,7 +150,6 @@ object Clocks:
             .map((out, slot) => out -> wizard.io.field[Clock](s"clk_out${slot + 1}"))
             .toMap
         for (out, wire) <- wires do wire := grid(out)
-        for (port, out) <- bound do port := grid(out)
         materialized = true
         Wizard(wizard.io.field[Bool]("locked"))
 

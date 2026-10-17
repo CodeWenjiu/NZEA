@@ -6,8 +6,8 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_fpga.device.ddr3.Ddr3BusShape
-import nzea_rtl.bus.LiteBusRW
+import nzea_fpga.{BoardLogic, Clocks, LogicNeeds, Logics}
+import nzea_fpga.device.ddr3.{Ddr3BusShape, Ddr3PadNames, Ddr3Side, Ddr3SideParameter}
 import nzea_rtl.probe.Probes
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -19,26 +19,14 @@ given upickle.default.ReadWriter[Ddr3SoakParameter] = upickle.default.macroRW
 class Ddr3SoakLayers(parameter: Ddr3SoakParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
-/** The soak's ports: the domain it runs in — the bus's own, clock and reset handed over by
-  * [[nzea_fpga.device.ddr3.Ddr3Side]] — and the master end of the memory's bus ([[nzea_fpga.device.ddr3.Ddr3BusShape]],
-  * which the device states and this imports rather than restating).
+/** The soak's ports: the pins, the grids and the domain its device needs, in one statement
+  * ([[nzea_fpga.device.ddr3.Ddr3Side.needs]]) — the level above declares them and wires them ([[nzea_fpga.Logics]]).
   *
   * The master leaves its first request standing from reset: the device's `bus.req.ready` is never asserted before its
   * bring-up is done, so waiting for the device and waiting for a ready are the same wait.
   */
 class Ddr3SoakIO(parameter: Ddr3SoakParameter) extends HWRecord(parameter):
-    Flipped("clock", Clock())
-    Flipped("resetN", Reset())
-
-    Aligned(
-        "bus",
-        new LiteBusRW(
-            Ddr3BusShape.addrWidth,
-            Ddr3BusShape.dataWidth,
-            Ddr3BusShape.userWidth,
-            Ddr3BusShape.idWidth
-        )
-    )
+    Logics.declare(this, Ddr3Soak.needs)
 
 class Ddr3SoakProbe(parameter: Ddr3SoakParameter) extends DVRecord[Ddr3SoakParameter, Ddr3SoakLayers](parameter)
 
@@ -46,16 +34,23 @@ class Ddr3SoakProbe(parameter: Ddr3SoakParameter) extends DVRecord[Ddr3SoakParam
   * writes the memory and reads it back, one request outstanding at a time (the device answers one burst per ~230 ns;
   * the master is not its bottleneck), and the account of what came back wrong.
   *
+  * It carries the bus's board side itself: the device is instantiated here, on the pins and grids this logic states
+  * ([[needs]]), so the level above knows neither the transport nor a pad of it.
+  *
   * The expectation a read-back is compared against is *built*, not looked up: every write updates it byte by byte — the
   * bytes the strobe covers take the write's, the rest keep what they had — which is exactly the rule the device is held
   * to.
   */
 @generator
-object Ddr3Soak extends Generator[Ddr3SoakParameter, Ddr3SoakLayers, Ddr3SoakIO, Ddr3SoakProbe]:
+object Ddr3Soak extends Generator[Ddr3SoakParameter, Ddr3SoakLayers, Ddr3SoakIO, Ddr3SoakProbe], BoardLogic:
     override def moduleName(parameter: Ddr3SoakParameter): String = "Ddr3Soak"
 
-    /** The walk's sixteen addresses, as byte addresses (a burst is 16-byte aligned, `addr[3:0]` zero): the field each one
-      * moves is named beside it.
+    /** What the level above must declare and wire: the bus's own statement ([[nzea_fpga.device.ddr3.Ddr3Side.needs]]).
+      */
+    override def needs: LogicNeeds = Ddr3Side.needs
+
+    /** The walk's sixteen addresses, as byte addresses (a burst is 16-byte aligned, `addr[3:0]` zero): the field each
+      * one moves is named beside it.
       */
     private val addrTable: Seq[BigInt] = Seq(
         0x00000000L, // row 0, bank 0, column 0 — the baseline
@@ -114,10 +109,33 @@ object Ddr3Soak extends Generator[Ddr3SoakParameter, Ddr3SoakLayers, Ddr3SoakIO,
 
     def architecture(parameter: Ddr3SoakParameter) =
         val io = summon[Interface[Ddr3SoakIO]]
-        given ClockScope = ClockScope.posedge(io.field[Clock]("clock"))
-        given ResetScope = ResetScope.asyncActiveLow(io.field[Reset]("resetN"))
 
-        val bus = io.field[LiteBusRW]("bus")
+        val ddr3 = Ddr3Side.instantiate(
+            Ddr3SideParameter(
+                dq = io.field[Analog](Ddr3PadNames.dq),
+                dqsP = io.field[Analog](Ddr3PadNames.dqsP),
+                dqsN = io.field[Analog](Ddr3PadNames.dqsN),
+                ckP = io.field[Bool](Ddr3PadNames.ckP),
+                ckN = io.field[Bool](Ddr3PadNames.ckN),
+                addr = io.field[UInt](Ddr3PadNames.addr),
+                ba = io.field[UInt](Ddr3PadNames.ba),
+                dm = io.field[UInt](Ddr3PadNames.dm),
+                rasN = io.field[UInt](Ddr3PadNames.rasN),
+                casN = io.field[UInt](Ddr3PadNames.casN),
+                weN = io.field[UInt](Ddr3PadNames.weN),
+                cke = io.field[Bool](Ddr3PadNames.cke),
+                odt = io.field[Bool](Ddr3PadNames.odt),
+                resetN = io.field[Bool](Ddr3PadNames.resetN),
+                rawResetN = io.field[Bool](Ddr3Side.ButtonPin),
+                reset = io.field[Reset](Logics.ResetPort),
+                tapsReady = io.field[Bool](Ddr3Side.TapsReadyReason),
+                clocks = Clocks.ports(io, Ddr3Side.needs.grids)
+            )
+        )
+        given ClockScope = ClockScope.posedge(ddr3.clock)
+        given ResetScope = ResetScope.asyncActiveLow(ddr3.resetN)
+
+        val bus = ddr3.bus
 
         val patternAddr = BigInt(0x4000)
         val lfsrAddress = BigInt(0x8000)
@@ -136,8 +154,8 @@ object Ddr3Soak extends Generator[Ddr3SoakParameter, Ddr3SoakLayers, Ddr3SoakIO,
         val dataReg = RegInit(walkWordConst(0).U(Ddr3BusShape.dataWidth))
         val expectReg = RegInit(0.U(Ddr3BusShape.dataWidth))
 
-        /** Beat `k` of the walk's data: the step's own value in the beat's high bits and a one-hot byte low, so the word
-          * says which step wrote it and every byte lane carries a different level.
+        /** Beat `k` of the walk's data: the step's own value in the beat's high bits and a one-hot byte low, so the
+          * word says which step wrote it and every byte lane carries a different level.
           */
         def walkWord(value: Referable[UInt])(using Arena, Context, Block): Node[UInt] =
             (7 to 0 by -1)

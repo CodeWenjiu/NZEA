@@ -33,12 +33,14 @@ Self-contained: no functional logic depends on it.
 The round loop used to be two things at once — a test, and the only memory traffic the design has. They are two files now
 (`README_zh.md` §12 records the split): the transport is the device's (`src/device/ddr3/Ddr3.scala` — a LiteBus slave a
 master reads and writes the memory through), the test is `src/logic/Ddr3Soak.scala` (the LiteBus master that exercises
-it), wired in `Top` as one bus between the two instances (`Ddr3Bus.bus :<>= soak.io.bus`).
+it) — and since §15 the soak owns the device itself: it instantiates `Ddr3Side` inside, on the pins, grids and reset
+domain its `LogicNeeds` states.
 
 **Removable — the whole soak file:** `Ddr3Soak.scala` (its 8 probes included: `phase`, `step`, `issued`, `errors`,
-`done`, `firstBad*`), plus the `soak` instance in `src/Top.scala` (its four lines). The address and pattern tables, the
-LFSR and the mask's own test all live in it — deleting it (or simply not instantiating it) leaves the bus idle in its own
-reset.
+`done`, `firstBad*`), plus the `soak` instance in `src/Top.scala` (its two lines: the instance and
+`Logics.connect(io, soak.io, Ddr3Soak.needs)` — the pins, the bus's five grids and `ddr3TapsReady` leave the top's port
+list and its reset network with it). The address and pattern tables, the LFSR and the mask's own test all live in it —
+deleting it (or simply not instantiating it) leaves the bus idle in its own reset.
 
 **Removable — the device's own forensics** (in `Ddr3.scala`): the probe declarations `captured`, `checked`, `timer`,
 `dqIn`, `dmOut`, `recent` (the sweep's per-round bit map), `failTaps` and `respValid`/`respData` are observations the
