@@ -50,8 +50,9 @@ enum Cmd {
         port: String,
         #[arg(long, default_value_t = 115200)]
         baud: u32,
-        #[arg(long, default_value_t = 0)]
-        addr: u32,
+        /// Address to write the program at (hex with 0x prefix, or decimal).
+        #[arg(long, default_value = "0")]
+        addr: String,
         /// Read-back window in ms after the transfer completes.
         #[arg(long, default_value_t = 1000)]
         read_ms: u64,
@@ -63,8 +64,9 @@ enum Cmd {
         port: String,
         #[arg(long, default_value_t = 115200)]
         baud: u32,
-        #[arg(long, default_value_t = 0)]
-        addr: u32,
+        /// Address the command carries (hex with 0x prefix, or decimal).
+        #[arg(long, default_value = "0")]
+        addr: String,
     },
     /// Stream RX bytes with timestamps until Ctrl-C. With --reset, reset right after attaching.
     Monitor {
@@ -109,8 +111,14 @@ fn main() {
             baud,
             addr,
             read_ms,
-        } => run_load(&hex, &port, baud, addr, read_ms),
-        Cmd::Reset { port, baud, addr } => run_reset(&port, baud, addr),
+        } => match parse_addr(&addr) {
+            Ok(a) => run_load(&hex, &port, baud, a, read_ms),
+            Err(e) => Err(e),
+        },
+        Cmd::Reset { port, baud, addr } => match parse_addr(&addr) {
+            Ok(a) => run_reset(&port, baud, a),
+            Err(e) => Err(e),
+        },
         Cmd::Monitor {
             port,
             baud,
@@ -361,5 +369,20 @@ mod tests {
         let words = memread_words(0x8800_0000).expect("memread program assembles");
         assert!(!words.is_empty());
         assert!(words.len() < 64, "memread program unexpectedly large");
+    }
+
+    #[test]
+    fn every_address_option_takes_hex_and_decimal() {
+        // `load`/`reset` took a `u32`, so `0x…` was a parse error there while `memread` took it.
+        let cli = Cli::try_parse_from(["probe", "load", "p.hex", "--addr", "0x80000000"])
+            .expect("the loader's address takes a 0x spelling");
+        match cli.cmd {
+            Cmd::Load { addr, .. } => {
+                assert_eq!(parse_addr(&addr).expect("address parses"), 0x8000_0000)
+            }
+            _ => panic!("expected the load command"),
+        }
+        assert!(Cli::try_parse_from(["probe", "reset", "--addr", "2147483648"]).is_ok());
+        assert!(Cli::try_parse_from(["probe", "memread", "0x88000000"]).is_ok());
     }
 }
