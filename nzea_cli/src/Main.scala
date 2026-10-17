@@ -47,7 +47,12 @@ case class CliArgs(
         lsqDepth = lsqDepth
     )
 
-    /** The tile level's design: the tile's own baseline, with the ISA, flow and device list a flag named overridden.
+    /** The tile level's design: the tile's own baseline, with the ISA, flow, device list and external windows a flag
+      * named overridden.
+      *
+      * The tile's external windows are not a dump flag: a window the level above answers exists only where there is a
+      * level above (its parameter carries them — [[NzeaTileParameter.externals]]), so a CLI dump is the baseline
+      * platform, with none.
       *
       * A `Seq` flag's reader accepts an empty value, so an absent `--devices` arrives as an empty list rather than the
       * field's default (mainargs never falls back to it); the platform's list is substituted here, and a fabric cannot

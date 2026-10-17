@@ -6,9 +6,10 @@ import nzea_rtl.Elaborate
   *
   * The two-step protocol (`config` writes the parameter out, `design` reads it back and elaborates, `firld` joins the
   * modules) is [[nzea_top.NzeaCoreElaborate]]'s; a level top spells its own parameter's flags and nothing else. The
-  * tile's shape follows the flow: the bridge flow attaches every window to the simulator, a synthesis flow builds the
-  * devices that have hardware. What a flow can build is the platform's device list, the `devices` extension on
-  * [[nzea_rtl.RtlFlow]].
+  * tile's shape follows the flow — the bridge flow attaches every window to the simulator, a synthesis flow builds the
+  * devices that have hardware — and its external windows show a bus port in either flow. What a flow can build is the
+  * platform's device list, stated beside the wiring it feeds ([[NzeaTile]]'s `devices` extension on
+  * [[nzea_rtl.RtlFlow]]).
   */
 object NzeaTileElaborate:
 
@@ -44,3 +45,4 @@ object NzeaTileElaborate:
             ++ parameter.icache.toSeq.flatMap(icache => Seq("--icache", icache.name))
             ++ parameter.dcache.toSeq.flatMap(dcache => Seq("--dcache", dcache.name))
             ++ parameter.devices.flatMap(device => Seq("--devices", upickle.default.write(device)))
+            ++ parameter.externals.flatMap(external => Seq("--externals", upickle.default.write(external)))
