@@ -679,9 +679,9 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
         // first turn.
         val writeShift = RegInit(0.U(2))
 
-        /** The strobe's word for `stage` at the alignment being weighed: 0 = nominal, 1 = one slot later,
-          * 2 = one slot earlier. The words are constants of the (stage, shift) pair, so the select is a two-level mux
-          * over literals and nothing wider reaches the pads' own path.
+        /** The strobe's word for `stage` at the alignment being weighed: 0 = nominal, 1 = one slot later, 2 = one slot
+          * earlier. The words are constants of the (stage, shift) pair, so the select is a two-level mux over literals
+          * and nothing wider reaches the pads' own path.
           */
         def stagedDqsWord(stage: Int)(using Arena, Context, Block): Referable[UInt] =
             val nominal = dqsWordAt(stage, 0).U(Ddr3PadNames.dqsWordWidth)
@@ -1090,15 +1090,21 @@ object Ddr3 extends Generator[Ddr3Parameter, Ddr3Layers, Ddr3IO, Ddr3Probe]:
         busTaken := busAccepted
 
         when(state === sBusIdle.U(sBusWidth)) {
-            when(calibrated & refreshDue) {
-                refTimer := 0.U(24)
+            // An accepted access is never interrupted — not even by a refresh that fell due in the very cycle the accept
+            // is read: `busTaken` is one cycle of the handshake and the refresh's own transition would consume it
+            // without serving the request, leaving the adapter (and the master behind it) waiting for an answer nothing
+            // will send. Measured on the board: the loader stopped at word 1739 of 2312 with the controller idle and its
+            // counter equal to the loader's, and the race reproduces deterministically in `sim/Ddr3RefreshAccept.sv` by
+            // accepting a write where the timer reads 1499 — one accepted word in 1500 lands there.
+            when(busTaken) {
+                accesses := constAdder(accesses, 1, 32)
                 timer := 0.U(24)
-                state := sBusRefPre.U(sBusWidth)
+                state := sBusPre.U(sBusWidth)
             }.otherwise {
-                when(busTaken) {
-                    accesses := constAdder(accesses, 1, 32)
+                when(calibrated & refreshDue) {
+                    refTimer := 0.U(24)
                     timer := 0.U(24)
-                    state := sBusPre.U(sBusWidth)
+                    state := sBusRefPre.U(sBusWidth)
                 }
             }
         }
