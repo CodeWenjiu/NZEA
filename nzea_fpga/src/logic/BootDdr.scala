@@ -7,6 +7,7 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_device.devices.{UartRx, UartRxParameter}
+import nzea_fpga.device.ddr3.Ddr3Side
 import nzea_fpga.device.uart.UartXdc
 import nzea_fpga.ip.ClockOut
 import nzea_fpga.{BoardLogic, Clocks, LogicNeeds, LogicReset, Logics, Pin}
@@ -21,7 +22,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * — so it cannot be derived from anything here. The port's shape is the fabric's, which the level above knows
   * ([[nzea_fpga.Top]] builds it from the tile's own map).
   */
-case class BootSramParameter(
+case class BootDdrParameter(
     lineHz: Int,
     busAddrWidth: Int,
     busDataWidth: Int,
@@ -30,25 +31,25 @@ case class BootSramParameter(
 ) extends Parameter:
     require(lineHz > 0, s"lineHz must be positive, got $lineHz")
 
-given upickle.default.ReadWriter[BootSramParameter] = upickle.default.macroRW
+given upickle.default.ReadWriter[BootDdrParameter] = upickle.default.macroRW
 
-class BootSramLayers(parameter: BootSramParameter) extends LayerInterface(parameter):
+class BootDdrLayers(parameter: BootDdrParameter) extends LayerInterface(parameter):
     def layers = Seq.empty
 
 /** The loader's ports: the line, the grids and the hold it states ([[nzea_fpga.Logics]]), plus the bus it writes the
   * program through — the level above connects that one to the memory it owns.
   */
-class BootSramIO(parameter: BootSramParameter) extends HWRecord(parameter):
-    Logics.declare(this, BootSram.needs)
+class BootDdrIO(parameter: BootDdrParameter) extends HWRecord(parameter):
+    Logics.declare(this, BootDdr.needs)
 
     Aligned(
-        "ram",
+        "load",
         new LiteBusRW(parameter.busAddrWidth, parameter.busDataWidth, parameter.busUserWidth, parameter.busIdWidth)
     )
 
-class BootSramProbe(parameter: BootSramParameter) extends DVRecord[BootSramParameter, BootSramLayers](parameter)
+class BootDdrProbe(parameter: BootDdrParameter) extends DVRecord[BootDdrParameter, BootDdrLayers](parameter)
 
-/** The board's program loader: a serial line's bytes, a magic number, and a program written into the core's memory.
+/** The board's program loader: a serial line's bytes, a magic number, and a program written into the board's DDR3.
   *
   * The protocol is the host tool's ([[probe]]'s `protocol.rs`): `magic u32 (0xB007B007) + addr u32 + size u32 + size *
   * u32`, every word little-endian, and `size = 0` is the reset-only command — the header is still sent and the core
@@ -56,16 +57,16 @@ class BootSramProbe(parameter: BootSramParameter) extends DVRecord[BootSramParam
   *
   * The core is held from the moment the magic is recognized until the frame's last word has been *acknowledged* on the
   * bus: a load must not race a fetch, and every write must have landed before the core's first instruction. The hold
-  * leaves this module as a reason of the level's reset network ([[nzea_fpga.BootSram.HoldReason]]), so what the core
-  * actually sees is that network's own synchronizer releasing it. From power-up the core is held until the first frame
-  * completes — there is no program in the memory before that, and running one would run zeros.
+  * leaves this module as a reason of the level's reset network ([[nzea_fpga.logic.BootDdr.HoldNReason]]), so what the
+  * core actually sees is that network's own synchronizer releasing it. From power-up the core is held until the first
+  * frame completes — there is no program in the memory before that, and running one would run zeros.
   *
   * The hold covers the core alone: this module, the receiver and the memory's own port run on the boot domain, which
   * does not wait for it — a domain that held the loader would never load anything.
   */
 @generator
-object BootSram extends Generator[BootSramParameter, BootSramLayers, BootSramIO, BootSramProbe], BoardLogic:
-    override def moduleName(parameter: BootSramParameter): String = "BootSram"
+object BootDdr extends Generator[BootDdrParameter, BootDdrLayers, BootDdrIO, BootDdrProbe], BoardLogic:
+    override def moduleName(parameter: BootDdrParameter): String = "BootDdr"
 
     /** The grid the core, the loader and the memory share: a same-domain sequence, so a load's writes and the core's
       * first fetch are ordered by the one clock, and the hold's release is what the core's own synchronizer cleans.
@@ -77,7 +78,7 @@ object BootSram extends Generator[BootSramParameter, BootSramLayers, BootSramIO,
 
     /** The reason this logic produces: the core may run — the loader is idle and a program has been loaded. It is a
       * reason of the level's network, so it is the level's own polarity (`1` means *not holding*): the hold is this
-      * level read the other way, and the network's `rawN` spells it `... & bootsHoldN`.
+      * level read the other way, and the network's `rawN` spells it `... & bootHoldN`.
       */
     val HoldNReason = "bootHoldN"
 
@@ -88,7 +89,7 @@ object BootSram extends Generator[BootSramParameter, BootSramLayers, BootSramIO,
         pins = UartXdc.pins,
         grids = Seq(ClockGrid),
         produces = Seq(HoldNReason),
-        reset = Some(LogicReset("boot", ClockGrid, Seq("buttonPin", "pllLocked")))
+        reset = Some(LogicReset("boot", ClockGrid, Seq("buttonPin", "pllLocked", Ddr3Side.ReadyReason)))
     )
 
     private val sIdle = 0
@@ -102,14 +103,14 @@ object BootSram extends Generator[BootSramParameter, BootSramLayers, BootSramIO,
 
     private val magic = BigInt("b007b007", 16)
 
-    def architecture(parameter: BootSramParameter) =
-        val io = summon[Interface[BootSramIO]]
+    def architecture(parameter: BootDdrParameter) =
+        val io = summon[Interface[BootDdrIO]]
         val clock = io.field[Clock](Clocks.portName(ClockGrid))
         val resetN = io.field[Reset](Logics.ResetPort)
         given ClockScope = ClockScope.posedge(clock)
         given ResetScope = ResetScope.asyncActiveLow(resetN)
 
-        val bus = io.field[LiteBusRW]("ram")
+        val bus = io.field[LiteBusRW]("load")
         val wordBytes = parameter.busDataWidth / 8
 
         val rx = UartRx.instantiate(UartRxParameter((ClockGrid.mhz * 1000000).toInt, parameter.lineHz))

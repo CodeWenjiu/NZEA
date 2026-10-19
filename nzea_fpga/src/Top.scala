@@ -12,7 +12,8 @@ import nzea_device.devices.{FinisherPins, UartPins}
 import nzea_fpga.boards.lxb_artix7.{BoardClock, BoardXdc}
 import nzea_fpga.device.uart.UartXdc
 import nzea_fpga.ip.{ClockOut, Ila}
-import nzea_fpga.logic.{Blinkers, BlinkersParameter, BootSram, BootSramParameter, CoreMemory, CoreMemoryParameter}
+import nzea_fpga.device.ddr3.Ddr3Side
+import nzea_fpga.logic.{Blinkers, BlinkersParameter, BootDdr, BootDdrParameter, DdrMemory, DdrMemoryParameter}
 import nzea_fpga.primitives.{Bufg, BufgParameter}
 import nzea_rtl.RtlFlow
 import nzea_rtl.bus.{AddrRange, LiteBusRW, SlaveKind}
@@ -61,7 +62,7 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
     override def moduleName(parameter: TopParameter): String = "Top"
 
     /** The logics this top carries ([[BoardLogic]]), in the order their instances are named in [[architecture]]. */
-    private val logics: Seq[BoardLogic] = Seq(BootSram)
+    private val logics: Seq[BoardLogic] = Seq(DdrMemory, BootDdr)
 
     /** This level's own pins, plus the ones the logics asked for ([[Pins.declare]] holds the union): the button is the
       * reset network's reason and is asked for again by nothing else yet, and the serial line is the loader's own
@@ -76,7 +77,9 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
     private val Window = "ram"
     private val Uart = "uart16550"
     private val MemoryBase = 0x80000000L
-    private val MemorySize = 64L * 1024
+    // The device's whole address space: the window the core boots from and the loader writes is the memory, so it is
+    // stated as large as the memory is (a memtest below the loader's frames is the next thing that will want it).
+    private val MemorySize = 512L * 1024 * 1024
 
     /** The line rate the host speaks ([[probe]]'s `--baud`). */
     private val LineHz = 115200
@@ -84,8 +87,8 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
     private val coreConfig = CoreConfig(Isa("riscv32i"), MemoryBase)
 
     /** The window this level answers itself: the RAM leaves the flow's hardware so the loader can write a program into
-      * it ([[CoreMemory]]). An external window is an increment — the tile shadows its own same-named device — so this
-      * level states a window and never prunes a list.
+      * the board's DDR3 ([[DdrMemory]]). An external window is an increment — the tile shadows its own same-named
+      * device — so this level states a window and never prunes a list.
       */
     private val externals = Seq(
         ExternalSpec(Window, AddrRange(BigInt(MemoryBase), BigInt(MemorySize)), SlaveKind.Memory, 1)
@@ -97,7 +100,7 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
     private val tileParameter = NzeaTileParameter(
         config = coreConfig,
         flow = RtlFlow.Yosys,
-        clockHz = (BootSram.ClockGrid.mhz * 1000000).toInt,
+        clockHz = (BootDdr.ClockGrid.mhz * 1000000).toInt,
         bypass = BypassLevel.Execute,
         bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
         lsqDepth = 4,
@@ -109,18 +112,16 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
 
     private val windowMap = NzeaTile.fabricMap(tileParameter)
 
-    private val memoryParameter = CoreMemoryParameter(
+    private val memoryParameter = DdrMemoryParameter(
         coreConfig.width,
         coreConfig.width,
         windowMap.userWidth,
         windowMap.idWidth,
         MemoryBase,
-        MemorySize,
-        SyncRamPorts.OneRW,
-        RtlFlow.Yosys
+        2
     )
 
-    private val bootParameter = BootSramParameter(
+    private val bootParameter = BootDdrParameter(
         LineHz,
         coreConfig.width,
         coreConfig.width,
@@ -165,11 +166,17 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
 
         // The board's program loader: the line's receiver, the boot state machine, and the hold it states — the core's
         // domain waits for that reason ([[Resets]]), so a load is what holds the core, not a wire to it.
-        val boot = BootSram.instantiate(bootParameter)
-        Logics.connect(io, boot.io, BootSram.needs)
+        val boot = BootDdr.instantiate(bootParameter)
 
-        val clkCore = Clocks.clock(BootSram.ClockGrid)
+        val clkCore = Clocks.clock(BootDdr.ClockGrid)
         val clk100 = Clocks.clock(ClockOut(100.0, 0.0))
+
+        // The memory the core boots from and the loader writes: the board's DDR3, behind the tile's window. Its own
+        // reason — the controller is calibrated and the memory answers — is wired before the domains are stated, since
+        // both of the domains below wait for it.
+        val memory = DdrMemory.instantiate(memoryParameter)
+        Logics.connect(io, memory.io, DdrMemory.needs)
+        Logics.connect(io, boot.io, BootDdr.needs)
 
         // The one wizard, built once every grid has been asked for and before the logic whose reset chains wait on it.
         val clockingWizard = Clocks.materialize(BoardClock.oscillatorMHz, clk50Pin, !resetN50.asBool)
@@ -181,8 +188,10 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         Resets.term("pllLocked")(locked)
 
         val resetN100 = Resets.domain("board100", clk100, Seq("buttonPin", "pllLocked"))
-        // The core waits for the loader's hold besides the board's own reasons: the memory is being rewritten under it.
-        val resetCore = Resets.domain("core", clkCore, Seq("buttonPin", "pllLocked", BootSram.HoldNReason))
+        // The core waits for the loader's hold and for the memory itself: the fetches it makes come out of the DDR, and
+        // the controller answers none of them before its calibration locked.
+        val resetCore =
+            Resets.domain("core", clkCore, Seq("buttonPin", "pllLocked", BootDdr.HoldNReason, Ddr3Side.ReadyReason))
 
         Resets.materialize()
 
@@ -198,12 +207,14 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         UartXdc.register()
         io.field[Bool](UartXdc.TxPin) := tile.io.field[UartPins](Uart).txd
 
-        val memory = CoreMemory.instantiate(memoryParameter)
-        memory.io.clock := clkCore
-        memory.io.resetN := Resets.stated("boot")
-        memory.io.coreHeld := !boot.io.field[Bool](BootSram.HoldNReason)
-        memory.io.core :<>= tile.io.field[LiteBusRW](Window)
-        memory.io.load :<>= boot.io.field[LiteBusRW]("ram")
+        // The memory the core fetches through and the loader writes: the tile's window on one side, the loader's port on
+        // the other. The core's side of it is drained while the core is in reset there — the same reset the tile takes,
+        // so every reason that can take the core away is one the memory accounts for, not only the loader's hold.
+        memory.io.field[Clock]("nearClock") := clkCore
+        memory.io.field[Reset]("nearResetN") := Resets.stated("boot")
+        memory.io.field[Bool]("coreHeld") := !resetCore.asBool
+        memory.io.field[LiteBusRW]("core") :<>= tile.io.field[LiteBusRW](Window)
+        memory.io.field[LiteBusRW]("load") :<>= boot.io.field[LiteBusRW]("load")
 
         // One blinker per domain: a board where only LED1 blinks says the wizard's clock path is at fault. It takes the
         // two clocks and the two resets it needs, each the domain's own and already synchronized there.
@@ -217,6 +228,6 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         val finished = tile.io.field[FinisherPins]("finisher").finished
         led2 := finished ? (false.B, blinkers.io.led2)
 
-        // What is watched: the loader's own account of a load, the line's bytes (`BootSram` binds the receiver's
+        // What is watched: the loader's own account of a load, the line's bytes (`BootDdr` binds the receiver's
         // declarations beside its instance), and the program's own verdict — the finisher's level.
         Probes.mark("finished")(finished)

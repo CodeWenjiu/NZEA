@@ -25,19 +25,20 @@ knowledge (Vivado is not on PATH, runs in an FHS nix shell) and the exact comman
    command-line pattern. (Measured: `pgrep -f vivado` also matches the shell running the check, so a build that had
    finished at 12:38 looked "still running" for the next fifty minutes while a `sleep` loop polled it.)
 
-**Current state (2026-10-17)**: the board carries the tile — `nzea_fpga/src/Top.scala` *is* the board's top (the module
+**Current state (2026-10-19)**: the board carries the tile — `nzea_fpga/src/Top.scala` *is* the board's top (the module
 named `Top` owns every pin) = the oscillator's global buffer, the clocking wizard (`Clocks`, one grid per ask), the reset
 network (`nzea_rtl/src/stdlib/Resets.scala`: named reasons, one synchronizer per domain), the serial boot loader
-(`src/logic/BootSram.scala`: the host frames `magic (0xB007B007) + addr + size + words` at 115200, the core is held until
-the frame's last word has landed), the RAM the loader writes and the core fetches through
-(`src/logic/CoreMemory.scala`), the tile itself (`nzea_tile`: the riscv32i core at 25 MHz, no caches, finisher/CLINT, and
+(`src/logic/BootDdr.scala`: the host frames `magic (0xB007B007) + addr + size + words` at 115200, the core is held until
+the frame's last word has landed), the memory the loader writes and the core fetches through
+(`src/logic/DdrMemory.scala`: the board's DDR3, one domain crossing and the whole-burst adaptation), the tile itself
+(`nzea_tile`: the riscv32i core at 25 MHz, no caches, finisher/CLINT, and
 the 16550 the loaded program prints through — its `txd` leaves this level on the `UART_TX` pin), the LED panel
 (`src/logic/Blinkers.scala`), and an ILA debug core the netlist flow creates — so the pipeline below ends at "the LEDs
 say the design is alive, `just probe load` loads a program, and its printing arrives on `just probe monitor`". A scenario
-reaches into the design as `dut.<instance>` (`dut` is the top itself; there is no wrapper above it). The DDR3 bus
-(`src/device/ddr3/`, `src/logic/Ddr3Soak.scala`) stays in the tree but is *not* instantiated right now: the loader's
-target is SRAM, and the soak's design is kept for the later migration to DDR3 (`README_zh.md` §12 records the split of
-transport and test).
+reaches into the design as `dut.<instance>` (`dut` is the top itself; there is no wrapper above it). The DDR3 device
+(`src/device/ddr3/`) is instantiated inside `logic/DdrMemory.scala`; the bring-up self-test
+(`src/logic/Ddr3Soak.scala`) stays in the tree but is *not* instantiated (`README_zh.md` §12 records the split of
+transport and test, and `DEBUG_SCAFFOLDING.md` says what of it is scaffolding).
 
 ## The pipeline (one command per stage)
 
@@ -177,7 +178,7 @@ below), so nothing about it goes through the IP machinery.
   (the top's own). **Current probes (15)**: the reset network's seven — three reasons (`buttonPin`, `pllLocked`,
   `bootHoldN`, each 1 = the reason does not hold) and four domains (`board50Reset`, `board100Reset`, `bootReset`,
   `coreReset`, each 1 = in reset), marked where `Resets` declares them (`nzea_rtl/src/stdlib/Resets.scala`) — the
-  loader's seven (`bootState`, `bootMagic`, `bootAddr`, `bootWords`, `bootWritten`, marked in `logic/BootSram.scala`;
+  loader's seven (`bootState`, `bootMagic`, `bootAddr`, `bootWords`, `bootWritten`, marked in `logic/BootDdr.scala`;
   and the receiver's `data`/`valid`, declared in `UartRx` and bound at the loader's instance, read as
   `rx_data`/`rx_valid`) and the top's own (`finished`, the tile finisher's level); depth 1024, sampled on the design's
   buffered 50 MHz clock (kept as the wire `ila_clock`). The table's order is the order the statements were made, so a
@@ -191,9 +192,9 @@ below), so nothing about it goes through the IP machinery.
   flow) reads the same `Probes.table` its own way.
 - **Why two steps**: a module body is shared by every instance, so it cannot say *which* instance a probe means — the
   binding is stated where the instance is named. **A module instantiated once does not need the split**: `Probes.mark`
-  declares and binds in the same statement, and the name is the address (this board's own modules — `Top`, `BootSram` —
+  declares and binds in the same statement, and the name is the address (this board's own modules — `Top`, `BootDdr` —
   are all marks). The split is the *library's* convention: a `nzea_device` body declares beside its signals (`Blink`'s
-  `count`, `UartRx`'s `data`/`valid`) and whoever instantiates it binds them (`BootSram` binds the receiver's two as
+  `count`, `UartRx`'s `data`/`valid`) and whoever instantiates it binds them (`BootDdr` binds the receiver's two as
   `rx_data`/`rx_valid`; nothing binds `Blink`'s today, so the panel carries a marked, unwatched net per instance). If
   such a module ever gains a second instance, the marked names would have to
   grow a prefix: two nets with the same name fail the build loudly (the count check), never silently. Declaration names
@@ -262,9 +263,10 @@ verbosity) takes ~20–25 min:
 nu nzea_fpga/scripts/xsim.nu --name Ddr3Bringup --board lxb_artix7 --isa riscv32i --timeout 5400
 ```
 
-The DDR3 scenarios are **dormant** since 2026-10-17: they reach into the design as `u_top.soak.*`, and the top no longer
-instantiates the soak (`Top.scala`'s `logics` is `Seq(BootSram)`), so a run fails to elaborate. They come back with the
-loader's migration to DDR3.
+The DDR3 bring-up scenarios are **dormant**: they reach into the design as `u_top.soak.*`, and the top does not
+instantiate the soak (`Top.scala`'s `logics` is `Seq(DdrMemory, BootDdr)`), so a run fails to elaborate. `BootLoad` is
+the scenario that covers the boot path today; the bring-up scenarios come back when a mechanism change needs their
+pattern campaign.
 
 A killed run exits 124 and its log simply stops (a 300 s kill looks like a hang until you read the exit code). Run it in
 the foreground per the hard rules above: it is long, not unattended.

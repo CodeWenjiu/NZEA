@@ -33,16 +33,17 @@ phase between grids that must keep one.
 reusable module ([[nzea_device]]'s `Blink`), whose diagnostic story (a board where only the first LED blinks points at the
 clocking wizard) is the reason the boundary hands it two clock domains instead of one.
 
-`BootSram` and `CoreMemory` are the board's program loader, split by what each owns: the loader turns the serial line's
-frames into writes and states the hold as a reason ([[nzea_fpga.logic.BootSram]] — the protocol is the host tool's), and
-the memory those writes land in is this level's, because the tile's RAM is an *external window* here ([[nzea_fpga.Top]]):
-`CoreMemory` serves the tile's port and the loader's on one macro and drains a held core's answers. Both run on the boot
-grid the loader states, so a load's writes and the core's first fetch are ordered by the one clock.
+`BootDdr` and `DdrMemory` are the board's boot path, split by what each owns: the loader turns the serial line's frames
+into writes and states the hold as a reason ([[nzea_fpga.logic.BootDdr]] — the protocol is the host tool's), and the
+memory those writes land in is the board's DDR3 ([[nzea_fpga.logic.DdrMemory]]): `DdrMemory` owns the device, the
+domain crossing and the whole-burst adaptation, serves the tile's window and the loader's port, and drains a held
+core's answers. The loader and the core's domain run on one grid, so a load's writes and the core's first fetch are
+ordered by the one clock.
 
 `Ddr3Soak` is the test the board's DDR3 bus ([[nzea_fpga.device.ddr3.Ddr3Side]]) is put through — the walk's
 sixteen addresses, the pattern window, the LFSR run and the write-mask steps, with every read-back judged against what
 the writes themselves left behind (`errors`, and the first failure's address/expectation/answer). It owns the bus's board
 side: the device is instantiated *inside* it, on the pins, grids and domain it states ([[LogicNeeds]]), so the boundary
 knows neither the transport nor a pad of it. Its rounds and the device's answer belong to the bus's own domain, and the
-campaign exists to read that verdict there. It is not instantiated in the top today — the loader's target is SRAM — and
-comes back with the migration to DDR3.
+campaign exists to read that verdict there. It is not instantiated in the top today: the boot path is
+[[nzea_fpga.logic.DdrMemory]]'s, and the soak returns when the memory needs a self-test of its own.

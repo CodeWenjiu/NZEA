@@ -539,18 +539,20 @@ walk 的 `0001_0002_0004_0008` 读成 `0000_0001_0002_0004`。
 - `nzea_device/src/devices/UartRx.scala`：加载器用的接收器（普通分频采样，不是 16x 过采样）。
 - tile：map 上多一台 `uart16550`（`0x1000_0000`，8 字节），`DeviceKind.Uart(lineHz)` 带速率；`NzeaTileParameter`
   新增 `clockHz`——**线的速率是平台的事实**，两端被显式告知同一个数；`top` 里两份都传 25 MHz / 115200。
-- fpga 顶层：`logic/BootSram.scala`（magic `0xB007B007` + addr + size + words 的帧；core 从 magic 起被挂住，
-  直到帧的最后一个 word 被总线 ack）+ `logic/CoreMemory.scala`（tile 的 RAM 变成 **external window**，由本层回答：
-  一台宏、两个主口——tile 与加载器）；`device/uart/UartXdc.scala` 注册 `UART_RX` / `UART_TX` 两条约束；
-  `bootHoldN` 以 reason 形式进复位网络（core 域等它），加载器/core/内存共用一个 25 MHz 网格。
-- 同时删掉：顶层不再实例化 DDR3（soak 与 `device/ddr3/` 留在树里，等把加载目标从 SRAM 迁回 DDR3）。
+- fpga 顶层：`logic/BootDdr.scala`（当时的名字是 `BootSram`；magic `0xB007B007` + addr + size + words 的帧；core
+  从 magic 起被挂住，直到帧的最后一个 word 被总线 ack）+ `logic/DdrMemory.scala`（DDR 版；当时的 SRAM 实现是 `CoreMemory`；tile 的
+  RAM 变成 **external window**，由本层回答：两个主口——tile 与加载器）；`device/uart/UartXdc.scala` 注册
+  `UART_RX` / `UART_TX` 两条约束；`bootHoldN` 以 reason 形式进复位网络（core 域等它），加载器/core/内存共用一个
+  25 MHz 网格。
+- 当时顶层不实例化 DDR3（soak 与 `device/ddr3/` 留在树里）；此后加载目标已迁到 DDR3：加载器改名 `BootDdr`，
+  内存由 `DdrMemory` 回答（设备 + 域交叉 + whole-burst 适配），`device/ddr3/` 因此重新进了顶层。
 
 **这轮踩到的两个坑**（都会以"程序写进去了、读回来不对"的面目出现）：
 
 1. `RamFabricSlave` 的总线侧 ack 条件写反了：`ackSync1 =/= reqToggle` 会**回应答上一笔**——第一次读是 X，之后读到
    的永远是上一次的数据。改成 `===` 之后加载器的回读才第一次对。教训：读写回环"通了"不代表对了，**回读要拿新
    数据比对**。
-2. `CoreMemory` 的两主端口：加载器无条件优先成立的前提是 core 被挂着；但**已经获准、还在等应答**的 core 请求会
+2. `DdrMemory`（当时的 `CoreMemory`）的两主端口：加载器无条件优先成立的前提是 core 被挂着；但**已经获准、还在等应答**的 core 请求会
    失去主人（core 在复位里不会再接应答），内存端口就永远停在那笔请求上。解法：被挂起时 drain 掉 core 的应答
    （`mem.io.bus.resp.ready := serving ? load.resp.ready : core.resp.ready | coreHeld`），core 复位释放后自己重发。
 

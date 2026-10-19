@@ -22,7 +22,7 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * it, and the hardware does not re-derive it.
   *
   * The receive half is not ported: `LSR.DR` reads 0 and `RBR` reads 0. A program's input arrives through the loader's
-  * own receiver ([[nzea_fpga.logic.BootSram]]), which listens at the pin.
+  * own receiver ([[nzea_fpga.logic.BootDdr]]), which listens at the pin.
   *
   * Written from the board's legacy fabric UART (`legacy/nzea_device/src/uart/`), whose register semantics and bit
   * timing this keeps.

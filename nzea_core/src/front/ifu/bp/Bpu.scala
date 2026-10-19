@@ -56,8 +56,9 @@ class BpuProbe(parameter: BpuParameter) extends DVBundle[BpuParameter, BpuLayers
   * alone — the sequential fetch's prediction, made by this same structure — so this unit is the one place a prediction
   * is made, at every configuration.
   *
-  * The tables hold no reset: a memory entry has no reset value, so a fresh table predicts the empty table — zero in the
-  * two-state simulation this design is verified in — and the very first fetch is predicted the sequential way.
+  * The tables' own storage holds no reset — a memory entry has no reset value — but what each table *states* is reset:
+  * the slots' written and valid bits live in flops and start clear, so a fresh table is exactly the empty one and the
+  * very first fetch is predicted the sequential way, whatever the storage the tools hand back starts as.
   */
 @generator
 object Bpu extends Generator[BpuParameter, BpuLayers, BpuIO, BpuProbe]:

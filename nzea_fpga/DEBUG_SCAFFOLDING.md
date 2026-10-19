@@ -1,7 +1,7 @@
 # Debug scaffolding: what can come out after bring-up
 
-An inventory, not a decision. The DDR3 bring-up is done and board-validated (and the top no longer instantiates it —
-since 2026-10-17 the board carries the loader design instead, `src/logic/BootSram.scala` + `CoreMemory`), so the parts
+An inventory, not a decision. The DDR3 bring-up is done and board-validated (the top carries the boot path instead,
+`src/logic/BootDdr.scala` + `src/logic/DdrMemory.scala`), so the parts
 below — the pieces that exist to *observe* and to *exercise* the design — could go. Each entry says what it is, what
 depends on it, and what has to be updated with it. Nothing here is removed yet beyond what the top already dropped.
 
@@ -23,7 +23,7 @@ Self-contained: no functional logic depends on it.
 | What | Where | Notes |
 |---|---|---|
 | The debug core | `src/ip/Ila.scala`; opened in `src/Top.scala` (`Ila("u_ila_0", 1024)`, `ila.clock(clk50)`) | the three artifacts: `ila_debug.tcl`, `ila_capture.tcl`, `ila_probes.map` |
-| The probe statements | `nzea_rtl/src/stdlib/Resets.scala` — the reset network's 7 (`Probes.mark`: 3 reasons, 4 domains); `src/logic/BootSram.scala` — 5 marks plus 2 bindings on the receiver (`rx_data`/`rx_valid`); `src/Top.scala` — 1 mark (`finished`); `nzea_device`'s `Blink` still declares `count` per instance (the panel's 2 `Probes.watch` were dropped on 2026-10-17 — the bodies keep a marked but unwatched net); `src/device/ddr3/Ddr3.scala`'s 22 and `src/logic/Ddr3Soak.scala`'s 8 remain in the tree, not in the build | a statement keeps a wire named `probe_<name>` and marks it `mark_debug`; `mark` = declare + bind in one step, for a module instantiated once |
+| The probe statements | `nzea_rtl/src/stdlib/Resets.scala` — the reset network's 7 (`Probes.mark`: 3 reasons, 4 domains); `src/logic/BootDdr.scala` — 5 marks plus 2 bindings on the receiver (`rx_data`/`rx_valid`); `src/Top.scala` — 1 mark (`finished`); `nzea_device`'s `Blink` still declares `count` per instance (the panel's 2 `Probes.watch` were dropped on 2026-10-17 — the bodies keep a marked but unwatched net); `src/device/ddr3/Ddr3.scala`'s 22 and `src/logic/Ddr3Soak.scala`'s 8 remain in the tree, not in the build | a statement keeps a wire named `probe_<name>` and marks it `mark_debug`; `mark` = declare + bind in one step, for a module instantiated once |
 | The mechanism | `nzea_rtl/src/probe/` (`Probes`, `ProbePlace`, `keepNet`) | `Elaborate`'s `layers-*.sv` handling is generic — shared with any layer user (e.g. `nzea_rtl`'s `ProbeLayerTest`); check its consumers before touching it |
 | The capture flow | `scripts/ila-capture.nu`, `just fpga capture`, the `STEPS.OPT_DESIGN.TCL.PRE` hook in `tools/vivado/vivado-project.py` | the hook is keyed on `ila_debug.tcl` existing, so removing the ILA removes the hook by itself; `probe`'s `vcd-rename` is used by the capture script (see the fpga-flow skill) |
 | Tests and docs to update | `test/src/LxbArtix7ElaborateTest.scala` (the `watched`/`patterns`/`netKeys` tables, the `mark_debug` count, the two ILA tests), `nzea_rtl`'s `ProbeLayerTest`, `src/device/ddr3/README*.md`, `.agents/skills/fpga-flow/SKILL.md` (the ILA chapter, the artifacts table) | the skill also documents the trigger values (`calibrating=0`) that only exist for the probes |
@@ -38,8 +38,8 @@ it) — and since §15 the soak owns the device itself: it instantiates `Ddr3Sid
 domain its `LogicNeeds` states.
 
 **Removable — the whole soak file:** `Ddr3Soak.scala` (its 8 probes included: `phase`, `step`, `issued`, `errors`,
-`done`, `firstBad*`) — already out of the build (the top instantiates only `BootSram`); deleting the file is what is
-left. The address and pattern tables, the LFSR and the mask's own test all live in it — deleting it (or simply not
+`done`, `firstBad*`) — already out of the build (the top instantiates only `BootDdr` and `DdrMemory`); deleting the
+file is what is left. The address and pattern tables, the LFSR and the mask's own test all live in it — deleting it (or simply not
 instantiating it, as today) leaves the bus idle in its own reset.
 
 **Removable — the device's own forensics** (in `Ddr3.scala`): the probe declarations `captured`, `checked`, `timer`,
@@ -56,9 +56,9 @@ taps are *found* by it — delete it and the interface needs a hardcoded tap, wh
 — and the alignment the bus's reads slice at has to be measured at the tap the bus runs at. Also keep the
 init/refresh/command state machine and the MR settings, and the transport itself (the staging, the window, the check).
 
-**The catch:** with the soak gone, the bus has nothing to read or write, and the memory's correctness has no on-board
-witness at all. The loader design sidesteps this for now (the core's memory is SRAM, `logic/CoreMemory.scala`), but when
-the loader's target moves to DDR3 the soak — or the tile's own bus — has to be the witness again.
+**The catch:** with the soak gone, the bus has no pattern test of its own. The boot path is the on-board witness now
+(the core fetches through `logic/DdrMemory.scala`, and a loaded program's printing says every fetch landed); the soak
+returns if the memory needs exercising independently of the core.
 
 ## C. Simulation scaffolding
 

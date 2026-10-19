@@ -52,9 +52,11 @@ class PhtProbe(parameter: PhtParameter) extends DVBundle[PhtParameter, PhtLayers
   * lost — a slower learn on conflicting slots, never a wrong prediction. Read and write in the same cycle are the
   * classic read-first pair: the read gets the entry as it was.
   *
-  * Nothing here is reset but the write controls — a memory entry has no reset value. A fresh table therefore predicts
-  * what its storage starts as, which in the two-state simulation this design is verified in is zero: not-taken, exactly
-  * the empty table.
+  * A slot's *written* bit is not in the memory: it is a flop that resets, and the answer is masked by it, so a slot no
+  * branch has ever trained answers not-taken whatever its storage holds — a memory entry has no reset value, and a
+  * counter read out of an untrained slot is not a prediction, it is the tool's own idea of power-up. The write's data
+  * goes through the same mask ([[Pht]]'s answer is what a training carries back), so one trained slot's counter is
+  * never the storage's own contents. [[nzea_core.front.ifu.bp.Btb]] keeps its valids the same way, for the same reason.
   */
 @generator
 object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
@@ -86,8 +88,20 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
         table.io.clock := io.clock
         table.io.rEn := true.B
         table.io.rAddr := indexOf(io.lookup_pc)
-        io.pred_taken := Node(table.io.rData.asBits).bit(1)
-        io.count := table.io.rData
+
+        // Which slots have been written: state that must start defined, so it is flops and not the memory — a slot's
+        // counter is *readable* only once trained, and a fresh table is exactly the empty one.
+        val written = Reg(Vec(entries, Bool()))
+        when(!io.resetN.asBool) {
+            for index <- 0 until entries do written(index) := false.B
+        }
+
+        // The answer the lookup is owed is composed against the storage as of *before* this cycle's edge — the read it
+        // issued last cycle saw the entry's previous contents whenever its own write landed on that edge. The mask is
+        // therefore carried beside the data rather than read a cycle newer than it: sampled now, used next, so both
+        // sides of the pair are the same instant's.
+        val readTrained = RegInit(false.B)
+        readTrained := written.ref(indexOf(io.lookup_pc))
 
         // The write controls are registered at the table's own boundary: the write data fans out to every row's flop,
         // and the training bus arrives from the back across the whole design, so a register here keeps the table's own
@@ -101,3 +115,13 @@ object Pht extends Generator[PhtParameter, PhtLayers, PhtIO, PhtProbe]:
         table.io.wEn := wEn
         table.io.wAddr := wAddr
         table.io.wData := wData
+        when(wEn) {
+            for index <- 0 until entries do when(wAddr === index.U(indexBits)) { written(index) := true.B }
+        }
+
+        // The answer, masked by the slot's written bit: an untrained slot predicts not-taken whatever its storage
+        // holds, and the count it hands the fetch is zero — which is what a training then writes back, so a trained
+        // slot's counter is never the storage's own.
+        val trained = readTrained
+        io.pred_taken := trained & Node(table.io.rData.asBits).bit(1)
+        io.count := trained ? (table.io.rData, 0.U(BpUpdate.phtCountBits))

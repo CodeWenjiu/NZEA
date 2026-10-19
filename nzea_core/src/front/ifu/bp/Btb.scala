@@ -94,6 +94,14 @@ object Btb extends Generator[BtbParameter, BtbLayers, BtbIO, BtbProbe]:
             for index <- 0 until entries do when(write === index.U(indexBits)) { valids(index) := true.B }
         }
 
+        // The valid bit is sampled *with* its lookup — carried beside the storage's answer, not read a cycle newer than
+        // it. The storage's read is a cycle behind its address, and a read-first pair hands that read the *old* value of
+        // a same-cycle write: a bit read at the answering cycle would call an entry written while the tag being
+        // compared is still the storage's own. Sampled one cycle earlier, both sides of the compare are the same
+        // instant's, and the one answer a fresh table owes its lookups is a miss.
+        val readValid = RegInit(false.B)
+        readValid := valids.ref(indexOf(io.lookup_pc))
+
         // The answer, for the pc the read was issued with: the stored tag against that pc's, gated by its valid bit.
         readPc := io.lookup_pc
         val entry: Node[Bits] = Node(table.io.rData.asBits)
@@ -103,9 +111,9 @@ object Btb extends Generator[BtbParameter, BtbLayers, BtbIO, BtbProbe]:
         /** The stored tag against the outstanding read's, in four-bit groups under a kept tree.
           *
           * The compare is the fetch loop's longest single cone — the loop is one cycle by construction, so its depth is
-          * the whole budget — and a mapper left to itself reads a wide equality as one function and folds it into a weak
-          * two-input chain. The groups are the equality's own depth written down, and `dontTouch` keeps the mapping
-          * from re-reading them whole.
+          * the whole budget — and a mapper left to itself reads a wide equality as one function and folds it into a
+          * weak two-input chain. The groups are the equality's own depth written down, and `dontTouch` keeps the
+          * mapping from re-reading them whole.
           */
         def tagMatch(stored: Node[UInt], lookup: Node[UInt]): Node[Bool] =
             val storedBits: Node[Bits] = Node(stored.asBits)
@@ -124,5 +132,5 @@ object Btb extends Generator[BtbParameter, BtbLayers, BtbIO, BtbProbe]:
                     )
             tree((0 until (tagBits + 3) / 4).map(i => group(i * 4)).toSeq)
 
-        io.pred_hit := valids.ref(indexOf(readPc)) & tagMatch(storedTag, tagOf(readPc))
+        io.pred_hit := readValid & tagMatch(storedTag, tagOf(readPc))
         io.pred_target := storedTarget

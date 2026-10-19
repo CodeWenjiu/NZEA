@@ -132,6 +132,7 @@ object Ddr3Soak extends Generator[Ddr3SoakParameter, Ddr3SoakLayers, Ddr3SoakIO,
                 clocks = Clocks.ports(io, Ddr3Side.needs.grids)
             )
         )
+        io.field[Bool](Ddr3Side.ReadyReason) := ddr3.ready
         given ClockScope = ClockScope.posedge(ddr3.clock)
         given ResetScope = ResetScope.asyncActiveLow(ddr3.resetN)
 

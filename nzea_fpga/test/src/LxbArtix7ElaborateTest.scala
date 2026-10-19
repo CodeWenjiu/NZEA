@@ -39,7 +39,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
         // The reset network: the reasons as they are produced, and the domains as their registers see them.
         "buttonPin" -> 1,
         "board50Reset" -> 1,
-        // The loader's own account of a load, and the line's bytes (`BootSram` declares both where they live and binds
+        // The loader's own account of a load, and the line's bytes (`BootDdr` declares both where they live and binds
         // the receiver's beside its instance).
         "bootState" -> 3,
         "bootMagic" -> 32,
@@ -193,15 +193,15 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains("clk_wiz_0 clockingWizard ("))
             // The loader: the line it listens on, the grid it shares with the core, the hold it states and the boot
             // domain it runs in — the pin, the grid and the reason all land on the ports its own needs declared.
-            assert(sv.contains("BootSram boot ("))
+            assert(sv.contains("BootDdr boot ("))
             assert(
                 sv.matches(
-                    "(?s).*BootSram boot \\(.*\\.UART_RX\\s+\\(UART_RX\\).*\\.clk25_0\\s+\\(_clockingWizard_clk_out1\\).*"
+                    "(?s).*BootDdr boot \\(.*\\.UART_RX\\s+\\(UART_RX\\).*\\.clk25_0\\s+\\(_clockingWizard_clk_out1\\).*"
                 )
             )
             assert(
                 sv.matches(
-                    "(?s).*BootSram boot \\(.*\\.bootHoldN\\s+\\(_boot_bootHoldN\\).*\\.resetN\\s+\\(_bootSync_syncN\\).*"
+                    "(?s).*BootDdr boot \\(.*\\.bootHoldN\\s+\\(_boot_bootHoldN\\).*\\.resetN\\s+\\(_bootSync_syncN\\).*"
                 )
             )
             // The core: on the same grid, and reset by the network's own core domain (active-high at the tile's
@@ -213,17 +213,17 @@ object LxbArtix7ElaborateTest extends TestSuite:
                 )
             )
             // The memory: the tile's window on its core side and the loader on its load side, told apart by the boot
-            // domain's own reset and by the hold level itself.
-            assert(sv.contains("CoreMemory memory ("))
+            // domain's own reset and by the core's own reset (`coreHeld`).
+            assert(sv.contains("DdrMemory memory ("))
             assert(
                 sv.matches(
-                    "(?s).*CoreMemory memory \\(.*\\.resetN\\s+\\(_bootSync_syncN\\).*\\.coreHeld\\s+\\(~_boot_bootHoldN\\).*"
+                    "(?s).*DdrMemory memory \\(.*\\.nearResetN\\s+\\(_bootSync_syncN\\).*\\.coreHeld\\s+\\(~_coreSync_syncN\\).*"
                 )
             )
-            assert(sv.matches("(?s).*CoreMemory memory \\(.*\\.core_req_valid\\s+\\(_tile_ram_req_valid\\).*"))
-            assert(sv.matches("(?s).*CoreMemory memory \\(.*\\.load_req_valid\\s+\\(_boot_ram_req_valid\\).*"))
+            assert(sv.matches("(?s).*DdrMemory memory \\(.*\\.core_req_valid\\s+\\(_tile_ram_req_valid\\).*"))
+            assert(sv.matches("(?s).*DdrMemory memory \\(.*\\.load_req_valid\\s+\\(_boot_load_req_valid\\).*"))
             assert(sv.matches("(?s).*NzeaTile tile \\(.*\\.ram_resp_valid\\s+\\(_memory_core_resp_valid\\).*"))
-            assert(sv.contains("RamFabricSlave mem ("))
+            assert(!sv.contains("RamFabricSlave mem ("))
             // The tile's own devices (its own file names each one generically), and no device for the window: the RAM
             // this level answers is not built inside the tile.
             assert(sv.contains("Uart device ("))
@@ -290,10 +290,10 @@ object LxbArtix7ElaborateTest extends TestSuite:
             // network's reasons and domains, and the program's verdict), the loader's five and its receiver's two.
             // What the core declares is its own business: its marks are inert here, because the ILA's table is the
             // board's ([[Ila]] connects the probes declared at this level's modules, no one else's).
-            assert(sv.contains("module BootSram("))
+            assert(sv.contains("module BootDdr("))
             assert(sv.contains("module UartRx("))
             assert(markCount("Top") == 8)
-            assert(markCount("BootSram") == 5)
+            assert(markCount("BootDdr") == 5)
             assert(markCount("UartRx") == 2)
             // The core's clock is the oscillator's own, buffered — not one of the wizard's: its logic closes at 50 MHz,
             // and those edges line up with the fabric's instead of sitting a quarter period off them.

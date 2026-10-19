@@ -51,7 +51,8 @@ final case class Ddr3Bus(
     device: Instance[Ddr3IO, Ddr3Probe],
     bus: Ref[LiteBusRW],
     clock: Ref[Clock],
-    resetN: Ref[Reset]
+    resetN: Ref[Reset],
+    ready: Ref[Bool]
 )
 
 /** The DDR3 device's side of the board, in one piece: the controller, its pads and the wires between them.
@@ -79,6 +80,12 @@ object Ddr3Side:
       * was touched before it held.
       */
     val TapsReadyReason = "ddr3TapsReady"
+
+    /** The second reason: the controller's own verdict that the memory answers — the bring-up's tap sweep locked and a
+      * whole burst came back at those taps. A master that *reads* the memory (the core fetching from it) must wait for
+      * this one, where a writer only needs the bus to take its requests.
+      */
+    val ReadyReason = "ddr3Ready"
 
     /** What the bus needs the level above to declare and wire ([[nzea_fpga.LogicNeeds]]): the pins, the grids, the
       * reason it produces, and its own domain — the board's button and the generator's lock are the level's reasons,
@@ -109,7 +116,7 @@ object Ddr3Side:
             Pin.pad(Ddr3PadNames.dqsN, Ddr3PadNames.dqsWidth)
         ),
         grids = Seq(Ddr3Clocks.taps, Ddr3Clocks.loads, Ddr3Clocks.command, Ddr3Clocks.device, Ddr3Clocks.capture),
-        produces = Seq(TapsReadyReason),
+        produces = Seq(TapsReadyReason, ReadyReason),
         reset = Some(LogicReset("ddr3", Ddr3Clocks.loads, Seq("buttonPin", "pllLocked", TapsReadyReason)))
     )
 
@@ -232,6 +239,12 @@ object Ddr3Side:
             pads.io.clk400 := parameter.clocks(Ddr3Clocks.command)
             pin := pads.io.pad
 
-        // What the level wires next: the controller, the slave end of the bus a master connects to, and the domain the
-        // bus runs in.
-        Ddr3Bus(ddr3, ddr3.io.field[LiteBusRW]("bus"), parameter.clocks(Ddr3Clocks.loads), resetNddr)
+        // What the level wires next: the controller, the slave end of the bus a master connects to, the domain the
+        // bus runs in, and the controller's own readiness (the level states it as a reason).
+        Ddr3Bus(
+            ddr3,
+            ddr3.io.field[LiteBusRW]("bus"),
+            parameter.clocks(Ddr3Clocks.loads),
+            resetNddr,
+            ddr3.io.field[Bool]("calibrated")
+        )
