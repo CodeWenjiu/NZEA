@@ -310,9 +310,16 @@ line, both told 115200:
 ```sh
 just asm2hex --test print_only /tmp/hello.hex            # assemble a test program (`--list` shows the tests)
 just probe load /tmp/hello.hex --addr 0x80000000         # magic-frame the hex into RAM; the loader holds the core
+just probe load app.elf                                  # ...or hand it an ELF32: its segments carry the addresses
 just probe monitor                                       # stream RX with timestamps, Ctrl-C to stop → "HELLO"
 just probe reset                                         # reset-only frame: restart from the reset vector, RAM kept
 ```
+
+`load` takes either form, told apart by the file's own bytes. An ELF is what remu builds (`--platform remu`'s
+`remu_app_*`): its `PT_LOAD` segments' **file bytes** are sent as one contiguous run (gaps zero-filled, refused past
+256 KiB of padding), so the core is held for the whole load and starts once, on a complete image; `--addr` does not
+apply to it. A segment's `memsz` tail (`.bss`, heap, stack — 128 MiB of it in remu's apps) is *not* written: an ELF's
+own startup is what clears what it needs, exactly as under remu's loader.
 
 What the program may assume (the contract is the tool's, not documented anywhere else): a store of one byte to the
 16550's THR at `0x1000_0000` prints it — no polling, no divisor programming (the divisor is hardware's, fixed at

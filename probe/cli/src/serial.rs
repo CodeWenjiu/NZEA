@@ -10,6 +10,9 @@ pub struct Serial {
     fd: RawFd,
 }
 
+/// How long a freshly opened port settles before the first write (see `Serial::open`).
+const OPEN_SETTLE_MS: u64 = 100;
+
 /// Find the board UART through the stable udev `by-id` alias.
 ///
 /// The CH340 USB-UART (vendor `1a86`) enumerates as an unstable `/dev/ttyUSB*`,
@@ -59,6 +62,10 @@ impl Serial {
         let fd = file.as_raw_fd();
         set_raw_mode(fd, baud)?;
         unsafe { libc::tcflush(fd, libc::TCIOFLUSH) };
+        // What is written in the first moments after a port opens is occasionally lost on this adapter (measured:
+        // a reset frame sent right after a load, roughly one time in three; a retry always worked). The loader resyncs
+        // on the magic, so a lost start is a lost frame — a short settle makes a freshly opened port usable.
+        std::thread::sleep(std::time::Duration::from_millis(OPEN_SETTLE_MS));
         Ok(Serial { file, fd })
     }
 

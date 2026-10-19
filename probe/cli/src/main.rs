@@ -1,8 +1,12 @@
 //! Probe — FPGA board debug toolbox for NzeaTile.
 //!
 //! Subcommands:
-//! - `load <hex> [port] [--read-ms N]`: send a program via the BootFsm boot
-//!   protocol, then read back for `--read-ms` ms (default 1000).
+//! - `load <image> [port] [--addr A] [--read-ms N]`: send a program via the boot
+//!   loader's frame protocol, then read back for `--read-ms` ms (default 1000).
+//!   The image is either a `$readmemh` hex file (written at `--addr`) or an
+//!   ELF32 executable, whose own segments carry the addresses (`--addr` does
+//!   not apply): its file bytes go as one contiguous run, so the core is held
+//!   for the whole load and starts once, on a complete image.
 //! - `reset [port]`: send the reset-only command (magic + addr + size=0): the
 //!   CPU restarts from the reset vector with RAM preserved.
 //! - `monitor [port] [--reset]`: stream RX bytes with timestamps until Ctrl-C;
@@ -16,6 +20,7 @@
 //! When the port argument is empty or omitted, the CH340 UART is discovered
 //! automatically via the stable `/dev/serial/by-id` alias (see `serial.rs`).
 
+mod elf;
 mod hex;
 mod protocol;
 mod serial;
@@ -42,17 +47,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Send a hex program via the BootFsm boot protocol, then read back for --read-ms.
+    /// Send a program via the boot loader's frame protocol, then read back for --read-ms.
     Load {
-        hex: PathBuf,
+        /// Hex words ($readmemh style), or an ELF32 executable.
+        image: PathBuf,
         /// Serial port; empty/omitted = auto-discover the CH340 via /dev/serial/by-id.
         #[arg(default_value = "")]
         port: String,
         #[arg(long, default_value_t = 115200)]
         baud: u32,
-        /// Address to write the program at (hex with 0x prefix, or decimal).
-        #[arg(long, default_value = "0")]
-        addr: String,
+        /// Address a hex image is written at (hex with 0x prefix, or decimal); an ELF image
+        /// carries its own addresses and takes no --addr.
+        #[arg(long)]
+        addr: Option<String>,
         /// Read-back window in ms after the transfer completes.
         #[arg(long, default_value_t = 1000)]
         read_ms: u64,
@@ -106,13 +113,13 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.cmd {
         Cmd::Load {
-            hex,
+            image,
             port,
             baud,
             addr,
             read_ms,
-        } => match parse_addr(&addr) {
-            Ok(a) => run_load(&hex, &port, baud, a, read_ms),
+        } => match addr.as_deref().map(parse_addr).transpose() {
+            Ok(a) => run_load(&image, &port, baud, a, read_ms),
             Err(e) => Err(e),
         },
         Cmd::Reset { port, baud, addr } => match parse_addr(&addr) {
@@ -150,19 +157,103 @@ fn resolve_port(port: &str) -> io::Result<String> {
     }
 }
 
-fn run_load(hex: &Path, port: &str, baud: u32, addr: u32, read_ms: u64) -> io::Result<()> {
+/// The board's reset vector and its RAM window's base (`nzea_fpga/src/Top.scala`: the tile's `ram`
+/// window is answered by the DDR3 at this base). The core starts at the reset vector after every
+/// reset, whatever an image's own entry says, so an image that does not start here would boot nothing.
+const RAM_BASE: u32 = 0x8000_0000;
+const RESET_PC: u32 = RAM_BASE;
+
+/// The end of the board's RAM window: 512 MiB of DDR3 above `RAM_BASE`.
+const RAM_END: u32 = RAM_BASE + 512 * 1024 * 1024;
+
+fn run_load(path: &Path, port: &str, baud: u32, addr: Option<u32>, read_ms: u64) -> io::Result<()> {
+    let (addr, words) = plan_load(path, addr)?;
     let port = resolve_port(port)?;
-    let words = hex::load_words(hex)
-        .map_err(|e| io::Error::new(e.kind(), format!("reading {}: {e}", hex.display())))?;
-    if words.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("no words found in {}", hex.display()),
-        ));
+    send_and_readback(&port, baud, addr, &words, read_ms)
+}
+
+/// What a load will send: the address the words go to and the words themselves. The image is either an
+/// ELF32 executable (its own addresses; one contiguous run, so the core is released once, on a complete
+/// image) or a hex word list (written at `addr`).
+fn plan_load(path: &Path, addr: Option<u32>) -> io::Result<(u32, Vec<u32>)> {
+    let data = std::fs::read(path)
+        .map_err(|e| io::Error::new(e.kind(), format!("reading {}: {e}", path.display())))?;
+    let what = path.display();
+
+    if !elf::is_elf(&data) {
+        let words = hex::load_words(path)
+            .map_err(|e| io::Error::new(e.kind(), format!("reading {}: {e}", path.display())))?;
+        if words.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("no words found in {what} (and it is not an ELF image)"),
+            ));
+        }
+        let addr = addr.unwrap_or(0);
+        println!("Sending {} words to addr 0x{addr:08X}…", words.len());
+        return Ok((addr, words));
     }
 
-    println!("Sending {} words to addr 0x{addr:08X}…", words.len());
-    send_and_readback(&port, baud, addr, &words, read_ms)
+    if addr.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{what} is an ELF image: its segments carry their own addresses, so --addr does not apply"
+            ),
+        ));
+    }
+    let image = elf::parse(&data)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{what}: {e}")))?;
+    if image.base != RESET_PC {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{what}: the image starts at 0x{:08X}, but the board's reset vector is 0x{RESET_PC:08X} — nothing would be loaded there",
+                image.base
+            ),
+        ));
+    }
+    let end = image.base as u64 + image.bytes.len() as u64;
+    if end > RAM_END as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{what}: the image runs 0x{:08X}..0x{end:08X}, past the board's RAM at 0x{RAM_END:08X}",
+                image.base
+            ),
+        ));
+    }
+    let words = image.words();
+    println!(
+        "Loading {what}: {} words ({} bytes) into 0x{:08X}..0x{:08X}…",
+        words.len(),
+        image.bytes.len(),
+        image.base,
+        image.base as u64 + image.bytes.len() as u64
+    );
+    let segments = image
+        .segments
+        .iter()
+        .map(|s| format!("0x{:08X}+{}", s.addr, s.file_bytes))
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!("  image: {segments}");
+    if image.entry != RESET_PC {
+        println!(
+            "  note: the image's entry is 0x{:08X}; the board starts at its reset vector 0x{RESET_PC:08X}",
+            image.entry
+        );
+    }
+    if image.empty_segments > 0 {
+        println!(
+            "  {} segment(s) carry no file bytes (bss/heap/stack): not written",
+            image.empty_segments
+        );
+    }
+    if image.padding_bytes > 0 {
+        println!("  {} bytes of padding zero-filled", image.padding_bytes);
+    }
+    Ok((image.base, words))
 }
 
 fn run_reset(port: &str, baud: u32, addr: u32) -> io::Result<()> {
@@ -181,22 +272,51 @@ fn run_reset(port: &str, baud: u32, addr: u32) -> io::Result<()> {
     Ok(())
 }
 
+/// How long a monitoring session waits for the first byte of a reset command's answer before repeating it.
+const RESET_RETRY_MS: i32 = 600;
+
+/// How many reset commands a monitoring session may send while the line stays silent: the first, plus repeats.
+const RESET_SENDS: u32 = 3;
+
 fn run_monitor(port: &str, baud: u32, reset: bool, hex: bool) -> io::Result<()> {
     let port = resolve_port(port)?;
     let mut ser = Serial::open(&port, baud)?;
-    if reset {
-        let frame = protocol::reset_frame(0);
+    let frame = reset.then(|| protocol::reset_frame(0));
+    if let Some(frame) = &frame {
         println!("[reset] sending reset command…");
-        ser.write_all(&frame)?;
+        ser.write_all(frame)?;
         ser.flush()?;
     }
     println!("[monitor] attached to {port} @ {baud} baud (Ctrl-C to stop)");
 
     let mut stdout = io::stdout().lock();
+    // Silence is the only answer a reset command has: the loader sends nothing back, and a frame written right after
+    // a load is occasionally lost (measured: roughly one in three, always recovered by sending it again). So while the
+    // line is quiet the command is repeated — a duplicate is harmless, because a reset is a reset and the loader
+    // resyncs on the magic.
+    let mut repeats_left = frame.as_ref().map_or(0, |_| RESET_SENDS - 1);
+    let mut gave_up_announced = false;
     loop {
-        if !ser.wait_readable(-1)? {
+        let timeout = if repeats_left > 0 { RESET_RETRY_MS } else { -1 };
+        if !ser.wait_readable(timeout)? {
+            match &frame {
+                Some(frame) if repeats_left > 0 => {
+                    repeats_left -= 1;
+                    println!("[reset] nothing yet — repeating the command");
+                    ser.write_all(frame)?;
+                    ser.flush()?;
+                }
+                Some(_) if !gave_up_announced => {
+                    gave_up_announced = true;
+                    println!(
+                        "[reset] still nothing after {RESET_SENDS} commands — still listening"
+                    );
+                }
+                _ => {}
+            }
             continue;
         }
+        repeats_left = 0;
         let mut buf = [0u8; 512];
         let n = ser.read(&mut buf)?;
         if n == 0 {
@@ -286,7 +406,7 @@ fn run_memread(addr: u32, port: &str, baud: u32, read_ms: u64) -> io::Result<()>
         "Reading addr 0x{addr:08X} via a generated tile probe program ({} words)…",
         words.len()
     );
-    send_and_readback(&port, baud, 0, &words, read_ms)
+    send_and_readback(&port, baud, RESET_PC, &words, read_ms)
 }
 
 /// Read whatever arrives within `window`, then print it: as text if printable,
@@ -378,11 +498,76 @@ mod tests {
             .expect("the loader's address takes a 0x spelling");
         match cli.cmd {
             Cmd::Load { addr, .. } => {
+                let addr = addr.expect("the flag was given");
                 assert_eq!(parse_addr(&addr).expect("address parses"), 0x8000_0000)
             }
             _ => panic!("expected the load command"),
         }
         assert!(Cli::try_parse_from(["probe", "reset", "--addr", "2147483648"]).is_ok());
         assert!(Cli::try_parse_from(["probe", "memread", "0x88000000"]).is_ok());
+        // An image with no address of its own to give: the ELF's segments have them.
+        let cli =
+            Cli::try_parse_from(["probe", "load", "app.elf"]).expect("an image needs no --addr");
+        match cli.cmd {
+            Cmd::Load { addr, .. } => assert!(addr.is_none()),
+            _ => panic!("expected the load command"),
+        }
+    }
+
+    /// An ELF32 for RISC-V with one `PT_LOAD` segment: `words` at `addr`, entry `entry`.
+    fn elf_at(entry: u32, addr: u32, words: &[u32]) -> Vec<u8> {
+        let mut data = vec![0u8; 52];
+        data[..4].copy_from_slice(b"\x7fELF");
+        data[4] = 1;
+        data[5] = 1;
+        data[6] = 1;
+        data[16..18].copy_from_slice(&2u16.to_le_bytes());
+        data[18..20].copy_from_slice(&243u16.to_le_bytes());
+        data[24..28].copy_from_slice(&entry.to_le_bytes());
+        data[28..32].copy_from_slice(&52u32.to_le_bytes());
+        data[42..44].copy_from_slice(&32u16.to_le_bytes());
+        data[44..46].copy_from_slice(&1u16.to_le_bytes());
+        data.extend_from_slice(&[0u8; 32]);
+        let ph = 52;
+        let bytes = (words.len() * 4) as u32;
+        data[ph..ph + 4].copy_from_slice(&1u32.to_le_bytes()); // PT_LOAD
+        data[ph + 4..ph + 8].copy_from_slice(&(ph as u32 + 32).to_le_bytes()); // p_offset
+        data[ph + 8..ph + 12].copy_from_slice(&addr.to_le_bytes()); // p_vaddr
+        data[ph + 12..ph + 16].copy_from_slice(&addr.to_le_bytes()); // p_paddr
+        data[ph + 16..ph + 20].copy_from_slice(&bytes.to_le_bytes()); // p_filesz
+        data[ph + 20..ph + 24].copy_from_slice(&bytes.to_le_bytes()); // p_memsz
+        for w in words {
+            data.extend_from_slice(&w.to_le_bytes());
+        }
+        data
+    }
+
+    #[test]
+    fn an_elf_load_plans_its_own_addresses_and_refuses_addr() {
+        let dir = std::env::temp_dir();
+        let elf = dir.join("probe_load_test.elf");
+        let hex = dir.join("probe_load_test.hex");
+
+        std::fs::write(&elf, elf_at(0x8000_0000, 0x8000_0000, &[0xDEAD_BEEF, 0x13])).unwrap();
+        let (addr, words) = plan_load(&elf, None).expect("an ELF plans its own addresses");
+        assert_eq!(addr, 0x8000_0000);
+        assert_eq!(words, vec![0xDEAD_BEEF, 0x0000_0013]);
+        assert!(
+            plan_load(&elf, Some(0x8000_0000)).is_err(),
+            "--addr is the hex path's"
+        );
+
+        // An image that does not start where the core does boots nothing.
+        std::fs::write(&elf, elf_at(0x8000_1000, 0x8000_1000, &[0x13])).unwrap();
+        let err = plan_load(&elf, None).expect_err("an image off the reset vector is refused");
+        assert!(err.to_string().contains("reset vector"), "{err}");
+
+        // A hex image still goes where --addr says (and defaults to 0).
+        std::fs::write(&hex, "DEADBEEF\n").unwrap();
+        assert_eq!(plan_load(&hex, Some(0x8000_0000)).unwrap().0, 0x8000_0000);
+        assert_eq!(plan_load(&hex, None).unwrap().0, 0);
+
+        let _ = std::fs::remove_file(&elf);
+        let _ = std::fs::remove_file(&hex);
     }
 }
