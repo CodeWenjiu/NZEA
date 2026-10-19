@@ -64,6 +64,30 @@ class LiteBusCdcProbe(parameter: LiteBusCdcParameter) extends DVBundle[LiteBusCd
 object LiteBusCdc extends Generator[LiteBusCdcParameter, LiteBusCdcLayers, LiteBusCdcIO, LiteBusCdcProbe]:
     override def moduleName(parameter: LiteBusCdcParameter): String = "LiteBusCdc"
 
+    /** The names the body gives the crossing's registers — the contract a flow that has to name them from the outside
+      * (a timing constraint, a waveform query) reads instead of restating. The body names them through this object, so
+      * the two cannot drift: a rename here renames the netlist and whoever names it from outside together.
+      *
+      * `reqPayload`/`reqHeld` are the request's payload on either side, `reqToggle` the flip that crosses and `reqSync`
+      * the flops that synchronize it; the `resp*` four are the same for the answer. `reqSync`/`respSync` are prefixes
+      * of the indexed chain (`farReqSync0`, `farReqSync1`, …), the others are the name a register carries.
+      */
+    object Names:
+        val nearReqPayload = "nearReqPayload"
+        val nearReqToggle = "nearReqToggle"
+        val farReqSync = "farReqSync"
+        val farReqHeld = "farReqHeld"
+        val farRespHeld = "farRespHeld"
+        val farRespToggle = "farRespToggle"
+        val nearRespSync = "nearRespSync"
+        val nearRespHeld = "nearRespHeld"
+
+    /** How many far edges the payload's capture leaves it, for a flow that has to state it: the synchronizer's own
+      * depth, which is one edge short of what the body performs — `farReqHeld` is written when the *last* of the
+      * synchronizing flops changes, a flop after the one that change is seen on.
+      */
+    def payloadEdges(syncStages: Int): Int = syncStages
+
     def architecture(parameter: LiteBusCdcParameter) =
         val io = summon[Interface[LiteBusCdcIO]]
 
@@ -98,25 +122,25 @@ object LiteBusCdc extends Generator[LiteBusCdcParameter, LiteBusCdcLayers, LiteB
         val near = ClockScope.posedge(io.nearClock):
             ResetScope.asyncActiveLow(io.nearResetN):
                 Near(
-                    named("nearReqPayload")(Reg(io.near.req.bits.getType)),
-                    named("nearReqToggle")(RegInit(false.B)),
+                    named(Names.nearReqPayload)(Reg(io.near.req.bits.getType)),
+                    named(Names.nearReqToggle)(RegInit(false.B)),
                     named("nearOutstanding")(RegInit(false.B)),
-                    (0 until parameter.syncStages).map(i => named(s"nearRespSync$i")(RegInit(false.B))),
+                    (0 until parameter.syncStages).map(i => named(s"${Names.nearRespSync}$i")(RegInit(false.B))),
                     named("nearRespSeen")(RegInit(false.B)),
-                    named("nearRespHeld")(Reg(io.near.resp.bits.getType)),
+                    named(Names.nearRespHeld)(Reg(io.near.resp.bits.getType)),
                     named("nearRespValid")(RegInit(false.B))
                 )
 
         val far = ClockScope.posedge(io.farClock):
             ResetScope.asyncActiveLow(io.farResetN):
                 Far(
-                    (0 until parameter.syncStages).map(i => named(s"farReqSync$i")(RegInit(false.B))),
+                    (0 until parameter.syncStages).map(i => named(s"${Names.farReqSync}$i")(RegInit(false.B))),
                     named("farReqSeen")(RegInit(false.B)),
-                    named("farReqHeld")(Reg(io.far.req.bits.getType)),
+                    named(Names.farReqHeld)(Reg(io.far.req.bits.getType)),
                     named("farReqPending")(RegInit(false.B)),
                     named("farReqAccepted")(RegInit(false.B)),
-                    named("farRespHeld")(Reg(io.far.resp.bits.getType)),
-                    named("farRespToggle")(RegInit(false.B))
+                    named(Names.farRespHeld)(Reg(io.far.resp.bits.getType)),
+                    named(Names.farRespToggle)(RegInit(false.B))
                 )
 
         // The request: held while a transaction is in flight, and for as long as it takes the answer to come back — the

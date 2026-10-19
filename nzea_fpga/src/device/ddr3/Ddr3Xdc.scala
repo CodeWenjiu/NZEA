@@ -134,9 +134,9 @@ object Ddr3Xdc:
            |set_property PACKAGE_PIN J1 [get_ports {DDR3_DQ[14]}]
            |set_property PACKAGE_PIN H4 [get_ports {DDR3_DQ[15]}]
            |
-           |# Three facts about the pads that the tools cannot read off the netlist. Each one is stated here rather than
-           |# worked around in the RTL, and none of them changes the design's behavior — the simulator is what holds the design
-           |# to that.
+           |# Four facts about the pads and the capture that the tools cannot read off the netlist. Each one is stated here
+           |# rather than worked around in the RTL, and none of them changes the design's behavior — the simulator is what holds
+           |# the design to that.
            |#
            |# 1. The pads' enables are fabric-cycle levels: the design stages a word per cycle and holds `DDR3_DQ_OE` and
            |#    `DDR3_DQS_OE` for a whole write — several cycles of it — so a serializer's tristate inputs are captured well
@@ -164,4 +164,11 @@ object Ddr3Xdc:
            |#    One pattern for every serializer: each is a pads module's instance named `<bus>Drive<bit>` ([[Ddr3Pads]]), so
            |#    the index-bearing pattern is what reaches them (a leading `*/` would not, as the level pins' note above says).
            |set_false_path -to [get_pins -hierarchical {*Drive*/RST}]
+           |#
+           |# 4. The capture register's enable is one register with a load per captured bit, and the flops it drives sit
+           |#    beside the pads of both banks: its farthest branch is the placed design's own worst path (measured: 4.37 ns of
+           |#    route against the grid's 5 ns, 67 ps short, where the register-to-register paths beside it are 0.4 ns). A
+           |#    limit on the register lets the tool replicate it, and replication is invisible to the design: the enable is a
+           |#    level, one and the same in every copy.
+           |set_property MAX_FANOUT 64 [get_cells -hierarchical {*captureOpen_reg*}]
            |""".stripMargin

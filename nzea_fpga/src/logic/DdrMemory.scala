@@ -120,6 +120,8 @@ object DdrMemory extends Generator[DdrMemoryParameter, DdrMemoryLayers, DdrMemor
                 parameter.syncStages
             )
         )
+        // What the crossing's own registers need, said where the crossing is built ([[BusCdcXdc]]).
+        BusCdcXdc.register(parameter.syncStages)
         val adapter = Ddr3BusAdapter.instantiate(
             Ddr3BusAdapterParameter(
                 parameter.addrWidth,
