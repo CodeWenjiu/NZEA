@@ -15,12 +15,14 @@ import nzea_rtl.stat.StatScope
   * same-named device, so a caller adds to [[externals]] and never prunes the flow's list. The tile derives the core's
   * MMIO windows from these two lists, so the map is stated once and never accepted from a caller. The clock rate is the
   * level's own fact (the tile is handed a clock, not a frequency): the devices whose timing is a rate — the UART's bit
-  * period — derive it from [[clockHz]].
+  * period — derive it from [[clockHz]]. [[timeHz]] is the platform's second rate: what the CLINT counts at, which is
+  * deliberately not the clock's (a core's clock is a design decision, a platform's time is not).
   */
 case class NzeaTileParameter(
     config: CoreConfig,
     flow: RtlFlow,
     clockHz: Int,
+    timeHz: Int,
     bypass: BypassLevel,
     bpu: Option[BpuConfig],
     lsqDepth: Int,
@@ -70,6 +72,7 @@ object NzeaTileParameter:
         config = CoreConfig(Isa("riscv32i"), 0x80000000L),
         flow = RtlFlow.Verilator,
         clockHz = 25000000,
+        timeHz = 1000000,
         bypass = BypassLevel.Execute,
         bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
         lsqDepth = 4,

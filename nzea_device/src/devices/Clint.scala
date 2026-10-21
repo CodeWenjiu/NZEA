@@ -19,14 +19,34 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * low/high. `mtime` free-runs; a write sets `mtimecmp`, a read selects a register. The request's `user`/`id` are
   * captured at acceptance because the master has moved on when the answer is due. In the bridge flow the timer is the
   * simulator's, so [[HasDpiBus.answerBus]] answers the bus and the interrupt is inert.
+  *
+  * Two facts the counter does not share with the device's clock:
+  *
+  *   - its rate is the platform's, not the clock's: `mtime` advances once every `clockHz / timeHz` cycles, so raising
+  *     the core's clock does not change what a program's second is (and `timeHz` must divide `clockHz`);
+  *   - it is the one state a core's reset must not clear. A load holds the core — that hold *is* the tile's reset — and
+  *     the platform's time is not the core's, so the counter hangs off `timeResetN` while the bus side hangs off
+  *     `resetN`. Both resets are on this one clock, and the time reset's reasons are a subset of the core's, so a write
+  *     can never be racing the counter's own reset.
   */
-case class ClintParameter(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, base: Long, flow: RtlFlow)
-    extends Parameter:
+case class ClintParameter(
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int,
+    base: Long,
+    clockHz: Int,
+    timeHz: Int,
+    flow: RtlFlow
+) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
     require(dataWidth >= 32, s"dataWidth must be at least 32, got $dataWidth")
     require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
     require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
     require(base >= 0, s"base must be >= 0, got $base")
+    require(clockHz > 0, s"clockHz must be positive, got $clockHz")
+    require(timeHz > 0, s"timeHz must be positive, got $timeHz")
+    require(clockHz % timeHz == 0, s"the time base must divide the clock: $timeHz Hz against $clockHz Hz")
 
 given upickle.default.ReadWriter[ClintParameter] = upickle.default.macroRW
 
@@ -39,6 +59,10 @@ class ClintPins(using TypeImpl, ConstructorApi) extends Bundle:
 class ClintIO(parameter: ClintParameter) extends HWBundle(parameter):
     val clock = Flipped(Clock())
     val resetN = Flipped(Reset())
+
+    /** The counter's own reset: the bus side is the device's, this one is the platform's. */
+    val timeResetN = Flipped(Reset())
+
     val bus = Flipped(new LiteBusRW(parameter.addrWidth, parameter.dataWidth, parameter.userWidth, parameter.idWidth))
     val boundary = Aligned(new ClintPins)
 
@@ -53,6 +77,28 @@ object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
     def architecture(parameter: ClintParameter) =
         val io = summon[Interface[ClintIO]]
         given ClockScope = ClockScope.posedge(io.clock)
+
+        // The counter, off the platform's reset ([[ClintParameter]]): it outlives a load, and it counts at `timeHz`
+        // whatever this device's clock is.
+        val (mtime, mtimecmp) = ResetScope.syncActiveLow(io.timeResetN):
+            val mtime = RegInit(0.U(64))
+            val mtimecmp = RegInit(0.U(64))
+            val divisor = parameter.clockHz / parameter.timeHz
+            // The increment is the shaped constant adder, not `+ 1`: the free-running counter's carry is the whole 64-bit
+            // width, and a mapper left to itself decomposes it into a ripple — bit 0's carry reaches bit 63 through
+            // sixteen levels. The prefix form's depth is the width's logarithm.
+            if divisor == 1 then mtime := constAdder(mtime, 1, 64)
+            else
+                val phaseWidth = log2Ceil(divisor)
+                val phase = RegInit(0.U(phaseWidth))
+                when(phase === (divisor - 1).U(phaseWidth)) {
+                    phase := 0.U(phaseWidth)
+                    mtime := constAdder(mtime, 1, 64)
+                }.otherwise {
+                    phase := addWrap(phase, 1.U(phaseWidth), phaseWidth)
+                }
+            (mtime, mtimecmp)
+
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
         answerBus(
@@ -65,13 +111,6 @@ object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
             parameter.idWidth
         ):
             val dw = parameter.dataWidth
-            val mtime = RegInit(0.U(64))
-            // The increment is the shaped constant adder, not `+ 1`: the free-running counter's carry is the whole
-            // 64-bit width, and a mapper left to itself decomposes it into a ripple — bit 0's carry reaches bit 63
-            // through sixteen levels. The prefix form's depth is the width's logarithm.
-            mtime := constAdder(mtime, 1, 64)
-            val mtimecmp = RegInit(0.U(64))
-
             val busy = RegInit(false.B)
             val respUser = RegInit(0.U(parameter.userWidth))
             val respId = RegInit(0.U(parameter.idWidth))

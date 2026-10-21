@@ -33,7 +33,7 @@ object DevicesElaborateTest extends TestSuite:
     )
 
     private lazy val clint = TestFlow.lower(
-        Clint.moduleName(ClintParameter(32, 32, 4, 1, 0x02000000L, RtlFlow.Yosys)),
+        Clint.moduleName(ClintParameter(32, 32, 4, 1, 0x02000000L, 25000000, 1000000, RtlFlow.Yosys)),
         cfg =>
             Clint.main(
                 Array(
@@ -49,6 +49,10 @@ object DevicesElaborateTest extends TestSuite:
                     "1",
                     "--base",
                     "33554432",
+                    "--clockHz",
+                    "25000000",
+                    "--timeHz",
+                    "1000000",
                     "--flow",
                     "yosys"
                 )

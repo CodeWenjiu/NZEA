@@ -101,6 +101,7 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         config = coreConfig,
         flow = RtlFlow.Yosys,
         clockHz = (BootDdr.ClockGrid.mhz * 1000000).toInt,
+        timeHz = 1000000,
         bypass = BypassLevel.Execute,
         bpu = Some(BpuConfig(BpuStrategy.Bimodal(64, 4), None)),
         lsqDepth = 4,
@@ -192,6 +193,9 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         // the controller answers none of them before its calibration locked.
         val resetCore =
             Resets.domain("core", clkCore, Seq("buttonPin", "pllLocked", BootDdr.HoldNReason, Ddr3Side.ReadyReason))
+        // The platform's own time: a load holds the core and the controller takes its time calibrating, and neither may
+        // set the counter back — what it waits for is the board's reasons alone (`ClintParameter` holds the argument).
+        val resetTime = Resets.domain("time", clkCore, Seq("buttonPin", "pllLocked"))
 
         Resets.materialize()
 
@@ -200,6 +204,7 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         val tile = NzeaTile.instantiate(tileParameter)
         tile.io.field[Clock]("clock") := clkCore
         tile.io.field[Reset]("reset") := (!resetCore.asBool).asReset
+        tile.io.field[Reset]("timeReset") := (!resetTime.asBool).asReset
 
         // The line the board's bridge talks to the fabric on: the loader listens on its receive pin (the pin the
         // constraints declare), and the tile's UART prints on the transmit pin this level wires out. One line, two

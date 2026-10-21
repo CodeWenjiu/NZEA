@@ -31,7 +31,8 @@ case class DeviceContext(
     idWidth: Int,
     base: Long,
     size: Long,
-    clockHz: Int
+    clockHz: Int,
+    timeHz: Int
 )
 
 /** The kinds of device the library ships: the one place that knows what a device is on the address map and how to build
@@ -109,7 +110,16 @@ enum DeviceKind:
         case Clint =>
             // Fully qualified for the same reason as `Uart`.
             nzea_device.devices.Clint.instantiate(
-                ClintParameter(ctx.addrWidth, ctx.dataWidth, ctx.userWidth, ctx.idWidth, ctx.base, flow)
+                ClintParameter(
+                    ctx.addrWidth,
+                    ctx.dataWidth,
+                    ctx.userWidth,
+                    ctx.idWidth,
+                    ctx.base,
+                    ctx.clockHz,
+                    ctx.timeHz,
+                    flow
+                )
             )
 
     /** Drive the boundary of a device the level does not expose.

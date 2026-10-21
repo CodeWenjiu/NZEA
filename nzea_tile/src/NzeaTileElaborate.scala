@@ -35,6 +35,8 @@ object NzeaTileElaborate:
             parameter.flow.segment,
             "--clockHz",
             parameter.clockHz.toString,
+            "--timeHz",
+            parameter.timeHz.toString,
             "--bypass",
             parameter.bypass.name,
             "--stats",

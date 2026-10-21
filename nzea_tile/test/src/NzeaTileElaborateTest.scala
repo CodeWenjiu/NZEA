@@ -32,6 +32,8 @@ object NzeaTileElaborateTest extends TestSuite:
             p.flow.segment,
             "--clockHz",
             p.clockHz.toString,
+            "--timeHz",
+            p.timeHz.toString,
             "--bypass",
             p.bypass.name,
             "--stats",

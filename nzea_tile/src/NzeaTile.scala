@@ -29,6 +29,12 @@ class NzeaTileIO(parameter: NzeaTileParameter) extends HWRecord(parameter):
     val clock = Flipped("clock", Clock())
     val reset = Flipped("reset", Reset())
 
+    /** The counter's own reset ([[nzea_device.devices.Clint]]): the tile's reset is a load's hold as well, and a load
+      * must not set the platform's clock back. Only a build that carries hardware has it — the bridge flow's timer is
+      * the simulator's, so that shape keeps its two ports.
+      */
+    private val timeReset = if parameter.flow.bridges then None else Some(Flipped("timeReset", Reset()))
+
     /** What the tier above sees, one field per thing it connects: a device this tile builds that shows pins gets them
       * (the flow decides which those are), and every external window gets its bus — named by the device or window, so
       * the tile's shape is exactly its built devices and the windows the level answers.
@@ -44,10 +50,11 @@ class NzeaTileIO(parameter: NzeaTileParameter) extends HWRecord(parameter):
 class NzeaTileProbe(parameter: NzeaTileParameter) extends DVBundle[NzeaTileParameter, NzeaTileLayers](parameter)
 
 /** The tile level: a [[nzea_core.Core]] behind the bus fabric, with the platform's devices on its slave side. Its ports
-  * are its two lists': `clock`/`reset`, one field per device that shows pins, and one bus port per external window
-  * ([[ExternalSpec]] — the level above answers those itself). So the synthesis shape carries the finisher's `finished`,
-  * the CLINT's interrupt and every external window, while the bridge flow — where the simulator answers the windows it
-  * knows — exposes nothing beyond `clock`/`reset` and the external ones.
+  * are its two lists': `clock`/`reset` (and, in a build that carries hardware, the counter's own `timeReset`), one
+  * field per device that shows pins, and one bus port per external window ([[ExternalSpec]] — the level above answers
+  * those itself). So the synthesis shape carries the finisher's `finished`, the CLINT's interrupt and every external
+  * window, while the bridge flow — where the simulator answers the windows it knows — exposes nothing beyond
+  * `clock`/`reset` and the external ones.
   */
 @generator
 object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO, NzeaTileProbe]:
@@ -62,6 +69,9 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         val map = fabricMap(parameter)
         // The boundary is active-high (`NzeaCore`'s comment holds the why); the tree below is active-low.
         val resetN: Node[Reset] = (!io.field[Reset]("reset").asBool).asReset
+        // The counter's reset is the platform's own; a bridge-flow build has no separate one and hands it this reset.
+        val timeResetN: Node[Reset] =
+            if parameter.flow.bridges then resetN else (!io.field[Reset]("timeReset").asBool).asReset
 
         val core = Core.instantiate(
             CoreParameter(
@@ -157,10 +167,13 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
                     map.idWidth,
                     d.range.base.toLong,
                     d.range.size.toLong,
-                    parameter.clockHz
+                    parameter.clockHz,
+                    parameter.timeHz
                 )
             )
             device.connect(clock, resetN, xbar.io.out(map, d.name))
+            // The CLINT's counter is the one state a load may not clear: same clock, the platform's reset ([[ClintIO]]).
+            if d.kind == DeviceKind.Clint then device.io.field[Reset]("timeResetN") := timeResetN
             d.kind.pins(parameter.flow) match
                 case Some(_) =>
                     val field = io.field[Bundle](d.name)
