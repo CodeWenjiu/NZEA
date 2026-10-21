@@ -22,14 +22,25 @@ object LxbArtix7ElaborateTest extends TestSuite:
         cfg => Top.main(Array("design", cfg.toString))
     )
 
-    /** The clock plan the design asks for, as its own requests state it ([[nzea_fpga.Clocks]]): the loader's grid — the
-      * core, the loader and the memory share it — and the level's own 100 MHz for the panel. No phase is asked for, so
-      * what serves the plan is the PLL the primitive search finds ([[ClockPrimitive]]).
+    /** The clock plan the design asks for, as its own requests state it ([[nzea_fpga.Clocks]]): the core's grid (the
+      * panel's 100 MHz is the same key, so one slot serves both), then the DDR3 device's five — the pads' load clock
+      * and the tap reference, the controller's, the command and data sides' 400 MHz pair, and the capture's half period
+      * ([[nzea_fpga.device.ddr3.Ddr3Clocks]]). A phase is why the plan needs the MMCM: the PLL has none to state.
       *
       * The order is the plan's own — `clk_out1` first — and it is pinned here because it is what names the wizard's
       * slots, which the constraints and the IP's own configuration follow.
       */
-    private val clockPlan = ClockPlan(50.0, Seq(ClockOut(25.0, 0.0), ClockOut(100.0, 0.0)))
+    private val clockPlan = ClockPlan(
+        50.0,
+        Seq(
+            ClockOut(100.0, 0.0),
+            ClockOut(200.0, 0.0),
+            ClockOut(200.0, 45.0),
+            ClockOut(400.0, 0.0),
+            ClockOut(400.0, 90.0),
+            ClockOut(200.0, 180.0)
+        )
+    )
 
     /** The probes the board watches, as its `mark` calls state them: each name a waveform shows and its width, in the
       * order the statements were made. The snapshots below are taken in the dump's own window, so every test reads this
@@ -48,12 +59,55 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "bootWritten" -> 32,
         "rx_data" -> 8,
         "rx_valid" -> 1,
-        // The hold the loader produces, then the network's remaining reasons and domains.
+        // The device's own account of the bus it runs ([[nzea_fpga.device.ddr3.Ddr3]] declares these where they live):
+        // the bring-up's state and alignment, the capture word's sixteen samples, and the accesses themselves.
+        "state" -> 6,
+        "initDone" -> 1,
+        "alignedAt" -> 6,
+        "halfAt" -> 6,
+        "tap" -> 5,
+        "calibPlane" -> 2,
+        "calibrating" -> 1,
+        "calibrated" -> 1,
+        "finalRound" -> 1,
+        "finalPass" -> 1,
+        "alignGot" -> 1,
+        "alignLocked" -> 6,
+        "lockedPlane" -> 2,
+        "lockedTap" -> 5,
+        "writeShift" -> 2,
+        "recent" -> 96,
+        "captured00" -> 64,
+        "captured01" -> 64,
+        "captured02" -> 64,
+        "captured03" -> 64,
+        "captured04" -> 64,
+        "captured05" -> 64,
+        "captured06" -> 64,
+        "captured07" -> 64,
+        "captured08" -> 64,
+        "captured09" -> 64,
+        "captured10" -> 64,
+        "captured11" -> 64,
+        "captured12" -> 64,
+        "failTaps" -> 96,
+        "roundIn" -> 7,
+        "accesses" -> 32,
+        "respValid" -> 1,
+        "respData" -> 128,
+        "dmOut" -> 8,
+        "timer" -> 24,
+        "dqIn" -> 64,
+        // The memory's own readiness, then the network's remaining reasons and domains.
+        "ddr3TapsReady" -> 1,
+        "ddr3Ready" -> 1,
+        "ddr3Reset" -> 1,
         "bootHoldN" -> 1,
         "bootReset" -> 1,
         "pllLocked" -> 1,
         "board100Reset" -> 1,
         "coreReset" -> 1,
+        "timeReset" -> 1,
         // The loaded program's own verdict, marked where the top takes it (the tile's finisher).
         "finished" -> 1
     )
@@ -72,11 +126,52 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "*probe_bootWritten*",
         "*rx/probe_data*",
         "*rx/probe_valid*",
+        "*probe_state*",
+        "*probe_initDone*",
+        "*probe_alignedAt*",
+        "*probe_halfAt*",
+        "*probe_tap*",
+        "*probe_calibPlane*",
+        "*probe_calibrating*",
+        "*probe_calibrated*",
+        "*probe_finalRound*",
+        "*probe_finalPass*",
+        "*probe_alignGot*",
+        "*probe_alignLocked*",
+        "*probe_lockedPlane*",
+        "*probe_lockedTap*",
+        "*probe_writeShift*",
+        "*probe_recent*",
+        "*probe_captured00*",
+        "*probe_captured01*",
+        "*probe_captured02*",
+        "*probe_captured03*",
+        "*probe_captured04*",
+        "*probe_captured05*",
+        "*probe_captured06*",
+        "*probe_captured07*",
+        "*probe_captured08*",
+        "*probe_captured09*",
+        "*probe_captured10*",
+        "*probe_captured11*",
+        "*probe_captured12*",
+        "*probe_failTaps*",
+        "*probe_roundIn*",
+        "*probe_accesses*",
+        "*probe_respValid*",
+        "*probe_respData*",
+        "*probe_dmOut*",
+        "*probe_timer*",
+        "*probe_dqIn*",
+        "*probe_ddr3TapsReady*",
+        "*probe_ddr3Ready*",
+        "*probe_ddr3Reset*",
         "*probe_bootHoldN*",
         "*probe_bootReset*",
         "*probe_pllLocked*",
         "*probe_board100Reset*",
         "*probe_coreReset*",
+        "*probe_timeReset*",
         "*probe_finished*"
     )
 
@@ -121,12 +216,15 @@ object LxbArtix7ElaborateTest extends TestSuite:
       * window. They ride the dump's own emitter list ([[DumpRegistry.emitAll]]), which is where a project generator
       * reads them from — the list beside them is its index.
       */
-    private val xdcArtifacts =
+    private val (xdcFiles, xdcList) =
         val _ = sv
         val dir = os.temp.dir(prefix = "nzea-xdc")
         try
             DumpRegistry.emitAll(dir)
-            (os.read(dir / "board.xdc"), os.read(dir / "uart.xdc"), os.read(dir / "xcdfiles.f"))
+            (
+                Seq("board", "ddr3", "busCdc", "uart").map(owner => owner -> os.read(dir / s"$owner.xdc")).toMap,
+                os.read(dir / "xcdfiles.f")
+            )
         finally os.remove.all(dir)
 
     /** The dump's file list, from the same window as the constraints: the modules the top's build instantiates but the
@@ -177,7 +275,21 @@ object LxbArtix7ElaborateTest extends TestSuite:
                     "LED1" -> 1,
                     "LED2" -> 1,
                     "UART_RX" -> 1,
-                    "UART_TX" -> 1
+                    "UART_TX" -> 1,
+                    "DDR3_CK_P" -> 1,
+                    "DDR3_CK_N" -> 1,
+                    "DDR3_ADDR" -> 15,
+                    "DDR3_BA" -> 3,
+                    "DDR3_RAS_N" -> 1,
+                    "DDR3_CAS_N" -> 1,
+                    "DDR3_WE_N" -> 1,
+                    "DDR3_CKE" -> 1,
+                    "DDR3_ODT" -> 1,
+                    "DDR3_RESET_N" -> 1,
+                    "DDR3_DM" -> 2,
+                    "DDR3_DQ" -> 16,
+                    "DDR3_DQS_P" -> 2,
+                    "DDR3_DQS_N" -> 2
                 )
             )
 
@@ -187,7 +299,9 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains("ResetSync board50Sync ("))
             assert(sv.contains("ResetSync board100Sync ("))
             assert(sv.contains("ResetSync bootSync ("))
+            assert(sv.contains("ResetSync ddr3Sync ("))
             assert(sv.contains("ResetSync coreSync ("))
+            assert(sv.contains("ResetSync timeSync ("))
             assert(sv.contains("Blink blink50 (") && sv.contains("Blink blink100 ("))
             // The IP keeps its instance name (it names nets and shows up in waveforms).
             assert(sv.contains("clk_wiz_0 clockingWizard ("))
@@ -196,7 +310,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains("BootDdr boot ("))
             assert(
                 sv.matches(
-                    "(?s).*BootDdr boot \\(.*\\.UART_RX\\s+\\(UART_RX\\).*\\.clk25_0\\s+\\(_clockingWizard_clk_out1\\).*"
+                    "(?s).*BootDdr boot \\(.*\\.UART_RX\\s+\\(UART_RX\\).*\\.clk100_0\\s+\\(_clockingWizard_clk_out1\\).*"
                 )
             )
             assert(
@@ -212,6 +326,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
                     "(?s).*NzeaTile tile \\(.*\\.clock\\s+\\(_clockingWizard_clk_out1\\).*\\.reset\\s+\\(~_coreSync_syncN\\).*"
                 )
             )
+            // The counter's own release: the platform's time outlives a load, so it is the time domain's, not the core's.
+            assert(sv.matches("(?s).*NzeaTile tile \\(.*\\.timeReset\\s+\\(~_timeSync_syncN\\).*"))
             // The memory: the tile's window on its core side and the loader on its load side, told apart by the boot
             // domain's own reset and by the core's own reset (`coreHeld`).
             assert(sv.contains("DdrMemory memory ("))
@@ -241,7 +357,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.contains(".clk_in1  (CLK_50M)"))
             assert(sv.contains(".clock (_clk50Buffer_O)"))
             assert(sv.matches("(?s).*\\.clock50\\s+\\(_clk50Buffer_O\\).*"))
-            assert(sv.matches("(?s).*\\.clock100\\s+\\(_clockingWizard_clk_out2\\).*"))
+            // The panel's own 100 MHz is the core's grid — one key, one wizard slot — so it is the same net.
+            assert(sv.matches("(?s).*\\.clock100\\s+\\(_clockingWizard_clk_out1\\).*"))
             assert(sv.matches("(?s).*\\.resetN50\\s+\\(_board50Sync_syncN\\).*"))
             assert(sv.matches("(?s).*\\.resetN100\\s+\\(_board100Sync_syncN\\).*"))
 
@@ -253,12 +370,31 @@ object LxbArtix7ElaborateTest extends TestSuite:
             // fold identical logic), which is why the net is named for what it joins rather than for the domain that
             // happened to ask first.
             assert(sv.matches("(?s).*wire\\s+buttonPinAndPllLocked = RESET & _clockingWizard_locked;.*"))
-            assert(sv.matches("(?s).*ResetSync bootSync \\(.*\\.rawN  \\(buttonPinAndPllLocked\\).*"))
             assert(sv.matches("(?s).*ResetSync board100Sync \\(.*\\.rawN  \\(buttonPinAndPllLocked\\).*"))
+            // The loader waits for the memory besides: the frames it writes land in the DDR, so the controller must be
+            // calibrated before the line takes one.
+            assert(
+                sv.matches("(?s).*ResetSync bootSync \\(.*\\.rawN  \\(buttonPinAndPllLocked & _memory_ddr3Ready\\).*")
+            )
             // The core's domain adds the loader's hold: a load is what holds the core, and the release is this
             // synchronizer's, on the grid the core itself runs on.
             assert(sv.matches("(?s).*ResetSync coreSync \\(.*\\.clock \\(_clockingWizard_clk_out1\\).*"))
-            assert(sv.matches("(?s).*ResetSync coreSync \\(.*\\.rawN  \\(buttonPinAndPllLocked & _boot_bootHoldN\\).*"))
+            assert(
+                sv.matches(
+                    "(?s).*ResetSync coreSync \\(.*\\.rawN  \\(buttonPinAndPllLocked & _boot_bootHoldN & _memory_ddr3Ready\\).*"
+                )
+            )
+            // The platform's time outlives both a load and the calibration — the one domain that waits for the board's
+            // reasons alone, which is why `mtime` is not set back by either.
+            assert(sv.matches("(?s).*ResetSync timeSync \\(.*\\.clock \\(_clockingWizard_clk_out1\\).*"))
+            assert(sv.matches("(?s).*ResetSync timeSync \\(.*\\.rawN  \\(buttonPinAndPllLocked\\).*"))
+            // The device's own: the pads' calibration first, then the controller's readiness (`Ddr3Side` states both).
+            assert(sv.matches("(?s).*ResetSync ddr3Sync \\(.*\\.clock \\(_clockingWizard_clk_out3\\).*"))
+            assert(
+                sv.matches(
+                    "(?s).*ResetSync ddr3Sync \\(.*\\.rawN  \\(buttonPinAndPllLocked & _memory_ddr3TapsReady\\).*"
+                )
+            )
             // Every reason and every domain is watchable: the first question a reset network raises is which reason holds.
             for probe <- Seq(
                     "buttonPin",
@@ -267,7 +403,8 @@ object LxbArtix7ElaborateTest extends TestSuite:
                     "board50Reset",
                     "board100Reset",
                     "bootReset",
-                    "coreReset"
+                    "coreReset",
+                    "timeReset"
                 )
             do assert(sv.contains(s"probe_$probe"))
 
@@ -286,13 +423,13 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(!sv.contains("Top_debug"))
 
         test("each module marks its own signals for the netlist debug flow, and the top keeps its clock"):
-            // One declaration, one marked wire, in the module that owns the signal: the top's eight (the reset
-            // network's reasons and domains, and the program's verdict), the loader's five and its receiver's two.
-            // What the core declares is its own business: its marks are inert here, because the ILA's table is the
-            // board's ([[Ila]] connects the probes declared at this level's modules, no one else's).
+            // One declaration, one marked wire, in the module that owns the signal: the top's twelve (the reset
+            // network's reasons and domains, the memory's own three, and the program's verdict), the loader's five and
+            // its receiver's two. What the core declares is its own business: its marks are inert here, because the
+            // ILA's table is the board's ([[Ila]] connects the probes declared at this level's modules, no one else's).
             assert(sv.contains("module BootDdr("))
             assert(sv.contains("module UartRx("))
-            assert(markCount("Top") == 8)
+            assert(markCount("Top") == 12)
             assert(markCount("BootDdr") == 5)
             assert(markCount("UartRx") == 2)
             // The core's clock is the oscillator's own, buffered — not one of the wizard's: its logic closes at 50 MHz,
@@ -322,18 +459,18 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(plannedClocks == clockPlan.outputs)
             val tcl = ClockingWizard.tcl(ClockingWizardParameter(Clocks.ipName, clockPlan))
             assert(tcl.contains("module_name clk_wiz_0"))
-            // No phase is asked for and both rates are integer ratios of 50 MHz, so the search serves the plan exactly
-            // with a PLL and the MMCM is not needed.
-            assert(tcl.contains("CONFIG.PRIMITIVE {PLL}"))
+            // The device's phases are what the plan needs, and the PLL has none to state — so the search serves this plan
+            // with the MMCM.
+            assert(tcl.contains("CONFIG.PRIMITIVE {MMCM}"))
             assert(tcl.contains("CONFIG.PRIM_IN_FREQ {50.000}"))
-            assert(tcl.contains("CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {25.000}"))
-            assert(tcl.contains("CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {100.000}"))
-            assert(ClockPlan.parse("50:25,100").exists(_ == clockPlan))
+            assert(tcl.contains("CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {100.000}"))
+            assert(tcl.contains("CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {200.000}"))
+            assert(ClockPlan.parse("50:100,200,200@45,400,400@90,200@180").exists(_ == clockPlan))
 
         test("the primitive is what the frequencies need, not a choice"):
             assert(ClockPlan(50.0, Seq(ClockOut(200.0, 0.0), ClockOut(100.0, 0.0))).primitive == ClockPrimitive.Pll)
-            // The board's own build: 25 MHz for the core's grid and 100 for the panel, both from the 50 MHz oscillator.
-            assert(clockPlan.primitive == ClockPrimitive.Pll)
+            // The board's own build: the core's 100 MHz and the device's phased 200/400 MHz, all from the oscillator.
+            assert(clockPlan.primitive == ClockPrimitive.Mmcm)
             // A fractional ratio is not what takes the PLL away: 148.5 = 27 × 33 / 6 is an integer solution (VCO 891).
             assert(ClockPlan(27.0, Seq(ClockOut(148.5, 0.0))).primitive == ClockPrimitive.Pll)
             // And an integer-looking plan is not what keeps it: 100 → 33.3 has no exact PLL solution.
@@ -349,7 +486,7 @@ object LxbArtix7ElaborateTest extends TestSuite:
             )
 
         test("the clock plan's flag spelling round-trips"):
-            assert(ClockPlan.parse("50:25,100") == Right(clockPlan))
+            assert(ClockPlan.parse("50:100,200,200@45,400,400@90,200@180") == Right(clockPlan))
             assert(ClockPlan.parse("27:148.5") == Right(ClockPlan(27.0, Seq(ClockOut(148.5, 0.0)))))
             assert(ClockPlan.parse("50:200,100:MMCM").isLeft)
             assert(ClockPlan.parse("50:").isLeft)
@@ -387,25 +524,10 @@ object LxbArtix7ElaborateTest extends TestSuite:
             val (debug, map, capture) = artifacts
             assert(debug == debugTcl)
             // One net key and one probe-port key per probe: the net name when the export keeps it, the port name when
-            // it does not.
-            val netKeys = Seq(
-                "probe_buttonPin" -> "buttonPin",
-                "probe_board50Reset" -> "board50Reset",
-                "probe_bootState" -> "bootState",
-                "probe_bootMagic" -> "bootMagic",
-                "probe_bootAddr" -> "bootAddr",
-                "probe_bootWords" -> "bootWords",
-                "probe_bootWritten" -> "bootWritten",
-                "rx/probe_data" -> "rx_data",
-                "rx/probe_valid" -> "rx_valid",
-                "probe_bootHoldN" -> "bootHoldN",
-                "probe_bootReset" -> "bootReset",
-                "probe_pllLocked" -> "pllLocked",
-                "probe_board100Reset" -> "board100Reset",
-                "probe_coreReset" -> "coreReset",
-                "probe_finished" -> "finished"
-            )
-            for (key, name) <- netKeys do assert(map.contains(s"$key $name"))
+            // it does not — the key is the probe's search pattern without its wildcards, which is what the export names
+            // the net after.
+            for (pattern, name) <- patterns.zip(watched.map(_._1)) do
+                assert(map.contains(s"${pattern.stripPrefix("*").stripSuffix("*")} $name"))
             for (name, i) <- watched.map(_._1).zipWithIndex do assert(map.contains(s"probe$i $name"))
             assert(capture.contains(s"CONTROL.TRIGGER_POSITION ${ila.depth / 4}"))
             assert(capture.contains("run_hw_ila -trigger_now $hw_ila"))
@@ -420,8 +542,10 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sims == "clk_wiz_0/clk_wiz_0_sim_netlist.v\n")
 
         test("the constraints are the parts that declare pins, one file each"):
-            val (board, uart, list) = xdcArtifacts
-            assert(list == "board.xdc\nuart.xdc\n")
+            // One file per part of the design that declares pins, in the order those parts registered: the board's own
+            // pins, the DDR3 bus, the crossing (which declares no pin — only timing), and the serial line.
+            assert(xdcList == "board.xdc\nddr3.xdc\nbusCdc.xdc\nuart.xdc\n")
+            val board = xdcFiles("board")
             assert(board.contains("create_clock -period 20.000 -name CLK_50M [get_ports CLK_50M]"))
             assert(board.contains("set_property PACKAGE_PIN J19 [get_ports CLK_50M]"))
             assert(board.contains("set_property PACKAGE_PIN L18 [get_ports RESET]"))
@@ -429,7 +553,22 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(board.contains("set_false_path -from [get_ports RESET]"))
             assert(board.contains("set_false_path -to [get_clocks -quiet {CLK_50M}]"))
             assert(!board.contains("clk_wiz"))
+            // The bus: the reference's pin map on the top's ports, its I/O standards and termination, and the exceptions
+            // its serializer stages and its capture enable need.
+            val ddr3 = xdcFiles("ddr3")
+            assert(ddr3.contains("set_property PACKAGE_PIN P5 [get_ports DDR3_CK_P]"))
+            assert(ddr3.contains("set_property IOSTANDARD DIFF_SSTL15 [get_ports {DDR3_DQS_P[*]}]"))
+            assert(ddr3.contains("set_property IN_TERM UNTUNED_SPLIT_50 [get_ports {DDR3_DQ[0]}]"))
+            assert(ddr3.contains("set_property MAX_FANOUT 64 [get_cells -hierarchical {*captureOpen_reg*}]"))
+            // The crossing declares no pin: it states what the grids' phase relation does not (the payload is held by the
+            // handshake, so it is a multicycle; the flips are the synchronizer's).
+            val busCdc = xdcFiles("busCdc")
+            assert(
+                busCdc.contains("set_multicycle_path 2 -setup -from [get_cells -hierarchical {*nearReqPayload_*reg*}]")
+            )
+            assert(busCdc.contains("set_false_path -from [get_cells -hierarchical {*nearReqToggle_reg*}]"))
             // The line: the vendor's pins, on the fabric's receive direction and its transmit one.
+            val uart = xdcFiles("uart")
             assert(uart.contains("set_property PACKAGE_PIN U2 [get_ports UART_RX]"))
             assert(uart.contains("set_property IOSTANDARD LVCMOS33 [get_ports UART_RX]"))
             assert(uart.contains("set_property PACKAGE_PIN V2 [get_ports UART_TX]"))
@@ -438,14 +577,17 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(constrained(uart) == Set("UART_RX", "UART_TX"))
 
         test("what the constraints bind is exactly the pins the top declares"):
-            val (board, uart, _) = xdcArtifacts
             // Both directions of the contract: a line for a port the design does not have is an error in Vivado, and a
             // port with no line is a pin the tools would place themselves — so the two sets are one set.
-            assert(constrained(board + uart) == topPorts)
+            assert(xdcFiles.values.map(constrained).reduce(_ ++ _) == topPorts)
 
         test("the bodies the design instantiates but does not define are the dump's, at the shape it built"):
-            // The memory's body is written beside the RTL and listed in the emitted list at the width and depth the
-            // window asked for — 64 KiB of 32-bit words, one read-write port — and the tile's own memories are beside
-            // it at their own shapes.
+            // The board's global buffer, the memory's pads and their delay controller, and the tile's own memories are
+            // written beside the RTL and listed in the emitted list (one pads module per pin count).
             assert(fileList.contains("Bufg.sv"))
-            assert(fileList.contains("SyncRam_dataWidth32_depth16384_ports1rw_readUnderWriteReadFirst.sv"))
+            assert(fileList.contains("Ddr3IdelayCtrl.sv"))
+            assert(fileList.contains("Ddr3DqPads.sv"))
+            assert(fileList.contains("Ddr3DqsPads.sv"))
+            assert(fileList.contains("Ddr3SdrPads15.sv"))
+            assert(fileList.contains("Ddr3LevelPads.sv"))
+            assert(fileList.exists(_.startsWith("SyncRam_")))
