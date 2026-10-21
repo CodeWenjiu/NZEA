@@ -71,10 +71,15 @@ object BootDdr extends Generator[BootDdrParameter, BootDdrLayers, BootDdrIO, Boo
     /** The grid the core, the loader and the memory share: a same-domain sequence, so a load's writes and the core's
       * first fetch are ordered by the one clock, and the hold's release is what the core's own synchronizer cleans.
       *
-      * 25 MHz is the first build's margin: the tile has never run on this board, so the first thing to be sure of is
-      * that it runs at all. The line's divider follows this grid ([[nzea_device.devices.UartRxParameter]]).
+      * 100 MHz, raised from the first build's 25: at 25 the domain's worst path used only 19.8 ns of the 40 ns budget
+      * and 18.5 ns of that was route between the core's instruction-bus buffer and the tile's crossbar — a loose
+      * constraint is what kept the placer from working that boundary, not the core's own depth (1.3 ns of logic on the
+      * same path). At 100 MHz the domain closes with 0.416 ns to spare and that boundary is no longer its worst path:
+      * the core's own backend is (9.5 ns, nine levels), so what is left is depth and routing inside the core, not the
+      * level crossing. The line's divider follows this grid ([[nzea_device.devices.UartRxParameter]]), and so does the
+      * CLINT's timebase.
       */
-    val ClockGrid = ClockOut(25.0, 0.0)
+    val ClockGrid = ClockOut(100.0, 0.0)
 
     /** The reason this logic produces: the core may run — the loader is idle and a program has been loaded. It is a
       * reason of the level's network, so it is the level's own polarity (`1` means *not holding*): the hold is this
