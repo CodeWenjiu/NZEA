@@ -9,11 +9,12 @@ set working-directory := '..'
 _default:
     @just --list fpga
 
-# 先按 dump 出的 filelist 重新生成 Vivado 工程（build_all.tcl / program.tcl 随之更新），再 synth + impl。
+# 先按 dump 出的 filelist 重新生成 Vivado 工程（build_all.tcl / program.tcl 随之更新），再 synth + impl。实现用
+# Performance_ExplorePostRoutePhysOpt，且 route 与 post-route phys-opt 两步都是 AggressiveExplore：默认的 Explore 会让
+# 命令侧那条 4.375 ns 的跨网格电平路径差十几皮秒，也会让 DDR3 控制器那块拥塞口袋里的路径绕线差五十皮秒。RTL 要先
+# `just dump --target fpga`。
 
-# 重新生成工程并构建比特流（约 25-45 分钟：实现用 Performance_ExplorePostRoutePhysOpt 策略，且 route 与
-# post-route phys-opt 两步都是 AggressiveExplore——默认的 Explore 会让命令侧那条 4.375 ns 的跨网格电平路径差
-# 十几皮秒，也会让 DDR3 控制器那块拥塞口袋里的路径绕线差五十皮秒；需先 `just dump --target fpga`）。
+# 重新生成工程并构建比特流（约 25-45 分钟）。
 build board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-project.nu --board {{ board }} --isa {{ isa }}
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --build-only
@@ -22,14 +23,16 @@ build board='lxb_artix7' isa='riscv32i':
 program board='lxb_artix7' isa='riscv32i':
     @nu nzea_fpga/scripts/vivado-flow.nu --board {{ board }} --isa {{ isa }} --program-only
 
-# trigger 为空时立即触发抓一窗；填 <探针>[=<值>]（如 finished=1、bootState=6）则等条件满足再抓（探针是语义名）。
-#
-# 抓一窗 ILA 波形到 VCD，并把探针改名为语义名供 pulse 使用。
+# 触发条件是第三个位置参数：空 = 立即抓一窗；`<探针>[=<值>]` = 等条件满足再抓（探针是语义名，如 finished=1、
+# bootState=6）。抓到的波形写成 VCD，并按探针表改名为语义名供 pulse 使用。
+
+# 抓一窗 ILA 波形到 VCD（探针改名）。
 capture board='lxb_artix7' isa='riscv32i' trigger='':
     @nu nzea_fpga/scripts/ila-capture.nu --board {{ board }} --isa {{ isa }} --trigger '{{ trigger }}'
 
-# wave 非空时场景会 dump 波形到运行目录（<name>.vcd），供 pulse。
-#
-# 跑一个 xsim 场景（nzea_fpga/sim/<name>.sv）：设计取自 dump 的 filelist.f，IP 官方模型取自 simfiles.f；场景自检，失败非零退出。
+# 设计取自 dump 的 filelist.f，IP 的官方模型取自 simfiles.f；场景自检，失败非零退出。给 wave 时场景会把波形
+# dump 到运行目录（<name>.vcd），供 pulse。
+
+# 跑一个 xsim 场景（nzea_fpga/sim/<name>.sv）。
 sim name='TopSmoke' board='lxb_artix7' isa='riscv32i' wave='':
     @nu nzea_fpga/scripts/xsim.nu --name {{ name }} --board {{ board }} --isa {{ isa }} {{ if wave != "" { "--vcd" } else { "" } }}
