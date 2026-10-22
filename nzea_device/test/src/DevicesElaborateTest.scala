@@ -307,9 +307,12 @@ object DevicesElaborateTest extends TestSuite:
 
         test("the blinker at full duty is the plain toggle — no PWM window is built"):
             assert(blink.contains("module Blink("))
-            for port <- Seq("clock", "resetN", "led", "count") do assert(blink.contains(port))
+            for port <- Seq("clock", "resetN", "steady", "led", "count") do assert(blink.contains(port))
             assert(!blink.contains("window"))
 
         test("a duty below 1 gates the lit phase with a counted PWM window"):
             assert(blinkDim.contains("module Blink("))
             assert(blinkDim.contains("window"))
+            // `steady` holds the lit phase on *inside* that window — the level is the toggle or'd with it, then gated — so
+            // a steady LED is as bright as a blinking one's lit phase, not the full brightness of a tied-low pin.
+            assert(blinkDim.contains("(count_0[27] | steady) & window"))

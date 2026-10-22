@@ -24,6 +24,10 @@ class BlinkersIO(parameter: BlinkersParameter) extends HWBundle(parameter):
     val resetN50 = Flipped(Reset())
     val clock100 = Flipped(Clock())
     val resetN100 = Flipped(Reset())
+
+    /** The loaded program's verdict: LED2 stops blinking and stays in its lit phase (`Blink`'s `steady`). */
+    val finished = Flipped(Bool())
+
     val led1 = Aligned(Bool())
     val led2 = Aligned(Bool())
 
@@ -31,6 +35,7 @@ class BlinkersProbe(parameter: BlinkersParameter) extends DVBundle[BlinkersParam
 
 /** The board's two LED indicators, one per clock domain *on purpose*: LED1 runs off the oscillator's own 50 MHz, LED2
   * off the wizard's 100 MHz, so a board where only LED1 blinks says the wizard's clock path — or its IP — is at fault.
+  * LED2 also carries the loaded program's verdict: `finished` holds it in its lit phase, at the panel's own duty.
   */
 @generator
 object Blinkers extends Generator[BlinkersParameter, BlinkersLayers, BlinkersIO, BlinkersProbe]:
@@ -41,8 +46,10 @@ object Blinkers extends Generator[BlinkersParameter, BlinkersLayers, BlinkersIO,
         val blink50 = Blink.instantiate(BlinkParameter(parameter.width, parameter.duty))
         blink50.io.clock := io.clock50
         blink50.io.resetN := io.resetN50
+        blink50.io.steady := false.B
         io.led1 := blink50.io.led
         val blink100 = Blink.instantiate(BlinkParameter(parameter.width, parameter.duty))
         blink100.io.clock := io.clock100
         blink100.io.resetN := io.resetN100
+        blink100.io.steady := io.finished
         io.led2 := blink100.io.led

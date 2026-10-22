@@ -409,10 +409,16 @@ object LxbArtix7ElaborateTest extends TestSuite:
             do assert(sv.contains(s"probe_$probe"))
 
         test("the loaded program's verdict is the board's, not the simulator's"):
-            // The tile shows the finisher's level at its boundary, and the top spends it on the second LED: steady once
-            // the program has written the finisher, the 100 MHz blinker before that (the pin is active-low, so the
-            // steady state is the one that sinks current).
-            assert(sv.matches("(?s).*assign LED2 = ~_tile_finisher_finished & _blinkers_led2;.*"))
+            // The tile shows the finisher's level at its boundary and the panel spends it: LED2 is the panel's own output,
+            // held in its lit phase — at the panel's duty — once the program has written the finisher. The top does not
+            // tie the pin low (that would be full brightness rather than the dimmed LED the board blinks with), so the
+            // pin is the panel's connection and nothing else drives it.
+            assert(!sv.contains("assign LED2"))
+            assert(
+                sv.matches(
+                    "(?s).*Blinkers blinkers \\(.*\\.finished\\s+\\(_tile_finisher_finished\\).*\\.led2\\s+\\(LED2\\).*"
+                )
+            )
 
         // Vivado synthesis silently drops SystemVerilog `bind`, so a layer-hosted observer vanishes from the netlist
         // without a warning (`nzea_rtl.probe.ProbeLayerTest` has the mechanism and the experiment). What watches a board
@@ -439,7 +445,15 @@ object LxbArtix7ElaborateTest extends TestSuite:
         test("a declaration is the module's own: the wire and the attribute are in its Verilog, ports unchanged"):
             assert(blinkSv.contains("(* mark_debug = \"true\" *)"))
             assert(blinkSv.contains("probe_count"))
-            assert(TestFlow.ports(blinkSv, "Blink") == Map("clock" -> 1, "resetN" -> 1, "led" -> 1, "count" -> 27))
+            assert(
+                TestFlow.ports(blinkSv, "Blink") == Map(
+                    "clock" -> 1,
+                    "resetN" -> 1,
+                    "steady" -> 1,
+                    "led" -> 1,
+                    "count" -> 27
+                )
+            )
 
         test("the probe table is the wiring's: what is watched, as what, and how it resolves"):
             assert(probeNames == watched.map(_._1))

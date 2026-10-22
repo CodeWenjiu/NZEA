@@ -223,15 +223,18 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
 
         // One blinker per domain: a board where only LED1 blinks says the wizard's clock path is at fault. It takes the
         // two clocks and the two resets it needs, each the domain's own and already synchronized there.
-        val blinkers = Blinkers.instantiate(BlinkersParameter(26, 0.15))
+        val blinkers = Blinkers.instantiate(BlinkersParameter(26, 0.1))
         blinkers.io.clock50 := clk50
         blinkers.io.resetN50 := resetN50
         led1 := blinkers.io.led1
         blinkers.io.clock100 := clk100
         blinkers.io.resetN100 := resetN100
-        // LED2 answers the loaded program: steady once it has written the finisher, the 100 MHz blinker before that.
+        // LED2 answers the loaded program: steady once it has written the finisher, the 100 MHz blinker before that. The
+        // panel owns both states — a steady LED is the same PWM at the panel's duty, not a pin tied low, which would jump
+        // the LED to full brightness.
         val finished = tile.io.field[FinisherPins]("finisher").finished
-        led2 := finished ? (false.B, blinkers.io.led2)
+        blinkers.io.finished := finished
+        led2 := blinkers.io.led2
 
         // What is watched: the loader's own account of a load, the line's bytes (`BootDdr` binds the receiver's
         // declarations beside its instance), and the program's own verdict — the finisher's level.
