@@ -2,8 +2,8 @@
 
 Status: **复盘记录** — 记录 DDR3 从"无法工作"到"稳定读写"的完整调试历程，提炼项目可改进点。作为后续优化的设计参考。
 
-路径说明（2026-09-27）：文中的 `nzea_fpga/`、`nzea_tile/` 等路径是迁移前（Chisel 树）的快照，现已冻结在 `legacy/`
-（tag `legacy-baseline`）；文中的 `just vivado-*` 等命令需在 `legacy-baseline` 的 worktree 里运行（见 `legacy/README.md`）。
+路径说明（2026-09-27）：文中的 `nzea_fpga/`、`nzea_tile/` 等路径是迁移前（Chisel 树）的快照，现已只在 tag `legacy-baseline`
+中保留（`git worktree add .oracle legacy-baseline` 取回）；文中的 `just vivado-*` 等命令需在该 worktree 里运行。
 
 ## 背景
 
@@ -161,7 +161,7 @@ just dump (15s) → just vivado-build (~7-15min) → just vivado-program (~1min)
 
 ### P2：调试产物管理
 
-13. **板级测试程序统一管理**：一个 `nzea_sim/sim/tile/` 下的测试程序注册表（场景名 → .S → hex 自动生成），支持按场景跑 + 一键清理。
+13. **板级测试程序统一管理**：一个测试程序注册表（场景名 → .S → hex 自动生成），支持按场景跑 + 一键清理（旧实现在 tag `legacy-baseline` 的 `nzea_sim/sim/tile/`）。
 
 ---
 

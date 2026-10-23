@@ -2,7 +2,7 @@
 
 Status: **规则已生效（2026-09-14）** — 本文件是本目录的索引和执行规则。2026-10-13 精简（删 `roadmap.md` / `stat-schema-v2.md` / `RV64-ABI.md` / `RV64I-APP-TARGET.md`）后，goal/ 只保留三类文件。
 
-迁移状态（2026-10-13）：重写树已全部落地（`nzea_rtl` / `nzea_core` / `nzea_top` / `nzea_cli` / `nzea_tile` / `nzea_cache` / `nzea_device` / `nzea_fpga`），核心现状见 `core-baseline.md`。`legacy/`（tag `legacy-baseline`）冻结作参考，是否退役另行决定。
+迁移状态（2026-10-13）：重写树已全部落地（`nzea_rtl` / `nzea_core` / `nzea_top` / `nzea_cli` / `nzea_tile` / `nzea_cache` / `nzea_device` / `nzea_fpga`），核心现状见 `core-baseline.md`。旧实现只在 tag `legacy-baseline` 中保留（`legacy/` 目录已删除）。
 
 ## 文件分类与生命周期
 

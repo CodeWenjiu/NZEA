@@ -57,7 +57,7 @@ class DivIO(parameter: DivParameter) extends HWBundle(parameter):
 class DivProbe(parameter: DivParameter) extends DVBundle[DivParameter, DivLayers](parameter)
 
 /** Multi-cycle restoring divider: one shift, one borrow scan and one conditional subtract per cycle over the operands'
-  * magnitudes — the legacy `DIV` FU's FSM (`legacy/nzea_core/src/back/int/DIV.scala`), rebuilt on today's issue/done
+  * magnitudes — the legacy `DIV` FU's FSM (tag `legacy-baseline`), rebuilt on today's issue/done
   * contract, with the arithmetic rearranged so the iteration holds one carry network instead of a comparator chained
   * into a subtractor.
   *

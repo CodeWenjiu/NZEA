@@ -413,9 +413,9 @@ domains collapse, which is the ILA-export convention.
 
 ## Nzea project specifics
 
-- Waveforms are generated under `build/sim/` by `just iv tile` / `just iv fpga`
-  (e.g. `build/sim/tile/<platform>/<isa>/hw/iverilog/tb.fst`), or by remu at
-  `../remu/target/trace.fst` (usually already set as `NZEA_TRACE_FST`).
+- Waveforms come from the FPGA xsim scenarios (`just fpga sim <name> ... wave`
+  writes `<name>.vcd` in the run directory), from the RTL's iverilog tests, or
+  from remu at `../remu/target/trace.fst` (usually already set as `NZEA_TRACE_FST`).
 - An on-board capture (`build/fpga/<board>/<isa>/vivado/capture.named.vcd`) is a
   flat export: query it with `--scope dut` and the path names, e.g.
   `pulse property --scope dut --eval 'ddr3/state == 25' --count`.

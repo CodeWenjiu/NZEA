@@ -57,7 +57,7 @@ class MulIO(parameter: MulParameter) extends HWBundle(parameter):
 class MulProbe(parameter: MulParameter) extends DVBundle[MulParameter, MulLayers](parameter)
 
 /** Pipelined multiplier: radix-4 Booth partial products, a Wallace-tree compression, and one final carry-propagate
-  * add — the legacy `MUL` FU's three arithmetic stages (`legacy/nzea_core/src/back/int/MUL.scala`), rebuilt on
+  * add — the legacy `MUL` FU's three arithmetic stages (tag `legacy-baseline`), rebuilt on
   * today's issue/done contract, with the result select as the last stage's combinational tail.
   *
   * The point of the shape is that no cycle carries a full-width carry propagation through a loop. The Booth stage is

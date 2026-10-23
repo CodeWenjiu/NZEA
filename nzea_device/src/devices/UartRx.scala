@@ -46,8 +46,8 @@ class UartRxProbe(parameter: UartRxParameter) extends DVBundle[UartRxParameter, 
   * byte is handed out only once the stop bit has been sampled high — a low one is a framing error and the byte is
   * dropped, and the state machine is back to scanning for the next start edge.
   *
-  * Written from the board's legacy receiver (`legacy/nzea_device/src/uart/UartRx.scala`, itself the `uart_lite`
-  * design), the one the board's own loads were validated with.
+  * Written from the board's legacy receiver (the `uart_lite` design in tag `legacy-baseline`), the one the board's own
+  * loads were validated with.
   */
 @generator
 object UartRx extends Generator[UartRxParameter, UartRxLayers, UartRxIO, UartRxProbe]:

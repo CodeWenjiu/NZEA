@@ -1,6 +1,6 @@
 # 仓库指南
 
-> **迁移进行中（2026-09-26）**：核心正在从 Chisel/Scala 2.13 重写到 Scala 3 + zaozi。旧实现冻结在 tag `legacy-baseline` / `legacy/`（不参与构建、不产生 LSP 目标，见 `legacy/README.md`）；下文「项目结构与模块组织」及命令表中的 `nzea_*` 路径与该批命令是**迁移前**形态。重写树用 `nix develop`（JDK 25 + CIRCT）与 `just zaozi-publish`，命令以 justfile 为准。
+> **迁移已完成**：核心已从 Chisel/Scala 2.13 重写到 Scala 3 + zaozi。旧实现只在 tag `legacy-baseline` 中保留（需要时 `git worktree add .oracle legacy-baseline` 取回），工作树中不再有 `legacy/` 目录。重写树用 `nix develop`（JDK 25 + CIRCT）与 `just zaozi-publish`，命令以 justfile 为准。
 >
 > **重写树已落地**：`nzea_rtl`、`nzea_core`（`Core` = 前端/中端/后端本体，总线与提交 trace 无条件为端口）、`nzea_top`（层级 Top 及其 parameter/配置树 `NzeaCoreParameter`/`TopConfig`：`sim` 接 DPI bridge，否则抬成本层端口；生成名 = 层级名）、`nzea_cli`（`just dump --target core`）。
 
@@ -16,7 +16,6 @@
 | `nzea_tile/src` | Tile 级 SoC 封装（NzeaTile + FabricBus crossbar + 平台设备） |
 | `nzea_fpga/src` | FPGA 板级包装：板级顶层（`Top.scala` = 板边界：pad、时钟、复位、接线）、`Clocks.scala`（时钟按需索取：`clock` 取一根网、`bind` 把实例端口挂到网格上，末尾 `materialize` 一次建成 wizard）、`logic/`（本层逻辑，新模块归属规则见 `src/logic/README.md`）、`device/<chip>/`（板上芯片，自己管自己的 pad/时钟/探针，如 `device/ddr3/Ddr3Side.scala`）、`boards/<board>/`（板的事实：引脚图、振荡器 `BoardClock`、约束）、`ip/`（厂商 IP）、`primitives/`（带文本体的原语）、`XdcRegistry.scala`（约束按模块注册、按需生成） |
 | `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |
-| `nzea_sim/src` | 仿真层模块，为 tile/fpga 生成独立仿真 RTL + TB，输出到 `build/sim/` |
 | `pulse/` | 波形分析 CLI（info/scope/signal/value/property + 事件文件跨模块组合），替代 wavepeek；用法见 `.agents/skills/pulse/` |
 | `probe/` | FPGA 板级调试工具箱（UART load/reset/monitor，未来扩展 JTAG/ILA 控制），Rust workspace；用法见 `.agents/skills/fpga-flow/` |
 
@@ -31,7 +30,7 @@ flowchart TD
     top --> cli
 ```
 `nzea_cli` 依赖 `nzea_top`、`nzea_core`、`nzea_rtl` 用于参数解析和目标分发。
-配置的定义随消费它的模块走（ISA/宽度在 `nzea_core.isa`，bypass 链接在 `nzea_core.config`，flow 在 `nzea_rtl`），各层 Top 连同它的 parameter 与配置树在自己的模块里汇总（`nzea_top.NzeaCoreParameter`/`TopConfig`），没有中心汇总模块。后续的 `nzea_device` / `nzea_cache` / `nzea_tile` / `nzea_fpga` / `nzea_sim` 按同一形状接入：引擎待在 `nzea_rtl` 之上，各层的 Top 定义自己的 parameter，把子模块的 config 组装成自己的配置树。
+配置的定义随消费它的模块走（ISA/宽度在 `nzea_core.isa`，bypass 链接在 `nzea_core.config`，flow 在 `nzea_rtl`），各层 Top 连同它的 parameter 与配置树在自己的模块里汇总（`nzea_top.NzeaCoreParameter`/`TopConfig`），没有中心汇总模块。`nzea_device` / `nzea_cache` / `nzea_tile` / `nzea_fpga` 按同一形状接入：引擎待在 `nzea_rtl` 之上，各层的 Top 定义自己的 parameter，把子模块的 config 组装成自己的配置树。
 
 ### 设计原则
 1. 配置的定义随消费它的模块走（`nzea_core.isa`、`nzea_core.config.BypassLevel`、`nzea_rtl.RtlFlow`）；各层 Top 在自己的 parameter/配置树里汇总（`nzea_top.TopConfig`），不重复定义。
@@ -66,16 +65,11 @@ flowchart TD
 - `just test-match <module> <pattern>`：类名匹配 pattern 的套件，支持通配符或精确类名。
 - `mill nzea_core.test` / `mill nzea_rtl.test`：直接通过 Mill 运行。
 
-测试源码位于 `nzea_core/test/src`、`nzea_rtl/test/src` 和 `nzea_cache/test/src`，命名应具有描述性（如 `VectorBackendTest.scala`）。修改综合或 STA 流程后附上具体命令和报告路径。
+测试源码位于各模块的 `test/src`（`nzea_core`、`nzea_rtl`、`nzea_device`、`nzea_tile`、`nzea_fpga`、`nzea_top`），命名应具有描述性（如 `Ddr3SmokeTest.scala`）。修改综合或 STA 流程后附上具体命令和报告路径。
 
-### 仿真（iverilog）
-- `just iv tile yosys <isa> [hex] [boot] [wave]`：tile 四态仿真（**仅 yosys 平台**——fpga 平台设备在板外/平台 IP，TB 未覆盖）。
-- 输出：`build/sim/tile/yosys/<isa>/hw/iverilog/tb.{vvp,fst}`
-- 测试平台位于 `nzea_sim/sim/`。iv 使用 `sim=false` 的可综合 RTL 作为仿真对象；yosys 平台的板外设备（RAM/UART/CLINT/finisher）以真实 RTL 替身（`yosys.DeviceModels`）挂接，hex 通过 `$readmemh` 直接初始化 RAM。
-
-**Chisel TB 规范**：必须有 `io.result` 锚定输出 + `dontTouch` 关键信号防 DCE；companion object 提供 `emitWrapper(outDir)` 写 `initial`/`timescale` wrapper；`BlackBoxInline` 不能做顶层；tile TB 保持 Verilog（CIRCT 提取的 RAM 模块层次由 TB 直接引用，Chisel TB 无法稳定锚定）。
-
-调试死锁仿真 → 加载 skill `iverilog-debug`。
+### 仿真（xsim）
+- `just fpga sim <name> [board] [isa] [wave]`：跑一个 xsim 场景（`nzea_fpga/sim/<name>.sv`）；设计取自 dump 的 `filelist.f`，IP 的官方模型取自 `simfiles.f`，场景自检，失败非零退出。
+- 给 `wave` 时场景把波形 dump 到运行目录（`<name>.vcd`），供 pulse 使用。
 
 ### remu difftest（跨仓库）
 - remu 是独立仓库（`../remu`）。跑 difftest 时用 **remu 自己的 dev shell**（`cd ../remu && nix develop`）：remu 的运行依赖 zlib/lz4 只在其 `flake.nix` 里声明并导出 `LD_LIBRARY_PATH`，**nzea 的 flake 不含这两个**——用 nzea 的 shell 链接/运行 remu 会失败。

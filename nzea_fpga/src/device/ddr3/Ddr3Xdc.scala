@@ -6,7 +6,7 @@ import nzea_fpga.XdcRegistry
   * pads' serializer stages need.
   *
   * The pins are the MIG reference's — the vendor's own example for this board, whose `mig_ddr3.xdc` carries the same
-  * map (kept in the legacy tree, `legacy/nzea_fpga/src/boards/lxb_artix7/ddr3_ref/`). The *names* are this design's:
+  * map (kept in tag `legacy-baseline` under `nzea_fpga/src/boards/lxb_artix7/ddr3_ref/`). The *names* are this design's:
   * the level's own ports ([[nzea_fpga.TopIO]]), which the pads' modules drive ([[Ddr3Pads]]).
   */
 object Ddr3Xdc:

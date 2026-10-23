@@ -13,7 +13,7 @@ v2 follow-up (same day) moved declaration to the call site: a module declares a 
 comes down in its own parameter, and the name is the scope's path plus the local name — `stat_core_middle_cycle`,
 `stat_core_back_int_bp_branch` — so `source` is the declaring block and the name carries where in the design it sits.
 One black box per counter, named after the counter, carries the `public_flat_rd` register. The specification below was
-not changed otherwise; `legacy/` (tag `legacy-baseline`) keeps the pre-rewrite version.
+not changed otherwise; tag `legacy-baseline` keeps the pre-rewrite version.
 
 Verification owner: the nzea side provides the artifact, the reference values (§8) and the acceptance run; the
 requirements below are testable one by one.
