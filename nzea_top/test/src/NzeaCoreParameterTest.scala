@@ -15,7 +15,6 @@ object NzeaCoreParameterTest extends TestSuite:
         NzeaCoreParameter(
             TopConfig(CoreConfig(Isa("riscv32im"), 0x80000000L)),
             RtlFlow.Yosys,
-            Seq("0x10000000:8"),
             BypassLevel.Commit,
             Some(BpuConfig(BpuStrategy.Bimodal(128, 8), None)),
             4,

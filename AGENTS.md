@@ -9,7 +9,7 @@
 | 模块 | 用途 |
 |--------|---------|
 | `nzea_rtl/src` | 共享 RTL 工具：`bus/`（LiteBus、AddressMap、crossbar）、`stat/`（计数器/schema/scope）、`probe/`（探针声明/绑定）、`stdlib/`（Arith、Mux、Pipe、SyncRam、`Resets` 复位原因网络等）与根下的生成流程（`Elaborate`/`FileList`/`RtlFlow`） |
-| `nzea_device/src` | 可复用设备 IP（UART、定时器等），不依赖任何业务模块 |
+| `nzea_device/src` | 可复用设备 IP（UART、定时器等）与平台设备清单（`PlatformDevices.devices` / `mmioWindows`），不依赖任何业务模块 |
 | `nzea_cache/src` | Cache 实现（I-Cache、D-Cache），依赖 `nzea_rtl` |
 | `nzea_core/src` | 核心流水线：前端（IFU/IDU/ISU/RAT/PRF/CSR/BP）、后端（integer/V/NNU/LSU）、退休（ROB/Commit/WBU） |
 | `nzea_top/src` | 层级 Top 及其 parameter/配置树（`NzeaCoreParameter`、`TopConfig`）、随基线的旗标镜像（`TopConfigArgs`、`CoreConfigArgs`）与生成门面（`NzeaCoreElaborate`）；生成名 = 层级名 |

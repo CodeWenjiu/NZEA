@@ -45,4 +45,3 @@ object NzeaCoreElaborate:
             parameter.stats.name
         ) ++ parameter.bpu.toSeq.flatMap(bpu => Seq("--bpu", bpu.name))
             ++ Seq("--lsqDepth", parameter.lsqDepth.toString)
-            ++ parameter.mmioRanges.flatMap(window => Seq("--mmioRanges", window))

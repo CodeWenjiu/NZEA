@@ -12,6 +12,7 @@ import nzea_core.{Core, CoreParameter}
 import nzea_core.back.mem.{DbusUser, MemPath}
 import nzea_core.front.ifu.{IbusUser, Ifu}
 import nzea_core.isa.{CsrType, Gpr}
+import nzea_device.PlatformDevices
 import nzea_device.devices.{
     BusDpiDevice,
     BusDpiDeviceParameter,
@@ -71,7 +72,7 @@ object NzeaCore extends Generator[NzeaCoreParameter, NzeaCoreLayers, NzeaCoreIO,
                     c.isa,
                     c.defaultPc,
                     parameter.flow,
-                    parameter.mmioRanges,
+                    PlatformDevices.mmioWindows(parameter.flow),
                     parameter.bypass,
                     parameter.bpu,
                     parameter.lsqDepth,

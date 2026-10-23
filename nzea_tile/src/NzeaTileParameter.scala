@@ -8,10 +8,11 @@ import nzea_core.config.{BpuConfig, BpuStrategy, BypassLevel, CoreConfig}
 import nzea_core.isa.Isa
 import nzea_rtl.RtlFlow
 import nzea_rtl.stat.StatScope
+import nzea_device.{DeviceSpec, PlatformDevices}
 
 /** The tile level's parameter: the core knobs it passes down, the flow whose hardware it builds, and the windows the
-  * level above answers. The device inventory is not a parameter — the flow states what hardware a build has
-  * ([[NzeaTile]]'s `devices` extension) — and answering a window is an *increment* on it: an external entry shadows the
+  * level above answers. The device inventory is not a parameter — the platform states what hardware a build has
+  * (`nzea_device.PlatformDevices`) — and answering a window is an *increment* on it: an external entry shadows the the
   * same-named device, so a caller adds to [[externals]] and never prunes the flow's list. The tile derives the core's
   * MMIO windows from these two lists, so the map is stated once and never accepted from a caller. The clock rate is the
   * level's own fact (the tile is handed a clock, not a frequency): the devices whose timing is a rate — the UART's bit
@@ -36,7 +37,7 @@ case class NzeaTileParameter(
       * identity, so an external entry shadows the flow's device of that name — the map keeps exactly one entry per
       * window, and forgetting to prune cannot produce two.
       */
-    def built: Seq[DeviceSpec] = flow.devices.filterNot(d => externals.exists(_.name == d.name))
+    def built: Seq[DeviceSpec] = PlatformDevices.devices(flow).filterNot(d => externals.exists(_.name == d.name))
 
 /** The tile's cache flags (`--icache` / `--dcache`): which cache to build, or none. A flag cannot be absent and
   * explicit at the same time, so this type says both in one token — `none` is a value like any other.
@@ -64,9 +65,9 @@ object CacheChoice:
 
 object NzeaTileParameter:
 
-    /** The baseline: the tile's own values, the bridge flow's hardware ([[NzeaTile]] states the inventory beside the
-      * wiring it reads), the rate a bridge-flow build ignores (no device hardware is built there), and no external
-      * windows — a level that answers none is a level with nothing above it yet.
+    /** The baseline: the tile's own values, the bridge platform's hardware (`nzea_device` states the inventory), the
+      * rate a bridge-flow build ignores (no device hardware is built there), and no external windows — a level that
+      * answers none is a level with nothing above it yet.
       */
     def default: NzeaTileParameter = NzeaTileParameter(
         config = CoreConfig(Isa("riscv32i"), 0x80000000L),

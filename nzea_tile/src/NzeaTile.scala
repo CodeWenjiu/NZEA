@@ -17,7 +17,6 @@ import nzea_device.DeviceContext
 import nzea_device.DeviceKind
 import nzea_device.connect
 import nzea_device.devices.{Debugger, DebuggerParameter}
-import nzea_rtl.RtlFlow
 import nzea_rtl.bus.*
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
@@ -211,50 +210,3 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
       */
     def mmioWindows(map: AddressMap): Seq[String] =
         map.mmioRanges.map(window => s"0x${window.base.toString(16)}:0x${window.size.toString(16)}")
-
-/** The rate the platform's bridge speaks, the same number the loader's receiver is told ([[nzea_fpga.Top]]): the UART
-  * transmits at it, and a program's bytes reach the host at it. Two consumers, one line.
-  */
-private val LineHz = 115200
-
-/** The platform's hardware for a flow — the inventory the wiring above reads, stated in the file whose wiring reads it.
-  * A flow builds what it can: the bridge flow gets every window (the simulator answers them all, so a device with no
-  * hardware yet — the UART — is still a window), a synthesis flow gets what has hardware. A window the level above
-  * answers is not built ([NzeaTileParameter.built] shadows it). The two flows diverge on purpose, and the inventory is
-  * stated as an extension rather than on `RtlFlow` so platform addresses stay out of `nzea_rtl`.
-  */
-extension (flow: RtlFlow)
-
-    def devices: Seq[DeviceSpec] = flow match
-        case RtlFlow.Verilator =>
-            Seq(
-                DeviceSpec(
-                    "ram",
-                    AddrRange(BigInt("80000000", 16), BigInt("08000000", 16)),
-                    DeviceKind.Ram(SyncRamPorts.OneRW)
-                ),
-                DeviceSpec(
-                    "uart16550",
-                    AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)),
-                    DeviceKind.Uart(LineHz)
-                ),
-                DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
-                DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)
-            )
-        case RtlFlow.Yosys =>
-            // The synthesis flow: what has hardware. The UART is print-only (its receive half is not ported) and the
-            // RAM's window is its storage — a window worth building, not the 128 MiB the simulator models.
-            Seq(
-                DeviceSpec(
-                    "ram",
-                    AddrRange(BigInt("80000000", 16), BigInt("00020000", 16)),
-                    DeviceKind.Ram(SyncRamPorts.OneRW)
-                ),
-                DeviceSpec(
-                    "uart16550",
-                    AddrRange(BigInt("10000000", 16), BigInt("00000008", 16)),
-                    DeviceKind.Uart(LineHz)
-                ),
-                DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
-                DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint)
-            )

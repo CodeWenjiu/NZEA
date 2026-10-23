@@ -218,6 +218,51 @@ object DevicesElaborateTest extends TestSuite:
         cfg => IbusDpiDevice.main(Array("design", cfg.toString))
     )
 
+    private lazy val peripheralBridgeBridged = TestFlow.lower(
+        PeripheralBridge.moduleName(PeripheralBridgeParameter(32, 32, 4, 1, RtlFlow.Verilator)),
+        cfg =>
+            PeripheralBridge.main(
+                Array(
+                    "config",
+                    cfg.toString,
+                    "--addrWidth",
+                    "32",
+                    "--dataWidth",
+                    "32",
+                    "--userWidth",
+                    "4",
+                    "--idWidth",
+                    "1",
+                    "--flow",
+                    "verilator"
+                )
+            ),
+        cfg => PeripheralBridge.main(Array("design", cfg.toString))
+    )
+
+    /** The same window with nothing behind it: the synthesis flow answers zero and acknowledges writes. */
+    private lazy val peripheralBridgeHw = TestFlow.lower(
+        PeripheralBridge.moduleName(PeripheralBridgeParameter(32, 32, 4, 1, RtlFlow.Yosys)),
+        cfg =>
+            PeripheralBridge.main(
+                Array(
+                    "config",
+                    cfg.toString,
+                    "--addrWidth",
+                    "32",
+                    "--dataWidth",
+                    "32",
+                    "--userWidth",
+                    "4",
+                    "--idWidth",
+                    "1",
+                    "--flow",
+                    "yosys"
+                )
+            ),
+        cfg => PeripheralBridge.main(Array("design", cfg.toString))
+    )
+
     private lazy val debugger = TestFlow.lower(
         Debugger.moduleName(DebuggerParameter(32, 5, 12, RtlFlow.Verilator)),
         cfg =>
@@ -304,6 +349,30 @@ object DevicesElaborateTest extends TestSuite:
                 )
             do assert(debugger.contains(port))
             assert(debugger.contains("commit_trace"))
+
+        test("the peripheral bridge forwards to the simulator in the bridge flow"):
+            assert(peripheralBridgeBridged.contains("module PeripheralBridge("))
+            for port <- Seq("bus_req_valid", "bus_resp_valid", "bus_req_bits_wen")
+            do assert(peripheralBridgeBridged.contains(port))
+            assert(peripheralBridgeBridged.contains("bus_read") && peripheralBridgeBridged.contains("bus_write"))
+
+        test("the peripheral bridge is a TODO in a synthesis flow"):
+            assert(peripheralBridgeHw.contains("module PeripheralBridge("))
+            for port <- Seq("bus_req_valid", "bus_resp_valid", "bus_req_bits_wen")
+            do assert(peripheralBridgeHw.contains(port))
+            assert(!peripheralBridgeHw.contains("bus_read") && !peripheralBridgeHw.contains("bus_write"))
+            assert(peripheralBridgeHw.contains("$fatal"))
+
+        test("the device kinds round-trip through their flag spelling"):
+            val kinds = Seq(
+                DeviceKind.Ram(SyncRamPorts.OneRW),
+                DeviceKind.Uart(115200),
+                DeviceKind.Finisher,
+                DeviceKind.Clint,
+                DeviceKind.PeripheralBridge
+            )
+            for kind <- kinds do assert(upickle.default.read[DeviceKind](upickle.default.write(kind)) == kind)
+            assert(upickle.default.write[DeviceKind](DeviceKind.PeripheralBridge) == "\"PeripheralBridge\"")
 
         test("the blinker at full duty is the plain toggle — no PWM window is built"):
             assert(blink.contains("module Blink("))

@@ -10,6 +10,7 @@ import nzea_device.devices.{
     ClintParameter,
     ClintPins,
     FinisherPins,
+    PeripheralBridgeParameter,
     RamFabricSlave,
     RamFabricSlaveParameter,
     RamPins,
@@ -45,6 +46,7 @@ enum DeviceKind:
     case Uart(lineHz: Int)
     case Finisher
     case Clint
+    case PeripheralBridge
 
     def slaveKind: SlaveKind = this match
         case Ram(_) => SlaveKind.Memory
@@ -55,10 +57,11 @@ enum DeviceKind:
       * on: the macro's cycle time is its own, so it is not the tile's clock.
       */
     def pins(flow: RtlFlow)(using TypeImpl, ConstructorApi): Option[Bundle] = this match
-        case Ram(_)   => if flow.bridges then None else Some(new RamPins)
-        case Uart(_)  => if flow.bridges then None else Some(new UartPins)
-        case Finisher => if flow.bridges then None else Some(new FinisherPins)
-        case Clint    => if flow.bridges then None else Some(new ClintPins)
+        case Ram(_)           => if flow.bridges then None else Some(new RamPins)
+        case Uart(_)          => if flow.bridges then None else Some(new UartPins)
+        case Finisher         => if flow.bridges then None else Some(new FinisherPins)
+        case Clint            => if flow.bridges then None else Some(new ClintPins)
+        case PeripheralBridge => None
 
     /** Whether the boundary is the level's input (a clock the level supplies) or its output (a flag the device shows).
       * Inputs flow down — `level :>= device.boundary` — outputs flow up.
@@ -121,6 +124,11 @@ enum DeviceKind:
                     flow
                 )
             )
+        case PeripheralBridge =>
+            // Fully qualified for the same reason as `Uart`.
+            nzea_device.devices.PeripheralBridge.instantiate(
+                PeripheralBridgeParameter(ctx.addrWidth, ctx.dataWidth, ctx.userWidth, ctx.idWidth, flow)
+            )
 
     /** Drive the boundary of a device the level does not expose.
       *
@@ -153,14 +161,16 @@ object DeviceKind:
             .readwriter[String]
             .bimap(
                 {
-                    case DeviceKind.Ram(ports)   => s"Ram:${ports.name}"
-                    case DeviceKind.Uart(lineHz) => s"Uart:$lineHz"
-                    case DeviceKind.Finisher     => "Finisher"
-                    case DeviceKind.Clint        => "Clint"
+                    case DeviceKind.Ram(ports)       => s"Ram:${ports.name}"
+                    case DeviceKind.Uart(lineHz)     => s"Uart:$lineHz"
+                    case DeviceKind.Finisher         => "Finisher"
+                    case DeviceKind.Clint            => "Clint"
+                    case DeviceKind.PeripheralBridge => "PeripheralBridge"
                 },
                 {
                     case "Finisher"                 => DeviceKind.Finisher
                     case "Clint"                    => DeviceKind.Clint
+                    case "PeripheralBridge"         => DeviceKind.PeripheralBridge
                     case s if s.startsWith("Ram:")  => DeviceKind.Ram(SyncRamPorts.parseOrThrow(s.stripPrefix("Ram:")))
                     case s if s.startsWith("Uart:") => DeviceKind.Uart(s.stripPrefix("Uart:").toInt)
                     case other => throw new IllegalArgumentException(s"unknown device kind '$other'")

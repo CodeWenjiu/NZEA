@@ -6,8 +6,8 @@ import nzea_rtl.Elaborate
   *
   * The two-step protocol (`config` writes the parameter out, `design` reads it back and elaborates, `firld` joins the
   * modules) is [[nzea_top.NzeaCoreElaborate]]'s; a level top spells its own parameter's flags and nothing else. What a
-  * flow can build is the flow's own inventory, stated beside the wiring that reads it ([[NzeaTile]]'s `devices`
-  * extension on [[nzea_rtl.RtlFlow]]) — the parameter carries the windows the level above answers, not that list.
+  * flow can build is the platform's inventory (`nzea_device.PlatformDevices`) — the parameter carries the windows the
+  * level above answers, not that list.
   */
 object NzeaTileElaborate:
 

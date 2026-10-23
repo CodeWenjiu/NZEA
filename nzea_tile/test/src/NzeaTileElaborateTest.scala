@@ -1,7 +1,9 @@
 package nzea_tile
 
 import nzea_rtl.TestFlow
+import nzea_rtl.RtlFlow
 import nzea_rtl.bus.{AddrRange, SlaveKind}
+import nzea_device.DeviceKind
 import utest.*
 
 /** The tile elaborates through the real flow as the core behind the fabric: the top carries `clock`, `reset`, and —
@@ -74,6 +76,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 "Uart",
                 "SifiveTestFinisher",
                 "Clint",
+                "PeripheralBridge",
                 "Debugger"
             )
             // Parameterized bodies carry their shape in the name, so the check is on the prefix.
@@ -97,7 +100,10 @@ object NzeaTileElaborateTest extends TestSuite:
             assert(sv.contains("bp_update_valid"))
 
         test("the device list is the fabric's slave inventory"):
-            assert(NzeaTileParameter.default.built.map(_.name) == Seq("ram", "uart16550", "finisher", "clint"))
+            assert(
+                NzeaTileParameter.default.built
+                    .map(_.name) == Seq("ram", "uart16550", "finisher", "clint", "peripheral")
+            )
             assert(
                 NzeaTile
                     .fabricMap(parameter)
@@ -105,9 +111,24 @@ object NzeaTileElaborateTest extends TestSuite:
                     .map(_.base) == Seq(
                     BigInt("10000000", 16),
                     BigInt("00100000", 16),
-                    BigInt("02000000", 16)
+                    BigInt("02000000", 16),
+                    BigInt("88000000", 16)
                 )
             )
+
+        test("the peripheral window is one MMIO window, closed at its end"):
+            val peripheral = NzeaTile.fabricMap(parameter).slave("peripheral")
+            assert(peripheral.kind == SlaveKind.Mmio)
+            assert(peripheral.range.base == BigInt("88000000", 16))
+            assert(peripheral.range.endExclusive == BigInt("90000000", 16))
+            assert(peripheral.range.contains(BigInt("88000000", 16)))
+            assert(peripheral.range.contains(BigInt("8fffffff", 16)))
+            assert(!peripheral.range.contains(BigInt("90000000", 16)))
+
+        test("the synthesis flow builds no peripheral bridge"):
+            val synthesis = parameter.copy(flow = RtlFlow.Yosys)
+            assert(!synthesis.built.exists(_.kind == DeviceKind.PeripheralBridge))
+            assert(NzeaTile.fabricMap(synthesis).slaves.forall(_.name != "peripheral"))
 
         test("an external window leaves the tile as its own bus port, the fabric's shape, the tile as master"):
             val ports = TestFlow.ports(externalSv, "NzeaTile")
@@ -122,7 +143,10 @@ object NzeaTileElaborateTest extends TestSuite:
 
         test("an external window is a window on the map, and its kind decides what it joins"):
             val map = NzeaTile.fabricMap(externalParameter)
-            assert(map.slaves.map(_.name) == Seq("ram", "uart16550", "finisher", "clint", "extMem", "extRegs"))
+            assert(
+                map.slaves
+                    .map(_.name) == Seq("ram", "uart16550", "finisher", "clint", "peripheral", "extMem", "extRegs")
+            )
             // A memory window joins what a cache may refill from (the tile's own filter), an MMIO one the trace's windows.
             assert(map.slaves.filter(_.kind == SlaveKind.Memory).map(_.name) == Seq("ram", "extMem"))
             assert(map.mmioRanges.map(_.base).contains(BigInt("03000000", 16)))

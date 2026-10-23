@@ -19,3 +19,6 @@ object DeviceTimings:
     val finisher = DeviceTiming(latency = 4, jitterEvery = 4, jitterSpan = 4)
 
     val clint = DeviceTiming(latency = 8, jitterEvery = 4, jitterSpan = 4)
+
+    /** The peripheral bridge: one window in front of a secondary bus; the forward's residency is the bridge's own. */
+    val peripheral = DeviceTiming(latency = 4, jitterEvery = 4, jitterSpan = 4)
