@@ -27,10 +27,6 @@ def main [
         exit 1
     }
 
-    # The rename map and the capture script come from the same emission; the probe binary is built on demand.
-    cargo build --release --quiet --manifest-path probe/Cargo.toml -p probe_cli
-    let probe_bin = "probe/target/release/probe" | path expand
-
     let what = if $trigger == "" { "immediate trigger" } else { $"armed on ($trigger)" }
     print $"Capturing ILA ($what)…"
     let script = $"cd ($vivado_dir)
@@ -46,6 +42,7 @@ exit
     }
     let named = $"($vivado_dir)/capture.named.vcd"
     let map = $"($rtl_dir)/ila_probes.map"
-    ^$probe_bin vcd-rename $map $vcd $named
+    # The rename map and the capture script come from the same emission.
+    cargo run --release --quiet -p probe_cli -- vcd-rename $map $vcd $named
     print $"ILA capture ready for pulse: ($named)"
 }

@@ -79,11 +79,11 @@ mod fpga 'nzea_fpga/justfile'
 # 和已编程的板子通信。
 [group('probe')]
 probe *ARGS:
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p probe_cli -- {{ ARGS }}
+    @cargo run --release --quiet -p probe_cli -- {{ ARGS }}
 
 # 内建程序用 `--list` 列出（`just asm2hex --list`）。
 
 # 把测试程序汇编成 tile boot hex。
 [group('probe')]
 asm2hex *ARGS:
-    @cargo run --release --quiet --manifest-path probe/Cargo.toml -p asm2hex -- {{ ARGS }}
+    @cargo run --release --quiet -p asm2hex -- {{ ARGS }}

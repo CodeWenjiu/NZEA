@@ -118,6 +118,6 @@ today.
 | Stdlib as `.pulse` templates | Text substitution before parsing; parameters may sit in any syntactic position; evaluator knows no template built-ins (`&&` aliases are noise). Value-level `change` is the one evaluator built-in because templates cannot sample integer values across cycles |
 | History sampling via `->n` | `x ->1 1` reads one cycle back; no `prev` function — the window operator `n--m` covers ranges |
 | Window operator `n--m` | One origin semantics: A is the origin, B within [n before, m after]; `--n`/`n--` are degenerate forms; lookahead is free on a loaded waveform |
-| Single Rust crate per layer | `pulse_wave` (library) + `pulse_cli` + `pulse_macro` |
+| Single Rust crate per layer | `pulse_wave` (library) + `pulse_cli`; the `mod_*!` macros live in the repo-level `crates/nzea_macro` |
 | JSON output on demand | `--json` flag on every command; text output stays the default for humans |
 | Search speed | Strong `--cycles` window is the primary lever; `--max` only truncates afterwards |

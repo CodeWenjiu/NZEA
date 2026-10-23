@@ -20,11 +20,7 @@
 //! When the port argument is empty or omitted, the CH340 UART is discovered
 //! automatically via the stable `/dev/serial/by-id` alias (see `serial.rs`).
 
-mod elf;
-mod hex;
-mod protocol;
-mod serial;
-mod vcd;
+nzea_macro::mods!(elf, hex, protocol, serial, vcd);
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};

@@ -303,9 +303,9 @@ ls -l /dev/serial/by-id/
 # → usb-1a86_USB_Serial-if00-port0 -> ../../ttyUSB1
 ```
 
-The `probe` Rust workspace (`probe/cli`, binary `probe/target/release/probe`, reached as `just probe <cmd>`) is the
-host tool for the whole loop, and the board now carries both its ends — the loader (RX) and the tile's 16550 (TX), one
-line, both told 115200:
+The `probe` crate (`probe/cli`, binary `target/release/probe` in the repo's Cargo workspace, reached as
+`just probe <cmd>`) is the host tool for the whole loop, and the board now carries both its ends — the loader (RX)
+and the tile's 16550 (TX), one line, both told 115200:
 
 ```sh
 just asm2hex --test print_only /tmp/hello.hex            # assemble a test program (`--list` shows the tests)
@@ -327,8 +327,9 @@ What the program may assume (the contract is the tool's, not documented anywhere
 `0x8000_0000` (`asm2hex`'s default). At the 25 MHz grid the core is slower than the line, so a `putc` loop cannot
 overrun the byte time (87 µs); with caches enabled it could — poll LSR.THRE before that day.
 
-Note: `probe` is a separate Rust workspace; `linkedProjects` in `.zed/settings.json` disables rust-analyzer
-auto-discovery, so **every new Rust workspace in this repo must be listed there** or rust-analyzer will
+Note: `probe` and `pulse` are members of one repo-level Cargo workspace (`Cargo.toml` at the repo root, members
+under `probe/` and `pulse/`); `linkedProjects` in `.zed/settings.json` lists that single manifest, and it disables
+rust-analyzer auto-discovery — a *new, separate* Rust workspace would have to be added there or rust-analyzer will
 silently not load it.
 
 ## Troubleshooting

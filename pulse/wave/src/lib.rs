@@ -1,8 +1,8 @@
 use clap::{CommandFactory, FromArgMatches, Parser};
 use wellen::simple;
 
-pulse_macro::mod_flat!(command, cycle, error, radix, read, skill, time_spec, tree);
-pulse_macro::mod_pub!(cmd);
+nzea_macro::mod_flat!(command, cycle, error, radix, read, skill, time_spec, tree);
+nzea_macro::mod_pub!(cmd);
 
 /// Parse process arguments, exiting with clap's message plus the quoting tip on
 /// error: the binary uses this instead of `Parser::parse` so that a mistyped

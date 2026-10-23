@@ -3,16 +3,6 @@
   "file_scan_exclusions": [
     ".oracle"
   ],
-  "lsp": {
-    "rust-analyzer": {
-      "initialization_options": {
-        "linkedProjects": [
-          "pulse/Cargo.toml",
-          "probe/Cargo.toml"
-        ]
-      }
-    }
-  },
   "languages": {
       "Python": {
           "enable_language_server": false,

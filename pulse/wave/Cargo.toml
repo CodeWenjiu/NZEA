@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-pulse_macro = { path = "../pulse_macro" }
+nzea_macro = { workspace = true }
 
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 winnow = { workspace = true }
-wellen = "0.25.6"
+wellen = { workspace = true }
 clap = { workspace = true, features = [ "derive", "color", "env" ] }
 tabled = { workspace = true }
 
@@ -18,4 +18,4 @@ tabled = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-proptest = "1"
+proptest = { workspace = true }

@@ -17,7 +17,7 @@
 | `nzea_fpga/src` | FPGA 板级包装：板级顶层（`Top.scala` = 板边界：pad、时钟、复位、接线）、`Clocks.scala`（时钟按需索取：`clock` 取一根网、`bind` 把实例端口挂到网格上，末尾 `materialize` 一次建成 wizard）、`logic/`（本层逻辑，新模块归属规则见 `src/logic/README.md`）、`device/<chip>/`（板上芯片，自己管自己的 pad/时钟/探针，如 `device/ddr3/Ddr3Side.scala`）、`boards/<board>/`（板的事实：引脚图、振荡器 `BoardClock`、约束）、`ip/`（厂商 IP）、`primitives/`（带文本体的原语）、`XdcRegistry.scala`（约束按模块注册、按需生成） |
 | `nzea_cli/src` | CLI 入口；解析参数并分发到 `CoreElaborate`、`TileElaborate` 或 `FpgaElaborate` |
 | `pulse/` | 波形分析 CLI（info/scope/signal/value/property + 事件文件跨模块组合），替代 wavepeek；用法见 `.agents/skills/pulse/` |
-| `probe/` | FPGA 板级调试工具箱（UART load/reset/monitor，未来扩展 JTAG/ILA 控制），Rust workspace；用法见 `.agents/skills/fpga-flow/` |
+| `probe/` | FPGA 板级调试工具箱（UART load/reset/monitor，未来扩展 JTAG/ILA 控制），Rust crate；用法见 `.agents/skills/fpga-flow/` |
 
 ### 依赖方向
 ```mermaid
@@ -86,6 +86,7 @@ flowchart TD
 - **justfile 的注释分两层**：紧贴 recipe 的那一行是它的说明，`just --list` 和编辑器的自动提示会原样显示它——一句话说清“做什么”，不写原因、前置条件或用法细节。更长的解释写成与 recipe **隔一个空行**的块注释（空行让它不再成为提示文本），或放进文件顶部的分区块里。
 - 禁止重新引入已删除的命令（如 `just run`）。
 - 修改综合或 STA 脚本时，保持命令示例与 `justfile` 一致。
+- **Rust 侧是仓库根单一 workspace**：`members` 用通配符列出三个分组——`crates/*`（跨工具复用的通用 crate，如 `crates/nzea_macro`：`mods!`/`mod_pub!`/`mod_pub_flat!`/`mod_flat!`）、`probe/*`、`pulse/*`（工具自己的 crate，目录名去掉工具前缀、包名保留：`probe/cli` = `probe_cli`、`pulse/wave` = `pulse_wave`）；依赖版本集中在根 `[workspace.dependencies]`（各 crate 用 `{ workspace = true }` 引用，含 dev）；cargo 命令在仓库任意子目录下都解析到它。`.zed/settings.json` 的 `linkedProjects` 指向根 `Cargo.toml`：auto-discovery 已被它关掉，新增 crate 放进这三个分组即可被 LSP 看到，而独立的*新 workspace* 必须再列进 `linkedProjects`。
 - **事件文件按需添加**：`.pulse` 事件文件遵循“用到再说”原则——调试到某个具体问题、确认事件确实被查询需要时，才为对应模块添加，并**留在该模块的源文件旁**（`nzea_core/src/back/int/branch.pulse` 等即此原则的产物，可作示例模板）。禁止提前为未调试模块批量创建事件文件。
 
 ### 解码与 Chisel 注意事项
