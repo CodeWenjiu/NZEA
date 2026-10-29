@@ -1,6 +1,8 @@
 package nzea_device
 
 import nzea_rtl.{RtlFlow, TestFlow}
+import nzea_rtl.bus.{AddrRange, FrameSpec, WireFrame}
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.SyncRamPorts
 import nzea_device.devices.*
 import utest.*
@@ -9,6 +11,9 @@ import utest.*
   * device answers with the simulator instead of building its hardware.
   */
 object DevicesElaborateTest extends TestSuite:
+
+    private val frames =
+        Seq(FrameSpec(AddrRange(BigInt("8A000000", 16), BigInt("68", 16)), WireFrame(400_000, 20)))
 
     private lazy val finisher = TestFlow.lower(
         SifiveTestFinisher.moduleName(SifiveTestFinisherParameter(32, 32, 4, 1, RtlFlow.Yosys)),
@@ -219,7 +224,9 @@ object DevicesElaborateTest extends TestSuite:
     )
 
     private lazy val peripheralBridgeBridged = TestFlow.lower(
-        PeripheralBridge.moduleName(PeripheralBridgeParameter(32, 32, 4, 1, RtlFlow.Verilator)),
+        PeripheralBridge.moduleName(
+            PeripheralBridgeParameter(32, 32, 4, 1, 25000000, frames, RtlFlow.Verilator, StatScope(Seq("peripheral")))
+        ),
         cfg =>
             PeripheralBridge.main(
                 Array(
@@ -233,6 +240,12 @@ object DevicesElaborateTest extends TestSuite:
                     "4",
                     "--idWidth",
                     "1",
+                    "--clockHz",
+                    "25000000",
+                    "--frames",
+                    upickle.default.write(frames.head),
+                    "--stats",
+                    "peripheral",
                     "--flow",
                     "verilator"
                 )
@@ -242,7 +255,9 @@ object DevicesElaborateTest extends TestSuite:
 
     /** The same window with nothing behind it: the synthesis flow answers zero and acknowledges writes. */
     private lazy val peripheralBridgeHw = TestFlow.lower(
-        PeripheralBridge.moduleName(PeripheralBridgeParameter(32, 32, 4, 1, RtlFlow.Yosys)),
+        PeripheralBridge.moduleName(
+            PeripheralBridgeParameter(32, 32, 4, 1, 25000000, frames, RtlFlow.Yosys, StatScope(Seq("peripheral")))
+        ),
         cfg =>
             PeripheralBridge.main(
                 Array(
@@ -256,6 +271,12 @@ object DevicesElaborateTest extends TestSuite:
                     "4",
                     "--idWidth",
                     "1",
+                    "--clockHz",
+                    "25000000",
+                    "--frames",
+                    upickle.default.write(frames.head),
+                    "--stats",
+                    "peripheral",
                     "--flow",
                     "yosys"
                 )

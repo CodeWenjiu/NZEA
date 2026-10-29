@@ -9,16 +9,34 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_device.{DeviceTimings, HasDpiBus}
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.{DeviceTiming, LiteBusRW}
+import nzea_rtl.bus.{
+    AddrRange,
+    DeviceTiming,
+    FrameSpec,
+    LiteBusRW,
+    LiteBusResidency,
+    LiteBusResidencyParameter,
+    WireFrame
+}
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class PeripheralBridgeParameter(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, flow: RtlFlow)
-    extends Parameter:
+case class PeripheralBridgeParameter(
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int,
+    clockHz: Int,
+    frames: Seq[FrameSpec],
+    flow: RtlFlow,
+    stats: StatScope
+) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
     require(dataWidth >= 1, s"dataWidth must be >= 1, got $dataWidth")
     require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
     require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
+    require(clockHz >= 1, s"clockHz must be >= 1, got $clockHz")
 
 given upickle.default.ReadWriter[PeripheralBridgeParameter] = upickle.default.macroRW
 
@@ -53,15 +71,49 @@ object PeripheralBridge
         given ClockScope = ClockScope.posedge(io.clock)
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-        answerBus(
-            parameter.flow,
-            io.bus,
-            io.resetN.asBool,
-            parameter.addrWidth,
-            parameter.dataWidth,
-            parameter.userWidth,
-            parameter.idWidth
-        ):
+        if parameter.flow.bridges then
+            // The window's answer with the wire's residence in front of it: a hit range's access is one frame. The
+            // bridge's own forward — the four-cycle line and the simulator behind it — stays where it was.
+            val inner = Wire(
+                new LiteBusRW(parameter.addrWidth, parameter.dataWidth, parameter.userWidth, parameter.idWidth)
+            )
+            bridgeAnswer(
+                inner,
+                io.resetN.asBool,
+                parameter.addrWidth,
+                parameter.dataWidth,
+                parameter.userWidth,
+                parameter.idWidth
+            )
+            val residency = LiteBusResidency.instantiate(
+                LiteBusResidencyParameter(
+                    parameter.addrWidth,
+                    parameter.dataWidth,
+                    parameter.userWidth,
+                    parameter.idWidth,
+                    parameter.clockHz,
+                    parameter.frames,
+                    parameter.flow.counters,
+                    parameter.stats.child(LiteBusResidency.Source)
+                )
+            )
+            residency.io.clock := summon[ClockScope].clock
+            residency.io.resetN := io.resetN.asBool.asReset
+
+            residency.io.in.req.valid := io.bus.req.valid
+            residency.io.in.req.bits :<= io.bus.req.bits
+            io.bus.req.ready := residency.io.in.req.ready
+            io.bus.resp.valid := residency.io.in.resp.valid
+            io.bus.resp.bits :<= residency.io.in.resp.bits
+            residency.io.in.resp.ready := io.bus.resp.ready
+
+            inner.req.valid := residency.io.out.req.valid
+            inner.req.bits :<= residency.io.out.req.bits
+            residency.io.out.req.ready := inner.req.ready
+            residency.io.out.resp.valid := inner.resp.valid
+            residency.io.out.resp.bits :<= inner.resp.bits
+            inner.resp.ready := residency.io.out.resp.ready
+        else
             Todo.answer(
                 io.bus,
                 io.resetN.asBool,

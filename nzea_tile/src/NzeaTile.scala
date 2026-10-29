@@ -170,7 +170,8 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
                     d.range.base.toLong,
                     d.range.size.toLong,
                     parameter.clockHz,
-                    parameter.timeHz
+                    parameter.timeHz,
+                    parameter.stats.child(d.name)
                 )
             )
             device.connect(clock, resetN, xbar.io.out(map, d.name))

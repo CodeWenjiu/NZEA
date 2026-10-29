@@ -22,6 +22,7 @@ import nzea_device.devices.{
 import nzea_rtl.RtlFlow
 import nzea_rtl.bus.*
 import nzea_rtl.bus.given
+import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.SyncRamPorts
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -33,7 +34,8 @@ case class DeviceContext(
     base: Long,
     size: Long,
     clockHz: Int,
-    timeHz: Int
+    timeHz: Int,
+    stats: StatScope
 )
 
 /** The kinds of device the library ships: the one place that knows what a device is on the address map and how to build
@@ -127,7 +129,16 @@ enum DeviceKind:
         case PeripheralBridge =>
             // Fully qualified for the same reason as `Uart`.
             nzea_device.devices.PeripheralBridge.instantiate(
-                PeripheralBridgeParameter(ctx.addrWidth, ctx.dataWidth, ctx.userWidth, ctx.idWidth, flow)
+                PeripheralBridgeParameter(
+                    ctx.addrWidth,
+                    ctx.dataWidth,
+                    ctx.userWidth,
+                    ctx.idWidth,
+                    ctx.clockHz,
+                    DeviceFrames.frames,
+                    flow,
+                    ctx.stats
+                )
             )
 
     /** Drive the boundary of a device the level does not expose.
