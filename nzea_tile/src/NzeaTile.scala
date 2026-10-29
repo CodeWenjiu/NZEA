@@ -157,6 +157,9 @@ object NzeaTile extends Generator[NzeaTileParameter, NzeaTileLayers, NzeaTileIO,
         debugger.io.trace :<>= core.io.commit_msg
 
         for d <- parameter.built do
+            // An instance's name is the given `sourcecode.Name.Machine`; without the per-device shadow every instance
+            // lands as `device`, and the dedup suffixes (`device_0`, …) make the waveform unreadable.
+            given sourcecode.Name.Machine = sourcecode.Name.Machine(d.name)
             val device = d.kind.instantiate(
                 parameter.flow,
                 DeviceContext(

@@ -340,11 +340,11 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(sv.matches("(?s).*DdrMemory memory \\(.*\\.load_req_valid\\s+\\(_boot_load_req_valid\\).*"))
             assert(sv.matches("(?s).*NzeaTile tile \\(.*\\.ram_resp_valid\\s+\\(_memory_core_resp_valid\\).*"))
             assert(!sv.contains("RamFabricSlave mem ("))
-            // The tile's own devices (its own file names each one generically), and no device for the window: the RAM
-            // this level answers is not built inside the tile.
-            assert(sv.contains("Uart device ("))
-            assert(sv.contains("SifiveTestFinisher device_0 ("))
-            assert(sv.contains("Clint device_1 ("))
+            // The tile's own devices, each named by its spec — the name the fabric and the boundary already use — and
+            // no device for the window: the RAM this level answers is not built inside the tile.
+            assert(sv.contains("Uart uart16550 ("))
+            assert(sv.contains("SifiveTestFinisher finisher ("))
+            assert(sv.contains("Clint clint ("))
             assert(!sv.contains("RamFabricSlave ram ("))
             assert(!sv.contains("u_ila_0"))
 
