@@ -63,7 +63,7 @@ clean-all: clean
 # 用 surfer 打开波形。
 [group('utility')]
 wave path:
-    @nix run --impure github:nix-community/nixGL#nixGLIntel -- surfer {{ path }}
+    @nixGLIntel surfer {{ path }}
 
 # ---- FPGA (lxb_artix7 / Vivado) ----
 # 板级流程住在自己的模块里，和实现它的脚本放在一起（用 `just --list fpga` 列出）。

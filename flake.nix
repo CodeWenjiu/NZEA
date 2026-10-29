@@ -7,6 +7,13 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
 
+    # nixGL wraps a store-built GUI program so it finds the host's GPU drivers on a
+    # non-NixOS machine. The input is pinned here and the dev shell carries the wrapper,
+    # so `just wave` reads flake.lock instead of re-resolving the upstream branch.
+    nixGL.url = "github:nix-community/nixGL";
+    nixGL.inputs.nixpkgs.follows = "nixpkgs";
+    nixGL.inputs.flake-utils.follows = "utils";
+
     # Scala 3 / zaozi toolchain for the core. The submodule at ./.zaozi holds the
     # sources we publish locally (`just z-publish`); keep its commit in sync with
     # this pin.
@@ -19,6 +26,7 @@
       utils,
       rust-overlay,
       zaozi,
+      nixGL,
       ...
     }:
     utils.lib.eachDefaultSystem (
@@ -73,6 +81,7 @@
             pkgs.verilator
             pkgs.veridian
             pkgs.surfer
+            nixGL.packages.${system}.nixGLIntel # surfer's GL wrapper on a non-NixOS host
 
             # === Synthesis / STA ===
             pkgs.yosys
