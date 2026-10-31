@@ -12,11 +12,11 @@ import nzea_rtl.RtlFlow
 import nzea_rtl.bus.{
     AddrRange,
     DeviceTiming,
-    FrameSpec,
+    FrameTiming,
+    FramedRange,
     LiteBusRW,
     LiteBusResidency,
-    LiteBusResidencyParameter,
-    WireFrame
+    LiteBusResidencyParameter
 }
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
@@ -28,7 +28,7 @@ case class PeripheralBridgeParameter(
     userWidth: Int,
     idWidth: Int,
     clockHz: Int,
-    frames: Seq[FrameSpec],
+    frames: Seq[FramedRange],
     flow: RtlFlow,
     stats: StatScope
 ) extends Parameter:

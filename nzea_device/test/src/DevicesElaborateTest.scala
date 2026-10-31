@@ -1,7 +1,7 @@
 package nzea_device
 
 import nzea_rtl.{RtlFlow, TestFlow}
-import nzea_rtl.bus.{AddrRange, FrameSpec, WireFrame}
+import nzea_rtl.bus.{AddrRange, FrameTiming, FramedRange}
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.SyncRamPorts
 import nzea_device.devices.*
@@ -13,7 +13,12 @@ import utest.*
 object DevicesElaborateTest extends TestSuite:
 
     private val frames =
-        Seq(FrameSpec(AddrRange(BigInt("8A000000", 16), BigInt("68", 16)), WireFrame(400_000, 20)))
+        Seq(
+            FramedRange(
+                range = AddrRange(base = BigInt("8A000000", 16), size = BigInt("68", 16)),
+                timing = FrameTiming(bitsPerFrame = 20, bitHz = 400_000)
+            )
+        )
 
     private lazy val finisher = TestFlow.lower(
         SifiveTestFinisher.moduleName(SifiveTestFinisherParameter(32, 32, 4, 1, RtlFlow.Yosys)),

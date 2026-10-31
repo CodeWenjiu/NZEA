@@ -11,35 +11,35 @@ import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** One transaction on an off-chip wire, as the wire's own facts: the rate and the bits one frame takes. The cycle cost
-  * is derived against the platform clock — a fact of the wire, not a tunable — the way the UART's divisor is its line
-  * rate.
+/** A wire's own facts: the rate it shifts bits at, and the bits one frame takes — the total the frame occupies the wire
+  * for, framing overhead included, not the data bits alone. The cycle cost is derived against the platform clock
+  * ([[cycles]]), the way the UART's divisor is its line rate: a fact of the wire, not a tunable.
   */
-case class WireFrame(busHz: Int, frameBits: Int):
-    require(busHz >= 1, s"busHz must be >= 1, got $busHz")
-    require(frameBits >= 1, s"frameBits must be >= 1, got $frameBits")
+case class FrameTiming(bitHz: Int, bitsPerFrame: Int):
+    require(bitHz >= 1, s"bitHz must be >= 1, got $bitHz")
+    require(bitsPerFrame >= 1, s"bitsPerFrame must be >= 1, got $bitsPerFrame")
 
     /** The whole frame in platform cycles, rounded up: a frame ends inside a cycle, never between two. */
-    def cycles(clockHz: Int): Int = ((BigInt(frameBits) * clockHz + busHz - 1) / busHz).toInt
+    def cycles(clockHz: Int): Int = ((BigInt(bitsPerFrame) * clockHz + bitHz - 1) / bitHz).toInt
 
-object WireFrame:
-    given upickle.default.ReadWriter[WireFrame] = upickle.default.macroRW
+object FrameTiming:
+    given upickle.default.ReadWriter[FrameTiming] = upickle.default.macroRW
 
-/** One entry of the residency's table: an address range and the wire's frame. */
-case class FrameSpec(range: AddrRange, frame: WireFrame)
+/** One entry of the residency's table: the address range a wire serves, and that wire's frame. */
+case class FramedRange(range: AddrRange, timing: FrameTiming)
 
-object FrameSpec:
-    given upickle.default.ReadWriter[FrameSpec] = upickle.default.macroRW
+object FramedRange:
+    given upickle.default.ReadWriter[FramedRange] = upickle.default.macroRW
 
     /** The generator framework needs a reader for every parameter field; this is not a user-facing knob — the frames
       * live in `nzea_device.DeviceFrames` and only the bridge flow reads them.
       */
-    given TokensReader.Simple[FrameSpec] with
+    given TokensReader.Simple[FramedRange] with
         def shortName = "frame-json"
 
-        def read(strs: Seq[String]): Either[String, FrameSpec] =
+        def read(strs: Seq[String]): Either[String, FramedRange] =
             strs.lastOption.toRight("a frame requires a value").flatMap { text =>
-                scala.util.Try(upickle.default.read[FrameSpec](text)).toEither.left.map(_.getMessage)
+                scala.util.Try(upickle.default.read[FramedRange](text)).toEither.left.map(_.getMessage)
             }
 
 case class LiteBusResidencyParameter(
@@ -48,7 +48,7 @@ case class LiteBusResidencyParameter(
     userWidth: Int,
     idWidth: Int,
     clockHz: Int,
-    frames: Seq[FrameSpec],
+    frames: Seq[FramedRange],
     counters: Boolean,
     stats: StatScope
 ) extends Parameter:
@@ -89,7 +89,7 @@ class LiteBusResidencyProbe(parameter: LiteBusResidencyParameter)
     extends DVBundle[LiteBusResidencyParameter, LiteBusResidencyLayers](parameter)
 
 /** The residence a slow wire imposes: on the ranges the table names, one access is one *frame* — the request fires as
-  * the wire takes it, and the answer is held until the frame's own arithmetic ([[WireFrame.cycles]]) has run out. The
+  * the wire takes it, and the answer is held until the frame's own arithmetic ([[FrameTiming.cycles]]) has run out. The
   * window stays busy for the frame's whole length, one transaction at a time, so a frame caps throughput as well as
   * latency — what distinguishes this from [[LiteBusTiming]], whose delay is a line.
   *
@@ -107,7 +107,7 @@ object LiteBusResidency
     override def moduleName(parameter: LiteBusResidencyParameter): String =
         val frames = parameter.frames
             .map(spec =>
-                s"${spec.range.base.toString(16)}x${spec.range.size.toString(16)}c${spec.frame.cycles(parameter.clockHz)}"
+                s"${spec.range.base.toString(16)}x${spec.range.size.toString(16)}c${spec.timing.cycles(parameter.clockHz)}"
             )
             .mkString("_")
         s"LiteBusResidency_$frames"
@@ -120,7 +120,7 @@ object LiteBusResidency
         given ClockScope = ClockScope.posedge(io.clock)
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-        val entries = parameter.frames.map(spec => (spec.range, spec.frame.cycles(parameter.clockHz)))
+        val entries = parameter.frames.map(spec => (spec.range, spec.timing.cycles(parameter.clockHz)))
         val cyclesW = log2Ceil(entries.map(_._2).max + 1)
         // The port's pipeline is a few entries deep at most; a byte leaves room to spare.
         val outstandingW = 8

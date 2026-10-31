@@ -13,14 +13,17 @@ import utest.*
 object LiteBusResidencyTest extends TestSuite:
 
     private val table = Seq(
-        FrameSpec(AddrRange(BigInt("8A000000", 16), BigInt("68", 16)), WireFrame(400_000, 20))
+        FramedRange(
+            range = AddrRange(base = BigInt("8A000000", 16), size = BigInt("68", 16)),
+            timing = FrameTiming(bitsPerFrame = 20, bitHz = 400_000)
+        )
     )
 
     val tests = Tests:
         test("a frame is bits against the clock, rounded up"):
-            assert(WireFrame(busHz = 400_000, frameBits = 20).cycles(25_000_000) == 1250)
-            assert(WireFrame(busHz = 100_000, frameBits = 20).cycles(25_000_000) == 5000)
-            assert(WireFrame(busHz = 400_000, frameBits = 1).cycles(25_000_000) == 63)
+            assert(FrameTiming(bitHz = 400_000, bitsPerFrame = 20).cycles(25_000_000) == 1250)
+            assert(FrameTiming(bitHz = 100_000, bitsPerFrame = 20).cycles(25_000_000) == 5000)
+            assert(FrameTiming(bitHz = 400_000, bitsPerFrame = 1).cycles(25_000_000) == 63)
 
         test("the name carries the table: one name is one body"):
             val parameter =
@@ -28,6 +31,6 @@ object LiteBusResidencyTest extends TestSuite:
             assert(LiteBusResidency.moduleName(parameter) == "LiteBusResidency_8a000000x68c1250")
 
         test("the table's CLI spelling is its JSON"):
-            val reader = summon[TokensReader[FrameSpec]]
+            val reader = summon[TokensReader[FramedRange]]
             val written = upickle.default.write(table.head)
             assert(reader.read(Seq(written)) == Right(table.head))
