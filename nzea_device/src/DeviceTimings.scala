@@ -6,6 +6,10 @@ import nzea_rtl.bus.{AddrRange, DeviceTiming, FrameTiming, FramedRange}
   * reads it — a synthesis flow builds the device's own hardware, whose timing is the macro's or the board's, not a
   * model. The numbers are in tile cycles: the RAM's stand in for an off-chip memory (a fixed access latency, not a
   * clock ratio), and the MMIO devices' for their slower register accesses.
+  *
+  * Being bus cycles, they do not survive a clock change: 4 cycles is 160 ns at the simulated 25 MHz and 40 ns on the
+  * 100 MHz board. A cost that is a device's own period must be declared as a rate instead, which is the shape the wire
+  * residency takes (`FrameTiming`); the rule is `goal/latency-calibration.md`.
   */
 object DeviceTimings:
 

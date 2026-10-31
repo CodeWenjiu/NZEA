@@ -9,6 +9,10 @@ import utest.*
   * — a fact of the wire, never a magic number), one name is one table, and the framework can read an entry back. The
   * behavior — every access to a hit range held for exactly one frame, in order — is pinned end to end by
   * `nzea_core/test/asm/arm_frame.S` under the remu difftest, with the pulse assertion in its header.
+  *
+  * The last test pins the property the shape exists for: a frame is the wire's own time, so the cycle count scales with
+  * the clock and the duration does not. The line model (`DeviceTiming`) is the opposite by construction — its number is
+  * bus cycles, the same count at any clock — and that split is the rule `goal/latency-calibration.md` states.
   */
 object LiteBusResidencyTest extends TestSuite:
 
@@ -24,6 +28,13 @@ object LiteBusResidencyTest extends TestSuite:
             assert(FrameTiming(bitHz = 400_000, bitsPerFrame = 20).cycles(25_000_000) == 1250)
             assert(FrameTiming(bitHz = 100_000, bitsPerFrame = 20).cycles(25_000_000) == 5000)
             assert(FrameTiming(bitHz = 400_000, bitsPerFrame = 1).cycles(25_000_000) == 63)
+
+        test("a frame keeps its duration when the clock changes"):
+            val frame = FrameTiming(bitsPerFrame = 20, bitHz = 400_000)
+            val at25 = frame.cycles(25_000_000)
+            val at100 = frame.cycles(100_000_000)
+            assert(at25 == 1250 && at100 == 5000)
+            assert(BigInt(at25) * 100_000_000 == BigInt(at100) * 25_000_000)
 
         test("the name carries the table: one name is one body"):
             val parameter =
