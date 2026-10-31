@@ -114,9 +114,9 @@ Named events make queries reusable and let one `--eval` span multiple scopes.
 An event set binds a source to a scope and gives it a namespace name:
 
     pulse property \
-        --event ../nzea_cache/cache.pulse TOP.NzeaTile.icache Cache \
-        --event ../nzea_core/core.pulse   TOP.NzeaTile.core   Core \
-        --eval "Core.commit_fire && Cache.miss" \
+        --event nzea_cache/src/cache.pulse            TOP.NzeaTile.icache          Cache \
+        --event nzea_core/src/middle/wbu/retire.pulse TOP.NzeaTile.core.middle.wbu Wbu \
+        --eval "Wbu.commit_fire && Cache.blocked" \
         --cycles 0-3000 --max 10 --json
 
 - `--event SOURCE SCOPE NAME` consumes **three separate arguments** (repeatable).
@@ -199,7 +199,7 @@ constantly false.
 Stdlib functions may be used inside `.pulse` event files too (e.g.
 `bp.pulse` defines `fetch_continue = fetch_fire ->1 1`). Adding a template
 function is a one-line entry in
-`pulse_wave/src/cmd/property/expr/std.pulse`; value-level built-ins (like
+`pulse/wave/src/cmd/property/expr/std.pulse`; value-level built-ins (like
 `change` and `is_x`) live in `stdlib.rs` as a named whitelist + evaluator
 branch — only add those when the template language cannot express the
 semantics (value history needs `read_value` across cycles, which templates
@@ -412,13 +412,15 @@ domains collapse, which is the ILA-export convention.
 ## Nzea project specifics
 
 - Waveforms come from the FPGA xsim scenarios (`just fpga sim <name> ... wave`
-  writes `<name>.vcd` in the run directory), from the RTL's iverilog tests, or
-  from remu at `../remu/target/trace.fst` (usually already set as `NZEA_TRACE_FST`).
+  writes `<name>.vcd` in the run directory) or from remu at `../remu/target/trace.fst`
+  (usually already set as `NZEA_TRACE_FST`).
 - An on-board capture (`build/fpga/<board>/<isa>/vivado/capture.named.vcd`) is a
   flat export: query it with `--scope dut` and the path names, e.g.
   `pulse property --scope dut --eval 'ddr3/state == 25' --count`.
-- Event files live next to their modules: `nzea_cache/cache.pulse`,
-  `nzea_core/core.pulse`. Signals in those files are relative to the scope you
-  bind with `--event`.
+- Event files live next to their modules: `nzea_cache/src/cache.pulse` covers both caches; the core's are one
+  per module — `nzea_core/src/front/ifu/fetch.pulse`, `nzea_core/src/middle/isu/issue.pulse`,
+  `nzea_core/src/middle/wbu/retire.pulse`, `nzea_core/src/back/uop.pulse`,
+  `nzea_core/src/back/int/branch.pulse`, `nzea_core/src/back/mem/mem.pulse`. Signals in those files are
+  relative to the scope you bind with `--event`.
 - Agent must run pulse via `nix develop --command bash -c '...'` (same as all
   Nix-dependent tools).

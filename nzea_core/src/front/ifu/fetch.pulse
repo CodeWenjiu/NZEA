@@ -2,8 +2,8 @@
 --
 -- Bind them to compose with other scopes, e.g. an instruction stream against the retire events in the middle's file:
 --   pulse property --event nzea_core/src/front/ifu/fetch.pulse <IFU> Fetch \
---       --event nzea_core/src/middle/retire.pulse <MIDDLE> Core \
---       --eval 'Core.redirect --40 Fetch.i_fetch'
+--       --event nzea_core/src/middle/wbu/retire.pulse <WB> Wbu \
+--       --eval 'Wbu.redirect --40 Fetch.i_fetch'
 
 -- A fetch request the bus accepted: this is the cycle the pc advances on.
 i_fetch = ibus_req_valid && ibus_req_ready

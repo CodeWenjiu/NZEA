@@ -99,8 +99,8 @@ today.
 
 ### Phase 5 — nzea integration
 
-- [x] `nzea_cache/cache.pulse`, `nzea_core/core.pulse`, `nzea_core/bp.pulse`
-  event files (added on demand — 用到再说 principle)
+- [x] event files, added on demand (用到再说 principle): `nzea_cache/src/cache.pulse`
+  and the core's per module under `nzea_core/src/`
 - [ ] Module-level event files under `events/` subdirectories (not needed so
   far; per-module `*.pulse` files at module root serve the same purpose)
 - [x] `pulse skill` command packages the agent skill in the binary
