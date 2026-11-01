@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_device.{DeviceTimings, HasDpiBus}
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.{DeviceTiming, LiteBusRW}
+import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -74,8 +74,6 @@ class UartProbe(parameter: UartParameter) extends DVBundle[UartParameter, UartLa
 object Uart extends Generator[UartParameter, UartLayers, UartIO, UartProbe] with HasDpiBus:
     override def moduleName(parameter: UartParameter): String = "Uart"
 
-    override def timing: DeviceTiming = DeviceTimings.uart
-
     def architecture(parameter: UartParameter) =
         val io = summon[Interface[UartIO]]
         given ClockScope = ClockScope.posedge(io.clock)
@@ -83,6 +81,7 @@ object Uart extends Generator[UartParameter, UartLayers, UartIO, UartProbe] with
 
         answerBus(
             parameter.flow,
+            Some(DeviceTimings.uart),
             parameter.clockHz,
             io.bus,
             io.resetN.asBool,

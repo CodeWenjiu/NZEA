@@ -1,7 +1,7 @@
 package nzea_device
 
 import nzea_rtl.{RtlFlow, TestFlow}
-import nzea_rtl.bus.{AddrRange, FrameTiming, FramedRange}
+import nzea_rtl.bus.{AccessCost, AddrRange, BusTiming, Occupancy, TimingEntry}
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.SyncRamPorts
 import nzea_device.devices.*
@@ -12,13 +12,25 @@ import utest.*
   */
 object DevicesElaborateTest extends TestSuite:
 
-    private val frames =
+    /** The window's table, as the platform states it: the arm's frame holds the port, everything else is the bus's
+      * pace.
+      */
+    private val timing = BusTiming(
         Seq(
-            FramedRange(
-                range = AddrRange(base = BigInt("8A000000", 16), size = BigInt("68", 16)),
-                timing = FrameTiming(bitsPerFrame = 20, bitHz = 400_000)
+            TimingEntry(
+                range = Some(AddrRange(base = BigInt("8A000000", 16), size = BigInt("68", 16))),
+                cost = AccessCost.bitFrame(bitHz = 400_000, bits = 20),
+                occupancy = Occupancy.Held
+            ),
+            TimingEntry(
+                range = None,
+                cost = AccessCost.Periods(deviceHz = 25_000_000, deviceCycles = 1),
+                occupancy = Occupancy.Pipelined
             )
-        )
+        ),
+        jitterEvery = 4,
+        jitterSpan = 4
+    )
 
     private lazy val finisher = TestFlow.lower(
         SifiveTestFinisher.moduleName(SifiveTestFinisherParameter(32, 32, 4, 1, 25000000, RtlFlow.Yosys)),
@@ -244,7 +256,7 @@ object DevicesElaborateTest extends TestSuite:
                 25000000,
                 25000000,
                 1,
-                frames,
+                timing,
                 RtlFlow.Verilator,
                 StatScope(Seq("peripheral"))
             )
@@ -268,8 +280,8 @@ object DevicesElaborateTest extends TestSuite:
                     "25000000",
                     "--deviceCycles",
                     "1",
-                    "--frames",
-                    upickle.default.write(frames.head),
+                    "--timing",
+                    upickle.default.write(timing),
                     "--stats",
                     "peripheral",
                     "--flow",
@@ -290,7 +302,7 @@ object DevicesElaborateTest extends TestSuite:
                 25000000,
                 25000000,
                 1,
-                frames,
+                timing,
                 RtlFlow.Yosys,
                 StatScope(Seq("peripheral"))
             )
@@ -314,8 +326,8 @@ object DevicesElaborateTest extends TestSuite:
                     "25000000",
                     "--deviceCycles",
                     "1",
-                    "--frames",
-                    upickle.default.write(frames.head),
+                    "--timing",
+                    upickle.default.write(timing),
                     "--stats",
                     "peripheral",
                     "--flow",

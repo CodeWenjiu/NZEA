@@ -7,9 +7,9 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_device.{DeviceTimings, HasDpiBus}
+import nzea_device.HasDpiBus
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.{DeviceTiming, LiteBusRW}
+import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -72,8 +72,6 @@ class ClintProbe(parameter: ClintParameter) extends DVBundle[ClintParameter, Cli
 object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe] with HasDpiBus:
     override def moduleName(parameter: ClintParameter): String = "Clint"
 
-    override def timing: DeviceTiming = DeviceTimings.clint
-
     def architecture(parameter: ClintParameter) =
         val io = summon[Interface[ClintIO]]
         given ClockScope = ClockScope.posedge(io.clock)
@@ -103,6 +101,7 @@ object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
 
         answerBus(
             parameter.flow,
+            None,
             parameter.clockHz,
             io.bus,
             io.resetN.asBool,

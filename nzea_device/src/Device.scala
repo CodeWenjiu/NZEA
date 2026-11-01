@@ -64,10 +64,10 @@ enum DeviceKind:
       * on: the macro's cycle time is its own, so it is not the tile's clock.
       */
     def pins(flow: RtlFlow)(using TypeImpl, ConstructorApi): Option[Bundle] = this match
-        case Ram(_)                => if flow.bridges then None else Some(new RamPins)
-        case Uart(_)               => if flow.bridges then None else Some(new UartPins)
-        case Finisher              => if flow.bridges then None else Some(new FinisherPins)
-        case Clint                 => if flow.bridges then None else Some(new ClintPins)
+        case Ram(_)                 => if flow.bridges then None else Some(new RamPins)
+        case Uart(_)                => if flow.bridges then None else Some(new UartPins)
+        case Finisher               => if flow.bridges then None else Some(new FinisherPins)
+        case Clint                  => if flow.bridges then None else Some(new ClintPins)
         case PeripheralBridge(_, _) => None
 
     /** Whether the boundary is the level's input (a clock the level supplies) or its output (a flag the device shows).
@@ -150,7 +150,7 @@ enum DeviceKind:
                     ctx.clockHz,
                     deviceHz,
                     deviceCycles,
-                    DeviceFrames.frames,
+                    DeviceTimings.peripheral,
                     flow,
                     ctx.stats
                 )
@@ -187,19 +187,22 @@ object DeviceKind:
             .readwriter[String]
             .bimap(
                 {
-                    case DeviceKind.Ram(ports)                     => s"Ram:${ports.name}"
-                    case DeviceKind.Uart(lineHz)                   => s"Uart:$lineHz"
-                    case DeviceKind.Finisher                       => "Finisher"
-                    case DeviceKind.Clint                          => "Clint"
+                    case DeviceKind.Ram(ports)   => s"Ram:${ports.name}"
+                    case DeviceKind.Uart(lineHz) => s"Uart:$lineHz"
+                    case DeviceKind.Finisher     => "Finisher"
+                    case DeviceKind.Clint        => "Clint"
                     case DeviceKind.PeripheralBridge(deviceHz, deviceCycles) =>
                         s"PeripheralBridge:$deviceHz:$deviceCycles"
                 },
                 {
-                    case "Finisher"                 => DeviceKind.Finisher
-                    case "Clint"                    => DeviceKind.Clint
-                    case "PeripheralBridge"         =>
-                        DeviceKind.PeripheralBridge(PlatformDevices.PeripheralDeviceHz, PlatformDevices.PeripheralDeviceCycles)
-                    case s if s.startsWith("PeripheralBridge:")     =>
+                    case "Finisher" => DeviceKind.Finisher
+                    case "Clint"    => DeviceKind.Clint
+                    case "PeripheralBridge" =>
+                        DeviceKind.PeripheralBridge(
+                            PlatformDevices.PeripheralDeviceHz,
+                            PlatformDevices.PeripheralDeviceCycles
+                        )
+                    case s if s.startsWith("PeripheralBridge:") =>
                         s.stripPrefix("PeripheralBridge:").split(":") match
                             case Array(hz, cycles) => DeviceKind.PeripheralBridge(hz.toInt, cycles.toInt)
                             case other => throw new IllegalArgumentException(s"malformed peripheral bridge '$other'")

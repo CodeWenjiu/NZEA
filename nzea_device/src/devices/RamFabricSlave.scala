@@ -9,7 +9,7 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_device.{DeviceTimings, HasDpiBus}
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.{DeviceTiming, LiteBusRW}
+import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -77,8 +77,6 @@ object RamFabricSlave
     with HasDpiBus:
     override def moduleName(parameter: RamFabricSlaveParameter): String = "RamFabricSlave"
 
-    override def timing: DeviceTiming = DeviceTimings.ram
-
     def architecture(parameter: RamFabricSlaveParameter) =
         val io = summon[Interface[RamFabricSlaveIO]]
         given ClockScope = ClockScope.posedge(io.clock)
@@ -86,6 +84,7 @@ object RamFabricSlave
 
         answerBus(
             parameter.flow,
+            Some(DeviceTimings.ram),
             parameter.clockHz,
             io.bus,
             io.resetN.asBool,
