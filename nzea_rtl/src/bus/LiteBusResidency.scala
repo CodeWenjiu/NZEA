@@ -19,8 +19,11 @@ case class FrameTiming(bitHz: Int, bitsPerFrame: Int):
     require(bitHz >= 1, s"bitHz must be >= 1, got $bitHz")
     require(bitsPerFrame >= 1, s"bitsPerFrame must be >= 1, got $bitsPerFrame")
 
-    /** The whole frame in platform cycles, rounded up: a frame ends inside a cycle, never between two. */
-    def cycles(clockHz: Int): Int = ((BigInt(bitsPerFrame) * clockHz + bitHz - 1) / bitHz).toInt
+    /** The whole frame in platform cycles, rounded up: a frame ends inside a cycle, never between two. A frame is
+      * `bitsPerFrame` periods of the bit clock, which is the same arithmetic as [[AccessCost.Periods]] — reused, so the
+      * one conversion the model has lives in one place.
+      */
+    def cycles(clockHz: Int): Int = AccessCost.Periods(bitHz, bitsPerFrame).at(clockHz)
 
 object FrameTiming:
     given upickle.default.ReadWriter[FrameTiming] = upickle.default.macroRW
