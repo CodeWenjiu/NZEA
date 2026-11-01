@@ -48,7 +48,12 @@ enum DeviceKind:
     case Uart(lineHz: Int)
     case Finisher
     case Clint
-    case PeripheralBridge
+
+    /** The peripheral window. The two rates are the secondary bus's own facts: its device clock, and how many of those
+      * clocks one access takes — the hardware paces itself by them, and the bridge flow's model resolves the same
+      * arithmetic (`AccessCost.Periods`).
+      */
+    case PeripheralBridge(deviceHz: Int, deviceCycles: Int)
 
     def slaveKind: SlaveKind = this match
         case Ram(_) => SlaveKind.Memory
@@ -59,11 +64,11 @@ enum DeviceKind:
       * on: the macro's cycle time is its own, so it is not the tile's clock.
       */
     def pins(flow: RtlFlow)(using TypeImpl, ConstructorApi): Option[Bundle] = this match
-        case Ram(_)           => if flow.bridges then None else Some(new RamPins)
-        case Uart(_)          => if flow.bridges then None else Some(new UartPins)
-        case Finisher         => if flow.bridges then None else Some(new FinisherPins)
-        case Clint            => if flow.bridges then None else Some(new ClintPins)
-        case PeripheralBridge => None
+        case Ram(_)                => if flow.bridges then None else Some(new RamPins)
+        case Uart(_)               => if flow.bridges then None else Some(new UartPins)
+        case Finisher              => if flow.bridges then None else Some(new FinisherPins)
+        case Clint                 => if flow.bridges then None else Some(new ClintPins)
+        case PeripheralBridge(_, _) => None
 
     /** Whether the boundary is the level's input (a clock the level supplies) or its output (a flag the device shows).
       * Inputs flow down — `level :>= device.boundary` — outputs flow up.
@@ -134,7 +139,7 @@ enum DeviceKind:
                     flow
                 )
             )
-        case PeripheralBridge =>
+        case PeripheralBridge(deviceHz, deviceCycles) =>
             // Fully qualified for the same reason as `Uart`.
             nzea_device.devices.PeripheralBridge.instantiate(
                 PeripheralBridgeParameter(
@@ -143,6 +148,8 @@ enum DeviceKind:
                     ctx.userWidth,
                     ctx.idWidth,
                     ctx.clockHz,
+                    deviceHz,
+                    deviceCycles,
                     DeviceFrames.frames,
                     flow,
                     ctx.stats
@@ -180,16 +187,22 @@ object DeviceKind:
             .readwriter[String]
             .bimap(
                 {
-                    case DeviceKind.Ram(ports)       => s"Ram:${ports.name}"
-                    case DeviceKind.Uart(lineHz)     => s"Uart:$lineHz"
-                    case DeviceKind.Finisher         => "Finisher"
-                    case DeviceKind.Clint            => "Clint"
-                    case DeviceKind.PeripheralBridge => "PeripheralBridge"
+                    case DeviceKind.Ram(ports)                     => s"Ram:${ports.name}"
+                    case DeviceKind.Uart(lineHz)                   => s"Uart:$lineHz"
+                    case DeviceKind.Finisher                       => "Finisher"
+                    case DeviceKind.Clint                          => "Clint"
+                    case DeviceKind.PeripheralBridge(deviceHz, deviceCycles) =>
+                        s"PeripheralBridge:$deviceHz:$deviceCycles"
                 },
                 {
                     case "Finisher"                 => DeviceKind.Finisher
                     case "Clint"                    => DeviceKind.Clint
-                    case "PeripheralBridge"         => DeviceKind.PeripheralBridge
+                    case "PeripheralBridge"         =>
+                        DeviceKind.PeripheralBridge(PlatformDevices.PeripheralDeviceHz, PlatformDevices.PeripheralDeviceCycles)
+                    case s if s.startsWith("PeripheralBridge:")     =>
+                        s.stripPrefix("PeripheralBridge:").split(":") match
+                            case Array(hz, cycles) => DeviceKind.PeripheralBridge(hz.toInt, cycles.toInt)
+                            case other => throw new IllegalArgumentException(s"malformed peripheral bridge '$other'")
                     case s if s.startsWith("Ram:")  => DeviceKind.Ram(SyncRamPorts.parseOrThrow(s.stripPrefix("Ram:")))
                     case s if s.startsWith("Uart:") => DeviceKind.Uart(s.stripPrefix("Uart:").toInt)
                     case other => throw new IllegalArgumentException(s"unknown device kind '$other'")

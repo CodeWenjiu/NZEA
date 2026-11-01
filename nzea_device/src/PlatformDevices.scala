@@ -41,6 +41,13 @@ object PlatformDevices:
       */
     private val LineHz = 115200
 
+    /** The secondary bus behind the peripheral window: its device clock and the device clocks one access takes. A 25 MHz
+      * bus answering in one of its clocks is four tile cycles on the 100 MHz board — a slow peripheral bus, which is the
+      * point of the window. The bridge flow's model resolves the same facts (`AccessCost.Periods`).
+      */
+    val PeripheralDeviceHz: Int = 25_000_000
+    val PeripheralDeviceCycles: Int = 1
+
     def devices(flow: RtlFlow): Seq[DeviceSpec] = flow match
         case RtlFlow.Verilator =>
             Seq(
@@ -62,7 +69,7 @@ object PlatformDevices:
                 DeviceSpec(
                     "peripheral",
                     AddrRange(BigInt("88000000", 16), BigInt("08000000", 16)),
-                    DeviceKind.PeripheralBridge
+                    DeviceKind.PeripheralBridge(PeripheralDeviceHz, PeripheralDeviceCycles)
                 )
             )
         case RtlFlow.Yosys =>

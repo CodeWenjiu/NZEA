@@ -28,6 +28,8 @@ case class PeripheralBridgeParameter(
     userWidth: Int,
     idWidth: Int,
     clockHz: Int,
+    deviceHz: Int,
+    deviceCycles: Int,
     frames: Seq[FramedRange],
     flow: RtlFlow,
     stats: StatScope
@@ -37,6 +39,9 @@ case class PeripheralBridgeParameter(
     require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
     require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
     require(clockHz >= 1, s"clockHz must be >= 1, got $clockHz")
+    require(deviceHz >= 1, s"deviceHz must be >= 1, got $deviceHz")
+    require(clockHz % deviceHz == 0, s"the device clock must divide the bus clock: $deviceHz Hz against $clockHz Hz")
+    require(deviceCycles >= 1, s"deviceCycles must be >= 1, got $deviceCycles")
 
 given upickle.default.ReadWriter[PeripheralBridgeParameter] = upickle.default.macroRW
 
@@ -115,10 +120,25 @@ object PeripheralBridge
             residency.io.out.resp.bits :<= inner.resp.bits
             inner.resp.ready := residency.io.out.resp.ready
         else
-            Todo.answer(
-                io.bus,
-                io.resetN.asBool,
-                parameter.dataWidth,
-                parameter.userWidth,
-                parameter.idWidth
+            // The window with real hardware behind it: the secondary bus paces an access by its own divided clock, so a
+            // master sees the wire's time in the synthesis flow too — the same arithmetic the bridge flow's model
+            // resolves above.
+            val bus = PeripheralBus.instantiate(
+                PeripheralBusParameter(
+                    parameter.addrWidth,
+                    parameter.dataWidth,
+                    parameter.userWidth,
+                    parameter.idWidth,
+                    parameter.clockHz,
+                    parameter.deviceHz,
+                    parameter.deviceCycles
+                )
             )
+            bus.io.clock := summon[ClockScope].clock
+            bus.io.resetN := io.resetN
+            bus.io.bus.req.valid := io.bus.req.valid
+            bus.io.bus.req.bits :<= io.bus.req.bits
+            io.bus.req.ready := bus.io.bus.req.ready
+            io.bus.resp.valid := bus.io.bus.resp.valid
+            io.bus.resp.bits :<= bus.io.bus.resp.bits
+            bus.io.bus.resp.ready := io.bus.resp.ready

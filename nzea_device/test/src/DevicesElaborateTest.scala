@@ -236,7 +236,18 @@ object DevicesElaborateTest extends TestSuite:
 
     private lazy val peripheralBridgeBridged = TestFlow.lower(
         PeripheralBridge.moduleName(
-            PeripheralBridgeParameter(32, 32, 4, 1, 25000000, frames, RtlFlow.Verilator, StatScope(Seq("peripheral")))
+            PeripheralBridgeParameter(
+                32,
+                32,
+                4,
+                1,
+                25000000,
+                25000000,
+                1,
+                frames,
+                RtlFlow.Verilator,
+                StatScope(Seq("peripheral"))
+            )
         ),
         cfg =>
             PeripheralBridge.main(
@@ -253,6 +264,10 @@ object DevicesElaborateTest extends TestSuite:
                     "1",
                     "--clockHz",
                     "25000000",
+                    "--deviceHz",
+                    "25000000",
+                    "--deviceCycles",
+                    "1",
                     "--frames",
                     upickle.default.write(frames.head),
                     "--stats",
@@ -264,10 +279,21 @@ object DevicesElaborateTest extends TestSuite:
         cfg => PeripheralBridge.main(Array("design", cfg.toString))
     )
 
-    /** The same window with nothing behind it: the synthesis flow answers zero and acknowledges writes. */
+    /** The same window with real hardware behind it: the secondary bus, paced by its own divided clock. */
     private lazy val peripheralBridgeHw = TestFlow.lower(
         PeripheralBridge.moduleName(
-            PeripheralBridgeParameter(32, 32, 4, 1, 25000000, frames, RtlFlow.Yosys, StatScope(Seq("peripheral")))
+            PeripheralBridgeParameter(
+                32,
+                32,
+                4,
+                1,
+                25000000,
+                25000000,
+                1,
+                frames,
+                RtlFlow.Yosys,
+                StatScope(Seq("peripheral"))
+            )
         ),
         cfg =>
             PeripheralBridge.main(
@@ -284,6 +310,10 @@ object DevicesElaborateTest extends TestSuite:
                     "1",
                     "--clockHz",
                     "25000000",
+                    "--deviceHz",
+                    "25000000",
+                    "--deviceCycles",
+                    "1",
                     "--frames",
                     upickle.default.write(frames.head),
                     "--stats",
@@ -388,12 +418,14 @@ object DevicesElaborateTest extends TestSuite:
             do assert(peripheralBridgeBridged.contains(port))
             assert(peripheralBridgeBridged.contains("bus_read") && peripheralBridgeBridged.contains("bus_write"))
 
-        test("the peripheral bridge is a TODO in a synthesis flow"):
+        test("the peripheral bridge builds the secondary bus in a synthesis flow"):
             assert(peripheralBridgeHw.contains("module PeripheralBridge("))
             for port <- Seq("bus_req_valid", "bus_resp_valid", "bus_req_bits_wen")
             do assert(peripheralBridgeHw.contains(port))
             assert(!peripheralBridgeHw.contains("bus_read") && !peripheralBridgeHw.contains("bus_write"))
-            assert(peripheralBridgeHw.contains("$fatal"))
+            // The window has hardware behind it now, not a stop: the bus is paced by its own divided clock.
+            assert(peripheralBridgeHw.contains("PeripheralBus"))
+            assert(!peripheralBridgeHw.contains("$fatal"))
 
         test("the device kinds round-trip through their flag spelling"):
             val kinds = Seq(
@@ -401,10 +433,13 @@ object DevicesElaborateTest extends TestSuite:
                 DeviceKind.Uart(115200),
                 DeviceKind.Finisher,
                 DeviceKind.Clint,
-                DeviceKind.PeripheralBridge
+                DeviceKind.PeripheralBridge(25_000_000, 1)
             )
             for kind <- kinds do assert(upickle.default.read[DeviceKind](upickle.default.write(kind)) == kind)
-            assert(upickle.default.write[DeviceKind](DeviceKind.PeripheralBridge) == "\"PeripheralBridge\"")
+            assert(
+                upickle.default.write[DeviceKind](DeviceKind.PeripheralBridge(25_000_000, 1)) ==
+                    "\"PeripheralBridge:25000000:1\""
+            )
 
         test("the blinker at full duty is the plain toggle — no PWM window is built"):
             assert(blink.contains("module Blink("))
