@@ -142,7 +142,7 @@ object LiteBusTest extends TestSuite:
         cfg => LiteBusCrossbar.main(Array("design", cfg.toString))
     )
 
-    private val timing = DeviceTiming(AccessCost.Stages(4), jitterEvery = 4, jitterSpan = 4)
+    private val timing = DeviceTiming(AccessCost.SameDomain(4), jitterEvery = 4, jitterSpan = 4)
     private val timingParameter = LiteBusTimingParameter(32, 32, 4, 1, 25_000_000, timing)
     private val timingModule = LiteBusTiming.moduleName(timingParameter)
 
@@ -164,7 +164,7 @@ object LiteBusTest extends TestSuite:
                     "--busHz",
                     "25000000",
                     "--cost",
-                    "Stages:4",
+                    "SameDomain:4",
                     "--jitterEvery",
                     "4",
                     "--jitterSpan",
@@ -261,9 +261,9 @@ object LiteBusTest extends TestSuite:
             do assert(timingSv.contains(port))
 
         test("a timing the model cannot build is rejected, not defaulted"):
-            intercept[IllegalArgumentException](DeviceTiming(AccessCost.Stages(0), jitterEvery = 4, jitterSpan = 4))
-            intercept[IllegalArgumentException](DeviceTiming(AccessCost.Stages(4), jitterEvery = 0, jitterSpan = 4))
-            intercept[IllegalArgumentException](DeviceTiming(AccessCost.Stages(4), jitterEvery = 4, jitterSpan = 0))
+            intercept[IllegalArgumentException](DeviceTiming(AccessCost.SameDomain(0), jitterEvery = 4, jitterSpan = 4))
+            intercept[IllegalArgumentException](DeviceTiming(AccessCost.SameDomain(4), jitterEvery = 0, jitterSpan = 4))
+            intercept[IllegalArgumentException](DeviceTiming(AccessCost.SameDomain(4), jitterEvery = 4, jitterSpan = 0))
             intercept[IllegalArgumentException](
                 DeviceTiming(AccessCost.Periods(deviceHz = 0, deviceCycles = 1), jitterEvery = 4, jitterSpan = 4)
             )
@@ -278,7 +278,7 @@ object LiteBusTest extends TestSuite:
             assert(period.latency(25_000_000) == 4)
             assert(period.latency(100_000_000) == 16)
             assert(BigInt(period.latency(25_000_000)) * 100_000_000 == BigInt(period.latency(100_000_000)) * 25_000_000)
-            val stages = DeviceTiming(AccessCost.Stages(4), jitterEvery = 4, jitterSpan = 4)
+            val stages = DeviceTiming(AccessCost.SameDomain(4), jitterEvery = 4, jitterSpan = 4)
             assert(stages.latency(25_000_000) == 4 && stages.latency(100_000_000) == 4)
             // One device cycle at 1 GHz against a 1 Hz bus is below the model's own two registers: clamp, not reshape.
             assert(DeviceTiming(AccessCost.Periods(deviceHz = 1_000_000_000, deviceCycles = 1), 4, 4).latency(1) == 2)

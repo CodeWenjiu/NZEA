@@ -18,24 +18,26 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * deviceHz)` cycles, so the access keeps its duration when the bus clock changes. This is the form for a device in its
   * own clock domain.
   *
-  * `Stages(busCycles)`: a structural path — that many bus cycles at any clock, the flops a bridge inserts. This is the
-  * form for a device the bus clock itself runs: a faster platform shortens the access in time, and the count stays.
+  * `SameDomain(busCycles)`: the device is clocked by the bus itself, so the access is that many bus cycles at any
+  * platform clock — a faster clock shortens it in time and the count stays. What fills those cycles does not matter to
+  * the model: pipeline stages, or a state machine's count like the UART's three. This is the form for every device with
+  * no clock of its own, which is what makes the hz = bus hz assumption explicit instead of a default.
   */
 enum AccessCost:
     case Periods(deviceHz: Int, deviceCycles: Int)
-    case Stages(busCycles: Int)
+    case SameDomain(busCycles: Int)
 
     /** The access in bus cycles at `busHz`, rounded up: an access ends inside a cycle, never between two. */
     def at(busHz: Int): Int = this match
         case Periods(deviceHz, deviceCycles) =>
             ((BigInt(deviceCycles) * busHz + deviceHz - 1) / deviceHz).toInt
-        case Stages(busCycles) => busCycles
+        case SameDomain(busCycles) => busCycles
 
 object AccessCost:
 
     private def render(cost: AccessCost): String = cost match
         case AccessCost.Periods(deviceHz, deviceCycles) => s"Periods:$deviceHz:$deviceCycles"
-        case AccessCost.Stages(busCycles)               => s"Stages:$busCycles"
+        case AccessCost.SameDomain(busCycles)           => s"SameDomain:$busCycles"
 
     private def parse(text: String): Either[String, AccessCost] = text match
         case s if s.startsWith("Periods:") =>
@@ -43,9 +45,9 @@ object AccessCost:
                 case Array(hz, cycles) =>
                     scala.util.Try(AccessCost.Periods(hz.toInt, cycles.toInt)).toEither.left.map(_.getMessage)
                 case _ => Left(s"malformed access cost '$s' (expected Periods:<deviceHz>:<cycles>)")
-        case s if s.startsWith("Stages:") =>
-            scala.util.Try(AccessCost.Stages(s.stripPrefix("Stages:").toInt)).toEither.left.map(_.getMessage)
-        case other => Left(s"unknown access cost '$other' (expected Stages:<cycles>|Periods:<deviceHz>:<cycles>)")
+        case s if s.startsWith("SameDomain:") =>
+            scala.util.Try(AccessCost.SameDomain(s.stripPrefix("SameDomain:").toInt)).toEither.left.map(_.getMessage)
+        case other => Left(s"unknown access cost '$other' (expected SameDomain:<cycles>|Periods:<deviceHz>:<cycles>)")
 
     /** One spelling for the config file and the flag, the `DeviceKind` shape: the case name and its numbers. */
     given upickle.default.ReadWriter[AccessCost] = upickle.default
@@ -53,7 +55,7 @@ object AccessCost:
         .bimap(render, text => parse(text).fold(error => throw new IllegalArgumentException(error), identity))
 
     given TokensReader.Simple[AccessCost] with
-        def shortName = "Stages:<cycles>|Periods:<deviceHz>:<cycles>"
+        def shortName = "SameDomain:<cycles>|Periods:<deviceHz>:<cycles>"
 
         def read(strs: Seq[String]): Either[String, AccessCost] =
             strs.lastOption.toRight("an access cost requires a value").flatMap(parse)
@@ -76,7 +78,7 @@ case class DeviceTiming(cost: AccessCost, jitterEvery: Int, jitterSpan: Int):
         case AccessCost.Periods(deviceHz, deviceCycles) =>
             require(deviceHz >= 1, s"deviceHz must be >= 1, got $deviceHz")
             require(deviceCycles >= 1, s"deviceCycles must be >= 1, got $deviceCycles")
-        case AccessCost.Stages(busCycles) => require(busCycles >= 1, s"busCycles must be >= 1, got $busCycles")
+        case AccessCost.SameDomain(busCycles) => require(busCycles >= 1, s"busCycles must be >= 1, got $busCycles")
 
     require(jitterEvery >= 1 && jitterEvery <= 256, s"jitterEvery must be in [1, 256], got $jitterEvery")
     require(jitterSpan >= 1, s"jitterSpan must be >= 1, got $jitterSpan")

@@ -59,21 +59,21 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
 | | 声明 | 随时钟换算 | 物理时间 |
 |---|---|---|---|
 | 缺点是**周期/速率** | `FrameTiming(bitHz, bitsPerFrame)`、`Clint` 的 `timeHz` | 是：`⌈bits × clockHz ÷ bitHz⌉`、`clockHz ÷ timeHz` | 不变（一帧恒为 50 µs） |
-| 缺点是**结构** | `DeviceTiming(latency, …)` | 否：就是总线拍数 | 随总线时钟变（4 拍 = 160 ns @25 MHz、40 ns @100 MHz） |
+| 缺点是**同域** | `DeviceTiming(SameDomain(cycles), …)` | 否：就是总线拍数 | 随总线时钟变（4 拍 = 160 ns @25 MHz、40 ns @100 MHz） |
 
 规则：
 
-1. **物理量是设备自己的周期或比特流** —— 一律声明频率/速率，由实例化处的时钟推导拍数。驻留与 `mtime`
-   已经是这个形状。
-2. **物理量是流水级数** —— 声明拍数，**不要**用频率比去推。一个两级打拍的桥在任何频率下都是 2 拍；
-   写成"设备 100 MHz、总线 1 GHz → 10 拍"会把同一时钟域里的 2 拍说成 10 拍。
-3. 两者的正确组合是 `latency(busHz) = ⌈deviceCycles × busHz ÷ deviceHz⌉ + syncCycles`：前项是周期、后项
-   是结构。
-4. 因此 `DeviceTiming` 的数值**不会随时钟缩放**：仿真 25 MHz 与板卡 100 MHz 下同一個 `latency = 4` 是不同
-   的物理时间。这不是 bug，是"它是结构量"的声明；真正的物理延迟（如 DDR3 的 CL 6 × 2.5 ns = 15 ns）不能
-   用这个字段表达，必须按第 1 条写成速率。
+1. **物理量是设备自己的周期或比特流** —— 一律声明频率/速率（`Periods`/`FrameTiming`），由实例化处的时钟
+   推导拍数。驻留与 `mtime` 已经是这个形状。
+2. **设备与总线同域** —— 声明拍数（`SameDomain`），**不要**用频率比去推。一个三拍应答的寄存器在任何频率下
+   都是 3 拍；写成"设备 100 MHz、总线 1 GHz → 10 拍"会把同一时钟域里的 3 拍说成 10 拍。
+3. 两者的正确组合是 `latency(busHz) = ⌈deviceCycles × busHz ÷ deviceHz⌉ + 同域拍数`：前项是设备周期、
+   后项是同一时钟下的计数。
+4. 因此 `SameDomain` 的数值**不会随时钟缩放**：仿真 25 MHz 与板卡 100 MHz 下同一个 4 拍是不同的物理时间。
+   这不是 bug，是"它与总线同域"的声明；真正的物理延迟（如 DDR3 的 CL 6 × 2.5 ns = 15 ns）不能用它表达，
+   必须按第 1 条写成频率。
 
-这条规则现在由类型强制（2026-11-01）：`DeviceTiming` 的代价是一个 `AccessCost`——`Stages(cycles)` 或
+这条规则现在由类型强制（2026-11-01）：`DeviceTiming` 的代价是一个 `AccessCost`——`SameDomain(cycles)` 或
 `Periods(deviceHz, cycles)`，前者不随时钟缩放，后者按 `⌈cycles × busHz ÷ deviceHz⌉` 换算，低于模型自身
 的两级寄存器时钳到 2。仿真/板卡的两种时钟不变性由 `LiteBusResidencyTest`（帧）与 `LiteBusTest`（线）
 各自钉住。
@@ -88,9 +88,9 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
 
 | 设备 | RTL 的应答距离 | 出处 | 校准后 | 备注 |
 |---|---:|---|---|---|
-| CLINT | 1 拍 | `Clint.scala`：`req.ready := !busy` / `resp.valid := busy` | `Stages(2)` | 模型下限是 2（转发自带应答寄存器 + 输出寄存器），1 拍表达不了，取下限 |
-| UART | 3 拍 | `Uart.scala:193`：`resp.valid := busCycle === 3` | `Stages(3)` | 从 8 降下来 |
-| Finisher | 3 拍 | `SifiveTestFinisher.scala:89`（同一 `busCycle` 模式） | `Stages(3)` | 从 4 降下来 |
+| CLINT | 1 拍 | `Clint.scala`：`req.ready := !busy` / `resp.valid := busy` | `SameDomain(2)` | 模型下限是 2（转发自带应答寄存器 + 输出寄存器），1 拍表达不了，取下限 |
+| UART | 3 拍 | `Uart.scala:193`：`resp.valid := busCycle === 3` | `SameDomain(3)` | 从 8 降下来 |
+| Finisher | 3 拍 | `SifiveTestFinisher.scala:89`（同一 `busCycle` 模式） | `SameDomain(3)` | 从 4 降下来 |
 | 片上 RAM | 3 拍 | `RamFabricSlave.scala:116`（同一 `busCycle` 模式） | 不适用 | 板上这个窗口被 512 MiB 的 DDR3 外部窗口覆盖（`Top.scala` 的 `Window = "ram"`），所以本项代表的是 DDR3，见下 |
 
 抖动（`jitterEvery`/`jitterSpan`）**不参与校准**：它是压测主设备 hold/retry 路径的随机源（固定种子），不是
@@ -101,11 +101,11 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
 | `FrameTiming.bitHz`（机械臂） | 400,000 | `DeviceTimings.scala` `DeviceFrames` | 线的比特率 | **[S]** I2C Fast-mode 400 kbit/s（NXP UM10204 §3.1.3）；本仓 `doc/tms320f28p650dk.pdf` §1 特性同值 | 已校准 |
 | `FrameTiming.bitsPerFrame`（机械臂） | 20 | 同上 | 单字节帧占线总位数 | **[D]** START 1 + 地址 7 + R/W 1 + ACK 1 + 数据 8 + ACK 1 + STOP 1 = 20 | 已校准（口径 20） |
 | （32 位寄存器口径） | 56 / 66 | — | 寄存器指针 + 4 数据字节（读再加重复起始） | **[D]** 10 + 9 + 4×9 + 1 = 56；读 ≈ 66 | 待定：见 §5 |
-| `DeviceTiming.ram` | `Stages(20)` | `DeviceTimings.scala` | DDR3 + MIG 的访问延迟 | **[O]** 只有下界有源：DRAM 本体 CL 6 × 2.5 ns = 15 ns；README 的压测一轮 ≈ 230 ns；MIG 控制器延迟无源 | **未校准**，待 C1 |
-| `DeviceTiming.uart` | `Stages(3)` | 同上 | 寄存器访问 | **[R]** RTL 3 拍 | 已校准 |
-| `DeviceTiming.finisher` | `Stages(3)` | 同上 | 退出钩子 | **[R]** RTL 3 拍 | 已校准 |
-| `DeviceTiming.clint` | `Stages(2)` | 同上 | 寄存器访问 | **[R]** RTL 1 拍，取模型下限 2 | 已校准（误差 +1 拍） |
-| `DeviceTiming.peripheral`（桥） | `Stages(4)` | 同上 | 次级总线前向 | **[N]** 合成流没有外设窗口（`PlatformDevices.devices(RtlFlow.Yosys)` 不含 `peripheral`），无 RTL 可对照 | **未校准** |
+| `DeviceTiming.ram` | `SameDomain(20)` | `DeviceTimings.scala` | DDR3 + MIG 的访问延迟 | **[O]** 只有下界有源：DRAM 本体 CL 6 × 2.5 ns = 15 ns；README 的压测一轮 ≈ 230 ns；MIG 控制器延迟无源 | **未校准**，待 C1 |
+| `DeviceTiming.uart` | `SameDomain(3)` | 同上 | 寄存器访问 | **[R]** RTL 3 拍 | 已校准 |
+| `DeviceTiming.finisher` | `SameDomain(3)` | 同上 | 退出钩子 | **[R]** RTL 3 拍 | 已校准 |
+| `DeviceTiming.clint` | `SameDomain(2)` | 同上 | 寄存器访问 | **[R]** RTL 1 拍，取模型下限 2 | 已校准（误差 +1 拍） |
+| `DeviceTiming.peripheral`（桥） | `SameDomain(4)` | 同上 | 次级总线前向 | **[N]** 合成流没有外设窗口（`PlatformDevices.devices(RtlFlow.Yosys)` 不含 `peripheral`），无 RTL 可对照 | **未校准** |
 | `clockHz`（仿真） | 25 MHz | `NzeaTileParameter.scala:75` | tile 时钟 | **[P]** 基线参数 | 已明确 |
 | `clockHz`（板卡） | 100 MHz | `nzea_fpga/src/Top.scala:103` ← `BootDdr.scala:82` | tile 时钟 | **[H]** `ClockOut(100.0, 0.0)` | 已明确 |
 | `timeHz` | 1 MHz | `NzeaTileParameter.scala:76`、`Top.scala:104` | mtime 计数率 | **[O]** 与软件 10 MHz 假定冲突 | OPEN → §4 |
