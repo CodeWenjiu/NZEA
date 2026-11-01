@@ -10,7 +10,7 @@ A 线的交付，随实现更新（不是历史记录）。
 
 两个模型描述的是两件不同的事，不能相加：
 
-| | 线 `DeviceTiming(latency, jitterEvery, jitterSpan)` | 驻留 `FrameTiming(bitHz, bitsPerFrame)` / `FramedRange` |
+| | 线：`Occupancy.Pipelined` 的表项 | 驻留：`Occupancy.Held` 的表项（`AccessCost.bitFrame`） |
 |---|---|---|
 | 物理对象 | 应答多久到（转发链的深度） | 端口被占多久（一帧在线上的时间） |
 | 是否压吞吐 | 否（背靠背请求仍每拍一个） | 是（一次一帧，帧长同时是间隔下限） |
@@ -58,12 +58,12 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
 
 | | 声明 | 随时钟换算 | 物理时间 |
 |---|---|---|---|
-| 缺点是**周期/速率** | `FrameTiming(bitHz, bitsPerFrame)`、`Clint` 的 `timeHz` | 是：`⌈bits × clockHz ÷ bitHz⌉`、`clockHz ÷ timeHz` | 不变（一帧恒为 50 µs） |
-| 缺点是**同域** | `DeviceTiming(SameDomain(cycles), …)` | 否：就是总线拍数 | 随总线时钟变（4 拍 = 160 ns @25 MHz、40 ns @100 MHz） |
+| 缺点是**周期/速率** | `AccessCost.bitFrame(bitHz, bits)`、`Clint` 的 `timeHz` | 是：`⌈bits × clockHz ÷ bitHz⌉`、`clockHz ÷ timeHz` | 不变（一帧恒为 50 µs） |
+| 缺点是**同域** | `AccessCost.SameDomain(cycles)` | 否：就是总线拍数 | 随总线时钟变（4 拍 = 160 ns @25 MHz、40 ns @100 MHz） |
 
 规则：
 
-1. **物理量是设备自己的周期或比特流** —— 一律声明频率/速率（`Periods`/`FrameTiming`），由实例化处的时钟
+1. **物理量是设备自己的周期或比特流** —— 一律声明频率/速率（`Periods`/`bitFrame`），由实例化处的时钟
    推导拍数。驻留与 `mtime` 已经是这个形状。
 2. **设备与总线同域** —— 声明拍数（`SameDomain`），**不要**用频率比去推。一个三拍应答的寄存器在任何频率下
    都是 3 拍；写成"设备 100 MHz、总线 1 GHz → 10 拍"会把同一时钟域里的 3 拍说成 10 拍。
@@ -73,24 +73,25 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
    这不是 bug，是"它与总线同域"的声明；真正的物理延迟（如 DDR3 的 CL 6 × 2.5 ns = 15 ns）不能用它表达，
    必须按第 1 条写成频率。
 
-这条规则现在由类型强制（2026-11-01）：`DeviceTiming` 的代价是一个 `AccessCost`——`SameDomain(cycles)` 或
-`Periods(deviceHz, cycles)`，前者不随时钟缩放，后者按 `⌈cycles × busHz ÷ deviceHz⌉` 换算，低于模型自身
-的两级寄存器时钳到 2。仿真/板卡的两种时钟不变性由 `LiteBusResidencyTest`（帧）与 `LiteBusTest`（线）
-各自钉住。
+这条规则现在由类型强制（2026-11-01）：`TimingEntry` 的代价是一个 `AccessCost`——`SameDomain(cycles)` 或
+`Periods(deviceHz, cycles)`，前者不随时钟缩放，后者按 `⌈cycles × busHz ÷ deviceHz⌉` 换算。**表里的数就是
+主设备看到的拍数**：模型只加表里声明的阶段，不加自己的固定开销；1 拍是协议下限（应答必须能保持到主设备
+取走），无表（`None`）的端口则直接是模拟器的一级应答。`Sum` 把不同来源的部分先精确相加再舍入一次。
+仿真/板卡的两种时钟不变性、`Sum` 的换算与表的合法性都由 `LiteBusTest` 钉住。
 
 ## 2. 参数出处表（A1）
 
 分类：**[S]** 标准/手册 · **[D]** 由帧格式推导 · **[R]** 由本仓 RTL 自身的应答距离标定 · **[H]** 由板级硬件事实推导
 · **[N]** 无物理对应（该值只存在于仿真） · **[O]** 尚无出处。
 
-**校准方法（2026-11-01 定）**：`DeviceTiming` 的职责是让桥接流的主设备看到与合成流相同的总线，所以它的值
+**校准方法（2026-11-01 定）**：端口时序表的职责是让桥接流的主设备看到与合成流相同的总线，所以它的值
 应当等于**合成流里该设备 RTL 自己的请求→应答距离**，而不是凭感觉给一个“慢”数。据此逐个查 RTL：
 
 | 设备 | RTL 的应答距离 | 出处 | 校准后 | 备注 |
 |---|---:|---|---|---|
-| CLINT | 1 拍 | `Clint.scala`：`req.ready := !busy` / `resp.valid := busy` | `SameDomain(2)` | 模型下限是 2（转发自带应答寄存器 + 输出寄存器），1 拍表达不了，取下限 |
+| CLINT | 1 拍 | `Clint.scala`：`req.ready := !busy` / `resp.valid := busy` | 无表（`None`） | 端口不建模型，模拟器的一级应答就是这一拍 |
 | UART | 3 拍 | `Uart.scala:193`：`resp.valid := busCycle === 3` | `SameDomain(3)` | 从 8 降下来 |
-| Finisher | 3 拍 | `SifiveTestFinisher.scala:89`（同一 `busCycle` 模式） | `SameDomain(3)` | 从 4 降下来 |
+| Finisher | 1 拍 | 单寄存器 `busy`（原三拍 `busCycle` 状态机已压掉，与 CLINT 同形） | 无表（`None`） | 端口不建模型 |
 | 片上 RAM | 3 拍 | `RamFabricSlave.scala:116`（同一 `busCycle` 模式） | 不适用 | 板上这个窗口被 512 MiB 的 DDR3 外部窗口覆盖（`Top.scala` 的 `Window = "ram"`），所以本项代表的是 DDR3，见下 |
 
 抖动（`jitterEvery`/`jitterSpan`）**不参与校准**：它是压测主设备 hold/retry 路径的随机源（固定种子），不是
@@ -98,35 +99,51 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
 
 | 参数 | 值 | 位置 | 物理含义 | 出处 | 状态 |
 |---|---|---|---|---|---|
-| `FrameTiming.bitHz`（机械臂） | 400,000 | `DeviceTimings.scala` `DeviceFrames` | 线的比特率 | **[S]** I2C Fast-mode 400 kbit/s（NXP UM10204 §3.1.3）；本仓 `doc/tms320f28p650dk.pdf` §1 特性同值 | 已校准 |
-| `FrameTiming.bitsPerFrame`（机械臂） | 20 | 同上 | 单字节帧占线总位数 | **[D]** START 1 + 地址 7 + R/W 1 + ACK 1 + 数据 8 + ACK 1 + STOP 1 = 20 | 已校准（口径 20） |
+| `bitFrame.bitHz`（机械臂） | 400,000 | `DeviceTimings.scala` `DeviceTimings.arm` | 线的比特率 | **[S]** I2C Fast-mode 400 kbit/s（NXP UM10204 §3.1.3）；本仓 `doc/tms320f28p650dk.pdf` §1 特性同值 | 已校准 |
+| `bitFrame.bits`（机械臂） | 20 | 同上 | 单字节帧占线总位数 | **[D]** START 1 + 地址 7 + R/W 1 + ACK 1 + 数据 8 + ACK 1 + STOP 1 = 20 | 已校准（口径 20） |
 | （32 位寄存器口径） | 56 / 66 | — | 寄存器指针 + 4 数据字节（读再加重复起始） | **[D]** 10 + 9 + 4×9 + 1 = 56；读 ≈ 66 | 待定：见 §5 |
-| `DeviceTiming.ram` | `SameDomain(20)` | `DeviceTimings.scala` | DDR3 + MIG 的访问延迟 | **[O]** 只有下界有源：DRAM 本体 CL 6 × 2.5 ns = 15 ns；README 的压测一轮 ≈ 230 ns；MIG 控制器延迟无源 | **未校准**，待 C1 |
-| `DeviceTiming.uart` | `SameDomain(3)` | 同上 | 寄存器访问 | **[R]** RTL 3 拍 | 已校准 |
-| `DeviceTiming.finisher` | `SameDomain(3)` | 同上 | 退出钩子 | **[R]** RTL 3 拍 | 已校准 |
-| `DeviceTiming.clint` | `SameDomain(2)` | 同上 | 寄存器访问 | **[R]** RTL 1 拍，取模型下限 2 | 已校准（误差 +1 拍） |
-| `DeviceTiming.peripheral`（桥） | `SameDomain(4)` | 同上 | 次级总线前向 | **[N]** 合成流没有外设窗口（`PlatformDevices.devices(RtlFlow.Yosys)` 不含 `peripheral`），无 RTL 可对照 | **未校准** |
+| `DeviceTimings.ram` | `Sum(Periods(400 MHz, 6), Periods(200 MHz, 20))` | `DeviceTimings.scala` | DRAM 列延迟 + MIG 往返 | **[S]/[O]** 前半有源：DDR3-800 的 CL 6 × 2.5 ns = 15 ns；后半（MIG 20 个 200 MHz 时钟 = 100 ns）**仍是假设** | 可追溯：15 ns 有源，100 ns 待 C1 |
+| `DeviceTimings.uart` | `SameDomain(3)` | 同上 | 寄存器访问 | **[R]** RTL 3 拍 | 已校准 |
+| finisher | 无表（`None`） | `SifiveTestFinisher.scala` | 退出钩子 | **[R]** RTL 1 拍（单寄存器）；端口不建模型 | 已校准（逐拍一致） |
+| CLINT | 无表（`None`） | `Clint.scala` | 寄存器访问 | **[R]** RTL 1 拍；端口不建模型，直接是模拟器的一级应答 | 已校准（逐拍一致） |
+| `DeviceTimings.peripheral`（桥） | `Periods(25 MHz, 1)` | 同上 | 次级总线一次访问 | **[R]** 与 `PlatformDevices.PeripheralDeviceHz/Cycles` 同源，硬件 `PeripheralBus` 按同两个数分频 | 已校准（25 MHz 下 1 拍） |
 | `clockHz`（仿真） | 25 MHz | `NzeaTileParameter.scala:75` | tile 时钟 | **[P]** 基线参数 | 已明确 |
 | `clockHz`（板卡） | 100 MHz | `nzea_fpga/src/Top.scala:103` ← `BootDdr.scala:82` | tile 时钟 | **[H]** `ClockOut(100.0, 0.0)` | 已明确 |
 | `timeHz` | 1 MHz | `NzeaTileParameter.scala:76`、`Top.scala:104` | mtime 计数率 | **[O]** 与软件 10 MHz 假定冲突 | OPEN → §4 |
 
 **三条结论：**
 
-1. `DeviceTimings` 的五个值**全部只影响仿真**（消费点只有 `HasDpiBus.bridgeAnswer`，它在 `flow.bridges` 才走）。
-   其中三个现在是**按合成流 RTL 标定**的（CLINT/UART/finisher）；桥没有硬件可对；RAM 对应的是 DDR3+MIG，
+1. 三个 `DeviceTimings` 表（外加 CLINT/finisher 两个无表端口）**全部只影响仿真**（消费点只有
+   `HasDpiBus.answerBus`，它在 `flow.bridges` 才走）。其中 UART 是**按合成流 RTL 标定**的；CLINT 与 finisher
+   无表，直接是模拟器的一级应答，与各自 RTL 的单寄存器逐拍一致；桥没有硬件可对；RAM 对应的是 DDR3+MIG，
    控制器延迟仍无源。
 2. 板级**没有外设窗口**：`PlatformDevices` 的合成流清单只有 `ram`/`uart16550`/`finisher`/`clint`，没有
    `peripheral`——arm/scan/motion 在板上不存在，两层模型目前是纯仿真对象——**C1 被这一缺口阻塞**，不是被埋点阻塞。
-3. 唯一同时有外部出处和可上板对照的量是 DDR3：本体 15 ns（CL 6 × 2.5 ns），控制器余量待 C1。
+3. 唯一同时有外部出处和可上板对照的量是 DDR3：本体 15 ns（CL 6 × 2.5 ns）已入模型，MIG 的那 100 ns
+   是全文最后一个已知假设，待 C1。
 
-**校准的实测影响（2026-11-01，`step 2000000`，robot_arm）**：`cycle` 3,539,937 → 3,539,903（−34，≈ −0.001%），
-`frames`/`busy` 不变（15 / 18,750），difftest 无失配。即：**寄存器文件的延迟不是这个工作负载的成本所在**，
-把它校准之后总账几乎不动——成本在帧驻留和计算侧。
+测量于 2026-11-01，早于模型下限从 2 拍降到 1 拍：下表"桥 2 拍"那一列现在是 1 拍，CLINT 也不再建模型，
+两项都只快了一拍，比例结论不变。
+
+| 量 | RAM 20 拍 / 桥 4 拍 | RAM 3 拍 / 桥 2 拍 |
+|---|---:|---:|
+| `middle_cycle` | 3,539,903 | **3,047,996**（−13.9%） |
+| `ipc` | 0.5650 | **0.6562**（+16.1%） |
+| `ibus_stall` | 893,527 | **401,223**（−55.1%） |
+| `icache_miss` | 25,135 | 25,142（不变） |
+| `residency_frames` / `busy` | 15 / 18,750 | 15 / 18,750 |
+
+两件事：
+
+1. **寄存器文件（UART/CLINT/finisher）的延迟不是成本所在** —— 上一轮把 8 改成 3/2 时总账只动了 −34 拍。
+2. **RAM 延迟是这个模型里最敏感的单个参数** —— 17 拍的变化导致 ibus_stall 减半、总周期降 13.9%，
+   因为每个 tick 有上万次 icache miss 要付这份延迟。所以 **C1 应当先测内存，而不是先测外设**；
+   在外设窗口上花力气不如把 MIG 那 100 ns 换成实测值。
 
 ## 3. 敏感度扫描（A3）
 
 固定工作负载（`robot_arm`，每 tick 10 次机械臂访问）、固定窗口（`step 4000000`，riscv32i，
-25 MHz，difftest 全程），只改 `DeviceFrames` 的两个字段：
+25 MHz，difftest 全程），只改 `DeviceTimings.peripheral` 里 arm 那行的两个字段：
 
 | 配置 | 每帧拍数 | 帧数 | `residency_busy` | `middle_cycle` | busy / cycle |
 |---|---:|---:|---:|---:|---:|
@@ -206,7 +223,7 @@ nix develop --command bash -c 'cargo build --release --quiet -p pulse_cli && tar
   property --wave ../remu/target/trace.fst --scope TOP.NzeaTile.peripheral \
   --eval "(bus_req_valid && bus_req_ready) --1250 (bus_resp_valid && bus_resp_ready)" --count --json'
 
-# A3 扫描：改 DeviceFrames 的 FrameTiming，然后
+# A3 扫描：改 arm 那行的 AccessCost.bitFrame，然后
 nix develop ../remu --command bash -c 'cd ../remu && just run-app robot_arm riscv32i --platform remu -- \
   --platform nzea --sim-opt target=tile --sim-opt watchdog=3x30 --batch --difftest remu \
   --startup "{ step 4000000 } and { stat stat_peripheral_residency_frames } \

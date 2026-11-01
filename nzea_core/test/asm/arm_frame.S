@@ -1,8 +1,8 @@
 // Arm frame residency: the arm block hangs off an off-chip I2C wire, and one access is one frame.
 //
-// nzea_rtl's residency (`LiteBusResidency`, table in `nzea_device.DeviceFrames`) sits in front of the peripheral
-// window: every access to the arm range (0x8A00_0000+0x68) is held for the frame's own arithmetic — 20 bits at
-// 400 kHz against the tile's 25 MHz clock = 1250 cycles. The contract is transparent: reads and writes alike pay a
+// nzea_rtl's port timing table (`LiteBusTiming`, table in `nzea_device.DeviceTimings` and applied at the
+// peripheral window) sits in front of the devices: every access to the arm range (0x8A00_0000+0x68) is a `Held`
+// row — the 20-bit frame at 400 kbit/s against the tile's 25 MHz clock = 1250 cycles. The contract is transparent: reads and writes alike pay a
 // frame. Difftest checks this program functionally (the window is MMIO, so the reference follows the DUT's
 // observations); the timing itself is pinned on the waveform — `func trace wave-form on` below, then pulse on
 // `target/trace.fst` under the remu tree, where each arm access shows the residence: request fire to response

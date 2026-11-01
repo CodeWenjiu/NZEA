@@ -23,8 +23,8 @@ A4 待决策；C1 被"合成流没有外设窗口"阻塞。三个开放问题（
 ### A 延迟校准
 
 **A1 — 建立"延迟参数出处表"。** ✅ 完成（2026-11-01）
-交付：`latency-calibration.md` §2。结论：五个 `DeviceTimings` 值全部只影响仿真（消费点仅
-`HasDpiBus.bridgeAnswer`），没有一个描述已建成的硬件；机械臂帧的两个字段有外部出处（I2C 400 kbit/s）
+交付：`latency-calibration.md` §2。结论：三个 `DeviceTimings` 表与 CLINT/finisher 两个无表端口全部只影响仿真（消费点仅
+`HasDpiBus.answerBus`），没有一个描述已建成的硬件；机械臂帧的两个字段有外部出处（I2C 400 kbit/s）
 与推导（20 bit 帧格式）；DDR3 的 15 ns（CL 6 × 2.5 ns）是目前唯一可上板对照的量。
 
 **A2 — 澄清"双重校准"的两层语义，并防止串味。** ✅ 完成（2026-11-01）
@@ -76,7 +76,7 @@ A4 待决策；C1 被"合成流没有外设窗口"阻塞。三个开放问题（
 | 能力 | 位置 |
 |---|---|
 | 可复现 RTL 仿真闭环（difftest + stat + 波形） | `.agents/skills/remu/SKILL.md`、`.agents/skills/pulse/SKILL.md` |
-| 两层延迟模型 + 自校验计数器（`frames × 帧长 = busy`） | `nzea_rtl/src/bus/LiteBusResidency.scala`、`nzea_device/src/DeviceTimings.scala` |
+| 两层延迟模型 + 自校验计数器（`frames × 帧长 = busy`） | `nzea_rtl/src/bus/LiteBusTiming.scala`、`nzea_device/src/DeviceTimings.scala` |
 | 机械臂工作负载（16 ms 节拍，IK 16 迭代，64 射线） | `../remu/remu_app/bins/robot_arm/src/main.rs:51,64` |
 | 板级流程（Vivado/ILA 抓取） | `.agents/skills/fpga-flow/SKILL.md` |
 | 真实器件参照资料 | `doc/`（TI C2000 数据手册 + CLA/CLB 应用笔记，未入库） |
