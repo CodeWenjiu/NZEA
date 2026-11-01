@@ -73,36 +73,55 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
    的物理时间。这不是 bug，是"它是结构量"的声明；真正的物理延迟（如 DDR3 的 CL 6 × 2.5 ns = 15 ns）不能
    用这个字段表达，必须按第 1 条写成速率。
 
-这条规则目前只有文档约束——`DeviceTiming` 没有频率字段可用，所以还无法写错；驻留侧的时钟不变性已由
-`LiteBusResidencyTest` 固定（"a frame keeps its duration when the clock changes"）。
+这条规则现在由类型强制（2026-11-01）：`DeviceTiming` 的代价是一个 `AccessCost`——`Stages(cycles)` 或
+`Periods(deviceHz, cycles)`，前者不随时钟缩放，后者按 `⌈cycles × busHz ÷ deviceHz⌉` 换算，低于模型自身
+的两级寄存器时钳到 2。仿真/板卡的两种时钟不变性由 `LiteBusResidencyTest`（帧）与 `LiteBusTest`（线）
+各自钉住。
 
 ## 2. 参数出处表（A1）
 
-分类：**[S]** 标准/手册 · **[D]** 由帧格式推导 · **[H]** 由板级硬件事实推导 · **[N]** 无物理对应
-（该值只存在于仿真） · **[O]** 尚无出处。
+分类：**[S]** 标准/手册 · **[D]** 由帧格式推导 · **[R]** 由本仓 RTL 自身的应答距离标定 · **[H]** 由板级硬件事实推导
+· **[N]** 无物理对应（该值只存在于仿真） · **[O]** 尚无出处。
+
+**校准方法（2026-11-01 定）**：`DeviceTiming` 的职责是让桥接流的主设备看到与合成流相同的总线，所以它的值
+应当等于**合成流里该设备 RTL 自己的请求→应答距离**，而不是凭感觉给一个“慢”数。据此逐个查 RTL：
+
+| 设备 | RTL 的应答距离 | 出处 | 校准后 | 备注 |
+|---|---:|---|---|---|
+| CLINT | 1 拍 | `Clint.scala`：`req.ready := !busy` / `resp.valid := busy` | `Stages(2)` | 模型下限是 2（转发自带应答寄存器 + 输出寄存器），1 拍表达不了，取下限 |
+| UART | 3 拍 | `Uart.scala:193`：`resp.valid := busCycle === 3` | `Stages(3)` | 从 8 降下来 |
+| Finisher | 3 拍 | `SifiveTestFinisher.scala:89`（同一 `busCycle` 模式） | `Stages(3)` | 从 4 降下来 |
+| 片上 RAM | 3 拍 | `RamFabricSlave.scala:116`（同一 `busCycle` 模式） | 不适用 | 板上这个窗口被 512 MiB 的 DDR3 外部窗口覆盖（`Top.scala` 的 `Window = "ram"`），所以本项代表的是 DDR3，见下 |
+
+抖动（`jitterEvery`/`jitterSpan`）**不参与校准**：它是压测主设备 hold/retry 路径的随机源（固定种子），不是
+物理量。所以波形上看到的单次延迟会略大于上表的拍数（每侧平均 +0.6 拍、最坏 +4）。
 
 | 参数 | 值 | 位置 | 物理含义 | 出处 | 状态 |
 |---|---|---|---|---|---|
-| `FrameTiming.bitHz`（机械臂） | 400,000 | `DeviceTimings.scala:40` | 线的比特率 | **[S]** I2C Fast-mode 400 kbit/s（NXP UM10204 §3.1.3）；本仓 `doc/tms320f28p650dk.pdf` §1 特性同值（"两个 I2C 接口 (400Kbps)"） | 有出处 |
-| `FrameTiming.bitsPerFrame`（机械臂） | 20 | 同上 | 单字节帧占线总位数 | **[D]** START 1 + 地址 7 + R/W 1 + ACK 1 + 数据 8 + ACK 1 + STOP 1 = 20 | 有出处（口径见下） |
-| （32 位寄存器口径） | 56 | — | 寄存器指针 + 4 数据字节 | **[D]** 10 + (8+ACK 1) + 4×(8+ACK 1) + STOP 1 = 56；读再加重复起始与地址 ≈ 66 | 待定：见 §5 |
-| `DeviceTiming.ram` | 20 / 8 / 8 | `DeviceTimings.scala:13` | 存储访问延迟 | **[N]** 只被桥接流的 DPI 应答使用；板卡的存储器是 DDR3，走外部窗口，不经过这个值。DRAM 本体：tCK 2.5 ns、CL 6 → 15 ns（`nzea_fpga/src/device/ddr3/README_zh.md:17`），而 20 拍 @25 MHz = 800 ns，二者无对应关系 | 仿真侧暂定；余量待 C1 |
-| `DeviceTiming.peripheral`（桥） | 4 / 4 / 4 | `:24` | 桥前向线 | **[N]** 板级没有外设窗口（`PlatformDevices.devices(RtlFlow.Yosys)` 不含 `peripheral`），该值只在桥接流生效 | 仿真侧暂定 |
-| `DeviceTiming.uart` / `.clint` | 8 / 4 / 4 | `:16`、`:21` | 慢速寄存器访问 | **[N]** 合成流里由各自 RTL 作答，不走该值；只有桥接流用它 | 仿真侧暂定 |
-| `DeviceTiming.finisher` | 4 / 4 / 4 | `:19` | 仿真退出钩子 | **[N]** 无物理器件 | N/A by design |
-| `clockHz`（仿真） | 25 MHz | `NzeaTileParameter.scala:75` | tile 时钟 | **[P]** 基线参数 | 有出处 |
-| `clockHz`（板卡） | 100 MHz | `nzea_fpga/src/Top.scala:103` ← `BootDdr.scala:82` | tile 时钟 | **[H]** `ClockOut(100.0, 0.0)` | 有出处 |
+| `FrameTiming.bitHz`（机械臂） | 400,000 | `DeviceTimings.scala` `DeviceFrames` | 线的比特率 | **[S]** I2C Fast-mode 400 kbit/s（NXP UM10204 §3.1.3）；本仓 `doc/tms320f28p650dk.pdf` §1 特性同值 | 已校准 |
+| `FrameTiming.bitsPerFrame`（机械臂） | 20 | 同上 | 单字节帧占线总位数 | **[D]** START 1 + 地址 7 + R/W 1 + ACK 1 + 数据 8 + ACK 1 + STOP 1 = 20 | 已校准（口径 20） |
+| （32 位寄存器口径） | 56 / 66 | — | 寄存器指针 + 4 数据字节（读再加重复起始） | **[D]** 10 + 9 + 4×9 + 1 = 56；读 ≈ 66 | 待定：见 §5 |
+| `DeviceTiming.ram` | `Stages(20)` | `DeviceTimings.scala` | DDR3 + MIG 的访问延迟 | **[O]** 只有下界有源：DRAM 本体 CL 6 × 2.5 ns = 15 ns；README 的压测一轮 ≈ 230 ns；MIG 控制器延迟无源 | **未校准**，待 C1 |
+| `DeviceTiming.uart` | `Stages(3)` | 同上 | 寄存器访问 | **[R]** RTL 3 拍 | 已校准 |
+| `DeviceTiming.finisher` | `Stages(3)` | 同上 | 退出钩子 | **[R]** RTL 3 拍 | 已校准 |
+| `DeviceTiming.clint` | `Stages(2)` | 同上 | 寄存器访问 | **[R]** RTL 1 拍，取模型下限 2 | 已校准（误差 +1 拍） |
+| `DeviceTiming.peripheral`（桥） | `Stages(4)` | 同上 | 次级总线前向 | **[N]** 合成流没有外设窗口（`PlatformDevices.devices(RtlFlow.Yosys)` 不含 `peripheral`），无 RTL 可对照 | **未校准** |
+| `clockHz`（仿真） | 25 MHz | `NzeaTileParameter.scala:75` | tile 时钟 | **[P]** 基线参数 | 已明确 |
+| `clockHz`（板卡） | 100 MHz | `nzea_fpga/src/Top.scala:103` ← `BootDdr.scala:82` | tile 时钟 | **[H]** `ClockOut(100.0, 0.0)` | 已明确 |
 | `timeHz` | 1 MHz | `NzeaTileParameter.scala:76`、`Top.scala:104` | mtime 计数率 | **[O]** 与软件 10 MHz 假定冲突 | OPEN → §4 |
 
 **三条结论：**
 
-1. `DeviceTimings` 的五个值**全部只影响仿真**（消费点只有 `HasDpiBus.bridgeAnswer`，而它在
-   `flow.bridges` 才走）；它们不描述任何已建成的硬件，因此"上板核对绝对值"目前无从谈起。
-2. 板级**没有外设窗口**：`PlatformDevices` 的合成流清单是 `ram`/`uart16550`/`finisher`/`clint`，
-   没有 `peripheral`。所以 arm/scan/motion 在板上不存在，两层模型目前是纯仿真对象——**C1 被这一缺口
-   阻塞，不是被埋点阻塞**。
-3. 唯一同时有外部出处和可上板对照的量是 DDR3 的 15 ns（CL 6 × 2.5 ns）；其余"板级真值"都要等外设
-   总线建成后在 C1 里测。
+1. `DeviceTimings` 的五个值**全部只影响仿真**（消费点只有 `HasDpiBus.bridgeAnswer`，它在 `flow.bridges` 才走）。
+   其中三个现在是**按合成流 RTL 标定**的（CLINT/UART/finisher）；桥没有硬件可对；RAM 对应的是 DDR3+MIG，
+   控制器延迟仍无源。
+2. 板级**没有外设窗口**：`PlatformDevices` 的合成流清单只有 `ram`/`uart16550`/`finisher`/`clint`，没有
+   `peripheral`——arm/scan/motion 在板上不存在，两层模型目前是纯仿真对象——**C1 被这一缺口阻塞**，不是被埋点阻塞。
+3. 唯一同时有外部出处和可上板对照的量是 DDR3：本体 15 ns（CL 6 × 2.5 ns），控制器余量待 C1。
+
+**校准的实测影响（2026-11-01，`step 2000000`，robot_arm）**：`cycle` 3,539,937 → 3,539,903（−34，≈ −0.001%），
+`frames`/`busy` 不变（15 / 18,750），difftest 无失配。即：**寄存器文件的延迟不是这个工作负载的成本所在**，
+把它校准之后总账几乎不动——成本在帧驻留和计算侧。
 
 ## 3. 敏感度扫描（A3）
 

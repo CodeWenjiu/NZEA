@@ -88,6 +88,7 @@ enum DeviceKind:
                     ctx.dataWidth,
                     ctx.userWidth,
                     ctx.idWidth,
+                    ctx.clockHz,
                     ctx.base,
                     ctx.size,
                     ports,
@@ -110,7 +111,14 @@ enum DeviceKind:
             )
         case Finisher =>
             SifiveTestFinisher.instantiate(
-                SifiveTestFinisherParameter(ctx.addrWidth, ctx.dataWidth, ctx.userWidth, ctx.idWidth, flow)
+                SifiveTestFinisherParameter(
+                    ctx.addrWidth,
+                    ctx.dataWidth,
+                    ctx.userWidth,
+                    ctx.idWidth,
+                    ctx.clockHz,
+                    flow
+                )
             )
         case Clint =>
             // Fully qualified for the same reason as `Uart`.

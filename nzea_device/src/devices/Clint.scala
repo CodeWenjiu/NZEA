@@ -103,6 +103,7 @@ object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
 
         answerBus(
             parameter.flow,
+            parameter.clockHz,
             io.bus,
             io.resetN.asBool,
             parameter.addrWidth,

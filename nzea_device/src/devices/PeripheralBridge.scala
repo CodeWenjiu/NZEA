@@ -78,6 +78,7 @@ object PeripheralBridge
                 new LiteBusRW(parameter.addrWidth, parameter.dataWidth, parameter.userWidth, parameter.idWidth)
             )
             bridgeAnswer(
+                parameter.clockHz,
                 inner,
                 io.resetN.asBool,
                 parameter.addrWidth,

@@ -18,9 +18,16 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * acceptance because the master has moved on by the time the answer is due. In the bridge flow the simulator ends the
   * run from the write it sees, so [[HasDpiBus.answerBus]] answers the bus and `finished` is inert.
   */
-case class SifiveTestFinisherParameter(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, flow: RtlFlow)
-    extends Parameter:
+case class SifiveTestFinisherParameter(
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int,
+    clockHz: Int,
+    flow: RtlFlow
+) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
+    require(clockHz >= 1, s"clockHz must be >= 1, got $clockHz")
     require(dataWidth >= 1, s"dataWidth must be >= 1, got $dataWidth")
     require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
     require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
@@ -62,6 +69,7 @@ object SifiveTestFinisher
 
         answerBus(
             parameter.flow,
+            parameter.clockHz,
             io.bus,
             io.resetN.asBool,
             parameter.addrWidth,

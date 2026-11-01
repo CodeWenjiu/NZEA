@@ -30,12 +30,14 @@ case class RamFabricSlaveParameter(
     dataWidth: Int,
     userWidth: Int,
     idWidth: Int,
+    clockHz: Int,
     base: Long,
     size: Long,
     ports: SyncRamPorts,
     flow: RtlFlow
 ) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
+    require(clockHz >= 1, s"clockHz must be >= 1, got $clockHz")
     require(dataWidth >= 8 && dataWidth % 8 == 0, s"dataWidth must be a whole number of bytes, got $dataWidth")
     require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
     require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
@@ -84,6 +86,7 @@ object RamFabricSlave
 
         answerBus(
             parameter.flow,
+            parameter.clockHz,
             io.bus,
             io.resetN.asBool,
             parameter.addrWidth,

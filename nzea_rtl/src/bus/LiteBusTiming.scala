@@ -10,10 +10,59 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-/** A device's bus timing in the simulator: a fixed access latency and the jitter around the handshakes.
+/** What one bus access costs, declared the way the cost arises — and the declaration is the model's statement about
+  * which clock the delay belongs to.
   *
-  * `latency` counts from the request's acceptance to the response's offer. The delay is a line, not a residency:
-  * back-to-back requests stay one per cycle, so a latency does not cap throughput.
+  * `Periods(deviceHz, deviceCycles)`: the access occupies `deviceCycles` of the device's own clock — one is a register
+  * that answers in its own cycle, twenty are an I2C byte frame's bit periods. The bus sees `ceil(deviceCycles × busHz ÷
+  * deviceHz)` cycles, so the access keeps its duration when the bus clock changes. This is the form for a device in its
+  * own clock domain.
+  *
+  * `Stages(busCycles)`: a structural path — that many bus cycles at any clock, the flops a bridge inserts. This is the
+  * form for a device the bus clock itself runs: a faster platform shortens the access in time, and the count stays.
+  */
+enum AccessCost:
+    case Periods(deviceHz: Int, deviceCycles: Int)
+    case Stages(busCycles: Int)
+
+    /** The access in bus cycles at `busHz`, rounded up: an access ends inside a cycle, never between two. */
+    def at(busHz: Int): Int = this match
+        case Periods(deviceHz, deviceCycles) =>
+            ((BigInt(deviceCycles) * busHz + deviceHz - 1) / deviceHz).toInt
+        case Stages(busCycles) => busCycles
+
+object AccessCost:
+
+    private def render(cost: AccessCost): String = cost match
+        case AccessCost.Periods(deviceHz, deviceCycles) => s"Periods:$deviceHz:$deviceCycles"
+        case AccessCost.Stages(busCycles)               => s"Stages:$busCycles"
+
+    private def parse(text: String): Either[String, AccessCost] = text match
+        case s if s.startsWith("Periods:") =>
+            s.stripPrefix("Periods:").split(":") match
+                case Array(hz, cycles) =>
+                    scala.util.Try(AccessCost.Periods(hz.toInt, cycles.toInt)).toEither.left.map(_.getMessage)
+                case _ => Left(s"malformed access cost '$s' (expected Periods:<deviceHz>:<cycles>)")
+        case s if s.startsWith("Stages:") =>
+            scala.util.Try(AccessCost.Stages(s.stripPrefix("Stages:").toInt)).toEither.left.map(_.getMessage)
+        case other => Left(s"unknown access cost '$other' (expected Stages:<cycles>|Periods:<deviceHz>:<cycles>)")
+
+    /** One spelling for the config file and the flag, the `DeviceKind` shape: the case name and its numbers. */
+    given upickle.default.ReadWriter[AccessCost] = upickle.default
+        .readwriter[String]
+        .bimap(render, text => parse(text).fold(error => throw new IllegalArgumentException(error), identity))
+
+    given TokensReader.Simple[AccessCost] with
+        def shortName = "Stages:<cycles>|Periods:<deviceHz>:<cycles>"
+
+        def read(strs: Seq[String]): Either[String, AccessCost] =
+            strs.lastOption.toRight("an access cost requires a value").flatMap(parse)
+
+/** A device's bus timing in the simulator: what one access costs and the jitter around the handshakes.
+  *
+  * The cost is [[AccessCost]] and [[latency]] resolves it against the bus clock at instantiation, so a device that
+  * declares its own clock follows a platform that changes speed, and a structural path follows the flops. The delay is
+  * a line, not a residency: back-to-back requests stay one per cycle, so a latency does not cap throughput.
   *
   * The jitter is part of the model, not an option: the handshakes are held at random — a draw lands a hold with
   * probability `1 / jitterEvery`, delaying the handshake by `0..jitterSpan` cycles (uniform over the range). The
@@ -21,12 +70,27 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * therefore sees random handshakes — the shape that exercises its hold and retry paths. The random source is a
   * fixed-seed MCG, so a run is reproducible.
   */
-case class DeviceTiming(latency: Int, jitterEvery: Int, jitterSpan: Int):
-    require(latency >= 2, s"latency must be >= 2, got $latency")
+case class DeviceTiming(cost: AccessCost, jitterEvery: Int, jitterSpan: Int):
+
+    cost match
+        case AccessCost.Periods(deviceHz, deviceCycles) =>
+            require(deviceHz >= 1, s"deviceHz must be >= 1, got $deviceHz")
+            require(deviceCycles >= 1, s"deviceCycles must be >= 1, got $deviceCycles")
+        case AccessCost.Stages(busCycles) => require(busCycles >= 1, s"busCycles must be >= 1, got $busCycles")
+
     require(jitterEvery >= 1 && jitterEvery <= 256, s"jitterEvery must be in [1, 256], got $jitterEvery")
     require(jitterSpan >= 1, s"jitterSpan must be >= 1, got $jitterSpan")
 
+    /** The request-to-response distance in bus cycles. [[DeviceTiming.MinLatency]] is the model's own answer and output
+      * registers: below them the pipeline would not fit, so a faster bus clamps instead of going negative.
+      */
+    def latency(busHz: Int): Int = math.max(cost.at(busHz), DeviceTiming.MinLatency)
+
 object DeviceTiming:
+
+    /** The two registers every forward has: the device's answer and the output stage. */
+    val MinLatency: Int = 2
+
     given upickle.default.ReadWriter[DeviceTiming] = upickle.default.macroRW
 
     /** The generator framework needs a reader for every parameter field; this is not a user-facing knob — the devices'
@@ -34,12 +98,19 @@ object DeviceTiming:
       */
     given TokensReader[DeviceTiming] = ParserForClass[DeviceTiming]
 
-case class LiteBusTimingParameter(addrWidth: Int, dataWidth: Int, userWidth: Int, idWidth: Int, timing: DeviceTiming)
-    extends Parameter:
+case class LiteBusTimingParameter(
+    addrWidth: Int,
+    dataWidth: Int,
+    userWidth: Int,
+    idWidth: Int,
+    busHz: Int,
+    timing: DeviceTiming
+) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
     require(dataWidth >= 1, s"dataWidth must be >= 1, got $dataWidth")
     require(userWidth >= 1, s"userWidth must be >= 1, got $userWidth")
     require(idWidth >= 1, s"idWidth must be >= 1, got $idWidth")
+    require(busHz >= 1, s"busHz must be >= 1, got $busHz")
 
 given upickle.default.ReadWriter[LiteBusTimingParameter] = upickle.default.macroRW
 
@@ -65,12 +136,12 @@ class LiteBusTimingProbe(parameter: LiteBusTimingParameter)
 object LiteBusTiming
     extends Generator[LiteBusTimingParameter, LiteBusTimingLayers, LiteBusTimingIO, LiteBusTimingProbe]:
 
-    /** The module is named by its whole interface — the timing is the body — so one name is one body: several devices
-      * with different timings must not share a module.
+    /** The module is named by its whole interface — the resolved latency is the body — so one name is one body: several
+      * devices with different timings must not share a module, and neither may one timing at two bus clocks.
       */
     override def moduleName(parameter: LiteBusTimingParameter): String =
         val t = parameter.timing
-        s"LiteBusTiming_latency${t.latency}_jitterEvery${t.jitterEvery}_jitterSpan${t.jitterSpan}"
+        s"LiteBusTiming_latency${t.latency(parameter.busHz)}_jitterEvery${t.jitterEvery}_jitterSpan${t.jitterSpan}"
 
     def architecture(parameter: LiteBusTimingParameter) =
         val io = summon[Interface[LiteBusTimingIO]]
@@ -78,6 +149,7 @@ object LiteBusTiming
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
         val t = parameter.timing
+        val latency = t.latency(parameter.busHz)
         val holdW = log2Ceil(t.jitterSpan + 1)
 
         // The random source: an MCG (5x+1, full period) xor a free counter — deterministic from reset, so a run is
@@ -121,9 +193,9 @@ object LiteBusTiming
             when(!reqIdle) { reqHold := subWrap(reqHold, 1.U(holdW), holdW) }
         }
 
-        // Response side: the latency line, then the jitter's hold. `latency - 2`: the device's own answer takes one
-        // cycle, and the output stage below takes another.
-        val stages = t.latency - 2
+        // Response side: the latency line, then the jitter's hold. `latency - MinLatency`: the device's own answer takes
+        // one cycle, and the output stage below takes another.
+        val stages = latency - DeviceTiming.MinLatency
         val stageValid = Seq.tabulate(stages)(_ => RegInit(false.B))
         val stageData = Seq.tabulate(stages)(_ => Reg(UInt(parameter.dataWidth)))
         val stageUser = Seq.tabulate(stages)(_ => Reg(UInt(parameter.userWidth)))

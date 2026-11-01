@@ -21,7 +21,7 @@ object DevicesElaborateTest extends TestSuite:
         )
 
     private lazy val finisher = TestFlow.lower(
-        SifiveTestFinisher.moduleName(SifiveTestFinisherParameter(32, 32, 4, 1, RtlFlow.Yosys)),
+        SifiveTestFinisher.moduleName(SifiveTestFinisherParameter(32, 32, 4, 1, 25000000, RtlFlow.Yosys)),
         cfg =>
             SifiveTestFinisher.main(
                 Array(
@@ -35,6 +35,8 @@ object DevicesElaborateTest extends TestSuite:
                     "4",
                     "--idWidth",
                     "1",
+                    "--clockHz",
+                    "25000000",
                     "--flow",
                     "yosys"
                 )
@@ -72,7 +74,7 @@ object DevicesElaborateTest extends TestSuite:
 
     private lazy val ram = TestFlow.lower(
         RamFabricSlave.moduleName(
-            RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Yosys)
+            RamFabricSlaveParameter(32, 32, 4, 1, 25000000, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Yosys)
         ),
         cfg =>
             RamFabricSlave.main(
@@ -87,6 +89,8 @@ object DevicesElaborateTest extends TestSuite:
                     "4",
                     "--idWidth",
                     "1",
+                    "--clockHz",
+                    "25000000",
                     "--base",
                     "2147483648",
                     "--size",
@@ -103,7 +107,7 @@ object DevicesElaborateTest extends TestSuite:
     /** The RAM built for the bridge flow: its memory is the simulator's, so no hardware is built. */
     private lazy val ramBridged = TestFlow.lower(
         RamFabricSlave.moduleName(
-            RamFabricSlaveParameter(32, 32, 4, 1, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Verilator)
+            RamFabricSlaveParameter(32, 32, 4, 1, 25000000, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Verilator)
         ),
         cfg =>
             RamFabricSlave.main(
@@ -118,6 +122,8 @@ object DevicesElaborateTest extends TestSuite:
                     "4",
                     "--idWidth",
                     "1",
+                    "--clockHz",
+                    "25000000",
                     "--base",
                     "2147483648",
                     "--size",

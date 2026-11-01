@@ -24,8 +24,8 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * The receive half is not ported: `LSR.DR` reads 0 and `RBR` reads 0. A program's input arrives through the loader's
   * own receiver ([[nzea_fpga.logic.BootDdr]]), which listens at the pin.
   *
-  * Written from the board's legacy fabric UART (tag `legacy-baseline`), whose register semantics and bit
-  * timing this keeps.
+  * Written from the board's legacy fabric UART (tag `legacy-baseline`), whose register semantics and bit timing this
+  * keeps.
   */
 case class UartParameter(
     addrWidth: Int,
@@ -83,6 +83,7 @@ object Uart extends Generator[UartParameter, UartLayers, UartIO, UartProbe] with
 
         answerBus(
             parameter.flow,
+            parameter.clockHz,
             io.bus,
             io.resetN.asBool,
             parameter.addrWidth,

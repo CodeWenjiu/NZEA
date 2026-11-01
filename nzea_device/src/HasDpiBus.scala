@@ -16,8 +16,8 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
   * The bridge answer carries the device's [[timing]] — the simulator answers in a cycle, and the timing sits between it
   * and the port, so what a master sees is the device's simulated speed, not the answer's.
   *
-  * `answerBus` is the device's entry point; a device with more than one hardware implementation writes its own
-  * `flow match` and calls [[bridgeAnswer]] for the bridge case, and ties off its hardware-only outputs itself.
+  * `answerBus` is the device's entry point; a device with more than one hardware implementation writes its own `flow
+  * match` and calls [[bridgeAnswer]] for the bridge case, and ties off its hardware-only outputs itself.
   */
 trait HasDpiBus:
 
@@ -26,6 +26,7 @@ trait HasDpiBus:
 
     def answerBus(
         flow: RtlFlow,
+        clockHz: Int,
         bus: Referable[LiteBusRW],
         resetN: Referable[Bool],
         addrWidth: Int,
@@ -43,14 +44,16 @@ trait HasDpiBus:
         sourcecode.Name.Machine,
         InstanceContext
     ): Unit =
-        if flow.bridges then bridgeAnswer(bus, resetN, addrWidth, dataWidth, userWidth, idWidth)
+        if flow.bridges then bridgeAnswer(clockHz, bus, resetN, addrWidth, dataWidth, userWidth, idWidth)
         else hardware
 
     /** The simulator's answer, behind the device's timing: the forward below is one cycle, and [[LiteBusTiming]] wraps
       * it, so a master sees the device's latency and jitter instead. The port and the timing module's `in` are both
-      * slave views of the same bus, so they are wired by direction here.
+      * slave views of the same bus, so they are wired by direction here. `clockHz` is the bus clock the timing's
+      * [[nzea_rtl.bus.AccessCost]] resolves against.
       */
     def bridgeAnswer(
+        clockHz: Int,
         bus: Referable[LiteBusRW],
         resetN: Referable[Bool],
         addrWidth: Int,
@@ -70,7 +73,7 @@ trait HasDpiBus:
     ): Unit =
         val raw = Wire(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
         val timed = LiteBusTiming.instantiate(
-            LiteBusTimingParameter(addrWidth, dataWidth, userWidth, idWidth, timing)
+            LiteBusTimingParameter(addrWidth, dataWidth, userWidth, idWidth, clockHz, timing)
         )
         timed.io.clock := summon[ClockScope].clock
         timed.io.resetN := resetN.asReset
