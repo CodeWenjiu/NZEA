@@ -8,7 +8,7 @@ Status: **规则已生效（2026-09-14）** — 本文件是本目录的索引�
 
 | 类型 | 目录内位置 | 允许状态 | 状态如何转移 | 过期处理 |
 |---|---|---|---|---|
-| 设计与状态 | `core-baseline.md`（含路线图节）、`stat-schema.md`、`branch-prediction.md`、`research-plan.md`、`latency-calibration.md` | 与实现一致 | 实现变化时在同一个提交里更新 | 随实现演进，不是历史记录 |
+| 设计与状态 | `core-baseline.md`（含路线图节）、`stat-schema.md`、`branch-prediction.md`、`research-plan.md`、`latency-calibration.md`、`baseline.md` | 与实现一致 | 实现变化时在同一个提交里更新 | 随实现演进，不是历史记录 |
 | 复盘/知识归档 | `ddr3-debug-postmortem.md` | 只读历史 | 不再追加新任务；新发现追加为章节 | 永不删除（历史证据） |
 | 规则/索引 | `README.md` | 只读 | 随目录实际变化更新 | — |
 
@@ -30,6 +30,7 @@ Status: **规则已生效（2026-09-14）** — 本文件是本目录的索引�
 | `branch-prediction.md` | 设计与状态 | BP 档位/结构/验收（M2a 已落地，RAS/TAGE 待续） |
 | `research-plan.md` | 设计与状态 | 研究方向、任务与验收、延迟参数出处表（草案，待三个开放问题定题） |
 | `latency-calibration.md` | 设计与状态 | A 线交付：参数出处、两层模型实测、敏感度扫描、`timeHz` 选项 |
+| `baseline.md` | 设计与状态 | B2 初版：C2000 F28P65x 的速度/功耗/面积/集成度与出处，三个可比性缺口 |
 | `ddr3-debug-postmortem.md` | 复盘/知识归档 | 只读历史 |
 
 ## 已删除/已合并的历史文件（勿再引用）
