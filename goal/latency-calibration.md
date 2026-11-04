@@ -102,7 +102,7 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
 | `bitFrame.bitHz`（机械臂） | 400,000 | `DeviceTimings.scala` `DeviceTimings.arm` | 线的比特率 | **[S]** I2C Fast-mode 400 kbit/s（NXP UM10204 §3.1.3）；本仓 `doc/tms320f28p650dk.pdf` §1 特性同值 | 已校准 |
 | `bitFrame.bits`（机械臂） | 20 | 同上 | 单字节帧占线总位数 | **[D]** START 1 + 地址 7 + R/W 1 + ACK 1 + 数据 8 + ACK 1 + STOP 1 = 20 | 已校准（口径 20） |
 | （32 位寄存器口径） | 56 / 66 | — | 寄存器指针 + 4 数据字节（读再加重复起始） | **[D]** 10 + 9 + 4×9 + 1 = 56；读 ≈ 66 | 待定：见 §5 |
-| `DeviceTimings.ram` | `Sum(Periods(400 MHz, 6), Periods(200 MHz, 20))` | `DeviceTimings.scala` | DRAM 列延迟 + MIG 往返 | **[S]/[O]** 前半有源：DDR3-800 的 CL 6 × 2.5 ns = 15 ns；后半（MIG 20 个 200 MHz 时钟 = 100 ns）**仍是假设** | 可追溯：15 ns 有源，100 ns 待 C1 |
+| `DeviceTimings.ram` | `Periods(100 MHz, 23)` | `DeviceTimings.scala` | 核心可见的整条 DDR 通路 | **[M]** 板上实测（C1，2026-11-04）：23 拍 × 10 ns = 230 ns 典型，54 拍最坏 | 已校准 |
 | `DeviceTimings.uart` | `SameDomain(3)` | 同上 | 寄存器访问 | **[R]** RTL 3 拍 | 已校准 |
 | finisher | 无表（`None`） | `SifiveTestFinisher.scala` | 退出钩子 | **[R]** RTL 1 拍（单寄存器）；端口不建模型 | 已校准（逐拍一致） |
 | CLINT | 无表（`None`） | `Clint.scala` | 寄存器访问 | **[R]** RTL 1 拍；端口不建模型，直接是模拟器的一级应答 | 已校准（逐拍一致） |
@@ -119,8 +119,8 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
    控制器延迟仍无源。
 2. 板级**没有外设窗口**：`PlatformDevices` 的合成流清单只有 `ram`/`uart16550`/`finisher`/`clint`，没有
    `peripheral`——arm/scan/motion 在板上不存在，两层模型目前是纯仿真对象——**C1 被这一缺口阻塞**，不是被埋点阻塞。
-3. 唯一同时有外部出处和可上板对照的量是 DDR3：本体 15 ns（CL 6 × 2.5 ns）已入模型，MIG 的那 100 ns
-   是全文最后一个已知假设，待 C1。
+3. DDR3 不再是“只有下界有源”：整条通路已在板上实测（C1，230 ns 典型），旧模型 `15 + 100 ns` 低估约一倍；
+   详情见 §2 末尾的 C1 小节。
 
 测量于 2026-11-01，早于模型下限从 2 拍降到 1 拍：下表"桥 2 拍"那一列现在是 1 拍，CLINT 也不再建模型，
 两项都只快了一拍，比例结论不变。
@@ -139,6 +139,64 @@ just run-app robot_arm riscv32i --platform remu -- --platform nzea --sim-opt tar
 2. **RAM 延迟是这个模型里最敏感的单个参数** —— 17 拍的变化导致 ibus_stall 减半、总周期降 13.9%，
    因为每个 tick 有上万次 icache miss 要付这份延迟。所以 **C1 应当先测内存，而不是先测外设**；
    在外设窗口上花力气不如把 MIG 那 100 ns 换成实测值。
+
+### C1 实测：板上的 DDR 访问（2026-11-04）
+
+测量点：`nzea_fpga/src/logic/DdrMemory.scala` 的 `core` 端口（tile 看到的一侧）。计数器跑在 near clock
+（板卡 100 MHz），只把保持值接到 ILA——ILA 按 50 MHz 采样，直接采 live 的 age 会与访问速率混叠。
+
+| 探针 | 含义 |
+|---|---|
+| `ddrLatLast` | 最近一次核心访问的 fire → `resp.valid` 拍数（1 起计） |
+| `ddrLatMax` | 复位以来的最大值 |
+| `ddrGapLast` | 相邻两次核心请求 fire 的间隔拍数 |
+| `ddrGapMax` | 复位以来的最大间隔；含加载器 hold 核心的那段，**不是**吞吐量 |
+
+配置：`lxb_artix7`，100 MHz，板上无 I/D cache；两个独立场景（`boot_finish` 4 words 取指循环、`print_only`
+36 words 打印后继续跑），各抓一次 `finished=1` 窗口：
+
+| 场景 | `ddrLatLast` | `ddrLatMax` | `ddrGapLast` |
+|---|---:|---:|---:|
+| boot_finish | 23 | 54 | 24 |
+| print_only | 23 | 54 | 24 |
+
+**结论**：一次核心可见的 DDR 访问 = **23 拍 @100 MHz = 230 ns**（典型）；最坏 54 拍 = 540 ns（行冲突或刷新）；
+请求间隔 24 拍（= 23 + 1），即这个端口一次只挂一个事务。旧模型 `Sum(15 ns + 100 ns) = 12 拍 @100 MHz`
+**低估约一倍**，且漏掉了 near 侧仲裁、跨时钟域和整突发适配的拍数。模型据此改为
+`Periods(100 MHz, 23)`：仿真 25 MHz 下取 `⌈23 × 25/100⌉ = 6` 拍（240 ns），板卡 100 MHz 下 23 拍（230 ns）。
+
+模型仍把这行标成 `Pipelined`：对当前单 outstanding 的核没有差别（间隔就是延迟 + 1）；若以后接 DMA 或
+多 outstanding 主设备，需要 `SingleSlot`，否则模型会比硬件乐观。
+
+**校准后的仿真基线（2026-11-04，2,000,000 指令，tile，25 MHz，difftest 0 失配）**
+
+| 量 | 值 |
+|---|---:|
+| `middle_cycle` | 3,131,463 |
+| `ipc` | 0.6387 |
+| `ibus_stall` | 484,600 |
+| `icache_miss` / `dcache_miss` | 25,116 / 273 |
+| `residency_frames` / `busy` | 15 / 18,750 |
+| 分支预测准确率 | 57.60% |
+
+与 2026-11-01 的 3,047,996 比，总量 +2.7%。这期间同时改了 RAM（3→6 拍）、桥（2→1 拍）和 CLINT/finisher
+（改为无表），不能把差值单独归给 RAM；同向证据是 25,542 次 cache miss × 3 拍 ≈ 76.6k，与 +83.5k 同量级。
+
+证据（`pulse` 可直接打开，scope `dut`；大文件已随仓库跟踪，约 85 KB 一份）：
+
+| 文件 | 字节 | sha256 |
+|---|---:|---|
+| `goal/measurements/c1-ddr-latency-boot_finish-2026-11-04.vcd` | 85,982 | `ec57d8b2…3e1fd1` |
+| `goal/measurements/c1-ddr-latency-print_only-2026-11-04.vcd` | 83,068 | `3d1c31df…84ddbb3` |
+
+复核：
+
+```
+nix develop --command bash -c 'target/release/pulse_cli \
+  --wave goal/measurements/c1-ddr-latency-boot_finish-2026-11-04.vcd \
+  value --scope dut --at "~1" \
+  --signals memory/ddrLatLast,memory/ddrLatMax,memory/ddrGapLast --radix dec'
+```
 
 ## 3. 敏感度扫描（A3）
 

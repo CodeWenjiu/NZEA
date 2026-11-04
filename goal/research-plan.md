@@ -1,7 +1,8 @@
 # 研究计划：延迟校准 → 对标 → 创新
 
 Status: **草案（2026-10-30）**；2026-11-01 更新：A1–A3 已完成（交付见 `latency-calibration.md`），
-A4 待决策；C1 被"合成流没有外设窗口"阻塞。三个开放问题（§5）未定之前，B1–B2 可准备，C2–D1 阻塞。
+A4 待决策；2026-11-04：C1 的内存部分已完成（板上实测 DDR 230 ns，模型已校准），C1 的外设部分仍被
+“合成流没有外设窗口”阻塞。三个开放问题（§5）未定之前，B1–B2 可准备，C2–D1 阻塞。
 
 ## 0. 一句话
 
@@ -54,12 +55,11 @@ A4 待决策；C1 被"合成流没有外设窗口"阻塞。三个开放问题（
 
 ### C 上板
 
-**C1 — 用 ILA 测一次真实的"请求→应答→下一次请求"。** ⛔ 阻塞：板级没有外设窗口
-位置：板级流程见 `.agents/skills/fpga-flow/SKILL.md`。
-阻塞原因（2026-11-01 查证）：`nzea_device/src/PlatformDevices.scala` 的 `RtlFlow.Yosys` 清单只有
-`ram`/`uart16550`/`finisher`/`clint`，没有 `peripheral`——arm/scan/motion 在板上不存在，`peripheral`
-端口无从抓取。要开始 C1，先定"在板上建一条真实外设总线"（属 D1 的 DMA/批量候选）。
-触发条件：合成流出现外设窗口后。
+**C1 — 用 ILA 测一次真实的“请求→应答→下一次请求”。** ✅ 内存部分完成（2026-11-04）
+交付：`latency-calibration.md` §2 的 C1 小节。板上实测 DDR 通路 23 拍 @100 MHz = 230 ns（典型）、
+54 拍最坏、请求间隔 24 拍；模型已改为 `Periods(100 MHz, 23)`。证据：`goal/measurements/c1-ddr-latency-*.vcd`。
+外设部分仍阻塞：`PlatformDevices` 的合成流清单没有 `peripheral`，arm/scan/motion 在板上不存在；
+要抓外设总线，先建一条真实的外设窗口（属 D1 的 DMA/批量候选）。
 
 **C2 — FPGA→PC 数据通路 + 真实机械臂数据校准。**
 做法：板卡把设备访问时间戳/计数经 UART 或 DDR 缓冲送到 PC，与 PC 侧的机械臂时序对齐。
@@ -99,6 +99,9 @@ nix develop ../remu --command bash -c 'cd ../remu && just run-app robot_arm risc
   --platform nzea --sim-opt target=tile --sim-opt watchdog=3x30 --batch --difftest remu \
   --startup "{ step 2000000 } and { stat print }"'
 ```
+
+本表是 2026-10-30 的对照；2026-11-04 按板上实测校准 DDR 延迟后的基线（2M 指令总计）见
+`latency-calibration.md` §2 的 C1 小节。
 
 ## 4. 关键判断（会改变计划的两个事实）
 
