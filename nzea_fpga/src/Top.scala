@@ -23,7 +23,7 @@ import nzea_rtl.stdlib.*
 import nzea_tile.{ExternalSpec, NzeaTile, NzeaTileParameter}
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
-case class TopParameter() extends Parameter
+case class TopParameter(probes: Seq[String]) extends Parameter
 
 given upickle.default.ReadWriter[TopParameter] = upickle.default.macroRW
 
@@ -131,6 +131,7 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
     )
 
     def architecture(parameter: TopParameter) =
+        Probes.select(parameter.probes)
         val io = summon[Interface[TopIO]]
         val clk50Pin = io.field[Clock]("CLK_50M")
         val rawResetN = io.field[Bool]("RESET")
@@ -146,13 +147,14 @@ object Top extends Generator[TopParameter, TopLayers, TopIO, TopProbe]:
         clk50Buffer.io.I := clk50Pin
         val clk50 = clk50Buffer.io.O
 
-        // The board's instrumentation: declarations are made where the signals live (`Probes` — unconditional, there is
-        // no table to open first), and the ILA is this level's consumer of that table. The core is a netlist artifact,
-        // not an RTL instance: `create_debug_core` only exists on the synthesized netlist ([[Ila]] writes the script),
-        // and the RTL's half is `mark_debug` — a declaration keeps a wire named after the signal and marks it for the
-        // netlist debug flow. The probe mechanism's own lowering (`nzea_rtl.probe`) is SystemVerilog `bind`, which
-        // Vivado *synthesis* silently drops (verified: the bound module never reaches the netlist and the core vanishes
-        // from the build without a warning).
+        // The board's instrumentation: declarations are made where the signals live, and this level's selection says
+        // which of them are kept (`--probes`; empty by default, so a plain build carries no probe logic and no debug
+        // core). The ILA is this level's consumer of that table. The core is a netlist artifact, not an RTL instance:
+        // `create_debug_core` only exists on the synthesized netlist ([[Ila]] writes the script), and the RTL's half is
+        // `mark_debug` — a kept declaration holds a wire named after the signal and marks it for the netlist debug flow.
+        // The probe mechanism's own lowering (`nzea_rtl.probe`) is SystemVerilog `bind`, which Vivado *synthesis*
+        // silently drops (verified: the bound module never reaches the netlist and the core vanishes from the build
+        // without a warning).
         //
         // The core runs on the oscillator's own buffered clock, which is why that net is not one of the clocks asked
         // for below ([[Clocks]] would refuse it): its edges line up with the fabric's instead of sitting a quarter

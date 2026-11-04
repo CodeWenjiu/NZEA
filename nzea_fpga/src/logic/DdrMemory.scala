@@ -9,6 +9,8 @@ import me.jiuyang.zaozi.valuetpe.*
 import nzea_fpga.device.ddr3.{Ddr3BusAdapter, Ddr3BusAdapterParameter, Ddr3PadNames, Ddr3Side, Ddr3SideParameter}
 import nzea_fpga.{BoardLogic, Clocks, LogicNeeds, Logics}
 import nzea_rtl.bus.{LiteBusCdc, LiteBusCdcParameter, LiteBusRW}
+import nzea_rtl.probe.Probes
+import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The memory's shape from the level's side: the fabric window's geometry, the base the memory answers at, and how deep
@@ -189,3 +191,28 @@ object DdrMemory extends Generator[DdrMemoryParameter, DdrMemoryLayers, DdrMemor
                     resp.bits.data := bits.data
                     resp.bits.user := bits.user
                     resp.bits.id := bits.id
+
+                // C1's measurement: what one core access costs at this port, in the near clock's cycles. The ILA
+                // samples at 50 MHz, so the counters run at the port's own 100 MHz and only their held values are
+                // probed — sampling the live age would alias with the access rate.
+                val age = RegInit(0.U(16))
+                age := addWrap(age, 1.U(16), 16)
+                val latency = RegInit(0.U(16))
+                val latencyMax = RegInit(0.U(16))
+                val gap = RegInit(0.U(16))
+                val gapMax = RegInit(0.U(16))
+                val coreFire = core.req.valid & core.req.ready
+                val coreResp = core.resp.valid
+                when(coreResp) {
+                    latency := age
+                    when(age > latencyMax) { latencyMax := age }
+                }
+                when(coreFire) {
+                    gap := age
+                    when(age > gapMax) { gapMax := age }
+                    age := 1.U(16)
+                }
+                Probes.mark("ddrLatLast")(latency)
+                Probes.mark("ddrLatMax")(latencyMax)
+                Probes.mark("ddrGapLast")(gap)
+                Probes.mark("ddrGapMax")(gapMax)

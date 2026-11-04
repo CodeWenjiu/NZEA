@@ -14,11 +14,13 @@ import nzea_rtl.{DumpRegistry, TestFlow}
 object LxbArtix7ElaborateTest extends TestSuite:
 
     /** The board as the bring-up build is made. */
-    private val parameter = TopParameter()
+    private val parameter = TopParameter(Seq("*"))
+
+    private def configFlags(probes: Seq[String]): Seq[String] = probes.flatMap(probe => Seq("--probes", probe))
 
     private lazy val sv = TestFlow.lower(
         Top.moduleName(parameter),
-        cfg => Top.main(Array("config", cfg.toString)),
+        cfg => Top.main(Array("config", cfg.toString) ++ configFlags(parameter.probes)),
         cfg => Top.main(Array("design", cfg.toString))
     )
 
@@ -98,6 +100,11 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "dmOut" -> 8,
         "timer" -> 24,
         "dqIn" -> 64,
+        // C1's access counters, declared at the memory's core port ([[nzea_fpga.logic.DdrMemory]]).
+        "ddrLatLast" -> 16,
+        "ddrLatMax" -> 16,
+        "ddrGapLast" -> 16,
+        "ddrGapMax" -> 16,
         // The memory's own readiness, then the network's remaining reasons and domains.
         "ddr3TapsReady" -> 1,
         "ddr3Ready" -> 1,
@@ -163,6 +170,10 @@ object LxbArtix7ElaborateTest extends TestSuite:
         "*probe_dmOut*",
         "*probe_timer*",
         "*probe_dqIn*",
+        "*probe_ddrLatLast*",
+        "*probe_ddrLatMax*",
+        "*probe_ddrGapLast*",
+        "*probe_ddrGapMax*",
         "*probe_ddr3TapsReady*",
         "*probe_ddr3Ready*",
         "*probe_ddr3Reset*",
@@ -264,6 +275,14 @@ object LxbArtix7ElaborateTest extends TestSuite:
 
     /** How many signals one module declares watchable: one `mark_debug` per declaration. */
     private def markCount(name: String): Int = moduleText(name).split("mark_debug").length - 1
+
+    private def lowerTop(probes: Seq[String]): String =
+        val parameter = TopParameter(probes)
+        TestFlow.lower(
+            Top.moduleName(parameter),
+            cfg => Top.main(Array("config", cfg.toString) ++ configFlags(probes)),
+            cfg => Top.main(Array("design", cfg.toString))
+        )
 
     val tests = Tests:
 
@@ -605,3 +624,21 @@ object LxbArtix7ElaborateTest extends TestSuite:
             assert(fileList.contains("Ddr3SdrPads15.sv"))
             assert(fileList.contains("Ddr3LevelPads.sv"))
             assert(fileList.exists(_.startsWith("SyncRam_")))
+
+        test("a dump that keeps no probe carries no probe wire and no debug artifacts"):
+            val quietSv = lowerTop(Seq.empty)
+            assert(Ila.table.names.isEmpty)
+            assert(!quietSv.contains("probe_"))
+            assert(!quietSv.contains("ila_clock"))
+            val dir = os.temp.dir(prefix = "nzea-ila-quiet")
+            try
+                Ila.table.emit(dir)
+                for name <- Seq("ila_debug.tcl", "ila_capture.tcl", "ila_probes.map")
+                do assert(!os.exists(dir / name))
+            finally os.remove.all(dir)
+
+        test("a selection keeps only the probes it names"):
+            val someSv = lowerTop(Seq("finished"))
+            assert(Ila.table.names == Seq("finished"))
+            assert(someSv.contains("probe_finished"))
+            assert(!someSv.contains("probe_bootState"))

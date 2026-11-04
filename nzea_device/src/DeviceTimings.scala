@@ -13,28 +13,19 @@ import nzea_rtl.bus.{AccessCost, AddrRange, BusTiming, Occupancy, TimingEntry}
   */
 object DeviceTimings:
 
-    /** The platform RAM, as an off-chip memory: two delays by origin, kept apart so a sourced part is not mixed with an
-      * assumed one.
+    /** The platform RAM, as the board's memory: measured at the core's port (C1, 2026-11-04) — 23 cycles of the near
+      * clock's 100 MHz (230 ns) typical, 54 (540 ns) at worst (row conflict or refresh). The path is the whole one a
+      * master sees: the near-side arbitration, the crossing, the whole-burst adapter, the MIG and the DDR3, so this is
+      * the port's cost, not the DRAM's column latency alone.
       *
-      * The DRAM's own share is sourced: DDR3-800 runs at a 400 MHz memory clock with CL 6, so a column read takes 6 x
-      * 2.5 ns = 15 ns (`nzea_fpga/src/device/ddr3/README_zh.md:17`). The controller in front of it — the MIG, on its
-      * 200 MHz clock — has no source in the repo; 20 of its clocks (100 ns) is the one remaining assumption, and it is
-      * here so the total stays in a plausible range instead of pretending the DRAM answers alone.
-      * `goal/research-plan.md` C1 replaces it with a measured number.
-      *
-      * The old 20 bus cycles were 800 ns at the simulation's 25 MHz — 5 to 7 times the plausible range, and they also
-      * moved with the clock, which a memory's own time does not.
+      * Evidence: `goal/measurements/c1-ddr-latency-*.vcd`, read through the `ddrLatLast`/`ddrLatMax`/`ddrGapLast`
+      * probes defined in `nzea_fpga/src/logic/DdrMemory.scala`; the arithmetic is in `goal/latency-calibration.md` §2.
       */
     val ram: BusTiming = BusTiming(
         Seq(
             TimingEntry(
                 range = None,
-                cost = AccessCost.Sum(
-                    Seq(
-                        AccessCost.Periods(deviceHz = 400_000_000, deviceCycles = 6),
-                        AccessCost.Periods(deviceHz = 200_000_000, deviceCycles = 20)
-                    )
-                ),
+                cost = AccessCost.Periods(deviceHz = 100_000_000, deviceCycles = 23),
                 occupancy = Occupancy.Pipelined
             )
         ),

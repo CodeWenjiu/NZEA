@@ -30,6 +30,7 @@ case class CliArgs(
         CacheChoice.of(CliArgs.tileBaseline.icache),
     @arg(doc = "data cache: a geometry, or 'none'") dcache: CacheChoice = CacheChoice.of(CliArgs.tileBaseline.dcache),
     @arg(doc = "the FPGA board (--target fpga)") board: String = "lxb_artix7",
+    @arg(doc = "probe names or globs to keep in an fpga dump; empty keeps none (--target fpga)") probes: String = "",
     @arg(doc = "output dir; defaults to build/<target>/<platform>/<isa>") outDir: String = ""
 ):
 
@@ -138,7 +139,8 @@ object Main:
       */
     private def dumpFpga(cli: CliArgs, outDir: os.Path): Unit =
         require(cli.board == "lxb_artix7", s"unknown --board '${cli.board}' (ported: lxb_artix7)")
-        val parameter = TopParameter()
+        val probes = cli.probes.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSeq
+        val parameter = TopParameter(probes)
         FpgaElaborate.withLinked(parameter): circuit =>
             Elaborate.verilogInto(circuit, outDir, yosysLowering)
             DumpRegistry.emitAll(outDir)

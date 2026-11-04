@@ -44,8 +44,10 @@ transport and test, and `DEBUG_SCAFFOLDING.md` says what of it is scaffolding).
 
 ```sh
 # 1. Dump the board's RTL — the main dump, `--target fpga` (board and isa default to lxb_artix7 / riscv32i).
-#    The ILA is part of the board design, not a flag.
+#    `--probes <glob>[,<glob>]` keeps those probes and makes the build a debug one; without it the dump carries
+#    no probe logic and the implementation inserts no ILA core.
 just dump --target fpga
+just dump --target fpga --probes 'ddrLat*,finished'   # a debug build of the same design
 
 # 2. Build the bitstream (synth + impl) — headless, ~20-45 min on this machine (the implementation runs with
 #    `Performance_ExplorePostRoutePhysOpt` plus `AggressiveExplore` on the route and post-route phys-opt steps: the
@@ -163,40 +165,49 @@ COMPENSATION mode ZHOLD must be driven by a clock capable IO`) — the pin itsel
 the input path is not. The MMCM's rule tolerates it, which is how the design got away with it until the plan derived a
 PLL.
 
-The ILA is **not** an IP here: it is a debug core the implementation run creates on the synthesized netlist (see
-below), so nothing about it goes through the IP machinery.
+The ILA is **not** an IP here: it is a debug core the implementation run creates on the synthesized netlist — and
+only when the dump kept a probe (see below), so nothing about it goes through the IP machinery.
 
 ## ILA: probes, capture, and pulse
 
-- **The ILA is a debug core the netlist flow creates, not RTL.** The RTL only states what to watch: a signal is
-  *declared* where it lives — `Probes.declare("<name>")(<value>)` (`nzea_rtl.probe`, one line in the owning module,
-  e.g. `Blink`'s counter in `nzea_device`) — and *bound* where the instance is named,
-  `Probes.watch(<instance>, "<name>")`, which makes one probe of that instance, shown as `<instance>_<name>`.
-  Each declaration keeps a wire named `probe_<name>` carrying `(* mark_debug = "true" *)` (what Vivado preserves a net
-  by) and takes the value's **own width**;
-  `Probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is known where it lives
-  (the top's own). **Current probes (15)**: the reset network's seven — three reasons (`buttonPin`, `pllLocked`,
+- **The ILA is a debug core the netlist flow creates, not RTL — and only for a debug build.** The RTL only states
+  what *could* be watched: a signal is *declared* where it lives — `Probes.declare("<name>")(<value>)`
+  (`nzea_rtl.probe`, one line in the owning module, e.g. `Blink`'s counter in `nzea_device`) — and *bound* where the
+  instance is named, `Probes.watch(<instance>, "<name>")`, which makes one probe of that instance, shown as
+  `<instance>_<name>`. `Probes.mark("<name>")(<value>)` is the one-line form of both, for a signal whose instance is
+  known where it lives (the top's own).
+  **What is kept is the dump's selection**: `--probes` matches the declared names (globs, `*` any run), and a
+  declaration outside it creates neither the wire nor a table entry. With no `--probes` the dump has no `probe_`
+  wires, no `ila_clock`, no `ila_*.tcl`/`ila_probes.map`, and the implementation inserts no ILA core — the production
+  bitstream carries neither the area nor the timing cost. A dump that never selects keeps everything (a bare module's
+  dump carries what its body declares); the board's top always states its own selection, empty by default.
+  A kept declaration holds a wire named `probe_<name>` carrying `(* mark_debug = "true" *)` (what Vivado preserves a
+  net by) and takes the value's **own width**.
+  **Current probes (19, with `--probes '*'`)**: the reset network's seven — three reasons (`buttonPin`, `pllLocked`,
   `bootHoldN`, each 1 = the reason does not hold) and four domains (`board50Reset`, `board100Reset`, `bootReset`,
   `coreReset`, each 1 = in reset), marked where `Resets` declares them (`nzea_rtl/src/stdlib/Resets.scala`) — the
   loader's seven (`bootState`, `bootMagic`, `bootAddr`, `bootWords`, `bootWritten`, marked in `logic/BootDdr.scala`;
   and the receiver's `data`/`valid`, declared in `UartRx` and bound at the loader's instance, read as
-  `rx_data`/`rx_valid`) and the top's own (`finished`, the tile finisher's level); depth 1024, sampled on the design's
-  buffered 50 MHz clock (kept as the wire `ila_clock`). The table's order is the order the statements were made, so a
-  probe's index moves if that order does; the rename map keeps the queries by name. A declared name must also not
-  *contain* another (the leaf search is a substring match, so both searches would find both nets): the elaboration
-  refuses it rather than a build failing on the count twenty minutes later.
-- **Declarations are unconditional; the consumer is the level's.** They are collected in a dump-level table
-  (`nzea_rtl.probe.Probes`, cleared by `DumpRegistry` like the rest of a dump's state), and the fpga level's consumer
-  is `nzea_fpga.ip.Ila` — `Ila("<core>", <depth>)`, `Ila.clock(<net>)` for the anchor, `Ila.emit(<dir>)` for the
-  three artifacts. A level with no consumer simply carries the wires; a future consumer (a simulator, another vendor's
-  flow) reads the same `Probes.table` its own way.
+  `rx_data`/`rx_valid`), the DDR3 device's own account of its bus, the core-visible access counters in
+  `logic/DdrMemory.scala` (`ddrLatLast`, `ddrLatMax`, `ddrGapLast`, `ddrGapMax`), and the top's own (`finished`, the
+  tile finisher's level); depth 1024, sampled on the design's buffered 50 MHz clock (kept as the wire
+  `ila_clock`). The table's order is the order the statements were made, so a probe's index moves if that order does;
+  the rename map keeps the queries by name. A declared name must also not *contain* another (the leaf search is a
+  substring match, so both searches would find both nets): the elaboration refuses it rather than a build failing on
+  the count twenty minutes later.
+- **Declarations are gated by the dump's selection; the consumer is the level's.** They are collected in a dump-level
+  table (`nzea_rtl.probe.Probes`, cleared by `DumpRegistry` like the rest of a dump's state), and the fpga level's
+  consumer is `nzea_fpga.ip.Ila` — `Ila("<core>", <depth>)`, `Ila.clock(<net>)` for the anchor, `Ila.emit(<dir>)` for
+  the three artifacts. `Ila.emit` with an empty table also *removes* an earlier dump's artifacts, because the project
+  generator hooks the implementation run on the debug script's presence. A level with no consumer simply carries the
+  kept wires; a future consumer (a simulator, another vendor's flow) reads the same `Probes.table` its own way.
 - **Why two steps**: a module body is shared by every instance, so it cannot say *which* instance a probe means — the
   binding is stated where the instance is named. **A module instantiated once does not need the split**: `Probes.mark`
   declares and binds in the same statement, and the name is the address (this board's own modules — `Top`, `BootDdr` —
   are all marks). The split is the *library's* convention: a `nzea_device` body declares beside its signals (`Blink`'s
   `count`, `UartRx`'s `data`/`valid`) and whoever instantiates it binds them (`BootDdr` binds the receiver's two as
-  `rx_data`/`rx_valid`; nothing binds `Blink`'s today, so the panel carries a marked, unwatched net per instance). If
-  such a module ever gains a second instance, the marked names would have to
+  `rx_data`/`rx_valid`; nothing binds `Blink`'s today, so a selection that keeps it carries a marked, unwatched net
+  per instance). If such a module ever gains a second instance, the marked names would have to
   grow a prefix: two nets with the same name fail the build loudly (the count check), never silently. Declaration names
   are one namespace and must be unique in the design.
 - **A declaration can sit beside its signal at any depth — no port threading — which is the point of the mechanism.** The

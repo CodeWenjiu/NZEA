@@ -16,9 +16,9 @@ import scala.collection.mutable
   * the synthesized netlist, not an RTL instance. The RTL's half is the declarations: each keeps a wire named
   * `probe_<name>` carrying `mark_debug`, which is what the netlist debug flow preserves the net by.
   *
-  * This half turns the declared entries into the three artifacts the flow reads — the debug script the implementation run
-  * sources (`ila_debug.tcl`), the capture script the hardware manager runs (`ila_capture.tcl`) and the rename map the
-  * capture flow applies (`ila_probes.map`) — and keeps the sampling clock's own wire.
+  * This half turns the declared entries into the three artifacts the flow reads — the debug script the implementation
+  * run sources (`ila_debug.tcl`), the capture script the hardware manager runs (`ila_capture.tcl`) and the rename map
+  * the capture flow applies (`ila_probes.map`) — and keeps the sampling clock's own wire.
   *
   * One ILA per dump: its artifacts are single files, named after what the flow hands the project rather than after the
   * core.
@@ -40,7 +40,8 @@ object Ila:
         require(depth >= 2 && Integer.bitCount(depth) == 1, s"depth must be a power of two >= 2, got $depth")
         val ila = new Ila(coreName, depth)
         built += ila
-        // Opening one is what says the dump has debug artifacts to write; the emitter holds this ILA, not the table.
+        // Opening one registers the emitter; it writes only when the dump kept a probe (and clears an earlier dump's
+        // artifacts otherwise). The emitter holds this ILA, not the table.
         DumpRegistry.onEmit(s"ila:$coreName")(dir => ila.emit(dir))
         ila
 
@@ -81,17 +82,25 @@ final class Ila private (val coreName: String, val depth: Int):
         sourcecode.File,
         sourcecode.Line
     ): Unit =
-        require(clockNet.isEmpty, s"the ILA samples one clock; ${clockNet.get} is already kept")
-        Probes.keepNet("ila_clock", value, Seq(VerilogAttribute("keep", None)))
-        clockNet = Some("ila_clock")
+        if Probes.selected then
+            require(clockNet.isEmpty, s"the ILA samples one clock; ${clockNet.get} is already kept")
+            Probes.keepNet("ila_clock", value, Seq(VerilogAttribute("keep", None)))
+            clockNet = Some("ila_clock")
 
     def patterns: Seq[String] = probes.map(_.pattern)
 
+    /** Write the debug flow's artifacts. A dump that kept no probe writes none — and removes an earlier dump's, because
+      * the project generator hooks the implementation run on the script's presence: a stale `ila_debug.tcl` would
+      * insert a debug core into a build that asked for none.
+      */
     def emit(dir: os.Path): Unit =
         os.makeDir.all(dir)
-        os.write.over(dir / "ila_debug.tcl", debugTcl)
-        os.write.over(dir / "ila_capture.tcl", captureTcl)
-        os.write.over(dir / "ila_probes.map", probeMap)
+        val artifacts = Seq("ila_debug.tcl", "ila_capture.tcl", "ila_probes.map")
+        if Probes.table.isEmpty then artifacts.foreach(name => if os.exists(dir / name) then os.remove(dir / name))
+        else
+            os.write.over(dir / "ila_debug.tcl", debugTcl)
+            os.write.over(dir / "ila_capture.tcl", captureTcl)
+            os.write.over(dir / "ila_probes.map", probeMap)
 
     def names: Seq[String] = probes.map(_.semantic)
 
@@ -99,8 +108,8 @@ final class Ila private (val coreName: String, val depth: Int):
 
     /** The debug script, sourced by the implementation run before `opt_design` (`build_all.tcl` attaches it as
       * `STEPS.OPT_DESIGN.TCL.PRE` on `impl_1`): there the design is the synthesized netlist — `create_debug_core` only
-      * exists after synthesis, and the declared wires are nets by name. A search that does not come back with the number
-      * of nets the probe was declared wide is an error, not a guess.
+      * exists after synthesis, and the declared wires are nets by name. A search that does not come back with the
+      * number of nets the probe was declared wide is an error, not a guess.
       */
     def debugTcl: String =
         val clock = clockNet.getOrElse(
@@ -203,10 +212,10 @@ final class Ila private (val coreName: String, val depth: Int):
         (netLines ++ portLines).mkString("", "\n", "\n")
 
     /** The capture script, with the depth-derived trigger position baked in. The second argument is the trigger: empty
-      * (or `snapshot`) triggers immediately; `<probe>[=<value>]` arms on one probe's compare value — the probe named the
-      * way the waveforms show it (resolved through the rename map beside this script), the value decimal or `0x…`
-      * (default 1). Vivado 2023.2's compare values cannot express an edge and a sequence is not modelled, so one probe's
-      * value is the whole trigger.
+      * (or `snapshot`) triggers immediately; `<probe>[=<value>]` arms on one probe's compare value — the probe named
+      * the way the waveforms show it (resolved through the rename map beside this script), the value decimal or `0x…`
+      * (default 1). Vivado 2023.2's compare values cannot express an edge and a sequence is not modelled, so one
+      * probe's value is the whole trigger.
       */
     def captureTcl: String =
         s"""# ILA capture for the board top — generated by Ila.emit, do not edit.
