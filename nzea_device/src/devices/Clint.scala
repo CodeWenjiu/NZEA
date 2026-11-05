@@ -7,7 +7,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_device.HasDpiBus
+import nzea_device.{HasBridgeDelay, HasDpiBus}
 import nzea_rtl.RtlFlow
 import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
@@ -69,7 +69,10 @@ class ClintIO(parameter: ClintParameter) extends HWBundle(parameter):
 class ClintProbe(parameter: ClintParameter) extends DVBundle[ClintParameter, ClintLayers](parameter)
 
 @generator
-object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe] with HasDpiBus:
+object Clint
+    extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
+    with HasDpiBus
+    with HasBridgeDelay[ClintParameter]:
     override def moduleName(parameter: ClintParameter): String = "Clint"
 
     def architecture(parameter: ClintParameter) =
@@ -101,7 +104,7 @@ object Clint extends Generator[ClintParameter, ClintLayers, ClintIO, ClintProbe]
 
         answerBus(
             parameter.flow,
-            None,
+            bridgeDelay(parameter),
             parameter.clockHz,
             io.bus,
             io.resetN.asBool,

@@ -7,10 +7,9 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_device.{DeviceTimings, HasDpiBus}
+import nzea_device.{HasBridgeDelay, HasDpiBus}
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.{AddrRange, BusTiming, LiteBusRW}
-import nzea_rtl.stat.StatScope
+import nzea_rtl.bus.{Delay, LiteBusRW}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -22,9 +21,7 @@ case class PeripheralBridgeParameter(
     clockHz: Int,
     deviceHz: Int,
     deviceCycles: Int,
-    timing: BusTiming,
-    flow: RtlFlow,
-    stats: StatScope
+    flow: RtlFlow
 ) extends Parameter:
     require(addrWidth >= 1, s"addrWidth must be >= 1, got $addrWidth")
     require(dataWidth >= 1, s"dataWidth must be >= 1, got $dataWidth")
@@ -52,40 +49,40 @@ class PeripheralBridgeProbe(parameter: PeripheralBridgeParameter)
   * how a group of peripherals stays off the main interconnect's arbitration.
   *
   * The bridge flow has the simulator behind the window — the answer routes by address there, so a device added behind
-  * the bridge costs no re-elaboration — and the window's [[timing]] table shapes what a master sees: the arm's frame
-  * holds the port, every other address takes the secondary bus's own pace. A synthesis flow builds that secondary bus
-  * (`PeripheralBus`) with the same two rate facts, so both flows answer in the bus's time.
+  * the bridge costs no re-elaboration — and the window's own pace ([[PeripheralBridge.bridgeDelay]]) is what a master
+  * sees: the display group's window is plain memory, one access at the secondary bus's own pace. A synthesis flow
+  * builds that secondary bus (`PeripheralBus`) with the same two rate facts, so both flows answer in the bus's time.
   */
 @generator
 object PeripheralBridge
     extends Generator[PeripheralBridgeParameter, PeripheralBridgeLayers, PeripheralBridgeIO, PeripheralBridgeProbe]
-    with HasDpiBus:
+    with HasDpiBus
+    with HasBridgeDelay[PeripheralBridgeParameter]:
     override def moduleName(parameter: PeripheralBridgeParameter): String = "PeripheralBridge"
+
+    /** The window's delay is its own pace: one access takes `deviceCycles` of the device clock. */
+    override def bridgeDelay(parameter: PeripheralBridgeParameter): Option[Delay] =
+        Some(Delay(hz = parameter.deviceHz, cycles = parameter.deviceCycles))
 
     def architecture(parameter: PeripheralBridgeParameter) =
         val io = summon[Interface[PeripheralBridgeIO]]
         given ClockScope = ClockScope.posedge(io.clock)
         given ResetScope = ResetScope.syncActiveLow(io.resetN)
 
-        if parameter.flow.bridges then
-            // The window's whole table in one port module: the arm's frame holds the port, every other address takes the
-            // bus's own pace, and the simulator answers behind it.
-            timedAnswer(
-                parameter.timing,
-                parameter.clockHz,
-                io.bus,
-                io.resetN.asBool,
-                parameter.addrWidth,
-                parameter.dataWidth,
-                parameter.userWidth,
-                parameter.idWidth,
-                counters = parameter.flow.counters,
-                stats = parameter.stats
-            )
-        else
+        answerBus(
+            parameter.flow,
+            bridgeDelay(parameter),
+            parameter.clockHz,
+            io.bus,
+            io.resetN.asBool,
+            parameter.addrWidth,
+            parameter.dataWidth,
+            parameter.userWidth,
+            parameter.idWidth
+        ):
             // The window with real hardware behind it: the secondary bus paces an access by its own divided clock, so a
-            // master sees the wire's time in the synthesis flow too — the same arithmetic the bridge flow's model
-            // resolves above.
+            // master sees the wire's time in the synthesis flow too — the same arithmetic the bridge flow's delay
+            // resolves.
             val bus = PeripheralBus.instantiate(
                 PeripheralBusParameter(
                     parameter.addrWidth,

@@ -8,9 +8,9 @@ import utest.*
   * `clockHz / deviceHz` bus cycles, so the master waits `deviceCycles × step` cycles and no answer comes early; a store
   * applies its byte strobes and the next read sees them.
   *
-  * The numbers are the ones the bridge flow's model resolves from the same two facts (`AccessCost.Periods`), which is
-  * what makes the two flows comparable — a mismatch here means the model and the hardware drifted apart, and no
-  * waveform on the board could tell which is wrong.
+  * The numbers are the ones the bridge flow's delay resolves from the same two facts (`Delay.at`), which is what makes
+  * the two flows comparable — a mismatch here means the model and the hardware drifted apart, and no waveform on the
+  * board could tell which is wrong.
   *
   * The simulation is iverilog, from the dev shell.
   */

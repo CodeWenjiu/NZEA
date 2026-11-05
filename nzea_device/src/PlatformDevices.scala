@@ -41,9 +41,14 @@ object PlatformDevices:
       */
     private val LineHz = 115200
 
-    /** The secondary bus behind the peripheral window: its device clock and the device clocks one access takes. A 25 MHz
-      * bus answering in one of its clocks is four tile cycles on the 100 MHz board — a slow peripheral bus, which is the
-      * point of the window. The bridge flow's model resolves the same facts (`AccessCost.Periods`).
+    /** The I2C wire's rate: Fast-mode. The wire is per window, so every register access to the arm, scan and motion
+      * devices is framed at this bit rate ([[nzea_device.devices.I2cMaster]]).
+      */
+    val I2cHz: Int = 400_000
+
+    /** The secondary bus behind the peripheral window: its device clock and the device clocks one access takes. A 25
+      * MHz bus answering in one of its clocks is four tile cycles on the 100 MHz board — a slow peripheral bus, which
+      * is the point of the window. The bridge flow's delay resolves the same facts (`Delay`).
       */
     val PeripheralDeviceHz: Int = 25_000_000
     val PeripheralDeviceCycles: Int = 1
@@ -63,13 +68,29 @@ object PlatformDevices:
                 ),
                 DeviceSpec("finisher", AddrRange(BigInt("00100000", 16), BigInt("00000004", 16)), DeviceKind.Finisher),
                 DeviceSpec("clint", AddrRange(BigInt("02000000", 16), BigInt("0000c000", 16)), DeviceKind.Clint),
-                // The peripheral window: remu's dynamic devices all live in `ADDON_MMIO_BASE..ADDON_MMIO_END`, so the
-                // tile decodes one window and the bridge fans out inside it. Only the bridge flow lists it: a synthesis
-                // platform's memory window covers this range.
+                // The display group is plain memory behind the bus: no wire, one access at the secondary bus's pace.
+                // The range covers remu's `display`/`mouse`/`keyboard` bases (0x88000000/0x88001000/0x88002000).
                 DeviceSpec(
-                    "peripheral",
-                    AddrRange(BigInt("88000000", 16), BigInt("08000000", 16)),
+                    "display",
+                    AddrRange(BigInt("88000000", 16), BigInt("00004000", 16)),
                     DeviceKind.PeripheralBridge(PeripheralDeviceHz, PeripheralDeviceCycles)
+                ),
+                // The motion-control devices are off-chip, each on its own I2C wire; the window is the register map
+                // remu's device models answer at.
+                DeviceSpec(
+                    "arm",
+                    AddrRange(BigInt("8A000000", 16), BigInt("00000068", 16)),
+                    DeviceKind.I2c(slaveAddr = 0x10, bitHz = I2cHz)
+                ),
+                DeviceSpec(
+                    "scan",
+                    AddrRange(BigInt("8B000000", 16), BigInt("00000120", 16)),
+                    DeviceKind.I2c(slaveAddr = 0x20, bitHz = I2cHz)
+                ),
+                DeviceSpec(
+                    "motion",
+                    AddrRange(BigInt("8C000000", 16), BigInt("00000070", 16)),
+                    DeviceKind.I2c(slaveAddr = 0x30, bitHz = I2cHz)
                 )
             )
         case RtlFlow.Yosys =>

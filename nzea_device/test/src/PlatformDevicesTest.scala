@@ -12,7 +12,15 @@ object PlatformDevicesTest extends TestSuite:
         test("the platform's MMIO windows come from the flow's inventory"):
             assert(
                 PlatformDevices.mmioWindows(RtlFlow.Verilator) ==
-                    Seq("0x10000000:0x8", "0x100000:0x4", "0x2000000:0xc000", "0x88000000:0x8000000")
+                    Seq(
+                        "0x10000000:0x8",
+                        "0x100000:0x4",
+                        "0x2000000:0xc000",
+                        "0x88000000:0x4000",
+                        "0x8a000000:0x68",
+                        "0x8b000000:0x120",
+                        "0x8c000000:0x70"
+                    )
             )
             assert(
                 PlatformDevices.mmioWindows(RtlFlow.Yosys) == Seq("0x10000000:0x8", "0x100000:0x4", "0x2000000:0xc000")

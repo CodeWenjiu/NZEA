@@ -7,7 +7,7 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_device.HasDpiBus
+import nzea_device.{HasBridgeDelay, HasDpiBus}
 import nzea_rtl.RtlFlow
 import nzea_rtl.bus.LiteBusRW
 import nzea_rtl.stdlib.*
@@ -58,7 +58,8 @@ object SifiveTestFinisher
         SifiveTestFinisherIO,
         SifiveTestFinisherProbe
     ]
-    with HasDpiBus:
+    with HasDpiBus
+    with HasBridgeDelay[SifiveTestFinisherParameter]:
     override def moduleName(parameter: SifiveTestFinisherParameter): String = "SifiveTestFinisher"
 
     def architecture(parameter: SifiveTestFinisherParameter) =
@@ -68,7 +69,7 @@ object SifiveTestFinisher
 
         answerBus(
             parameter.flow,
-            None,
+            bridgeDelay(parameter),
             parameter.clockHz,
             io.bus,
             io.resetN.asBool,

@@ -1,7 +1,6 @@
 package nzea_device
 
 import nzea_rtl.{RtlFlow, TestFlow}
-import nzea_rtl.bus.{AccessCost, AddrRange, BusTiming, Occupancy, TimingEntry}
 import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.SyncRamPorts
 import nzea_device.devices.*
@@ -11,26 +10,6 @@ import utest.*
   * device answers with the simulator instead of building its hardware.
   */
 object DevicesElaborateTest extends TestSuite:
-
-    /** The window's table, as the platform states it: the arm's frame holds the port, everything else is the bus's
-      * pace.
-      */
-    private val timing = BusTiming(
-        Seq(
-            TimingEntry(
-                range = Some(AddrRange(base = BigInt("8A000000", 16), size = BigInt("68", 16))),
-                cost = AccessCost.bitFrame(bitHz = 400_000, bits = 20),
-                occupancy = Occupancy.Held
-            ),
-            TimingEntry(
-                range = None,
-                cost = AccessCost.Periods(deviceHz = 25_000_000, deviceCycles = 1),
-                occupancy = Occupancy.Pipelined
-            )
-        ),
-        jitterEvery = 4,
-        jitterSpan = 4
-    )
 
     private lazy val finisher = TestFlow.lower(
         SifiveTestFinisher.moduleName(SifiveTestFinisherParameter(32, 32, 4, 1, 25000000, RtlFlow.Yosys)),
@@ -86,7 +65,17 @@ object DevicesElaborateTest extends TestSuite:
 
     private lazy val ram = TestFlow.lower(
         RamFabricSlave.moduleName(
-            RamFabricSlaveParameter(32, 32, 4, 1, 25000000, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Yosys)
+            RamFabricSlaveParameter(
+                32,
+                32,
+                4,
+                1,
+                25000000,
+                0x80000000L,
+                131072L,
+                SyncRamPorts.OneRW,
+                RtlFlow.Yosys
+            )
         ),
         cfg =>
             RamFabricSlave.main(
@@ -119,7 +108,17 @@ object DevicesElaborateTest extends TestSuite:
     /** The RAM built for the bridge flow: its memory is the simulator's, so no hardware is built. */
     private lazy val ramBridged = TestFlow.lower(
         RamFabricSlave.moduleName(
-            RamFabricSlaveParameter(32, 32, 4, 1, 25000000, 0x80000000L, 131072L, SyncRamPorts.OneRW, RtlFlow.Verilator)
+            RamFabricSlaveParameter(
+                32,
+                32,
+                4,
+                1,
+                25000000,
+                0x80000000L,
+                131072L,
+                SyncRamPorts.OneRW,
+                RtlFlow.Verilator
+            )
         ),
         cfg =>
             RamFabricSlave.main(
@@ -206,6 +205,103 @@ object DevicesElaborateTest extends TestSuite:
         cfg => Uart.main(Array("design", cfg.toString))
     )
 
+    private lazy val i2c = TestFlow.lower(
+        I2cMaster.moduleName(
+            I2cMasterParameter(
+                32,
+                32,
+                4,
+                1,
+                0x8a000000L,
+                25000000,
+                400000,
+                0x10,
+                counters = true,
+                StatScope(Seq("arm")),
+                RtlFlow.Verilator
+            )
+        ),
+        cfg =>
+            I2cMaster.main(
+                Array(
+                    "config",
+                    cfg.toString,
+                    "--addrWidth",
+                    "32",
+                    "--dataWidth",
+                    "32",
+                    "--userWidth",
+                    "4",
+                    "--idWidth",
+                    "1",
+                    "--base",
+                    "2315255808",
+                    "--clockHz",
+                    "25000000",
+                    "--bitHz",
+                    "400000",
+                    "--slaveAddr",
+                    "16",
+                    "--counters",
+                    "true",
+                    "--stats",
+                    "arm",
+                    "--flow",
+                    "verilator"
+                )
+            ),
+        cfg => I2cMaster.main(Array("design", cfg.toString))
+    )
+
+    /** The same window on real pins: no simulator behind it, so no DPI. */
+    private lazy val i2cHw = TestFlow.lower(
+        I2cMaster.moduleName(
+            I2cMasterParameter(
+                32,
+                32,
+                4,
+                1,
+                0x8a000000L,
+                25000000,
+                400000,
+                0x10,
+                counters = false,
+                StatScope.root,
+                RtlFlow.Yosys
+            )
+        ),
+        cfg =>
+            I2cMaster.main(
+                Array(
+                    "config",
+                    cfg.toString,
+                    "--addrWidth",
+                    "32",
+                    "--dataWidth",
+                    "32",
+                    "--userWidth",
+                    "4",
+                    "--idWidth",
+                    "1",
+                    "--base",
+                    "2315255808",
+                    "--clockHz",
+                    "25000000",
+                    "--bitHz",
+                    "400000",
+                    "--slaveAddr",
+                    "16",
+                    "--counters",
+                    "false",
+                    "--stats",
+                    "root",
+                    "--flow",
+                    "yosys"
+                )
+            ),
+        cfg => I2cMaster.main(Array("design", cfg.toString))
+    )
+
     private lazy val busDpi = TestFlow.lower(
         BusDpiDevice.moduleName(BusDpiDeviceParameter(32, 32, 4, 1)),
         cfg =>
@@ -256,9 +352,7 @@ object DevicesElaborateTest extends TestSuite:
                 25000000,
                 25000000,
                 1,
-                timing,
-                RtlFlow.Verilator,
-                StatScope(Seq("peripheral"))
+                RtlFlow.Verilator
             )
         ),
         cfg =>
@@ -280,10 +374,6 @@ object DevicesElaborateTest extends TestSuite:
                     "25000000",
                     "--deviceCycles",
                     "1",
-                    "--timing",
-                    upickle.default.write(timing),
-                    "--stats",
-                    "peripheral",
                     "--flow",
                     "verilator"
                 )
@@ -302,9 +392,7 @@ object DevicesElaborateTest extends TestSuite:
                 25000000,
                 25000000,
                 1,
-                timing,
-                RtlFlow.Yosys,
-                StatScope(Seq("peripheral"))
+                RtlFlow.Yosys
             )
         ),
         cfg =>
@@ -326,10 +414,6 @@ object DevicesElaborateTest extends TestSuite:
                     "25000000",
                     "--deviceCycles",
                     "1",
-                    "--timing",
-                    upickle.default.write(timing),
-                    "--stats",
-                    "peripheral",
                     "--flow",
                     "yosys"
                 )
@@ -392,14 +476,22 @@ object DevicesElaborateTest extends TestSuite:
             assert(ramBridged.contains("bus_read") && ramBridged.contains("bus_write"))
             assert(!ramBridged.contains("SyncRam"))
 
-        test("the UART prints through hardware in a synthesis flow, and answers with the simulator in the bridge flow"):
+        test("the UART is the same hardware in both flows, its line at a pin or at the bridge"):
             assert(uart.contains("module Uart("))
             assert(uart.contains("bus_req_valid"))
-            assert(uart.contains("bus_read") && uart.contains("bus_write"))
+            // The bridge flow's line ends in the simulator: a write of the sent byte, and no read.
+            assert(uart.contains("bus_write") && !uart.contains("bus_read"))
             // The line leaves at the boundary, and the bit period is the rate the parameter states: 25e6 / 115200 = 217.
             assert(uartHw.contains("txd"))
-            assert(!uartHw.contains("bus_read"))
+            assert(!uartHw.contains("bus_read") && !uartHw.contains("bus_write"))
             assert(uartHw.contains("8'hD9"))
+
+        test("the I2C master frames an access on the wire, and answers from the simulator in the bridge flow"):
+            assert(i2c.contains("module I2cMaster_arm_"))
+            for port <- Seq("bus_req_valid", "bus_resp_valid", "bus_req_bits_wen", "boundary_scl", "boundary_sda")
+            do assert(i2c.contains(port))
+            assert(i2c.contains("bus_read") && i2c.contains("bus_write"))
+            assert(!i2cHw.contains("bus_read") && !i2cHw.contains("bus_write"))
 
         test("the bus DPI device is a bus device whose answer is the simulator's"):
             assert(busDpi.contains("module BusDpiDevice("))
@@ -443,6 +535,7 @@ object DevicesElaborateTest extends TestSuite:
             val kinds = Seq(
                 DeviceKind.Ram(SyncRamPorts.OneRW),
                 DeviceKind.Uart(115200),
+                DeviceKind.I2c(0x10, 400_000),
                 DeviceKind.Finisher,
                 DeviceKind.Clint,
                 DeviceKind.PeripheralBridge(25_000_000, 1)
@@ -452,6 +545,7 @@ object DevicesElaborateTest extends TestSuite:
                 upickle.default.write[DeviceKind](DeviceKind.PeripheralBridge(25_000_000, 1)) ==
                     "\"PeripheralBridge:25000000:1\""
             )
+            assert(upickle.default.write[DeviceKind](DeviceKind.I2c(0x10, 400_000)) == "\"I2c:16:400000\"")
 
         test("the blinker at full duty is the plain toggle — no PWM window is built"):
             assert(blink.contains("module Blink("))

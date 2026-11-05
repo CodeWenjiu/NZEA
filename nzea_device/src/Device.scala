@@ -10,6 +10,8 @@ import nzea_device.devices.{
     ClintParameter,
     ClintPins,
     FinisherPins,
+    I2cMasterParameter,
+    I2cPins,
     PeripheralBridgeParameter,
     RamFabricSlave,
     RamFabricSlaveParameter,
@@ -49,9 +51,11 @@ enum DeviceKind:
     case Finisher
     case Clint
 
-    /** The peripheral window. The two rates are the secondary bus's own facts: its device clock, and how many of those
-      * clocks one access takes — the hardware paces itself by them, and the bridge flow's model resolves the same
-      * arithmetic (`AccessCost.Periods`).
+    /** One window on an I2C wire: the 7-bit address every frame carries and the wire's bit rate. */
+    case I2c(slaveAddr: Int, bitHz: Int)
+
+    /** A window answered by the simulator at a secondary bus's pace — the display group's memory window. The two rates
+      * are the bus's own facts, and the window's bridge-flow delay is derived from them.
       */
     case PeripheralBridge(deviceHz: Int, deviceCycles: Int)
 
@@ -68,6 +72,7 @@ enum DeviceKind:
         case Uart(_)                => if flow.bridges then None else Some(new UartPins)
         case Finisher               => if flow.bridges then None else Some(new FinisherPins)
         case Clint                  => if flow.bridges then None else Some(new ClintPins)
+        case I2c(_, _)              => if flow.bridges then None else Some(new I2cPins)
         case PeripheralBridge(_, _) => None
 
     /** Whether the boundary is the level's input (a clock the level supplies) or its output (a flag the device shows).
@@ -139,6 +144,23 @@ enum DeviceKind:
                     flow
                 )
             )
+        case I2c(slaveAddr, bitHz) =>
+            // Fully qualified for the same reason as `Uart`.
+            nzea_device.devices.I2cMaster.instantiate(
+                I2cMasterParameter(
+                    ctx.addrWidth,
+                    ctx.dataWidth,
+                    ctx.userWidth,
+                    ctx.idWidth,
+                    ctx.base,
+                    ctx.clockHz,
+                    bitHz,
+                    slaveAddr,
+                    flow.counters,
+                    ctx.stats,
+                    flow
+                )
+            )
         case PeripheralBridge(deviceHz, deviceCycles) =>
             // Fully qualified for the same reason as `Uart`.
             nzea_device.devices.PeripheralBridge.instantiate(
@@ -150,9 +172,7 @@ enum DeviceKind:
                     ctx.clockHz,
                     deviceHz,
                     deviceCycles,
-                    DeviceTimings.peripheral,
-                    flow,
-                    ctx.stats
+                    flow
                 )
             )
 
@@ -187,16 +207,21 @@ object DeviceKind:
             .readwriter[String]
             .bimap(
                 {
-                    case DeviceKind.Ram(ports)   => s"Ram:${ports.name}"
-                    case DeviceKind.Uart(lineHz) => s"Uart:$lineHz"
-                    case DeviceKind.Finisher     => "Finisher"
-                    case DeviceKind.Clint        => "Clint"
+                    case DeviceKind.Ram(ports)            => s"Ram:${ports.name}"
+                    case DeviceKind.Uart(lineHz)          => s"Uart:$lineHz"
+                    case DeviceKind.Finisher              => "Finisher"
+                    case DeviceKind.Clint                 => "Clint"
+                    case DeviceKind.I2c(slaveAddr, bitHz) => s"I2c:$slaveAddr:$bitHz"
                     case DeviceKind.PeripheralBridge(deviceHz, deviceCycles) =>
                         s"PeripheralBridge:$deviceHz:$deviceCycles"
                 },
                 {
                     case "Finisher" => DeviceKind.Finisher
                     case "Clint"    => DeviceKind.Clint
+                    case s if s.startsWith("I2c:") =>
+                        s.stripPrefix("I2c:").split(":") match
+                            case Array(addr, hz) => DeviceKind.I2c(addr.toInt, hz.toInt)
+                            case other           => throw new IllegalArgumentException(s"malformed i2c kind '$other'")
                     case "PeripheralBridge" =>
                         DeviceKind.PeripheralBridge(
                             PlatformDevices.PeripheralDeviceHz,

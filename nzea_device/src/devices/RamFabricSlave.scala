@@ -7,9 +7,9 @@ import me.jiuyang.zaozi.*
 import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
-import nzea_device.{DeviceTimings, HasDpiBus}
+import nzea_device.{HasBridgeDelay, HasDpiBus}
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.LiteBusRW
+import nzea_rtl.bus.{Delay, LiteBusRW}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
@@ -74,8 +74,20 @@ class RamFabricSlaveProbe(parameter: RamFabricSlaveParameter)
 @generator
 object RamFabricSlave
     extends Generator[RamFabricSlaveParameter, RamFabricSlaveLayers, RamFabricSlaveIO, RamFabricSlaveProbe]
-    with HasDpiBus:
+    with HasDpiBus
+    with HasBridgeDelay[RamFabricSlaveParameter]:
     override def moduleName(parameter: RamFabricSlaveParameter): String = "RamFabricSlave"
+
+    /** The board's DDR path, measured at the core's port (C1, 2026-11-04): 23 cycles of the near clock's 100 MHz (230
+      * ns) typical, 54 (540 ns) at worst (row conflict or refresh). The path is the whole one a master sees: the
+      * near-side arbitration, the crossing, the whole-burst adapter, the DDR3 controller and the DRAM. In the bridge
+      * flow this window is the simulator's memory, which is that DDR path.
+      *
+      * Evidence: `goal/measurements/c1-ddr-latency-*.vcd`, read through the `ddrLatLast`/`ddrLatMax`/`ddrGapLast`
+      * probes defined in `nzea_fpga/src/logic/DdrMemory.scala`; the arithmetic is in `goal/latency-calibration.md` §2.
+      */
+    override def bridgeDelay(parameter: RamFabricSlaveParameter): Option[Delay] =
+        Some(Delay(hz = 100_000_000, cycles = 23))
 
     def architecture(parameter: RamFabricSlaveParameter) =
         val io = summon[Interface[RamFabricSlaveIO]]
@@ -84,7 +96,7 @@ object RamFabricSlave
 
         answerBus(
             parameter.flow,
-            Some(DeviceTimings.ram),
+            bridgeDelay(parameter),
             parameter.clockHz,
             io.bus,
             io.resetN.asBool,

@@ -12,8 +12,8 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
 /** The peripheral bus's own rate, as the platform states it: the tile clock, and the clock one device access is paced
   * by. `deviceCycles` is how many of those device clocks one access takes, so an access is `ceil(deviceCycles × clockHz
-  * ÷ deviceHz)` bus cycles — the same arithmetic the bridge flow's model resolves
-  * ([[nzea_rtl.bus.AccessCost.Periods]]), which is what lets the two flows be compared.
+  * ÷ deviceHz)` bus cycles — the same arithmetic the bridge flow's [[nzea_rtl.bus.Delay]] resolves, which is what lets
+  * the two flows be compared.
   */
 case class PeripheralBusParameter(
     addrWidth: Int,

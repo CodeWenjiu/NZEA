@@ -6,7 +6,6 @@ import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import me.jiuyang.stdlib.*
 import nzea_rtl.bus.*
-import nzea_rtl.stat.StatScope
 import nzea_rtl.stdlib.*
 import utest.*
 
@@ -143,21 +142,14 @@ object LiteBusTest extends TestSuite:
         cfg => LiteBusCrossbar.main(Array("design", cfg.toString))
     )
 
-    private val timing = BusTiming(
-        Seq(TimingEntry(range = None, cost = AccessCost.SameDomain(4), occupancy = Occupancy.Pipelined)),
-        jitterEvery = 4,
-        jitterSpan = 4
-    )
+    private val delayParameter = LiteBusDelayParameter(32, 32, 4, 1, latency = 4)
 
-    private val timingParameter =
-        LiteBusTimingParameter(32, 32, 4, 1, 25_000_000, timing, counters = false, stats = StatScope.root)
+    private val delayModule = LiteBusDelay.moduleName(delayParameter)
 
-    private val timingModule = LiteBusTiming.moduleName(timingParameter)
-
-    private lazy val timingSv = TestFlow.lower(
-        timingModule,
+    private lazy val delaySv = TestFlow.lower(
+        delayModule,
         cfg =>
-            LiteBusTiming.main(
+            LiteBusDelay.main(
                 Array(
                     "config",
                     cfg.toString,
@@ -169,17 +161,11 @@ object LiteBusTest extends TestSuite:
                     "4",
                     "--idWidth",
                     "1",
-                    "--busHz",
-                    "25000000",
-                    "--timing",
-                    upickle.default.write(timing),
-                    "--counters",
-                    "false",
-                    "--stats",
-                    "root"
+                    "--latency",
+                    "4"
                 )
             ),
-        cfg => LiteBusTiming.main(Array("design", cfg.toString))
+        cfg => LiteBusDelay.main(Array("design", cfg.toString))
     )
 
     val tests = Tests:
@@ -258,7 +244,7 @@ object LiteBusTest extends TestSuite:
             assert(ports("outs_0_req_bits_id") == 1)
 
         test("the wrapper carries the bus at its width on both sides, with its own clock and reset"):
-            val ports = TestFlow.ports(timingSv, timingModule)
+            val ports = TestFlow.ports(delaySv, delayModule)
             assert(ports("clock") == 1)
             assert(ports("resetN") == 1)
             assert(ports("in_req_bits_user") == 4)
@@ -266,94 +252,14 @@ object LiteBusTest extends TestSuite:
 
         test("both directions keep their handshakes"):
             for port <- Seq("in_req_ready", "out_req_valid", "in_resp_valid", "out_resp_ready")
-            do assert(timingSv.contains(port))
+            do assert(delaySv.contains(port))
 
-        test("a timing the model cannot build is rejected, not defaulted"):
-            def table(entries: TimingEntry*) = BusTiming(entries, jitterEvery = 4, jitterSpan = 4)
-            val line = TimingEntry(None, AccessCost.SameDomain(4), Occupancy.Pipelined)
-            val range = AddrRange(BigInt("80000000", 16), BigInt("1000", 16))
-            // A port answers every address: no catch-all, or two, is not a table.
-            intercept[IllegalArgumentException](BusTiming(Seq.empty, jitterEvery = 4, jitterSpan = 4))
-            intercept[IllegalArgumentException](
-                table(TimingEntry(Some(range), AccessCost.SameDomain(4), Occupancy.Held))
-            )
-            intercept[IllegalArgumentException](table(line, line))
-            // One line cost: a second pipelined row would need per-address latency.
-            intercept[IllegalArgumentException](
-                table(line, TimingEntry(Some(range), AccessCost.SameDomain(2), Occupancy.Pipelined))
-            )
-            // Two rows cannot explain one address.
-            intercept[IllegalArgumentException](
-                table(
-                    line,
-                    TimingEntry(Some(range), AccessCost.SameDomain(2), Occupancy.Held),
-                    TimingEntry(Some(range), AccessCost.SameDomain(3), Occupancy.Held)
-                )
-            )
-            intercept[IllegalArgumentException](
-                table(TimingEntry(None, AccessCost.Periods(deviceHz = 0, deviceCycles = 1), Occupancy.Pipelined))
-            )
-            intercept[IllegalArgumentException](BusTiming(Seq(line), jitterEvery = 0, jitterSpan = 4))
-
-        test("a period costs the same duration at any bus clock, a same-domain cost does not"):
-            val period = AccessCost.Periods(deviceHz = 25_000_000, deviceCycles = 4)
+        test("a delay keeps its duration when the bus clock changes, rounded up once"):
+            val period = Delay(hz = 25_000_000, cycles = 4)
             assert(period.at(25_000_000) == 4)
             assert(period.at(100_000_000) == 16)
             assert(BigInt(period.at(25_000_000)) * 100_000_000 == BigInt(period.at(100_000_000)) * 25_000_000)
-            val sameDomain = AccessCost.SameDomain(4)
-            assert(sameDomain.at(25_000_000) == 4 && sameDomain.at(100_000_000) == 4)
-            // One device cycle at 1 GHz against a 1 Hz bus rounds up to one bus cycle; the port's own answer register is
-            // the floor, so nothing clamps it further.
-            val oneCycle = BusTiming(
-                Seq(
-                    TimingEntry(
-                        None,
-                        AccessCost.Periods(deviceHz = 1_000_000_000, deviceCycles = 1),
-                        Occupancy.Pipelined
-                    )
-                ),
-                jitterEvery = 4,
-                jitterSpan = 4
-            )
-            assert(
-                LiteBusTiming
-                    .moduleName(
-                        LiteBusTimingParameter(32, 32, 4, 1, 1, oneCycle, counters = false, stats = StatScope.root)
-                    )
-                    .contains("latency1")
-            )
-
-        test("a sum adds its parts exactly, then rounds once"):
-            // A DDR3 read: 6 clocks at 400 MHz (15 ns) and 20 at 200 MHz (100 ns), 115 ns in all.
-            val memory = AccessCost.Sum(
-                Seq(
-                    AccessCost.Periods(deviceHz = 400_000_000, deviceCycles = 6),
-                    AccessCost.Periods(deviceHz = 200_000_000, deviceCycles = 20)
-                )
-            )
-            assert(memory.at(25_000_000) == 3)
-            assert(memory.at(100_000_000) == 12)
-            // Rounding each part first would give 1 + 3 = 4, a cycle more than the access takes.
-            assert(memory.at(25_000_000) < 1 + 3)
-            assert(
-                AccessCost.Sum(Seq(AccessCost.SameDomain(2), AccessCost.Periods(100_000_000, 1))).at(50_000_000) == 3
-            )
-            assert(AccessCost.Sum(Seq(memory, AccessCost.SameDomain(1))).at(25_000_000) == 4)
-            intercept[IllegalArgumentException](
-                BusTiming(
-                    Seq(TimingEntry(None, AccessCost.Sum(Seq.empty), Occupancy.Pipelined)),
-                    jitterEvery = 4,
-                    jitterSpan = 4
-                )
-            )
-
-        test("a sum round-trips through its token"):
-            val cost = AccessCost.Sum(
-                Seq(
-                    AccessCost.Periods(deviceHz = 400_000_000, deviceCycles = 6),
-                    AccessCost.SameDomain(4)
-                )
-            )
-            val written = upickle.default.write[AccessCost](cost)
-            assert(upickle.default.read[AccessCost](written) == cost)
-            assert(written.contains("Sum:Periods:400000000:6|SameDomain") || written.contains("Sum:"))
+            // One device cycle at 1 GHz against a 1 Hz bus is one bus cycle, not zero.
+            assert(Delay(hz = 1_000_000_000, cycles = 1).at(1) == 1)
+            intercept[IllegalArgumentException](Delay(hz = 0, cycles = 1))
+            intercept[IllegalArgumentException](Delay(hz = 1, cycles = 0))

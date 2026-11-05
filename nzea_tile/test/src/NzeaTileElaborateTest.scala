@@ -80,7 +80,7 @@ object NzeaTileElaborateTest extends TestSuite:
                 "Debugger"
             )
             // Parameterized bodies carry their shape in the name, so the check is on the prefix.
-            val prefixed = Seq("LiteBusTiming_", "CacheStorage_", "CacheRefill_", "CacheBank_")
+            val prefixed = Seq("LiteBusDelay_", "I2cMaster_", "CacheStorage_", "CacheRefill_", "CacheBank_")
             assert(exact.filterNot(module => sv.contains(s"module $module(")).isEmpty)
             assert(prefixed.filterNot(prefix => sv.contains(s"module $prefix")).isEmpty)
 
@@ -102,7 +102,7 @@ object NzeaTileElaborateTest extends TestSuite:
         test("the device list is the fabric's slave inventory"):
             assert(
                 NzeaTileParameter.default.built
-                    .map(_.name) == Seq("ram", "uart16550", "finisher", "clint", "peripheral")
+                    .map(_.name) == Seq("ram", "uart16550", "finisher", "clint", "display", "arm", "scan", "motion")
             )
             assert(
                 NzeaTile
@@ -112,23 +112,26 @@ object NzeaTileElaborateTest extends TestSuite:
                     BigInt("10000000", 16),
                     BigInt("00100000", 16),
                     BigInt("02000000", 16),
-                    BigInt("88000000", 16)
+                    BigInt("88000000", 16),
+                    BigInt("8a000000", 16),
+                    BigInt("8b000000", 16),
+                    BigInt("8c000000", 16)
                 )
             )
 
-        test("the peripheral window is one MMIO window, closed at its end"):
-            val peripheral = NzeaTile.fabricMap(parameter).slave("peripheral")
-            assert(peripheral.kind == SlaveKind.Mmio)
-            assert(peripheral.range.base == BigInt("88000000", 16))
-            assert(peripheral.range.endExclusive == BigInt("90000000", 16))
-            assert(peripheral.range.contains(BigInt("88000000", 16)))
-            assert(peripheral.range.contains(BigInt("8fffffff", 16)))
-            assert(!peripheral.range.contains(BigInt("90000000", 16)))
+        test("the display window is plain memory: one MMIO window, closed at its end"):
+            val display = NzeaTile.fabricMap(parameter).slave("display")
+            assert(display.kind == SlaveKind.Mmio)
+            assert(display.range.base == BigInt("88000000", 16))
+            assert(display.range.endExclusive == BigInt("88004000", 16))
+            assert(display.range.contains(BigInt("88000000", 16)))
+            assert(display.range.contains(BigInt("88003fff", 16)))
+            assert(!display.range.contains(BigInt("88004000", 16)))
 
-        test("the synthesis flow builds no peripheral bridge"):
+        test("the synthesis flow builds no display window"):
             val synthesis = parameter.copy(flow = RtlFlow.Yosys)
-            assert(!synthesis.built.exists(_.kind == DeviceKind.PeripheralBridge))
-            assert(NzeaTile.fabricMap(synthesis).slaves.forall(_.name != "peripheral"))
+            assert(!synthesis.built.exists(_.name == "display"))
+            assert(NzeaTile.fabricMap(synthesis).slaves.forall(_.name != "display"))
 
         test("an external window leaves the tile as its own bus port, the fabric's shape, the tile as master"):
             val ports = TestFlow.ports(externalSv, "NzeaTile")
@@ -145,7 +148,18 @@ object NzeaTileElaborateTest extends TestSuite:
             val map = NzeaTile.fabricMap(externalParameter)
             assert(
                 map.slaves
-                    .map(_.name) == Seq("ram", "uart16550", "finisher", "clint", "peripheral", "extMem", "extRegs")
+                    .map(_.name) == Seq(
+                    "ram",
+                    "uart16550",
+                    "finisher",
+                    "clint",
+                    "display",
+                    "arm",
+                    "scan",
+                    "motion",
+                    "extMem",
+                    "extRegs"
+                )
             )
             // A memory window joins what a cache may refill from (the tile's own filter), an MMIO one the trace's windows.
             assert(map.slaves.filter(_.kind == SlaveKind.Memory).map(_.name) == Seq("ram", "extMem"))

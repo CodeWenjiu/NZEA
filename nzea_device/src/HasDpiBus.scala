@@ -7,26 +7,33 @@ import me.jiuyang.zaozi.default.{*, given}
 import me.jiuyang.zaozi.reftpe.*
 import me.jiuyang.zaozi.valuetpe.*
 import nzea_rtl.RtlFlow
-import nzea_rtl.bus.{BusTiming, LiteBusRW, LiteBusTiming, LiteBusTimingParameter}
-import nzea_rtl.stat.StatScope
+import nzea_rtl.bus.{Delay, LiteBusDelay, LiteBusDelayParameter, LiteBusRW}
 import nzea_rtl.stdlib.*
 import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 
+/** The bridge flow's delay a device states for itself. The default is none: the simulator's own answer register is the
+  * device's whole cost, which is what a register file at the bus's pace is. A device only the simulator stands in for
+  * overrides it with its measured delay.
+  */
+trait HasBridgeDelay[P <: Parameter]:
+    def bridgeDelay(parameter: P): Option[Delay] = None
+
 /** A bus device: it answers its read/write bus with its own hardware, or — in the bridge flow — with the simulator,
-  * which is uniform across devices: forward the request to remu's `bus_read` / `bus_write`, which routes by address. A
-  * port with a timing table gets the table's latency, jitter and held rows; a port with no table is the simulator's own
-  * answer, one register deep — a device that states no cost of its own, which is what a register file at the bus's own
-  * pace is.
+  * which is uniform across devices: forward the request to remu's `bus_read` / `bus_write`, which routes by address.
+  * The device's own [[HasBridgeDelay]] decides whether that answer is delayed; a device with no delay is the
+  * simulator's own answer, one register deep — a register file at the bus's own pace.
   *
-  * `answerBus` is the device's entry point; a device with more than one hardware implementation writes its own `flow
-  * match` and calls the bridge branch it needs, and ties off its hardware-only outputs itself.
+  * `answerBus` is the device's entry point when the simulator replaces it wholesale; a device with more than one
+  * hardware implementation writes its own `flow match` and calls the bridge branch it needs, and ties off its
+  * hardware-only outputs itself. A device whose RTL runs in both flows ([[nzea_device.devices.Uart]]) skips it and
+  * branches on `flow` for the boundary alone.
   */
 trait HasDpiBus:
 
-    /** The bridge answer, shaped by the port's timing table when it has one. */
+    /** The bridge answer, delayed by the port's own fact when it has one. */
     def answerBus(
         flow: RtlFlow,
-        timing: Option[BusTiming],
+        delay: Option[Delay],
         clockHz: Int,
         bus: Referable[LiteBusRW],
         resetN: Referable[Bool],
@@ -46,25 +53,14 @@ trait HasDpiBus:
         InstanceContext
     ): Unit =
         if flow.bridges then
-            timing match
-                case Some(table) =>
-                    timedAnswer(
-                        table,
-                        clockHz,
-                        bus,
-                        resetN,
-                        addrWidth,
-                        dataWidth,
-                        userWidth,
-                        idWidth,
-                        counters = flow.counters,
-                        stats = StatScope.root
-                    )
+            delay match
+                case Some(cost) =>
+                    delayedAnswer(cost.at(clockHz), bus, resetN, addrWidth, dataWidth, userWidth, idWidth)
                 case None => bridgeAnswer(bus, resetN, dataWidth, userWidth, idWidth)
         else hardware
 
     /** The simulator's answer with nothing in front of it: the request fires, the answer is registered, and the master
-      * sees it one cycle later. That is the whole cost of a port that states no timing of its own.
+      * sees it one cycle later. That is the whole cost of a port that states no delay of its own.
       */
     def bridgeAnswer(
         bus: Referable[LiteBusRW],
@@ -121,22 +117,18 @@ trait HasDpiBus:
         bus.resp.bits.user := respUser
         bus.resp.bits.id := respId
 
-    /** The simulator's answer behind the port's timing table: [[bridgeAnswer]] supplies the first cycle, and
-      * [[LiteBusTiming]] adds the table's own stages, jitter and held rows. The port and the timing module's `in` are
-      * both slave views of the same bus, so they are wired by direction here. `clockHz` is the bus clock the table's
-      * [[nzea_rtl.bus.AccessCost]] resolves against.
+    /** The simulator's answer behind the port's own delay: [[bridgeAnswer]] supplies the first cycle, and
+      * [[LiteBusDelay]] adds the rest. The port and the delay module's `in` are both slave views of the same bus, so
+      * they are wired by direction here.
       */
-    def timedAnswer(
-        timing: BusTiming,
-        clockHz: Int,
+    def delayedAnswer(
+        latency: Int,
         bus: Referable[LiteBusRW],
         resetN: Referable[Bool],
         addrWidth: Int,
         dataWidth: Int,
         userWidth: Int,
-        idWidth: Int,
-        counters: Boolean,
-        stats: StatScope
+        idWidth: Int
     )(using
         ClockScope,
         ResetScope,
@@ -149,9 +141,12 @@ trait HasDpiBus:
         InstanceContext
     ): Unit =
         val raw = Wire(new LiteBusRW(addrWidth, dataWidth, userWidth, idWidth))
-        val timed = LiteBusTiming.instantiate(
-            LiteBusTimingParameter(addrWidth, dataWidth, userWidth, idWidth, clockHz, timing, counters, stats)
-        )
+        // The instance's name is the waveform's handle; without the shadow the hub names it `_GEN_2`.
+        val timed =
+            given sourcecode.Name.Machine = sourcecode.Name.Machine("delay")
+            LiteBusDelay.instantiate(
+                LiteBusDelayParameter(addrWidth, dataWidth, userWidth, idWidth, latency)
+            )
         timed.io.clock := summon[ClockScope].clock
         timed.io.resetN := resetN.asReset
 
