@@ -69,6 +69,11 @@ asm-elf name target='riscv32im':
 test-match module pattern:
     @mill --no-server {{ module }}.test.testOnly "*{{ pattern }}*"
 
+# 列出、描述、生成或导出实验模块。
+[group('lab')]
+lab *ARGS:
+    @mill --no-server nzea_lab.runMain nzea_lab.LabCli {{ ARGS }}
+
 # `./.zaozi` 变化时重跑。用本仓库的 dev shell（zaozi 自己的 shell 还会兑现 mtf 锁定的 Maven 仓库，这里不需要）；
 # JAVA_TOOL_OPTIONS=-Xss32m 是因为 scalac 要在 95K 行 jextract 出来的 CAPI.java 上递归。
 

@@ -3,7 +3,7 @@ package nzea_cli
 import mainargs.{arg, main, ParserForClass}
 import nzea_core.config.CoreConfig
 import nzea_fpga.{FpgaElaborate, TopParameter}
-import nzea_rtl.{DumpRegistry, Elaborate, RtlFlow}
+import nzea_rtl.{DumpRegistry, Elaborate, Lowering, RtlFlow}
 import nzea_rtl.stat.{StatRegistry, StatSchema}
 import nzea_tile.*
 import nzea_top.{NzeaCore, NzeaCoreElaborate, NzeaCoreParameter, TopConfig, TopConfigArgs}
@@ -78,26 +78,7 @@ object CliArgs:
   */
 object Main:
 
-    /** firtool flags per flow: Verilator takes what firtool emits by default, while Yosys refuses `always_comb` and
-      * local variables inside it, so a synthesis dump is lowered without either.
-      *
-      * What every flow's lowering shares: the split output, and the randomization/debug stripping the dumps are read
-      * with. What a value keeps of itself — its declaration, and the Verilog attributes it carries — is not decided
-      * here: `dontTouch` marks the values that must survive, per value, and the rest of the design is lowered the way
-      * the emitter wants to (see `ConstructorApi.NodeWithAttributes`).
-      */
-    private val sharedLowering = Seq(
-        "--split-verilog",
-        "-disable-all-randomization",
-        "-strip-debug-info"
-    )
-
-    private val yosysLowering =
-        sharedLowering :+ "--lowering-options=locationInfoStyle=wrapInAtSquareBracket,disallowLocalVariables,disallowPackedArrays,noAlwaysComb"
-
-    private def lowering(flow: RtlFlow): Seq[String] = flow match
-        case RtlFlow.Verilator => sharedLowering
-        case RtlFlow.Yosys     => yosysLowering
+    private def lowering(flow: RtlFlow): Seq[String] = Lowering.of(flow)
 
     def main(args: Array[String]): Unit =
         val cli = ParserForClass[CliArgs].constructOrExit(args.toSeq)
@@ -142,7 +123,7 @@ object Main:
         val probes = cli.probes.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSeq
         val parameter = TopParameter(probes)
         FpgaElaborate.withLinked(parameter): circuit =>
-            Elaborate.verilogInto(circuit, outDir, yosysLowering)
+            Elaborate.verilogInto(circuit, outDir, Lowering.of(RtlFlow.Yosys))
             DumpRegistry.emitAll(outDir)
         println(s"elaborated fpga:${cli.board} into $outDir")
 

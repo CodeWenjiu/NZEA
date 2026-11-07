@@ -104,6 +104,26 @@ object nzea_sideband extends ZaoziModule {
     override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
 }
 
+/** Course-interface modules built from zaozi and exported as plain Verilog. Each module is a generator with a declared
+  * parameter schema and port contract; the export path lowers the Yosys-shaped RTL and writes it where an external
+  * toolchain (the course labs' iverilog, Vivado) reads it.
+  */
+object nzea_lab extends ZaoziModule {
+    override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl)
+
+    object test extends ScalaTests with TestModule.Utest {
+        def mvnDeps = utestDeps
+
+        override def moduleDeps = super.moduleDeps ++ Seq(nzea_rtl.test)
+
+        override def forkArgs = Task {
+            super.forkArgs() ++ zaoziJvmFlags
+        }
+
+    }
+
+}
+
 /** Reusable device IP (RAM, UART, CLINT, finisher): the fabric's slaves, whose only dependency is the shared bus and
   * tools in [[nzea_rtl]].
   */
