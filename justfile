@@ -14,6 +14,33 @@ init:
 dump *ARGS:
     @mill --no-server nzea_cli.runMain nzea_cli.Main {{ ARGS }}
 
+# 编译并放映周报：默认当天，也可给日期或 .typ 路径。
+[group('report')]
+report target='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    arg="{{ target }}"
+    if [[ -z $arg ]]; then
+        src="report/weekly-$(date +%F)/main.typ"
+    elif [[ -f $arg ]]; then
+        src=$arg
+    else
+        src="report/weekly-$arg/main.typ"
+    fi
+    if [[ ! -f $src ]]; then
+        printf 'no report for %s\n' "${arg:-$(date +%F)}" >&2
+        echo "available:" >&2
+        find report -mindepth 2 -maxdepth 2 -name '*.typ' | sort >&2
+        exit 1
+    fi
+    pdf="${src%.typ}.pdf"
+    if [[ ! -f $pdf || $src -nt $pdf ]]; then
+        typst compile "$src"
+    else
+        echo "up to date: $pdf"
+    fi
+    setsid pdfpc -s -S "$pdf" >/dev/null 2>&1 < /dev/null &
+
 # 三段一条链：生成综合用顶层（`--flow yosys`，总线外露、无 DPI bridge）、Yosys 综合（设置 PDK_PATH 时映
 # 射到 PDK）、STA。需要 PDK_PATH 与 iEDA；面积写在 synth_stat.txt，时序在 *.rpt。
 

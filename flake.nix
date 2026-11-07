@@ -103,6 +103,11 @@
             pkgs.python3Packages.apycula # gowin_pack, gowin_bba
             pkgs.uv # python package manager
             pkgs.openfpgaloader # Bitstream flashing via USB-C
+
+            # === Reports ===
+            pkgs.typst # weekly reports and slides
+            pkgs.pdfpc # the presenter `just report` opens
+            pkgs.noto-fonts-cjk-sans # CJK glyphs typst cannot ship itself
           ];
 
           env = {
@@ -115,6 +120,8 @@
             LIBC_INCLUDE_PATH = "${zpkgs.stdenv.cc.libc.dev}/include";
             LIT_INSTALL_PATH = "${zpkgs.lit}";
             Z3_LIB = "${zpkgs.z3.lib}/lib/libz3.so";
+            # typst reads fonts from here; the host's fontconfig is not this shell's.
+            TYPST_FONT_PATHS = "${pkgs.noto-fonts-cjk-sans}/share/fonts";
             # Share Mill outputs with the BSP so the language server sees SemanticDB.
             MILL_NO_SEPARATE_BSP_OUTPUT_DIR = "1";
           };
