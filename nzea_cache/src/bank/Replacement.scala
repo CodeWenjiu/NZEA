@@ -13,9 +13,9 @@ import org.llvm.mlir.scalalib.capi.ir.{Block, Context}
 /** The replacement state a set-associative cache keeps: the victim of a set, and the touch that updates the policy.
   *
   * The state is per set because the policy is: tree-PLRU keeps `ways - 1` bits per set (the classic tree, bit `i` of a
-  * node saying which of its two subtrees is older), and Random keeps one shared, fixed-seed LFSR, so a run is
-  * reproducible. The state lives in the block that owns the cache: no IO boundary between the policy and the hit path
-  * that reads it.
+  * node saying which of its two subtrees is older), Random keeps one shared, fixed-seed LFSR, so a run is reproducible,
+  * and NMRU keeps one MRU way per set beside that LFSR, the set's victim being random among the rest. The state lives
+  * in the block that owns the cache: no IO boundary between the policy and the hit path that reads it.
   */
 final class ReplacementState(sets: Int, ways: Int, policy: Replacement)(using
     ClockScope,
@@ -35,23 +35,40 @@ final class ReplacementState(sets: Int, ways: Int, policy: Replacement)(using
     // PLRU: one tree per set, its root at the top bit — a bit of history, so it resets to zero.
     private val trees = Reg(Vec(sets, UInt(treeBits)))
 
+    // NMRU: the way each set touched last, the one way a full set must not victimize.
+    private val mruWays = Reg(Vec(sets, UInt(wayBits)))
+
     when(!summon[ResetScope].reset.asBool) {
-        for s <- 0 until sets do trees(s) := 0.U(treeBits)
+        for s <- 0 until sets do
+            trees(s) := 0.U(treeBits)
+            mruWays(s) := 0.U(wayBits)
     }
 
     // Random: an MCG (`x*5+1` mod 2^16, a full period), advanced once per touch.
     private val lfsr = RegInit(1.U(16))
 
-    /** The way a full set victimizes: the PLRU tree's answer, or the LFSR's low bits. */
+    /** The way a full set victimizes: the PLRU tree's answer, the LFSR's low bits, or an LFSR pick that skips the set's
+      * MRU way.
+      */
     def way(set: Referable[UInt]): Referable[UInt] = policy match
         case Replacement.Plru   => victimBits(Node(trees.ref(set).asBits), ways).asUInt
         case Replacement.Random => Node(lfsr.asBits).bits(wayBits - 1, 0).asUInt
+        case Replacement.Nmru =>
+            val mru = Node(mruWays.ref(set).asBits).asUInt
+            val raw = Node(lfsr.asBits).bits(wayBits - 1, 0).asUInt
+            // Draw in `0 .. ways - 2`, then step over the MRU: every other way keeps its one-in-(ways - 1) chance.
+            val candidate = raw % (ways - 1).U(wayBits)
+            val bumped = addWrap(candidate, 1.U(wayBits), wayBits)
+            (candidate >= mru) ? (bumped, candidate)
 
     def touch(set: Referable[UInt], touched: Referable[UInt]): Unit = policy match
         case Replacement.Plru =>
             val next = nextBits(Node(trees.ref(set).asBits), Node(touched.asBits), ways)
             for s <- 0 until sets do when(set === s.U(setBits)) { trees(s) := next.asUInt }
         case Replacement.Random =>
+            lfsr := addWrap(addWrap(lfsr << 2, lfsr, 16), 1.U(16), 16)
+        case Replacement.Nmru =>
+            for s <- 0 until sets do when(set === s.U(setBits)) { mruWays(s) := touched }
             lfsr := addWrap(addWrap(lfsr << 2, lfsr, 16), 1.U(16), 16)
 
     // The tree over `n`-way subtrees: for `n > 2` the left subtree is the high ways, and the root's bit says it is

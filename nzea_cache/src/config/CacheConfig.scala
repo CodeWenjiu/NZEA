@@ -7,6 +7,7 @@ import nzea_rtl.stdlib.{log2Ceil, SyncRamPorts}
 enum Replacement(val name: String):
     case Plru extends Replacement("plru")
     case Random extends Replacement("random")
+    case Nmru extends Replacement("nmru")
 
 object Replacement:
 
@@ -17,13 +18,14 @@ object Replacement:
         token.trim.toLowerCase match
             case "plru"   => Right(Plru)
             case "random" => Right(Random)
-            case other    => Left(s"unknown replacement '$other'; known: plru, random")
+            case "nmru"   => Right(Nmru)
+            case other    => Left(s"unknown replacement '$other'; known: plru, random, nmru")
 
     def parseOrThrow(token: String): Replacement =
         parse(token).fold(error => throw new IllegalArgumentException(error), identity)
 
     given TokensReader.Simple[Replacement] with
-        def shortName = "plru|random"
+        def shortName = "plru|random|nmru"
 
         def read(strs: Seq[String]): Either[String, Replacement] =
             strs.lastOption.map(parse).getOrElse(Left("replacement requires a value"))
@@ -130,7 +132,7 @@ object CacheConfig:
       * `Option`, so an absent flag is a cache that is not built.
       */
     given TokensReader.Simple[CacheConfig] with
-        def shortName = "setsxwaysxlineBytes:plru|random:registers|1rw|1r1w"
+        def shortName = "setsxwaysxlineBytes:plru|random|nmru:registers|1rw|1r1w"
 
         def read(strs: Seq[String]): Either[String, CacheConfig] =
             strs.lastOption.map(parse).getOrElse(Left("cache requires a value"))
